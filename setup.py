@@ -24,16 +24,16 @@ setup(
     url='http://github.com/google/uncertainty-baselines',
     license='Apache 2.0',
     packages=find_packages(),
-    install_requires=[],
+    install_requires=[
+        'absl-py>=0.5.0',
+        'numpy>=1.7',
+        'tensorflow>=2.0.0a0',
+        'tensorflow-datasets>=1.3.0',
+        'tf-models-nightly>=2.2.0'
+    ],
     extras_require={
-        'numpy': ['numpy>=1.7'],
-        'tensorflow': ['tensorflow>=2.0.0a0'],
         'tf-nightly': ['tf-nightly'],
-        'tensorflow-datasets': ['tensorflow-datasets>=1.3.0'],
-        'tf-models-nightly': ['tf-models-nightly>=2.2.0'],
-        'tests': [
-            'absl-py>=0.5.0',
-        ],
+        'tests': [],
     },
     classifiers=[
         'Development Status :: 3 - Alpha',

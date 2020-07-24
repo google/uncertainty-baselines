@@ -29,7 +29,7 @@ setup(
         'numpy>=1.7',
         'tensorflow>=2.0.0a0',
         'tensorflow-datasets>=1.3.0',
-        'tf-models-nightly>=2.2.0'
+        'tf-models-nightly'
     ],
     extras_require={
         'tf-nightly': ['tf-nightly'],

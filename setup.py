@@ -27,13 +27,13 @@ setup(
     install_requires=[
         'absl-py>=0.5.0',
         'numpy>=1.7',
-        'tensorflow>=2.0.0a0',
+        'tensorflow>=2.2',
         'tensorflow-datasets>=1.3.0',
         'tf-models-nightly'
     ],
     extras_require={
         'tf-nightly': ['tf-nightly'],
-        'tests': [],
+        'tests': ['pylint>=1.9.0'],
     },
     classifiers=[
         'Development Status :: 3 - Alpha',

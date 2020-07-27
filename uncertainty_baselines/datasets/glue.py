@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data loader for the General Language Understanding Evaluation (GLUE) benchmark.
+"""Data loader for General Language Understanding Evaluation (GLUE) benchmark.
 
 This data loader covers binary classification and regression datasets in the
 GLUE benchmark. It includes 7 binary classification tasks:

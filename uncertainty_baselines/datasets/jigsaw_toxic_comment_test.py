@@ -23,13 +23,13 @@ import uncertainty_baselines as ub
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import jigsaw_toxic_comment
 
-ub_split = ub.datasets.base.Split
+UbSplit = ub.datasets.base.Split
 
 
 class JigsawToxicCommentTest(tf.test.TestCase, parameterized.TestCase):
 
-  @parameterized.named_parameters(('Train', ub_split.TRAIN),
-                                  ('Test', ub_split.TEST))
+  @parameterized.named_parameters(('Train', UbSplit.TRAIN),
+                                  ('Test', UbSplit.TEST))
   def testDatasetSize(self, split):
     batch_size = 9
     eval_batch_size = 5
@@ -43,7 +43,7 @@ class JigsawToxicCommentTest(tf.test.TestCase, parameterized.TestCase):
     labels = element['labels']
 
     expected_batch_size = (
-        batch_size if split == ub_split.TRAIN else eval_batch_size)
+        batch_size if split == UbSplit.TRAIN else eval_batch_size)
     expected_feature_length = jigsaw_toxic_comment._FEATURE_LENGTH
     expected_label_length = jigsaw_toxic_comment._LABEL_LENGTH
 

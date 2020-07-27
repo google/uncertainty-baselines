@@ -33,5 +33,4 @@ from uncertainty_baselines.datasets.imagenet import ImageNetDataset
 from uncertainty_baselines.datasets.jigsaw_toxic_comment import JigsawToxicCommentDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
-from uncertainty_baselines.datasets.svhn import SvhnDataset
 from uncertainty_baselines.datasets.test_utils import DatasetTest

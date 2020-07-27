@@ -18,7 +18,7 @@
 import tensorflow as tf
 import uncertainty_baselines as ub
 
-from official.nlp.bert import configs
+from tensorflow_models.official.nlp.bert import configs
 
 
 class BERTTest(tf.test.TestCase):

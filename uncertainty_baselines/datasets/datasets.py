@@ -29,13 +29,14 @@ from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
+from uncertainty_baselines.datasets.svhn import SvhnDataset
 
 
 def get_dataset_names() -> List[str]:
   return [
       'cifar100', 'cifar10', 'clinic_intent', 'criteo', 'imagenet', 'mnist',
-      'mnli', 'glue/cola', 'glue/sst2', 'glue/mrpc', 'glue/qqp', 'glue/qnli',
-      'glue/rte', 'glue/wnli', 'glue/stsb'
+      'mnli', 'svhn', 'glue/cola', 'glue/sst2', 'glue/mrpc', 'glue/qqp',
+      'glue/qnli', 'glue/rte', 'glue/wnli', 'glue/stsb'
   ]
 
 
@@ -79,6 +80,8 @@ def get(
     dataset_class = MnistDataset
   elif dataset_name == 'mnli':
     dataset_class = MnliDataset
+  elif dataset_name == 'svhn':
+    dataset_class = SvhnDataset
   elif 'glue/' in dataset_name:
     dataset_class = GlueDatasets[dataset_name]
   else:

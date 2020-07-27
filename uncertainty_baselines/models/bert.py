@@ -27,9 +27,9 @@ import json
 from typing import Any, Dict, Tuple, List
 
 import tensorflow as tf
-from tensorflow_models.official.nlp import optimization
-from tensorflow_models.official.nlp.bert import bert_models
-from tensorflow_models.official.nlp.bert import configs
+from official.nlp import optimization
+from official.nlp.bert import bert_models
+from official.nlp.bert import configs
 
 
 

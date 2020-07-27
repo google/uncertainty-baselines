@@ -1,9 +1,11 @@
 # Uncertainty Baselines
+[![Travis](https://travis-ci.org/google/uncertainty-baselines.svg?branch=master)](https://travis-ci.org/google/uncertainty-baselines)
+
 Uncertainty Baselines is a set of common benchmarks for uncertainty calibration
 and robustness research.
 
 ## Installation
-WIP, but soon it will be available via `pip install`!
+Uncertainty Baselines can be installed via `pip install uncertainty-baselines`!
 
 There is not yet a stable version (nor an official release of this library).
 All APIs are subject to change.

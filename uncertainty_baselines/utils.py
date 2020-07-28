@@ -16,7 +16,7 @@
 # Lint as: python3
 """Collection of shared utility functions."""
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 from absl import logging
 import numpy as np
 
@@ -64,7 +64,7 @@ def build_dataset(
 
 
 _TensorDict = Dict[str, tf.Tensor]
-_StepFn = Callable[[_TensorDict], _TensorDict]
+_StepFn = Callable[[_TensorDict], Optional[_TensorDict]]
 
 
 def call_step_fn(
@@ -73,7 +73,7 @@ def call_step_fn(
     global_inputs: Any) -> Dict[str, float]:
   """Call the step_fn on the iterator output using DistributionStrategy."""
   step_outputs = strategy.run(step_fn, args=(global_inputs,))
-  if not step_outputs:
+  if step_outputs is None:
     return step_outputs
   if strategy.num_replicas_in_sync > 1:
     step_outputs = {

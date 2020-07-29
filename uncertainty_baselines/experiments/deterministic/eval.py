@@ -19,10 +19,11 @@
 import os.path
 import time
 
-from typing import Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 from absl import logging
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
+from tensorboard.plugins.hparams import api as hp
 
 
 _EVAL_SLEEP_SECS = 5
@@ -40,20 +41,17 @@ def eval_step_fn(
 
   @tf.function
   def eval_step(train_iterator: Iterator[_TensorDict]) -> _TensorDict:
-    def step(per_replica_inputs: _TensorDict):
+    def step(per_replica_inputs: _TensorDict) -> None:
       """The function defining a single validation/test step."""
       features = per_replica_inputs['features']
       labels = per_replica_inputs['labels']
       logits = model(features, training=False)
-      loss = tf.reduce_mean(
-          tf.keras.losses.sparse_categorical_crossentropy(
-              y_true=labels, y_pred=logits, from_logits=True))
-      # TODO(znado): refactor this to use uncertainty metrics.
+      predictions = tf.nn.softmax(logits, axis=-1)
       # Later when metric.result() is called, it will return the computed
       # result, averaged across replicas.
-      accuracy = ub.utils.compute_accuracy(labels=labels, logits=logits)
-      metrics['accuracy'].update_state(accuracy)
-      metrics['loss'].update_state(loss)
+      for metric in metrics.values():
+        metric(y_true=labels, y_pred=predictions)
+      return
 
     for metric in metrics.values():
       metric.reset_states()
@@ -71,12 +69,16 @@ def run_eval_epoch(
     test_fn: EvalStepFn,
     test_dataset: tf.data.Dataset,
     test_summary_writer: tf.summary.SummaryWriter,
-    current_step: int):
+    current_step: int,
+    hparams: Optional[Dict[str, Any]]):
   """Run one evaluation epoch on the test and optionally validation splits."""
+  val_outputs_np = None
   if val_dataset:
     val_iterator = iter(val_dataset)
     val_outputs = val_fn(val_iterator)
     with val_summary_writer.as_default():
+      if hparams:
+        hp.hparams(hparams)
       for name, metric in val_outputs.items():
         tf.summary.scalar(name, metric, step=current_step)
     val_outputs_np = {k: v.numpy() for k, v in val_outputs.items()}
@@ -85,8 +87,11 @@ def run_eval_epoch(
   test_iterator = iter(test_dataset)
   test_outputs = test_fn(test_iterator)
   with test_summary_writer.as_default():
+    if hparams:
+      hp.hparams(hparams)
     for name, metric in test_outputs.items():
       tf.summary.scalar(name, metric, step=current_step)
+  return val_outputs_np, {k: v.numpy() for k, v in test_outputs.items()}
 
 
 _EvalSetupResult = Tuple[
@@ -103,22 +108,18 @@ def setup_eval(
     strategy,
     trial_dir: str,
     model: tf.keras.Model,
-    metric_names: List[str]) -> _EvalSetupResult:
+    metrics: Dict[str, tf.keras.metrics.Metric]) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
   test_dataset = ub.utils.build_dataset(dataset_builder, strategy, 'test')
   test_summary_writer = tf.summary.create_file_writer(
-      os.path.join(trial_dir, 'summaries/test'))
+      os.path.join(trial_dir, 'test'))
   num_test_steps = (
       dataset_builder.info['num_test_examples'] //
       dataset_builder.eval_batch_size)
-  test_metrics = {
-      name: tf.keras.metrics.Mean(name, dtype=tf.float32)
-      for name in metric_names
-  }
   test_fn = eval_step_fn(
       model,
       strategy,
-      test_metrics,
+      metrics,
       iterations_per_loop=num_test_steps)
 
   # Have to have separate val_fn and test_fn because otherwise tf.function
@@ -134,7 +135,7 @@ def setup_eval(
     val_dataset = ub.utils.build_dataset(
         dataset_builder, strategy, 'validation')
     val_summary_writer = tf.summary.create_file_writer(
-        os.path.join(trial_dir, 'summaries/val'))
+        os.path.join(trial_dir, 'validation'))
     if num_val_steps == num_test_steps:
       val_fn = test_fn
     else:
@@ -143,7 +144,7 @@ def setup_eval(
       val_fn = eval_step_fn(
           model,
           strategy,
-          test_metrics,
+          metrics,
           iterations_per_loop=num_val_steps)
   return (
       val_fn, val_dataset, val_summary_writer, test_fn, test_dataset,
@@ -156,8 +157,9 @@ def run_eval_loop(
     trial_dir: str,
     train_steps: int,
     strategy: tf.distribute.Strategy,
-    metric_names: List[str],
-    checkpoint_step: int = -1):
+    metrics: Dict[str, tf.keras.metrics.Metric],
+    checkpoint_step: int = -1,
+    hparams: Dict[str, Any] = None):
   """Evaluate the model on the validation and test splits and record metrics."""
   (val_fn,
    val_dataset,
@@ -165,7 +167,7 @@ def run_eval_loop(
    test_fn,
    test_dataset,
    test_summary_writer) = setup_eval(
-       dataset_builder, strategy, trial_dir, model, metric_names)
+       dataset_builder, strategy, trial_dir, model, metrics)
 
   checkpoint = tf.train.Checkpoint(model=model)
   last_eval_step = -1
@@ -199,6 +201,10 @@ def run_eval_loop(
     last_eval_step = last_checkpoint_step
     logging.info('Restoring model from checkpoint %s.', checkpoint_path)
     checkpoint.restore(checkpoint_path)
+    # Only write hparams on the final step.
+    written_hparams = None
+    if last_eval_step >= train_steps:
+      written_hparams = hparams
     run_eval_epoch(
         val_fn,
         val_dataset,
@@ -206,6 +212,7 @@ def run_eval_loop(
         test_fn,
         test_dataset,
         test_summary_writer,
-        last_eval_step)
+        last_eval_step,
+        hparams=written_hparams)
     if last_eval_step >= train_steps:
       break

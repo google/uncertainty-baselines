@@ -31,6 +31,7 @@ import uncertainty_baselines as ub
 import uncertainty_baselines.experiments.deterministic.eval as eval_lib
 import uncertainty_baselines.experiments.deterministic.flags as flags_lib
 import uncertainty_baselines.experiments.deterministic.train as train_lib
+import uncertainty_metrics as um
 
 
 
@@ -80,6 +81,13 @@ def _maybe_setup_trial_dir(
     _setup_trial_dir(trial_dir, flag_string)
 
 
+class BrierScore(tf.keras.metrics.Mean):
+
+  def update_state(self, y_true, y_pred, sample_weight=None):
+    brier_score = um.calibration.brier_score(labels=y_true, logits=y_pred)
+    super(BrierScore, self).update_state(brier_score)
+
+
 def run(trial_dir: str, flag_string: Optional[str]):
   """Run the experiment.
 
@@ -110,6 +118,19 @@ def run(trial_dir: str, flag_string: Optional[str]):
         validation_percent=FLAGS.validation_percent)
     model = ub.models.get(FLAGS.model_name, batch_size=FLAGS.batch_size)
 
+    metrics = {
+        'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+        'brier_score': BrierScore(name='brier_score'),
+        # 'ece': um.ExpectedCalibrationError(num_bins=10),
+        'loss': tf.keras.metrics.SparseCategoricalCrossentropy(),
+    }
+
+    hparams = {
+        'learning_rate': FLAGS.learning_rate,
+        'beta_1': FLAGS.optimizer_hparams_beta_1,
+        'epsilon': FLAGS.optimizer_hparams_epsilon,
+    }
+
     if FLAGS.mode == 'eval':
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
       eval_lib.run_eval_loop(
@@ -118,8 +139,9 @@ def run(trial_dir: str, flag_string: Optional[str]):
           trial_dir=trial_dir,
           train_steps=FLAGS.train_steps,
           strategy=strategy,
-          metric_names=['accuracy', 'loss'],
-          checkpoint_step=FLAGS.checkpoint_step)
+          metrics=metrics,
+          checkpoint_step=FLAGS.checkpoint_step,
+          hparams=hparams)
       return
 
     _check_batch_replica_divisible(FLAGS.batch_size, strategy)
@@ -150,7 +172,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         train_steps=FLAGS.train_steps,
         mode=FLAGS.mode,
         strategy=strategy,
-        metric_names=['accuracy', 'loss'])
+        metrics=metrics,
+        hparams=hparams)
 
 
 

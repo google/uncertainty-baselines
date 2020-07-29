@@ -18,11 +18,12 @@
 
 import os.path
 
-from typing import Any, Callable, Dict, Iterator, List
+from typing import Any, Callable, Dict, Iterator, Optional
 from absl import logging
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 from uncertainty_baselines.experiments.deterministic import eval as eval_lib
+from tensorboard.plugins.hparams import api as hp
 
 
 _TensorDict = Dict[str, tf.Tensor]
@@ -33,7 +34,7 @@ def _train_step_fn(
     model: tf.keras.Model,
     optimizer: tf.keras.optimizers.Optimizer,
     strategy: tf.distribute.Strategy,
-    metric_names: List[str],
+    metrics: Dict[str, tf.keras.metrics.Metric],
     iterations_per_loop: int) -> _TrainStepFn:
   """Return a function to run `iterations_per_loop` train steps."""
 
@@ -41,7 +42,7 @@ def _train_step_fn(
   # (num_devices * per_core_batch_size).
   @tf.function
   def train_step(train_iterator: Iterator[_TensorDict]) -> _TensorDict:
-    def step(per_replica_inputs: _TensorDict) -> _TensorDict:
+    def step(per_replica_inputs: _TensorDict) -> None:
       """The function defining a single training step."""
       features = per_replica_inputs['features']
       labels = per_replica_inputs['labels']
@@ -62,25 +63,21 @@ def _train_step_fn(
         # and step, which will be the case because we use padding.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
-      # TODO(znado): remove loss/accuracy and plug in a more generic metrics
-      # argument once we have the final implementations in Uncertainty Metrics.
-      # Note that the metrics returned from this function will be averaged
-      # across replicas, because we handle that ourselves.
-      metrics = {
-          'accuracy': ub.utils.compute_accuracy(labels=labels, logits=logits),
-          'loss': loss,
-      }
+      predictions = tf.nn.softmax(logits, axis=-1)
+      for metric in metrics.values():
+        metric(y_true=labels, y_pred=predictions)
       grads = tape.gradient(scaled_loss, model.trainable_variables)
       optimizer.apply_gradients(list(zip(grads, model.trainable_variables)))
-      return metrics
+      return
 
+    for metric in metrics.values():
+      metric.reset_states()
     # Following the recommendation here, run multiple steps inside this training
     # function wrapped in tf.function for better TPU utilization:
     # https://www.kaggle.com/c/flower-classification-with-tpus/discussion/135443.
-    step_output = {name: 0.0 for name in metric_names}
     for _ in tf.range(iterations_per_loop):  # Note the use of tf.range.
-      step_output = ub.utils.call_step_fn(strategy, step, next(train_iterator))
-    return step_output
+      ub.utils.call_step_fn(strategy, step, next(train_iterator))
+    return {name: metric.result() for name, metric in metrics.items()}
 
   return train_step
 
@@ -88,9 +85,12 @@ def _train_step_fn(
 def _write_summaries(
     train_step_outputs: Dict[str, Any],
     current_step: int,
-    train_summary_writer: tf.summary.SummaryWriter):
+    train_summary_writer: tf.summary.SummaryWriter,
+    hparams: Optional[Dict[str, Any]] = None) -> None:
   """Log metrics every using tf.summary."""
   with train_summary_writer.as_default():
+    if hparams:
+      hp.hparams(hparams)
     for name, result in train_step_outputs.items():
       tf.summary.scalar(name, result, step=current_step)
 
@@ -105,7 +105,8 @@ def run_train_loop(
     train_steps: int,
     mode: str,
     strategy: tf.distribute.Strategy,
-    metric_names: List[str]):
+    metrics: Dict[str, tf.keras.metrics.Metric],
+    hparams: Dict[str, Any]):
   """Train, possibly evaluate the model, and record metrics."""
 
   checkpoint_manager = None
@@ -139,11 +140,13 @@ def run_train_loop(
       model,
       optimizer,
       strategy,
-      metric_names,
+      metrics,
       iterations_per_loop=iterations_per_loop)
   train_summary_writer = tf.summary.create_file_writer(
-      os.path.join(trial_dir, 'summaries/train'))
+      os.path.join(trial_dir, 'train'))
 
+  val_summary_writer = None
+  test_summary_writer = None
   if mode == 'train_and_eval':
     (val_fn,
      val_dataset,
@@ -151,7 +154,7 @@ def run_train_loop(
      test_fn,
      test_dataset,
      test_summary_writer) = eval_lib.setup_eval(
-         dataset_builder, strategy, trial_dir, model, metric_names)
+         dataset_builder, strategy, trial_dir, model, metrics)
   # Each call to train_step_fn will run iterations_per_loop steps.
   num_train_fn_steps = train_steps // iterations_per_loop
   # We are guaranteed that `last_checkpoint_step` will be divisible by
@@ -170,7 +173,8 @@ def run_train_loop(
           test_fn,
           test_dataset,
           test_summary_writer,
-          current_step)
+          current_step,
+          hparams=None)  # Only write hparams on the last step.
     train_step_outputs = train_step_fn(train_iterator)
     if current_step % log_frequency == 0:
       _write_summaries(train_step_outputs, current_step, train_summary_writer)
@@ -187,12 +191,13 @@ def run_train_loop(
         model,
         optimizer,
         strategy,
-        metric_names,
+        metrics,
         iterations_per_loop=train_steps % iterations_per_loop)
     train_step_outputs = remainder_train_step_fn(train_iterator)
 
   # Always evaluate and record metrics at the end of training.
-  _write_summaries(train_step_outputs, train_steps, train_summary_writer)
+  _write_summaries(
+      train_step_outputs, train_steps, train_summary_writer, hparams)
   train_step_outputs_np = {k: v.numpy() for k, v in train_step_outputs.items()}
   logging.info(
       'Training metrics for step %d: %s', current_step, train_step_outputs_np)
@@ -204,7 +209,8 @@ def run_train_loop(
         test_fn,
         test_dataset,
         test_summary_writer,
-        train_steps)
+        train_steps,
+        hparams=hparams)
   # Save checkpoint at the end of training.
   if checkpoint_manager:
     checkpoint_manager.save(checkpoint_number=train_steps)

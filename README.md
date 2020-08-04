@@ -1,4 +1,5 @@
 # Uncertainty Baselines
+
 [![Travis](https://travis-ci.org/google/uncertainty-baselines.svg?branch=master)](https://travis-ci.org/google/uncertainty-baselines)
 
 Uncertainty Baselines is a set of common benchmarks for uncertainty calibration
@@ -42,13 +43,14 @@ We support the following datasets:
 
 - CIFAR-10
 - CIFAR-100
-- Clinc Intent Detection, [download](https://github.com/clinc/oos-eval/blob/master/data/data_full.json)
+- Civil Comments Toxicity Classification, [download](https://www.tensorflow.org/datasets/catalog/civil_comments)
+- CLINC Intent Detection, [download](https://github.com/clinc/oos-eval/blob/master/data/data_full.json)
 - Criteo Ads, [download](https://www.kaggle.com/c/criteo-display-ad-challenge/data)
+- GLUE, [download](https://gluebenchmark.com/)
 - ImageNet
-- Jigsaw Toxic Comment classification, [download](https://www.kaggle.com/c/jigsaw-toxic-comment-classification-challenge/data)
 - MNIST
-- GLUE
 - MNLI
+- Wikipedia Talk Toxicity Classification, [download](https://www.tensorflow.org/datasets/catalog/wikipedia_toxicity_subtypes)
 
 #### Adding a dataset
 
@@ -108,7 +110,7 @@ authors believe others in the community will find usedul
 ## References
 
 ### Datasets
-CIFAR10
+CIFAR-10
 
 ```
 @article{cifar10,
@@ -118,13 +120,32 @@ url = {http://www.cs.toronto.edu/~kriz/cifar.html},
 }
 ```
 
-CIFAR100
+CIFAR-100
 
 ```
 @article{cifar100,
 title = {CIFAR-100 (Canadian Institute for Advanced Research)},
 author = {Alex Krizhevsky and Vinod Nair and Geoffrey Hinton},
 url = {http://www.cs.toronto.edu/~kriz/cifar.html},
+}
+```
+
+Civil Comments Toxicity Classification
+
+```
+@article{civil_comments,
+  title     = {Nuanced Metrics for Measuring Unintended Bias with Real Data for Text
+               Classification},
+  author    = {Daniel Borkan and Lucas Dixon and Jeffrey Sorensen and Nithum Thain and Lucy Vasserman},
+  journal   = {CoRR},
+  volume    = {abs/1903.04561},
+  year      = {2019},
+  url       = {http://arxiv.org/abs/1903.04561},
+  archivePrefix = {arXiv},
+  eprint    = {1903.04561},
+  timestamp = {Sun, 31 Mar 2019 19:01:24 +0200},
+  biburl    = {https://dblp.org/rec/bib/journals/corr/abs-1903-04561},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
 }
 ```
 
@@ -145,51 +166,6 @@ Criteo
 @article{criteo,
 title = {Display Advertising Challenge},
 url = {https://www.kaggle.com/c/criteo-display-ad-challenge.},
-}
-```
-
-ImageNet
-
-```
-@article{imagenet,
-    Author = {Olga Russakovsky and Jia Deng and Hao Su and Jonathan Krause and Sanjeev Satheesh and Sean Ma and Zhiheng Huang and Andrej Karpathy and Aditya Khosla and Michael Bernstein and Alexander C. Berg and Li Fei-Fei},
-    Title = {{ImageNet Large Scale Visual Recognition Challenge}},
-    Year = {2015},
-    journal = {International Journal of Computer Vision (IJCV)},
-    volume = {115},
-    number = {3},
-    pages = {211-252}
-    }
-```
-
-Jigsaw
-
-```
-@inproceedings{jigsaw,
-    title = "Challenges for Toxic Comment Classification: An In-Depth Error Analysis",
-    author = {van Aken, Betty  and
-      Risch, Julian  and
-      Krestel, Ralf  and
-      L{\"o}ser, Alexander},
-    booktitle = "Proceedings of the 2nd Workshop on Abusive Language Online ({ALW}2)",
-    month = oct,
-    year = "2018",
-    address = "Brussels, Belgium",
-    publisher = "Association for Computational Linguistics",
-    url = "https://www.aclweb.org/anthology/W18-5105",
-    doi = "10.18653/v1/W18-5105",
-    pages = "33--42",
-}
-```
-
-MNIST
-
-```
-@article{mnist,
-  author = {LeCun, Yann and Cortes, Corinna},
-  title = {{MNIST} handwritten digit database},
-  url = {http://yann.lecun.com/exdb/mnist/},
-  year = 2010
 }
 ```
 
@@ -215,6 +191,31 @@ GLUE
 }
 ```
 
+ImageNet
+
+```
+@article{imagenet,
+    Author = {Olga Russakovsky and Jia Deng and Hao Su and Jonathan Krause and Sanjeev Satheesh and Sean Ma and Zhiheng Huang and Andrej Karpathy and Aditya Khosla and Michael Bernstein and Alexander C. Berg and Li Fei-Fei},
+    Title = {{ImageNet Large Scale Visual Recognition Challenge}},
+    Year = {2015},
+    journal = {International Journal of Computer Vision (IJCV)},
+    volume = {115},
+    number = {3},
+    pages = {211-252}
+    }
+```
+
+MNIST
+
+```
+@article{mnist,
+  author = {LeCun, Yann and Cortes, Corinna},
+  title = {{MNIST} handwritten digit database},
+  url = {http://yann.lecun.com/exdb/mnist/},
+  year = 2010
+}
+```
+
 MNLI
 
 ```
@@ -234,6 +235,27 @@ MNLI
   pages = "1112--1122",
   location = "New Orleans, Louisiana",
   url = "http://aclweb.org/anthology/N18-1101"
+}
+```
+
+Wikipedia Talk Toxicity Classification
+
+```
+@inproceedings{wikipedia_talk,
+  author = {Wulczyn, Ellery and Thain, Nithum and Dixon, Lucas},
+  title = {Ex Machina: Personal Attacks Seen at Scale},
+  year = {2017},
+  isbn = {9781450349130},
+  publisher = {International World Wide Web Conferences Steering Committee},
+  address = {Republic and Canton of Geneva, CHE},
+  url = {https://doi.org/10.1145/3038912.3052591},
+  doi = {10.1145/3038912.3052591},
+  booktitle = {Proceedings of the 26th International Conference on World Wide Web},
+  pages = {1391-1399},
+  numpages = {9},
+  keywords = {online discussions, wikipedia, online harassment},
+  location = {Perth, Australia},
+  series = {WWW '17}
 }
 ```
 

@@ -25,18 +25,39 @@ from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
+from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
 from uncertainty_baselines.datasets.svhn import SvhnDataset
+from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
+from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
+from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
 
 
 def get_dataset_names() -> List[str]:
   return [
-      'cifar100', 'cifar10', 'clinic_intent', 'criteo', 'imagenet', 'mnist',
-      'mnli', 'svhn', 'glue/cola', 'glue/sst2', 'glue/mrpc', 'glue/qqp',
-      'glue/qnli', 'glue/rte', 'glue/wnli', 'glue/stsb'
+      'cifar100',
+      'cifar10',
+      'civil_comments',
+      'civil_comments_identities',
+      'clinic_intent',
+      'criteo',
+      'imagenet',
+      'mnist',
+      'mnli',
+      'svhn',
+      'glue/cola',
+      'glue/sst2',
+      'glue/mrpc',
+      'glue/qqp',
+      'glue/qnli',
+      'glue/rte',
+      'glue/wnli',
+      'glue/stsb',
+      'wikipedia_toxicity',
+      'genomics_ood',
   ]
 
 
@@ -70,6 +91,10 @@ def get(
     dataset_class = Cifar100Dataset
   elif dataset_name == 'cifar10':
     dataset_class = Cifar10Dataset
+  elif dataset_name == 'civil_comments':
+    dataset_class = CivilCommentsDataset
+  elif dataset_name == 'civil_comments_identities':
+    dataset_class = CivilCommentsIdentitiesDataset
   elif dataset_name == 'clinic_intent':
     dataset_class = ClincIntentDetectionDataset
   elif dataset_name == 'criteo':
@@ -84,6 +109,10 @@ def get(
     dataset_class = SvhnDataset
   elif 'glue/' in dataset_name:
     dataset_class = GlueDatasets[dataset_name]
+  elif dataset_name == 'wikipedia_toxicity':
+    dataset_class = WikipediaToxicityDataset
+  elif dataset_name == 'genomics_ood':
+    dataset_class = GenomicsOodDataset
   else:
     raise ValueError('Unrecognized dataset name: {!r}'.format(dataset_name))
 

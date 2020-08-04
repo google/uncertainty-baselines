@@ -16,7 +16,10 @@
 # Lint as: python3
 """Utilities related to optimizers for Uncertainty Baselines."""
 
+import functools
+
 from typing import Any, Dict, Optional, Union
+from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_addons as tfa
 
@@ -29,6 +32,7 @@ def get(
     weight_decay: Optional[float] = None,
     learning_rate_schedule: Union[None, str, LearningRateSchedule] = None,
     steps_per_epoch: Optional[int] = None,
+    model: tf.keras.Model = None,
     **optimizer_kwargs: Dict[str, Any]) -> tf.keras.optimizers.Optimizer:
   """Builds a tf.keras.optimizers.Optimizer.
 
@@ -44,6 +48,7 @@ def get(
       get_learning_rate_schedule(). Additionally, a custom
       tf.keras.optimizers.schedules.LearningRateSchedule can be passed.
     steps_per_epoch: the number of steps per one epoch of training data.
+    model: the Keras model being optimized.
     **optimizer_kwargs: additional kwargs passed to the optimizer.
 
   Returns:
@@ -75,7 +80,23 @@ def get(
         optimizer_class)
     optimizer_kwargs['weight_decay'] = weight_decay
 
-  return optimizer_class(**optimizer_kwargs)
+  optimizer = optimizer_class(**optimizer_kwargs)
+  if model:
+    decay_var_list = []
+    skipped_variables = []
+    for var in model.trainable_variables:
+      if 'kernel' in var.name or 'bias' in var.name:
+        decay_var_list.append(var)
+      else:
+        skipped_variables.append(var)
+    logging.info(
+        'Not applying weight decay to the following variables:\n%s',
+        '\n'.join([var.name for var in skipped_variables]))
+  else:
+    decay_var_list = []
+  optimizer.apply_gradients = functools.partial(
+      optimizer.apply_gradients, decay_var_list=decay_var_list)
+  return optimizer
 
 
 def renset50_learning_rate_schedule(base_learning_rate, steps_per_epoch):

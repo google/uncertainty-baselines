@@ -204,8 +204,8 @@ class WikipediaToxicityDataset(_JigsawToxicityDataset):
   def __init__(self, validation_fraction: float = 0.1, **kwargs):
     # Requires validation_fraction > 0 since this dataset doesn't have
     # its own validation set.
-    if not validation_fraction > 0:
-      raise ValueError('validation_fraction must be positive.')
+    if validation_fraction <= 0:
+      raise ValueError('Validation_fraction must be positive.')
 
     additional_labels = tuple(
         toxicity_name for toxicity_name in _TOXICITY_SUBTYPE_NAMES

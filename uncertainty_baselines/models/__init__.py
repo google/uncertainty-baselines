@@ -18,6 +18,7 @@
 # When adding a new model, also add to models.py for easier user access.
 from uncertainty_baselines.models.bert import create_model as BERTBuilder
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
+from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.resnet20 import create_model as ResNet20Builder
 from uncertainty_baselines.models.resnet50 import create_model as ResNet50Builder

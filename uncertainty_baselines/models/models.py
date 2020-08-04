@@ -23,6 +23,7 @@ from typing import List
 import tensorflow.compat.v2 as tf
 from uncertainty_baselines.models import bert
 from uncertainty_baselines.models import criteo_mlp
+from uncertainty_baselines.models import genomics_cnn
 from uncertainty_baselines.models import resnet20
 from uncertainty_baselines.models import resnet50
 from uncertainty_baselines.models import textcnn
@@ -33,6 +34,7 @@ def get_model_names() -> List[str]:
   return [
       'bert',
       'criteo_mlp',
+      'genomics_cnn',
       'resnet20',
       'resnet50',
       'textcnn',
@@ -81,3 +83,5 @@ def get(
     return bert.create_model(batch_size, **hyperparameters)
   if model_name == 'wide_resnet':
     return wide_resnet.create_model(batch_size, **hyperparameters)
+  if model_name == 'genomics_cnn':
+    return genomics_cnn.create_model(batch_size, **hyperparameters)

@@ -22,6 +22,7 @@ from uncertainty_baselines.datasets.cifar import Cifar10Dataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.datasets import get
+from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import ColaDataset
 from uncertainty_baselines.datasets.glue import MrpcDataset
 from uncertainty_baselines.datasets.glue import QnliDataset
@@ -30,8 +31,10 @@ from uncertainty_baselines.datasets.glue import RteDataset
 from uncertainty_baselines.datasets.glue import Sst2Dataset
 from uncertainty_baselines.datasets.glue import WnliDataset
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
-from uncertainty_baselines.datasets.jigsaw_toxic_comment import JigsawToxicCommentDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
 from uncertainty_baselines.datasets.svhn import SvhnDataset
 from uncertainty_baselines.datasets.test_utils import DatasetTest
+from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
+from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
+from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset

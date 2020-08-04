@@ -65,7 +65,7 @@ def _train_step_fn(
 
       predictions = tf.nn.softmax(logits, axis=-1)
       for metric in metrics.values():
-        metric(y_true=labels, y_pred=predictions)
+        metric.update_state(labels, predictions)
       grads = tape.gradient(scaled_loss, model.trainable_variables)
       optimizer.apply_gradients(list(zip(grads, model.trainable_variables)))
       return

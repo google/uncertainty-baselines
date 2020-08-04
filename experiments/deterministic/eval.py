@@ -50,7 +50,7 @@ def eval_step_fn(
       # Later when metric.result() is called, it will return the computed
       # result, averaged across replicas.
       for metric in metrics.values():
-        metric(y_true=labels, y_pred=predictions)
+        metric.update_state(labels, predictions)
       return
 
     for metric in metrics.values():
@@ -179,7 +179,7 @@ def run_eval_loop(
     # seconds.
     if checkpoint_step >= 0:
       checkpoint_path = os.path.join(
-          trial_dir, 'model.ckpt-{}'.format(checkpoint_step))
+          trial_dir, 'ckpt-{}'.format(checkpoint_step))
     else:
       checkpoint_path = tf.train.latest_checkpoint(trial_dir)
     if not checkpoint_path:

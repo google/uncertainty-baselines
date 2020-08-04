@@ -92,6 +92,14 @@ def define_flags() -> List[str]:
       0.0,
       'Percent of training data to hold out and use as a validation set.')
 
+  # Flags relating to genomics_cnn model
+  flags.DEFINE_integer('num_motifs', 1024,
+                       'Number of motifs, only used for genomics dataset.')
+  flags.DEFINE_integer('len_motifs', 20,
+                       'Length of motifs, only used for genomics dataset.')
+  flags.DEFINE_integer('num_denses', 128,
+                       'Number of denses, only used for genomics dataset.')
+
   flags.mark_flag_as_required('dataset_name')
   flags.mark_flag_as_required('experiment_name')
   flags.mark_flag_as_required('model_name')

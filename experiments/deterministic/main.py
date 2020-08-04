@@ -116,7 +116,12 @@ def run(trial_dir: str, flag_string: Optional[str]):
         batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.eval_batch_size,
         validation_percent=FLAGS.validation_percent)
-    model = ub.models.get(FLAGS.model_name, batch_size=FLAGS.batch_size)
+    model = ub.models.get(
+        FLAGS.model_name,
+        batch_size=FLAGS.batch_size,
+        num_motifs=FLAGS.num_motifs,
+        len_motifs=FLAGS.len_motifs,
+        num_denses=FLAGS.num_denses)
 
     metrics = {
         'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
@@ -160,6 +165,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         learning_rate=FLAGS.learning_rate,
         weight_decay=FLAGS.weight_decay,
         steps_per_epoch=steps_per_epoch,
+        model=model,
         **optimizer_kwargs)
 
     train_lib.run_train_loop(

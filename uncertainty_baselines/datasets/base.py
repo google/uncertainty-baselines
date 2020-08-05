@@ -183,7 +183,6 @@ class BaseDataset(object):
           num_parallel_calls=self._num_parallel_parser_calls)
     if as_tuple:
       dataset = dataset.map(lambda d: (d['features'], d['labels']))
-    dataset = dataset.cache()
 
     # Shuffle and repeat only for the training split.
     if self._is_training(split):

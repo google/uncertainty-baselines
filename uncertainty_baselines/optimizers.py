@@ -92,10 +92,8 @@ def get(
     logging.info(
         'Not applying weight decay to the following variables:\n%s',
         '\n'.join([var.name for var in skipped_variables]))
-  else:
-    decay_var_list = []
-  optimizer.apply_gradients = functools.partial(
-      optimizer.apply_gradients, decay_var_list=decay_var_list)
+    optimizer.apply_gradients = functools.partial(
+        optimizer.apply_gradients, decay_var_list=decay_var_list)
   return optimizer
 
 

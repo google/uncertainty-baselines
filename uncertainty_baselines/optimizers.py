@@ -81,7 +81,7 @@ def get(
     optimizer_kwargs['weight_decay'] = weight_decay
 
   optimizer = optimizer_class(**optimizer_kwargs)
-  if model:
+  if weight_decay is not None and weight_decay > 0.0 and model:
     decay_var_list = []
     skipped_variables = []
     for var in model.trainable_variables:

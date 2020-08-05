@@ -200,7 +200,7 @@ def run_eval_loop(
     # test splits.
     last_eval_step = last_checkpoint_step
     logging.info('Restoring model from checkpoint %s.', checkpoint_path)
-    checkpoint.restore(checkpoint_path)
+    checkpoint.restore(checkpoint_path).assert_existing_objects_matched()
     # Only write hparams on the final step.
     written_hparams = None
     if last_eval_step >= train_steps:

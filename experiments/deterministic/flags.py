@@ -82,6 +82,7 @@ def define_flags() -> List[str]:
       'constant',
       'Learning rate schedule to use.')
   flags.DEFINE_string('optimizer', 'adam', 'Optimizer to use.')
+  flags.DEFINE_float('optimizer_hparams_momentum', 0.9, 'SGD momentum.')
   flags.DEFINE_float('optimizer_hparams_beta_1', 0.9, 'Adam beta_1.')
   flags.DEFINE_float('optimizer_hparams_beta_2', 0.999, 'Adam beta_2.')
   flags.DEFINE_float('optimizer_hparams_epsilon', 1e-7, 'Adam epsilon.')
@@ -91,14 +92,16 @@ def define_flags() -> List[str]:
       'validation_percent',
       0.0,
       'Percent of training data to hold out and use as a validation set.')
+  flags.DEFINE_integer(
+      'shuffle_buffer_size', 16384, 'Dataset shuffle buffer size.')
 
   # Flags relating to genomics_cnn model
   flags.DEFINE_integer('num_motifs', 1024,
-                       'Number of motifs, only used for genomics dataset.')
+                       'Number of motifs, only used for the genomics dataset.')
   flags.DEFINE_integer('len_motifs', 20,
-                       'Length of motifs, only used for genomics dataset.')
+                       'Length of motifs, only used for the genomics dataset.')
   flags.DEFINE_integer('num_denses', 128,
-                       'Number of denses, only used for genomics dataset.')
+                       'Number of denses, only used for the genomics dataset.')
 
   flags.mark_flag_as_required('dataset_name')
   flags.mark_flag_as_required('experiment_name')

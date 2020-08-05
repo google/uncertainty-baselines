@@ -26,6 +26,10 @@ import tensorflow_addons as tfa
 LearningRateSchedule = tf.keras.optimizers.schedules.LearningRateSchedule
 
 
+def _maybe_get_items(d, keys):
+  return {k: d[k] for k in keys if k in d}
+
+
 def get(
     optimizer_name: str,
     learning_rate: float,
@@ -33,7 +37,7 @@ def get(
     learning_rate_schedule: Union[None, str, LearningRateSchedule] = None,
     steps_per_epoch: Optional[int] = None,
     model: tf.keras.Model = None,
-    **optimizer_kwargs: Dict[str, Any]) -> tf.keras.optimizers.Optimizer:
+    **passed_optimizer_kwargs: Dict[str, Any]) -> tf.keras.optimizers.Optimizer:
   """Builds a tf.keras.optimizers.Optimizer.
 
   Args:
@@ -49,7 +53,7 @@ def get(
       tf.keras.optimizers.schedules.LearningRateSchedule can be passed.
     steps_per_epoch: the number of steps per one epoch of training data.
     model: the Keras model being optimized.
-    **optimizer_kwargs: additional kwargs passed to the optimizer.
+    **passed_optimizer_kwargs: additional kwargs passed to the optimizer.
 
   Returns:
     A Keras optimizer.
@@ -59,16 +63,31 @@ def get(
         schedule_name=learning_rate_schedule,
         base_learning_rate=learning_rate,
         steps_per_epoch=steps_per_epoch)
-  optimizer_kwargs['learning_rate'] = learning_rate
+  optimizer_kwargs = {'learning_rate': learning_rate}
 
   optimizer_name = optimizer_name.lower()
   if optimizer_name == 'adam':
     optimizer_class = tf.keras.optimizers.Adam
+    optimizer_kwargs.update(
+        _maybe_get_items(
+            passed_optimizer_kwargs,
+            ['learning_rate', 'beta_1', 'beta_2', 'epsilon', 'amsgrad']))
   elif optimizer_name == 'nadam':
     optimizer_class = tf.keras.optimizers.Nadam
+    optimizer_kwargs.update(
+        _maybe_get_items(
+            passed_optimizer_kwargs,
+            ['learning_rate', 'beta_1', 'beta_2', 'epsilon']))
   elif optimizer_name == 'rmsprop':
     optimizer_class = tf.keras.optimizers.RMSprop
+    optimizer_kwargs.update(
+        _maybe_get_items(
+            passed_optimizer_kwargs,
+            ['learning_rate', 'rho', 'momentum', 'epsilon', 'centered']))
   elif optimizer_name in ['momentum', 'nesterov']:
+    optimizer_kwargs.update(
+        _maybe_get_items(
+            passed_optimizer_kwargs, ['learning_rate', 'momentum', 'nesterov']))
     if optimizer_name == 'nesterov':
       optimizer_kwargs['nesterov'] = True
     optimizer_class = tf.keras.optimizers.SGD

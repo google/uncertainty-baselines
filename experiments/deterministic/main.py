@@ -88,6 +88,22 @@ class BrierScore(tf.keras.metrics.Mean):
     super(BrierScore, self).update_state(brier_score)
 
 
+def _get_hparams():
+  """Get hyperparameter names and values to record in tensorboard."""
+  hparams = {}
+  possible_hparam_names = [
+      name for name in FLAGS if name.startswith('optimizer_hparams_')
+  ] + ['learning_rate', 'weight_decay']
+  for name in possible_hparam_names:
+    if FLAGS[name].default != FLAGS[name].value:
+      if name.startswith('optimizer_hparams_'):
+        hparam_name = name[len('optimizer_hparams_'):]
+      else:
+        hparam_name = name
+      hparams[hparam_name] = FLAGS[name].value
+  return hparams
+
+
 def run(trial_dir: str, flag_string: Optional[str]):
   """Run the experiment.
 
@@ -115,7 +131,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         FLAGS.dataset_name,
         batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.eval_batch_size,
-        validation_percent=FLAGS.validation_percent)
+        validation_percent=FLAGS.validation_percent,
+        shuffle_buffer_size=FLAGS.shuffle_buffer_size)
     model = ub.models.get(
         FLAGS.model_name,
         batch_size=FLAGS.batch_size,
@@ -126,15 +143,11 @@ def run(trial_dir: str, flag_string: Optional[str]):
     metrics = {
         'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'brier_score': BrierScore(name='brier_score'),
-        # 'ece': um.ExpectedCalibrationError(num_bins=10),
         'loss': tf.keras.metrics.SparseCategoricalCrossentropy(),
     }
 
-    hparams = {
-        'learning_rate': FLAGS.learning_rate,
-        'beta_1': FLAGS.optimizer_hparams_beta_1,
-        'epsilon': FLAGS.optimizer_hparams_epsilon,
-    }
+    # Record all non-default hparams in tensorboard.
+    hparams = _get_hparams()
 
     if FLAGS.mode == 'eval':
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
@@ -185,10 +198,12 @@ def run(trial_dir: str, flag_string: Optional[str]):
 
 
 def main(program_flag_names):
-  logging.info('Starting Uncertainty Baselines experiment!')
+  logging.info(
+      'Starting Uncertainty Baselines experiment %s', FLAGS.experiment_name)
   logging.info(
       '\n\nRun the following command to view outputs in tensorboard.dev:\n\n'
-      'tensorboard dev upload --logdir %s\n\n', FLAGS.model_dir)
+      'tensorboard dev upload --logdir %s --plugins scalars,graphs,hparams\n\n',
+      FLAGS.model_dir)
 
   # TODO(znado): when open sourced tuning is supported, change this to include
   # the trial number.

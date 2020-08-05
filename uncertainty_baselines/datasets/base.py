@@ -30,6 +30,10 @@ class Split(enum.Enum):
   TEST = 'test'
 
 
+class OodSplit(enum.Enum):
+  IN = 'in'
+  OOD = 'ood'
+
 # For datasets like UCI, the tf.data.Dataset returned by _read_examples will
 # have elements that are Sequence[tf.Tensor], but for TFDS datasets they will be
 # Dict[str, tf.Tensor].
@@ -88,6 +92,9 @@ class BaseDataset(object):
 
   def _is_training(self, split: Split) -> bool:
     return split == Split.TRAIN
+
+  def _is_in_distribution(self, split: OodSplit) -> bool:
+    return split == OodSplit.IN
 
   @property
   def _num_train_examples(self) -> int:
@@ -152,7 +159,8 @@ class BaseDataset(object):
   def build(
       self,
       split: Union[str, Split],
-      as_tuple: bool = False) -> tf.data.Dataset:
+      as_tuple: bool = False,
+      ood_split: Optional[Union[str, OodSplit]] = None) -> tf.data.Dataset:
     """Transforms the dataset from self._read_examples() to batch, repeat, etc.
 
     Note that we do not handle replication/sharding here, because the
@@ -166,6 +174,8 @@ class BaseDataset(object):
         with at least the keys ['features', 'labels'], or a tuple of
         (feature, label). If there are keys besides 'features' and 'labels' in
         the Dict then this ignore them.
+      ood_split: an optional OOD split, either one of the OodSplit enum or
+        their associated strings.
 
     Returns:
       A tf.data.Dataset of elements that are a dict with keys 'features' and
@@ -174,14 +184,32 @@ class BaseDataset(object):
     if isinstance(split, str):
       split = Split(split)
 
+    if isinstance(ood_split, str):
+      ood_split = OodSplit(ood_split)
+
     dataset = self._read_examples(split)
-    process_example_fn = self._create_process_example_fn(split)
+
     # Map the parser over the dataset.
+    if ood_split:
+      process_example_fn = self._create_ood_process_example_fn(split, ood_split)
+      if split == Split.TRAIN:
+        self.info['num_ood_examples'] = self._num_train_examples
+      if split == Split.VAL:
+        self.info['num_ood_examples'] = self._num_validation_examples
+      if split == Split.TEST:
+        self.info['num_ood_examples'] = self._num_test_examples
+    else:
+      process_example_fn = self._create_process_example_fn(split)
     if process_example_fn:
       dataset = dataset.map(
           process_example_fn,
           num_parallel_calls=self._num_parallel_parser_calls)
-    if as_tuple:
+    # pylint: disable=g-long-lambda
+    if as_tuple and ood_split:
+      dataset = dataset.map(lambda d: (d['features'], d['labels'],
+                                       d['is_in_distribution']))
+    # pylint: enable=line-too-long
+    elif as_tuple and not ood_split:
       dataset = dataset.map(lambda d: (d['features'], d['labels']))
 
     # Shuffle and repeat only for the training split.
@@ -199,3 +227,32 @@ class BaseDataset(object):
     dataset = dataset.with_options(options)
 
     return dataset
+
+  def _create_ood_process_example_fn(self, split: Split,
+                                     ood_split: OodSplit) -> PreProcessFn:
+    """Add additional labels to a pre-existing dataset for OOD.
+
+    Args:
+      split: A dataset split.
+      ood_split: An OOD dataset split.
+
+    Returns:
+      A function which takes as inputs a single element of the dataset (passed
+      from dataset.map()), and returns a dict with keys 'features', 'labels',
+      and an additional key 'is_in_distribution', with 0s for and 'ood' split
+      and 1s for 'in' split.
+      and their corresponding Tensor values.
+    """
+    process_example_fn = self._create_process_example_fn(split)
+
+    def _add_ood_label_parser(
+        example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
+      processed = process_example_fn(example)
+      if self._is_in_distribution(ood_split):
+        in_dist_label = tf.ones_like(processed['labels'], tf.int32)
+      else:
+        in_dist_label = tf.zeros_like(processed['labels'], tf.int32)
+      processed['is_in_distribution'] = in_dist_label
+      return processed
+
+    return _add_ood_label_parser

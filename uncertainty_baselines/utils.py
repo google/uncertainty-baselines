@@ -51,9 +51,16 @@ def build_dataset(
     dataset_builder: base.BaseDataset,
     strategy,
     split: str,
-    as_tuple: bool = False) -> tf.data.Dataset:
+    as_tuple: bool = False,
+    ood_dataset_builder: base.BaseDataset = None) -> tf.data.Dataset:
   """Build a tf.data.Dataset iterator using a DistributionStrategy."""
-  dataset = dataset_builder.build(split, as_tuple=as_tuple)
+  if ood_dataset_builder:
+    dataset = dataset_builder.build(split, as_tuple=as_tuple, ood_split='in')
+    ood_dataset = ood_dataset_builder.build(split, as_tuple=as_tuple,
+                                            ood_split='ood')
+    dataset = dataset.concatenate(ood_dataset)
+  else:
+    dataset = dataset_builder.build(split, as_tuple=as_tuple)
   # TOOD(znado): look into using experimental_distribute_datasets_from_function
   # and a wrapped version of dataset_builder.build (see
   # https://www.tensorflow.org/api_docs/python/tf/distribute/Strategy#experimental_distribute_datasets_from_function).

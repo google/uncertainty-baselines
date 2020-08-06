@@ -157,13 +157,28 @@ def run(trial_dir: str, flag_string: Optional[str]):
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
 
       ood_metrics = {
-          'auroc':
-              tf.keras.metrics.AUC(
-                  curve='ROC', summation_method='interpolation'),
-          'auprc':
-              tf.keras.metrics.AUC(
-                  curve='PR', summation_method='interpolation'),
-      }
+          'auroc': tf.keras.metrics.AUC(
+              curve='ROC', summation_method='interpolation'),
+          'auprc': tf.keras.metrics.AUC(
+              curve='PR', summation_method='interpolation')}
+
+      aux_metrics = [('spec_at_sen', tf.keras.metrics.SpecificityAtSensitivity,
+                      FLAGS.sensitivity_thresholds),
+                     ('sen_at_spec', tf.keras.metrics.SensitivityAtSpecificity,
+                      FLAGS.specificity_thresholds),
+                     ('prec_at_rec', tf.keras.metrics.PrecisionAtRecall,
+                      FLAGS.recall_thresholds),
+                     ('rec_at_prec', tf.keras.metrics.RecallAtPrecision,
+                      FLAGS.precision_thresholds)]
+
+      for metric_name, metric_fn, threshold_vals in aux_metrics:
+        vals = [float(x) for x in threshold_vals]
+        thresholds = np.linspace(vals[0], vals[1], int(vals[2]))
+
+        for thresh in thresholds:
+          name = f'{metric_name}_{thresh:.2f}'
+          ood_metrics[name] = metric_fn(thresh)
+
     if FLAGS.mode == 'eval':
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
       eval_lib.run_eval_loop(

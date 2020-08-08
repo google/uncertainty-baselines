@@ -29,6 +29,7 @@ import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 import uncertainty_baselines.experiments.single_model_uncertainty.eval as eval_lib
 import uncertainty_baselines.experiments.single_model_uncertainty.flags as flags_lib
+import uncertainty_baselines.experiments.single_model_uncertainty.models.models as ub_smu_models
 import uncertainty_baselines.experiments.single_model_uncertainty.train as train_lib
 import uncertainty_metrics as um
 
@@ -130,12 +131,39 @@ def run(trial_dir: str, flag_string: Optional[str]):
         eval_batch_size=FLAGS.eval_batch_size,
         validation_percent=FLAGS.validation_percent,
         shuffle_buffer_size=FLAGS.shuffle_buffer_size)
-    model = ub.models.get(
+
+    if FLAGS.use_spec_norm:
+      logging.info('Use spectral normalization.')
+      spec_norm_hparams = {
+          'spec_norm_bound': FLAGS.spec_norm_bound,
+          'spec_norm_iteration': FLAGS.spec_norm_iteration
+      }
+    else:
+      spec_norm_hparams = None
+
+    if FLAGS.use_gp_layer:
+      logging.info('Use GP for output layer.')
+      gp_layer_hparams = {
+          'gp_hidden_dim': FLAGS.gp_hidden_dim,
+          'gp_scale': FLAGS.gp_scale,
+          'gp_bias': FLAGS.gp_bias,
+          'gp_input_normalization': FLAGS.gp_input_normalization,
+          'gp_cov_discount_factor': FLAGS.gp_cov_discount_factor,
+          'gp_cov_ridge_penalty': FLAGS.gp_cov_ridge_penalty
+      }
+    else:
+      gp_layer_hparams = None
+
+    model = ub_smu_models.get(
         FLAGS.model_name,
         batch_size=FLAGS.batch_size,
+        len_seqs=FLAGS.len_seqs,
         num_motifs=FLAGS.num_motifs,
         len_motifs=FLAGS.len_motifs,
-        num_denses=FLAGS.num_denses)
+        num_denses=FLAGS.num_denses,
+        use_mc_dropout=FLAGS.use_mc_dropout,
+        spec_norm_hparams=spec_norm_hparams,
+        gp_layer_hparams=gp_layer_hparams)
 
     metrics = {
         'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
@@ -153,7 +181,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
           FLAGS.ood_dataset_name,
           batch_size=FLAGS.batch_size,
           eval_batch_size=FLAGS.eval_batch_size,
-          validation_percent=FLAGS.validation_percent)
+          validation_percent=FLAGS.validation_percent,
+          data_mode='ood')
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
 
       ood_metrics = {

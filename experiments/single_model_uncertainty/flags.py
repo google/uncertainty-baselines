@@ -102,12 +102,57 @@ def define_flags() -> List[str]:
       'shuffle_buffer_size', 16384, 'Dataset shuffle buffer size.')
 
   # Flags relating to genomics_cnn model
+  flags.DEFINE_integer('len_seqs', 250,
+                       'Sequence length, only used for genomics dataset.')
   flags.DEFINE_integer('num_motifs', 1024,
                        'Number of motifs, only used for the genomics dataset.')
   flags.DEFINE_integer('len_motifs', 20,
                        'Length of motifs, only used for the genomics dataset.')
   flags.DEFINE_integer('num_denses', 128,
                        'Number of denses, only used for the genomics dataset.')
+
+  # Flags relating to SNGP model
+  flags.DEFINE_bool(
+      'use_mc_dropout', False,
+      'Whether to use Monte Carlo dropout for the hidden layers.')
+  flags.DEFINE_bool('use_spec_norm', False,
+                    'Whether to apply spectral normalization.')
+  flags.DEFINE_bool('use_gp_layer', False,
+                    'Whether to use Gaussian process as the output layer.')
+  # Spectral normalization flags.
+  flags.DEFINE_integer(
+      'spec_norm_iteration', 1,
+      'Number of power iterations to perform for estimating '
+      'the spectral norm of weight matrices.')
+  flags.DEFINE_float('spec_norm_bound', 6.,
+                     'Upper bound to spectral norm of weight matrices.')
+
+  # Gaussian process flags.
+  flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
+  flags.DEFINE_float(
+      'gp_scale', 2.,
+      'The length-scale parameter for the RBF kernel of the GP layer.')
+  flags.DEFINE_integer(
+      'gp_input_dim', 128,
+      'The dimension to reduce the neural network input to for the GP layer '
+      '(via random Gaussian projection which preserves distance by the '
+      ' Johnson-Lindenstrauss lemma). If -1 the no dimension reduction.')
+  flags.DEFINE_integer(
+      'gp_hidden_dim', 1024,
+      'The hidden dimension of the GP layer, which corresponds to the number of '
+      'random features used to for the approximation ')
+  flags.DEFINE_bool(
+      'gp_input_normalization', True,
+      'Whether to normalize the input using LayerNorm for GP layer.'
+      'This is similar to automatic relevance determination (ARD) in the classic '
+      'GP learning.')
+  flags.DEFINE_float(
+      'gp_cov_ridge_penalty', 1e-3,
+      'The Ridge penalty parameter for GP posterior covariance.')
+  flags.DEFINE_float(
+      'gp_cov_discount_factor', 0.999,
+      'The discount factor to compute the moving average of '
+      'precision matrix.')
 
   flags.mark_flag_as_required('dataset_name')
   flags.mark_flag_as_required('experiment_name')

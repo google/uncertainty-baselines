@@ -47,6 +47,9 @@ def _train_step_fn(
       labels = per_replica_inputs['labels']
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
+        if isinstance(logits, tuple):
+          # If model returns a tuple of (logits, covmat), extract logits
+          logits, _ = logits
         loss = tf.reduce_mean(
             tf.keras.losses.sparse_categorical_crossentropy(
                 y_true=labels, y_pred=logits, from_logits=True))

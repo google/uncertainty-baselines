@@ -2,11 +2,12 @@
 
 ## ResNet-50
 
-| Method | Train/Test NLL | Train/Test Top-1 Accuracy | Train/Test Cal. Error | cNLL/cA/cCE | mCE | Train Runtime (hours) | Test Runtime (ms/example)| # Parameters |
+| Method | Train/Test NLL | Train/Test Top-1 Accuracy | Train/Test Cal. Error | cNLL/cA/cCE | mCE | Train Runtime (hours) | Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- | ----------- |
 | Deterministic | 0.900 / 0.943 | 77.9% / 76.1% | 0.0411 / 0.0392 | 3.22 / 40.3% / 0.104 | 75.6% | 5 (32 TPUv3 cores) | 1.60 (32 TPUv2 cores) | 25.6M |
 | BatchEnsemble<sup>1</sup> | 0.861 / 0.944 | 78.9% / 76.7% | 0.0313 / 0.0494 | 3.18 / 41.8% / 0.110 | 73.7% | 17.5 (32 TPUv2 cores) | 8.33 (32 TPUv2 cores) | 25.8M |
 | SNGP | 0.955 / 0.937 | 77.1% / 76.0% | 0.0538 / 0.0138 | 3.06 / 40.9% / 0.050 | 75.0% | 5 (32 TPUv3 cores) | 1.74 (32 TPUv2 cores) | 25.6M |
+| SNGP Ensemble (size=4) | - / 0.851 | - / 78.1% | - / 0.0389 | 2.77 / 44.9% / 0.050 | 69.73% | 17.5 (128 TPUv2 cores) | 6.52 (32 TPUv2 cores) | 102.4M |
 | Ensemble (size=4) | - / 0.877 | - / 77.5% | - / 0.0305 | 2.99 / 42.1% / 0.051 | 73.3% | 17.5 (128 TPUv2 cores) | 6.40 (32 TPUv2 cores) | 102.4M |
 
 ## EfficientNet
@@ -19,7 +20,7 @@
 
 ## Metrics
 
-We define metrics specific to CIFAR below. For general metrics, see [`baselines/`](https://github.com/google/edward2/tree/master/baselines).
+We define metrics specific to ImageNet below. For general metrics, see [`baselines/`](https://github.com/google/edward2/tree/master/baselines).
 
 1. __cNLL/cA/cCE__. Negative-log-likelihood, accuracy, and calibration error on [ImageNet-C](https://arxiv.org/abs/1903.12261). `c` stands for corrupted. Results take the mean across corruption intensities and corruption types.
 2. __mCE__. Mean corruption error, which measures misclassification error across corruption intensities and corruption types on ImageNet-C. However, instead of taking the mean, it computes a weighted mean where weights are given by AlexNet's performance.

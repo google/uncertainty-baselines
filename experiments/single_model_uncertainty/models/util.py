@@ -82,8 +82,8 @@ def make_conv2d_layer(num_filters: int, kernel_size: Tuple[int, int],
                    spec_norm_iteration, spec_norm_bound)
     else:
       raise ValueError(
-          'use_spec_norm=True but spec_norm_iteration or spec_norm_iteration is None.'
-      )
+          'use_spec_norm=True but spec_norm_iteration or spec_norm_iteration '
+          'is None.')
     return Conv2DNormed
 
   return Conv2DBase

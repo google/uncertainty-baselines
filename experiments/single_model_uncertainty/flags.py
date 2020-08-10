@@ -139,13 +139,13 @@ def define_flags() -> List[str]:
       ' Johnson-Lindenstrauss lemma). If -1 the no dimension reduction.')
   flags.DEFINE_integer(
       'gp_hidden_dim', 1024,
-      'The hidden dimension of the GP layer, which corresponds to the number of '
-      'random features used to for the approximation ')
+      'The hidden dimension of the GP layer, which corresponds to the number '
+      'of random features used to for the approximation ')
   flags.DEFINE_bool(
       'gp_input_normalization', True,
       'Whether to normalize the input using LayerNorm for GP layer.'
-      'This is similar to automatic relevance determination (ARD) in the classic '
-      'GP learning.')
+      'This is similar to automatic relevance determination (ARD) in the '
+      'classic GP learning.')
   flags.DEFINE_float(
       'gp_cov_ridge_penalty', 1e-3,
       'The Ridge penalty parameter for GP posterior covariance.')

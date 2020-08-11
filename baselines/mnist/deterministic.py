@@ -40,6 +40,8 @@ flags.DEFINE_string('output_dir', '/tmp/det_training',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
 
 
@@ -73,6 +75,10 @@ def lenet5(input_shape, num_classes):
 
 def main(argv):
   del argv  # unused arg
+  if not FLAGS.use_gpu:
+    raise ValueError('Only GPU is currently supported.')
+  if FLAGS.num_cores > 1:
+    raise ValueError('Only a single accelerator is currently supported.')
   np.random.seed(FLAGS.seed)
   tf.random.set_seed(FLAGS.seed)
   tf.io.gfile.makedirs(FLAGS.output_dir)

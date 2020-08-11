@@ -87,6 +87,13 @@ def define_flags() -> List[str]:
       'learning_rate_schedule',
       'constant',
       'Learning rate schedule to use.')
+  flags.DEFINE_integer('schedule_hparams_warmup_epochs', 1,
+                       'Number of epochs for a linear warmup to the initial '
+                       'learning rate. Use 0 to do no warmup.')
+  flags.DEFINE_float('schedule_hparams_decay_ratio', 0.2,
+                     'Amount to decay learning rate.')
+  flags.DEFINE_list('schedule_hparams_decay_epochs', ['60', '120', '160'],
+                    'Epochs to decay learning rate by.')
   flags.DEFINE_string('optimizer', 'adam', 'Optimizer to use.')
   flags.DEFINE_float('optimizer_hparams_momentum', 0.9, 'SGD momentum.')
   flags.DEFINE_float('optimizer_hparams_beta_1', 0.9, 'Adam beta_1.')

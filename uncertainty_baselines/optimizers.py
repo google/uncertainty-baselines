@@ -62,7 +62,8 @@ def get(
     learning_rate = get_learning_rate_schedule(
         schedule_name=learning_rate_schedule,
         base_learning_rate=learning_rate,
-        steps_per_epoch=steps_per_epoch)
+        steps_per_epoch=steps_per_epoch,
+        **passed_optimizer_kwargs)
   optimizer_kwargs = {'learning_rate': learning_rate}
 
   optimizer_name = optimizer_name.lower()
@@ -116,7 +117,7 @@ def get(
   return optimizer
 
 
-def renset50_learning_rate_schedule(base_learning_rate, steps_per_epoch):
+def resnet50_learning_rate_schedule(base_learning_rate, steps_per_epoch):
   """Creates a piecewise LR schedule for the common ResNet-50 ImageNet setup."""
   boundaries = [
       int(40 * steps_per_epoch),
@@ -136,14 +137,67 @@ def renset50_learning_rate_schedule(base_learning_rate, steps_per_epoch):
       values=values)
 
 
+class LinearWarmupLearningRateSchedule(LearningRateSchedule):
+  """Warm up learning rate schedule.
+
+  It starts with a linear warmup to the initial learning rate over
+  `warmup_epochs`. This is found to be helpful for large batch size training
+  (Goyal et al., 2018). The learning rate's value then uses the initial
+  learning rate, and decays by a multiplier at the start of each epoch in
+  `decay_epochs`. The stepwise decaying schedule follows He et al. (2015).
+  """
+
+  def __init__(self,
+               base_learning_rate: float,
+               steps_per_epoch: int,
+               decay_ratio: float,
+               decay_epochs: int,
+               warmup_epochs: int):
+    super(LinearWarmupLearningRateSchedule, self).__init__()
+    self.steps_per_epoch = steps_per_epoch
+    self.initial_learning_rate = base_learning_rate
+    self.decay_ratio = decay_ratio
+    self.decay_epochs = decay_epochs
+    self.warmup_epochs = warmup_epochs
+
+  def __call__(self, step: int):
+    lr_epoch = tf.cast(step, tf.float32) / self.steps_per_epoch
+    learning_rate = self.initial_learning_rate
+    if self.warmup_epochs >= 1:
+      learning_rate *= lr_epoch / self.warmup_epochs
+    decay_epochs = [self.warmup_epochs] + self.decay_epochs
+    for index, start_epoch in enumerate(decay_epochs):
+      learning_rate = tf.where(
+          lr_epoch >= start_epoch,
+          self.initial_learning_rate * self.decay_ratio**index,
+          learning_rate)
+    return learning_rate
+
+
 def get_learning_rate_schedule(
     schedule_name: str,
+    base_learning_rate: float,
+    steps_per_epoch: int,
     **schedule_kwargs: Dict[str, Any]) -> Union[float, LearningRateSchedule]:
   """Builds a step-based learning rate schedule."""
   schedule_name = schedule_name.lower()
   if schedule_name == 'constant':
-    return schedule_kwargs['base_learning_rate']
+    return base_learning_rate
   elif schedule_name == 'resnet50':
-    return renset50_learning_rate_schedule(**schedule_kwargs)
+    return resnet50_learning_rate_schedule(base_learning_rate, steps_per_epoch)
+  elif schedule_name == 'linear_warmup':
+    print('schedule_kwargs : ', schedule_kwargs)
+    warmup_hparams = ['decay_ratio', 'decay_epochs', 'warmup_epochs']
+    if not all(elem in schedule_kwargs.keys() for elem in warmup_hparams):
+      raise ValueError('schedule_kwargs must contain "decay_ratio", '
+                       '"decay_epochs" and "warmup_epochs" hyperparameters, '
+                       'but only contains ', schedule_kwargs.keys())
+
+    decay_epochs = [int(x) for x in schedule_kwargs['decay_epochs']]
+    return LinearWarmupLearningRateSchedule(
+        base_learning_rate, steps_per_epoch,
+        decay_ratio=schedule_kwargs['decay_ratio'],
+        decay_epochs=decay_epochs,
+        warmup_epochs=schedule_kwargs['warmup_epochs'])
   else:
     raise ValueError('Unrecognized schedule name: {}'.format(schedule_name))

@@ -127,6 +127,7 @@ def create_model(
       num_filters=num_motifs,
       kernel_size=(len_motifs, embed_size),
       strides=(1, 1),
+      activation='relu',
       use_spec_norm=(spec_norm_hparams is not None),
       spec_norm_bound=spec_norm_bound,
       spec_norm_iteration=spec_norm_iteration)

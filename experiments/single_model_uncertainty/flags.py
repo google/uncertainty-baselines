@@ -40,7 +40,7 @@ def define_flags() -> List[str]:
 
   flags.DEFINE_string('experiment_name', None, 'Name of this experiment.')
 
-  # Flags relating to setting up the job.
+  # TPU Job flags.
   flags.DEFINE_string('master', '', 'Name of the TPU to use.')
   flags.DEFINE_enum(
       'mode',
@@ -50,7 +50,7 @@ def define_flags() -> List[str]:
   flags.DEFINE_bool('run_ood', False, 'Whether to run OOD jobs with eval job.')
   flags.DEFINE_bool('use_tpu', False, 'Whether to run on CPU or TPU.')
 
-  # Flags relating to the training/eval loop.
+  # Train/eval loop flags.
   flags.DEFINE_integer(
       'checkpoint_step', -1, 'Step of the checkpoint to restore from.')
   flags.DEFINE_enum(
@@ -79,7 +79,7 @@ def define_flags() -> List[str]:
       'How many steps between logging the metrics.')
   flags.DEFINE_integer('train_steps', None, 'How many steps to train for.')
 
-  # Hyperparamter flags.
+  # Hyperparamater flags.
   flags.DEFINE_integer('batch_size', None, 'Training batch size.')
   flags.DEFINE_integer('eval_batch_size', None, 'Validation/test batch size.')
   flags.DEFINE_float('learning_rate', None, 'Learning rate.')
@@ -101,6 +101,12 @@ def define_flags() -> List[str]:
   flags.DEFINE_integer(
       'shuffle_buffer_size', 16384, 'Dataset shuffle buffer size.')
 
+  # Model flags, Wide Resnet
+  flags.DEFINE_integer('wide_resnet_depth', 28,
+                       'Depth of wide resnet model.')
+  flags.DEFINE_integer('wide_resnet_width_multiplier', 10,
+                       'Width multiplier for wide resnet model.')
+
   # Flags relating to genomics_cnn model
   flags.DEFINE_integer('len_seqs', 250,
                        'Sequence length, only used for genomics dataset.')
@@ -111,7 +117,7 @@ def define_flags() -> List[str]:
   flags.DEFINE_integer('num_denses', 128,
                        'Number of denses, only used for the genomics dataset.')
 
-  # Flags relating to SNGP model
+  # Model flags, SNGP.
   flags.DEFINE_bool(
       'use_mc_dropout', False,
       'Whether to use Monte Carlo dropout for the hidden layers.')
@@ -119,7 +125,7 @@ def define_flags() -> List[str]:
                     'Whether to apply spectral normalization.')
   flags.DEFINE_bool('use_gp_layer', False,
                     'Whether to use Gaussian process as the output layer.')
-  # Spectral normalization flags.
+  # Model flags, Spectral Normalization.
   flags.DEFINE_integer(
       'spec_norm_iteration', 1,
       'Number of power iterations to perform for estimating '
@@ -127,7 +133,7 @@ def define_flags() -> List[str]:
   flags.DEFINE_float('spec_norm_bound', 6.,
                      'Upper bound to spectral norm of weight matrices.')
 
-  # Gaussian process flags.
+  # Model flags, Gaussian Process layer.
   flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
   flags.DEFINE_float(
       'gp_scale', 2.,
@@ -153,6 +159,11 @@ def define_flags() -> List[str]:
       'gp_cov_discount_factor', 0.999,
       'The discount factor to compute the moving average of '
       'precision matrix.')
+  flags.DEFINE_float(
+      'gp_mean_field_factor', 0.001,
+      'The tunable multiplicative factor used in the mean-field approximation '
+      'for the posterior mean of softmax Gaussian process. If -1 then use '
+      'posterior mode instead of posterior mean. See [2] for detail.')
 
   flags.mark_flag_as_required('dataset_name')
   flags.mark_flag_as_required('experiment_name')

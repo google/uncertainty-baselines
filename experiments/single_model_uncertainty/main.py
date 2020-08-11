@@ -14,9 +14,11 @@
 # limitations under the License.
 
 # Lint as: python3
+# pylint: disable=line-too-long
 r"""Entry point for Uncertainty Baselines.
 
 """
+# pylint: enable=line-too-long
 
 import os.path
 from typing import Optional
@@ -144,6 +146,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
     if FLAGS.use_gp_layer:
       logging.info('Use GP for output layer.')
       gp_layer_hparams = {
+          'gp_input_dim': FLAGS.gp_input_dim,
           'gp_hidden_dim': FLAGS.gp_hidden_dim,
           'gp_scale': FLAGS.gp_scale,
           'gp_bias': FLAGS.gp_bias,
@@ -161,6 +164,9 @@ def run(trial_dir: str, flag_string: Optional[str]):
         num_motifs=FLAGS.num_motifs,
         len_motifs=FLAGS.len_motifs,
         num_denses=FLAGS.num_denses,
+        width=FLAGS.wide_resnet_depth,
+        l2=FLAGS.weight_decay,
+        depth_multiplier=FLAGS.wide_resnet_width_multiplier,
         use_mc_dropout=FLAGS.use_mc_dropout,
         spec_norm_hparams=spec_norm_hparams,
         gp_layer_hparams=gp_layer_hparams)

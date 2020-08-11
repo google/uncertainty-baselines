@@ -45,9 +45,10 @@ def _train_step_fn(
       """The function defining a single training step."""
       features = per_replica_inputs['features']
       labels = per_replica_inputs['labels']
+
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
-        if isinstance(logits, tuple):
+        if isinstance(logits, (tuple, list)):
           # If model returns a tuple of (logits, covmat), extract logits
           logits, _ = logits
         loss = tf.reduce_mean(

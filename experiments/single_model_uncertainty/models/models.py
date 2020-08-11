@@ -22,12 +22,12 @@ from typing import List
 
 import tensorflow.compat.v2 as tf
 from uncertainty_baselines.experiments.single_model_uncertainty.models import genomics_cnn
+from uncertainty_baselines.experiments.single_model_uncertainty.models import wide_resnet
 from uncertainty_baselines.models import bert
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import resnet20
 from uncertainty_baselines.models import resnet50
 from uncertainty_baselines.models import textcnn
-from uncertainty_baselines.models import wide_resnet
 
 
 def get_model_names() -> List[str]:
@@ -75,6 +75,8 @@ def get(
   # load from single_model_uncertainty directory
   if model_name == 'genomics_cnn':
     return genomics_cnn.create_model(batch_size, **hyperparameters)
+  if model_name == 'wide_resnet':
+    return wide_resnet.create_model(batch_size, **hyperparameters)
 
   # load from uncertainty_baselines directory
   if model_name == 'criteo_mlp':
@@ -87,5 +89,3 @@ def get(
     return textcnn.create_model(batch_size, **hyperparameters)
   if model_name == 'bert':
     return bert.create_model(batch_size, **hyperparameters)
-  if model_name == 'wide_resnet':
-    return wide_resnet.create_model(batch_size, **hyperparameters)

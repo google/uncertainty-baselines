@@ -58,7 +58,7 @@ def eval_step_fn(
       features = per_replica_inputs['features']
       labels = per_replica_inputs[label_key]
       logits = model(features, training=False)
-      if isinstance(logits, tuple):
+      if isinstance(logits, (tuple, list)):
         logits, covmat = logits
       else:
         per_core_batch_size, _ = logits.get_shape().as_list()

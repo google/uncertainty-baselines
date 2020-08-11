@@ -17,7 +17,7 @@
 """Collection of shared utility functions."""
 
 import functools
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 from absl import logging
 from edward2.experimental import sngp
 import tensorflow.compat.v2 as tf
@@ -35,10 +35,15 @@ def mean_field_logits(logits, covmat, mean_field_factor=1.):
   return logits
 
 
-def make_conv2d_layer(num_filters: int, kernel_size: Tuple[int, int],
-                      strides: Tuple[int, int], use_spec_norm: bool,
-                      spec_norm_bound: Optional[float],
-                      spec_norm_iteration: Optional[int]):
+def make_conv2d_layer(num_filters: Optional[int] = None,
+                      kernel_size: Union[Tuple[int, int], int] = None,
+                      strides: Union[Tuple[int, int], int] = None,
+                      use_bias: Optional[bool] = True,
+                      kernel_initializer: Optional[str] = 'glorot_uniform',
+                      activation: Optional[str] = 'relu',
+                      use_spec_norm: Optional[bool] = False,
+                      spec_norm_bound: Optional[float] = None,
+                      spec_norm_iteration: Optional[int] = None):
   """Creates an 2D convolutional layer with/without spectral normalization.
 
   Args:
@@ -47,6 +52,9 @@ def make_conv2d_layer(num_filters: int, kernel_size: Tuple[int, int],
     height of the convolution window.
     strides: (Tuple[int, int]) Tuple of 2 integers, specifying the stride length
     of the convolution.
+    use_bias: (bool) Whether to have a bias term.
+    kernel_initializer: (str) Kernel initialization scheme to use.
+    activation: (str) Whether to have an activation after the layer.
     use_spec_norm: (bool) Whether to apply spectral normalization.
     spec_norm_bound: (Optional[float]) Upper bound to spectral norm of weight
     matrices. Cannot be None if use_spec_norm=True.
@@ -64,8 +72,10 @@ def make_conv2d_layer(num_filters: int, kernel_size: Tuple[int, int],
       kernel_size=kernel_size,
       strides=strides,
       padding='same',  # SpectralNormalizationConv2D only support padding='same'
+      use_bias=use_bias,
+      kernel_initializer=kernel_initializer,
+      activation=activation,
       data_format='channels_last',
-      activation=tf.keras.activations.relu,
       name='conv')
 
   if use_spec_norm:
@@ -90,11 +100,16 @@ def make_conv2d_layer(num_filters: int, kernel_size: Tuple[int, int],
 
 
 def apply_dropout(inputs: tf.Tensor, dropout_rate: float, use_mc_dropout: bool,
-                  filter_wise_dropout: bool):
+                  filter_wise_dropout: bool = True):
   """Applies a filter-wise dropout layer to the inputs."""
   logging.info('apply_dropout input shape %s', inputs.shape)
-  noise_shape = [inputs.shape[0], 1, inputs.shape[2]
-                ] if filter_wise_dropout else None
+  if filter_wise_dropout:
+    noise_shape = [1] * len(inputs.shape)
+    noise_shape[0] = inputs.shape[0]
+    noise_shape[-1] = inputs.shape[-1]
+  else:
+    noise_shape = None
+
   dropout_layer = tf.keras.layers.Dropout(dropout_rate, noise_shape=noise_shape)
 
   if use_mc_dropout:

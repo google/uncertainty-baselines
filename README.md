@@ -2,21 +2,36 @@
 
 [![Travis](https://travis-ci.org/google/uncertainty-baselines.svg?branch=master)](https://travis-ci.org/google/uncertainty-baselines)
 
-Uncertainty Baselines is a set of common benchmarks for uncertainty calibration
-and robustness research.
+The goal of Uncertainty Baselines is to provide a template for researchers to build on. The baselines can be a starting point for any new ideas, applications, and/or for communicating with other uncertainty and robustness researchers. This is done in three ways:
+
+1. Provide high-quality implementations of standard and state-of-the-art methods on standard tasks.
+2. Have minimal dependencies on other files in the codebase. Baselines should be easily forkable without relying on other baselines and generic modules.
+3. Prescribe best practices for training and evaluating uncertainty models.
+
+__Motivation.__ There are many uncertainty implementations across GitHub. However, they are typically one-off experiments for a specific paper (many papers don't even have code). This raises three problems. First, there are no clear examples that uncertainty researchers can build on to quickly prototype their work. Everyone must implement their own baseline. Second, even on standard tasks such as CIFAR-10, projects differ slightly in their experiment setup, whether it be architectures, hyperparameters, or data preprocessing. This makes it difficult to compare properly across methods. Third, there is no clear guidance on which ideas and tricks necessarily contribute to getting best performance and/or are generally robust to hyperparameters.
 
 ## Installation
-Uncertainty Baselines can be installed via `pip install uncertainty-baselines`!
+
+To install the latest development version, run
+
+```sh
+pip install "git+https://github.com/google/uncertainty-baselines.git#egg=uncertainty_baselines"
+```
 
 There is not yet a stable version (nor an official release of this library).
 All APIs are subject to change.
 
 ## Usage
-We access Uncertainty baselines via `import uncertainty_baselines as ub`. To
-view a fully worked CIFAR-10 ResNet-20 example, see
-`experiments/cifar10_resnet20/main.py`.
+
+Access Uncertainty Baselines' API via `import uncertainty_baselines as ub`. To
+run end-to-end examples with strong performance, see the
+[`baselines/`](https://github.com/google/uncertainty-baselines/tree/master/baselines)
+directory. For example,
+[`baselines/cifar/determinstic.py`](https://github.com/google/uncertainty-baselines/tree/master/baselines/cifar/deterministic.py)
+is a Wide ResNet 28-10 obtaining 96.0% test accuracy on CIFAR-10.
 
 ### Datasets
+
 We implement datasets using the `tf.data.Dataset` API, available via the code
 below:
 
@@ -63,6 +78,7 @@ To add a new dataset:
 5. Add the dataset class to `datasets/__init__.py`.
 
 ### Models
+
 We implement models using the `tf.keras.Model` API, available via the code
 below:
 
@@ -91,21 +107,53 @@ To add a new model:
 
 1. Add the bibtex reference to the `References` section below.
 2. Add the model definition to the models/ dir. Every file should have a `create_model` function with the following signature:
-```
-def create_model(
-    batch_size: int,
-    ...
-    **unused_kwargs: Dict[str, Any])
-    -> tf.keras.models.Model:
-```
+
+    ```
+    def create_model(
+        batch_size: int,
+        ...
+        **unused_kwargs: Dict[str, Any])
+        -> tf.keras.models.Model:
+    ```
 
 3. Add a test that at a minimum constructs the model and does a forward pass.
 4. Add the model to `models/models.py` for easy access.
 5. Add the `create_model` function to `models/__init__.py`.
 
+## Metrics
+
+We define metrics used across datasets below. All results are reported by roughly 3 significant digits and averaged over 10 runs.
+
+1. __# Parameters.__ Number of parameters in the model to make predictions after training.
+2. __Train/Test Accuracy.__ Accuracy over the train and test sets respectively. For a dataset of `N` input-output pairs `(xn, yn)` where the label `yn` takes on 1 of `K` values, the accuracy is
+
+    ```sh
+    1/N \sum_{n=1}^N 1[ \argmax{ p(yn | xn) } = yn ],
+    ```
+
+    where `1` is the indicator function that is 1 when the model's predicted class is equal to the label and 0 otherwise.
+3. __Train/Test Cal. Error.__ Expected calibration error (ECE) over the train and test sets respectively ([Naeini et al., 2015](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4410090)). ECE discretizes the probability interval `[0, 1]` under equally spaced bins and assigns each predicted probability to the bin that encompasses it. The calibration error is the difference between the fraction of predictions in the bin that are correct (accuracy) and the mean of the probabilities in the bin (confidence). The expected calibration error averages across bins.
+
+    For a dataset of `N` input-output pairs `(xn, yn)` where the label `yn` takes on 1 of `K` values, ECE computes a weighted average
+
+    ```sh
+    \sum_{b=1}^B n_b / N | acc(b) - conf(b) |,
+    ```
+
+    where `B` is the number of bins, `n_b` is the number of predictions in bin `b`, and `acc(b)` and `conf(b)` is the accuracy and confidence of bin `b` respectively.
+4. __Train/Test NLL.__ Negative log-likelihood over the train and test sets respectively (measured in nats). For a dataset of `N` input-output pairs `(xn, yn)`, the negative log-likelihood is
+
+    ```sh
+    -1/N \sum_{n=1}^N \log p(yn | xn).
+    ```
+
+    It is equivalent up to a constant to the KL divergence from the true data distribution to the model, therefore capturing the overall goodness of fit to the true distribution ([Murphy, 2012](https://www.cs.ubc.ca/~murphyk/MLbook/)). It can also be intepreted as the amount of bits (nats) to explain the data ([Grunwald, 2004](https://arxiv.org/abs/math/0406077)).
+5. __Train/Test Runtime.__ Training runtime is the total wall-clock time to train the model, including any intermediate test set evaluations. Test runtime is the total wall-clock make and evaluate predictions on the test set.
+
 ## Experiments
+
 The `experiments/` directory is for projects that use the codebase that the
-authors believe others in the community will find usedul
+authors believe others in the community will find useful.
 
 ## References
 

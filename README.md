@@ -383,6 +383,12 @@ Wide ResNet-*-*
 
 Contributors (past and present):
 
-*   Dustin Tran
-*   Jeremiah Liu
-*   Zachary Nado
+* Dustin Tran
+* Ghassen Jerfel
+* Jeremiah Liu
+* Jie Ren
+* Marton Havasi
+* Michael W. Dusenberry
+* Shreyas Padhy
+* Yeming Wen
+* Zachary Nado

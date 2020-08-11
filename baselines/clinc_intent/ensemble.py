@@ -32,6 +32,7 @@ import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
+import bert_utils  # local file import
 import deterministic  # pylint:disable=unused-import  # local file import
 import deterministic_model as cnn_model  # local file import
 import deterministic_model_bert as bert_model  # local file import
@@ -153,7 +154,7 @@ def main(argv):
   elif FLAGS.model_family.lower() == 'bert':
     bert_config_dir, _ = deterministic.resolve_bert_ckpt_and_config_dir(
         FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
-    bert_config = bert_model.create_config(bert_config_dir)
+    bert_config = bert_utils.create_config(bert_config_dir)
     model, _ = bert_model.create_model(num_classes=num_classes,
                                        feature_size=feature_size,
                                        bert_config=bert_config)

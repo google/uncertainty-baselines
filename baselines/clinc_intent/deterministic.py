@@ -25,6 +25,7 @@ import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
+import bert_utils  # local file import
 import deterministic_model as cnn_model  # local file import
 import deterministic_model_bert as bert_model  # local file import
 
@@ -112,7 +113,7 @@ def resolve_bert_ckpt_and_config_dir(bert_dir, bert_config_dir, bert_ckpt_dir):
 def create_feature_and_label(inputs, feature_size, model_family):
   """Creates features and labels from model inputs."""
   if model_family.lower() == 'bert':
-    features, labels = bert_model.create_feature_and_label(inputs, feature_size)
+    features, labels = bert_utils.create_feature_and_label(inputs, feature_size)
   else:
     features = inputs['features']
     labels = inputs['labels']
@@ -198,12 +199,12 @@ def main(argv):
     elif FLAGS.model_family.lower() == 'bert':
       bert_config_dir, bert_ckpt_dir = resolve_bert_ckpt_and_config_dir(
           FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
-      bert_config = bert_model.create_config(bert_config_dir)
+      bert_config = bert_utils.create_config(bert_config_dir)
       model, bert_encoder = bert_model.create_model(
           num_classes=num_classes,
           feature_size=feature_size,
           bert_config=bert_config)
-      optimizer = bert_model.create_optimizer(
+      optimizer = bert_utils.create_optimizer(
           FLAGS.base_learning_rate,
           steps_per_epoch=steps_per_epoch,
           epochs=FLAGS.train_epochs,

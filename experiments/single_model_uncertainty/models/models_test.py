@@ -30,7 +30,7 @@ class ModelsTest(tf.test.TestCase):
         num_motifs=16,
         len_motifs=20,
         num_denses=32)
-    self.assertEqual(13, len(model.layers))
+    self.assertEqual(12, len(model.layers))
 
 
 if __name__ == '__main__':

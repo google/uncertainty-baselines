@@ -124,7 +124,11 @@ def define_flags() -> List[str]:
   flags.DEFINE_integer('num_denses', 128,
                        'Number of denses, only used for the genomics dataset.')
 
-  # Model flags, SNGP.
+  # Flags relating to SNGP model
+  flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate for dropout layers.')
+  flags.DEFINE_bool(
+      'before_conv_dropout', False,
+      'Whether to use filter wise dropout before convolutionary layers. ')
   flags.DEFINE_bool(
       'use_mc_dropout', False,
       'Whether to use Monte Carlo dropout for the hidden layers.')

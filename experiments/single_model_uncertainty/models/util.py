@@ -99,8 +99,10 @@ def make_conv2d_layer(num_filters: Optional[int] = None,
   return Conv2DBase
 
 
-def apply_dropout(inputs: tf.Tensor, dropout_rate: float, use_mc_dropout: bool,
-                  filter_wise_dropout: bool = True):
+def apply_dropout(inputs: tf.Tensor,
+                  dropout_rate: float,
+                  use_mc_dropout: bool,
+                  filter_wise_dropout: bool = False):
   """Applies a filter-wise dropout layer to the inputs."""
   logging.info('apply_dropout input shape %s', inputs.shape)
   if filter_wise_dropout:

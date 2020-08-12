@@ -79,6 +79,7 @@ def create_model(
     embed_size: int = 4,
     one_hot: bool = True,
     dropout_rate: float = 0.1,
+    before_conv_dropout: bool = False,
     use_mc_dropout: bool = False,
     spec_norm_hparams: Dict[str, Any] = None,
     gp_layer_hparams: Dict[str, Any] = None,
@@ -97,6 +98,8 @@ def create_model(
     one_hot: (bool) If using one hot encoding to encode input sequences.
     dropout_rate: (float) Fraction of the convolutional output units and dense.
       layer output units to drop.
+    before_conv_dropout: (bool) Whether to use filter wise dropout before the
+      convolutional layer.
     use_mc_dropout: (bool) Whether to apply Monte Carlo dropout.
     spec_norm_hparams: (dict) Hyperparameters for spectral normalization.
     gp_layer_hparams: (dict) Hyperparameters for Gaussian Process output layer.
@@ -114,9 +117,10 @@ def create_model(
     x = tf.keras.layers.Embedding(
         VOCAB_SIZE, embed_size, name='embedding')(
             inputs)
-  # apply filter-wise dropout to x, x.shape=[batch_size, len_seqs, embed_size]
-  x = models_util.apply_dropout(
-      x, dropout_rate, use_mc_dropout, filter_wise_dropout=True)
+  # filter-wise dropout before conv, x.shape=[batch_size, len_seqs, embed_size]
+  if before_conv_dropout:
+    x = models_util.apply_dropout(
+        x, dropout_rate, use_mc_dropout, filter_wise_dropout=True)
   if spec_norm_hparams:
     spec_norm_bound = spec_norm_hparams['spec_norm_bound']
     spec_norm_iteration = spec_norm_hparams['spec_norm_iteration']
@@ -127,13 +131,11 @@ def create_model(
       num_filters=num_motifs,
       kernel_size=(len_motifs, embed_size),
       strides=(1, 1),
-      activation='relu',
       use_spec_norm=(spec_norm_hparams is not None),
       spec_norm_bound=spec_norm_bound,
       spec_norm_iteration=spec_norm_iteration)
   x = _conv_pooled_block(x, conv_layer=conv2d())
-  x = models_util.apply_dropout(
-      x, dropout_rate, use_mc_dropout, filter_wise_dropout=False)
+  x = models_util.apply_dropout(x, dropout_rate, use_mc_dropout)
   x = tf.keras.layers.Dense(
       num_denses,
       activation=tf.keras.activations.relu,
@@ -143,8 +145,7 @@ def create_model(
       num_classes,
       activation=None,
       name='logits')(x)
-  x = models_util.apply_dropout(
-      x, dropout_rate, use_mc_dropout, filter_wise_dropout=False)
+  x = models_util.apply_dropout(x, dropout_rate, use_mc_dropout)
   if gp_layer_hparams:
     gp_output_layer = functools.partial(
         sngp.RandomFeatureGaussianProcess,

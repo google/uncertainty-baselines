@@ -164,9 +164,12 @@ def run(trial_dir: str, flag_string: Optional[str]):
         num_motifs=FLAGS.num_motifs,
         len_motifs=FLAGS.len_motifs,
         num_denses=FLAGS.num_denses,
+        depth=FLAGS.wide_resnet_depth,
         width=FLAGS.wide_resnet_depth,
         l2=FLAGS.weight_decay,
         depth_multiplier=FLAGS.wide_resnet_width_multiplier,
+        dropout_rate=FLAGS.dropout_rate,
+        before_conv_dropout=FLAGS.before_conv_dropout,
         use_mc_dropout=FLAGS.use_mc_dropout,
         spec_norm_hparams=spec_norm_hparams,
         gp_layer_hparams=gp_layer_hparams)

@@ -66,19 +66,20 @@ flags.DEFINE_string(
 # Optimization and evaluation flags
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
+flags.DEFINE_integer('eval_batch_size', 512, 'Batch size for CPU evaluation.')
 flags.DEFINE_float(
-    'base_learning_rate', 0.0005,
+    'base_learning_rate', 1e-4,
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
 flags.DEFINE_integer(
-    'checkpoint_interval', 25,
+    'checkpoint_interval', 150,
     'Number of epochs between saving checkpoints. Use -1 to '
     'never save checkpoints.')
-flags.DEFINE_integer('evaluation_interval', 50,
+flags.DEFINE_integer('evaluation_interval', 5,
                      'Number of epochs between evaluation.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_string('output_dir', '/tmp/clinc_intent', 'Output directory.')
-flags.DEFINE_integer('train_epochs', 1000, 'Number of training epochs.')
+flags.DEFINE_integer('train_epochs', 150, 'Number of training epochs.')
 flags.DEFINE_float(
     'warmup_proportion', 0.1,
     'Proportion of training to perform linear learning rate warmup for. '
@@ -137,29 +138,44 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.experimental.TPUStrategy(resolver)
 
-  ind_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
+  batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
+  train_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
       dataset_dir=FLAGS.dataset_dir,
       data_mode='ind')
+  ind_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
+      batch_size=batch_size,
+      eval_batch_size=FLAGS.eval_batch_size,
+      dataset_dir=FLAGS.dataset_dir,
+      data_mode='ind')
   ood_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
+      batch_size=batch_size,
+      eval_batch_size=FLAGS.eval_batch_size,
       dataset_dir=FLAGS.dataset_dir,
       data_mode='ood')
+  all_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
+      batch_size=batch_size,
+      eval_batch_size=FLAGS.eval_batch_size,
+      dataset_dir=FLAGS.dataset_dir,
+      data_mode='all')
 
-  dataset_builders = {'clean': ind_dataset_builder, 'ood': ood_dataset_builder}
+  dataset_builders = {
+      'clean': ind_dataset_builder,
+      'ood': ood_dataset_builder,
+      'all': all_dataset_builder
+  }
 
-  train_dataset = ind_dataset_builder.build(split=ub.datasets.base.Split.TRAIN)
+  train_dataset = train_dataset_builder.build(
+      split=ub.datasets.base.Split.TRAIN)
 
-  ds_info = ind_dataset_builder.info
+  ds_info = train_dataset_builder.info
   feature_size = ds_info['feature_size']
   # num_classes is number of valid intents plus out-of-scope intent
   num_classes = ds_info['num_classes'] + 1
   # vocab_size is total number of valid tokens plus the out-of-vocabulary token.
   vocab_size = ind_dataset_builder.tokenizer.num_words + 1
 
-  batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_epoch = ds_info['num_train_examples'] // batch_size
 
   test_datasets = {}
@@ -168,7 +184,7 @@ def main(argv):
     test_datasets[dataset_name] = dataset_builder.build(
         split=ub.datasets.base.Split.TEST)
     steps_per_eval[dataset_name] = (
-        dataset_builder.info['num_test_examples'] // batch_size)
+        dataset_builder.info['num_test_examples'] // FLAGS.eval_batch_size)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -256,6 +272,10 @@ def main(argv):
           bert_ckpt_dir).assert_existing_objects_matched()
       logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
 
+  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
+  metrics.update({'test/auroc_all': tf.keras.metrics.AUC(curve='ROC'),
+                  'test/auprc_all': tf.keras.metrics.AUC(curve='PR')})
+
   @tf.function
   def train_step(iterator):
     """Training StepFn."""
@@ -319,7 +339,15 @@ def main(argv):
             labels, probs)
         metrics['test/ece_{}'.format(dataset_name)].update_state(labels, probs)
 
-    strategy.run(step_fn, args=(next(iterator),))
+      if dataset_name == 'all':
+        ood_labels = tf.cast(labels == 150, labels.dtype)
+        ood_probs = 1. - tf.reduce_max(probs, axis=-1)
+        metrics['test/auroc_{}'.format(dataset_name)].update_state(
+            ood_labels, ood_probs)
+        metrics['test/auprc_{}'.format(dataset_name)].update_state(
+            ood_labels, ood_probs)
+
+    step_fn(next(iterator))
 
   train_iterator = iter(train_dataset)
   start_time = time.time()

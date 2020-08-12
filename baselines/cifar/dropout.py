@@ -299,8 +299,7 @@ def main(argv):
   batch_size = (FLAGS.per_core_batch_size * FLAGS.num_cores
                 // FLAGS.num_dropout_samples_training)
   steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
-  test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  steps_per_eval = ds_info.splits['test'].num_examples // test_batch_size
+  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
   if FLAGS.use_bfloat16:

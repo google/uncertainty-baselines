@@ -16,7 +16,7 @@
 # Lint as: python3
 """Collection of shared utility functions."""
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
 from absl import logging
 import numpy as np
 
@@ -50,7 +50,7 @@ def assert_weights_loaded(model: tf.keras.Model, before_restore_vars):
 def build_dataset(
     dataset_builder: base.BaseDataset,
     strategy,
-    split: str,
+    split: Union[str, float, base.Split],
     as_tuple: bool = False,
     ood_dataset_builder: base.BaseDataset = None) -> tf.data.Dataset:
   """Build a tf.data.Dataset iterator using a DistributionStrategy."""

@@ -17,7 +17,7 @@
 """Data loader for the Criteo dataset."""
 
 import os.path
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 import tensorflow.compat.v2 as tf
 from uncertainty_baselines.datasets import base
@@ -52,6 +52,23 @@ def _make_features_spec() -> Dict[str, tf.io.FixedLenFeature]:
   for idx in range(NUM_INT_FEATURES + 1, NUM_TOTAL_FEATURES + 1):
     features[feature_name(idx)] = tf.io.FixedLenFeature([1], tf.string, '')
   return features
+
+
+def apply_randomization(features, label, randomize_prob):
+  """Randomize each categorical feature with some probability."""
+
+  for idx in range(NUM_INT_FEATURES + 1, NUM_TOTAL_FEATURES + 1):
+    key = feature_name(idx)
+
+    def rnd_tok():
+      return tf.as_string(
+          tf.random.uniform(tf.shape(features[key]), 0, 99999999, tf.int32))  # pylint: disable=cell-var-from-loop
+
+    # Ignore lint since tf.cond should evaluate lambda immediately.
+    features[key] = tf.cond(tf.random.uniform([]) < randomize_prob,
+                            rnd_tok,
+                            lambda: features[key])  # pylint: disable=cell-var-from-loop
+  return features, label
 
 
 class CriteoDataset(base.BaseDataset):
@@ -101,7 +118,9 @@ class CriteoDataset(base.BaseDataset):
         glob_dir=os.path.join(self._dataset_dir, 'test-*-of-*'),
         is_training=False)
 
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
+  def _create_process_example_fn(
+      self,
+      split: Union[float, base.Split]) -> base.PreProcessFn:
 
     def _example_parser(example: tf.train.Example) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
@@ -109,6 +128,12 @@ class CriteoDataset(base.BaseDataset):
       features = tf.io.parse_example(example, features_spec)
       features = {k: tf.squeeze(v, axis=0) for k, v in features.items()}
       labels = tf.cast(features.pop('clicked'), tf.int32)
+
+      if isinstance(split, float):
+        if split < 0.0 or split > 1.0:
+          raise ValueError('shift_level not in [0, 1]: {}'.format(split))
+        features, labels = apply_randomization(features, labels, split)
+
       return {'features': features, 'labels': labels}
 
     return _example_parser

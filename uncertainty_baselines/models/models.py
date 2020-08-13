@@ -19,15 +19,19 @@
 import json
 import logging
 from typing import List
+import warnings
 
 import tensorflow.compat.v2 as tf
-from uncertainty_baselines.models import bert
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import genomics_cnn
 from uncertainty_baselines.models import resnet20
 from uncertainty_baselines.models import resnet50
 from uncertainty_baselines.models import textcnn
 from uncertainty_baselines.models import wide_resnet
+try:
+  from uncertainty_baselines.models import bert  # pylint: disable=g-import-not-at-top
+except ImportError as e:
+  warnings.warn(f'Skipped due to ImportError: {e}')
 
 
 def get_model_names() -> List[str]:

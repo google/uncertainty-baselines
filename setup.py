@@ -29,9 +29,11 @@ setup(
         'numpy>=1.7',
         'tf-nightly',
         'tensorflow-datasets>=1.3.0',
-        'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
     ],
     extras_require={
+        'models': [
+            'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
+            ],
         'tests': ['pylint>=1.9.0'],
     },
     classifiers=[

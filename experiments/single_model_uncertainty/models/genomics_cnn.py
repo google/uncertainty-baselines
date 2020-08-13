@@ -69,21 +69,20 @@ def _conv_pooled_block(
   return out
 
 
-def create_model(
-    batch_size: int,
-    len_seqs: int,
-    num_motifs: int,
-    len_motifs: int,
-    num_denses: int,
-    num_classes: int = 10,
-    embed_size: int = 4,
-    one_hot: bool = True,
-    dropout_rate: float = 0.1,
-    before_conv_dropout: bool = False,
-    use_mc_dropout: bool = False,
-    spec_norm_hparams: Dict[str, Any] = None,
-    gp_layer_hparams: Dict[str, Any] = None,
-) -> tf.keras.models.Model:
+def create_model(batch_size: int,
+                 len_seqs: int,
+                 num_motifs: int,
+                 len_motifs: int,
+                 num_denses: int,
+                 num_classes: int = 10,
+                 embed_size: int = 4,
+                 one_hot: bool = True,
+                 dropout_rate: float = 0.1,
+                 before_conv_dropout: bool = False,
+                 use_mc_dropout: bool = False,
+                 spec_norm_hparams: Dict[str, Any] = None,
+                 gp_layer_hparams: Dict[str, Any] = None,
+                 **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
 
   """Builds Genomics CNN model.
 
@@ -103,6 +102,8 @@ def create_model(
     use_mc_dropout: (bool) Whether to apply Monte Carlo dropout.
     spec_norm_hparams: (dict) Hyperparameters for spectral normalization.
     gp_layer_hparams: (dict) Hyperparameters for Gaussian Process output layer.
+    **unused_kwargs: (dict) Unused keyword arguments that will be ignored by the
+      model.
 
   Returns:
     (tf.keras.Model) The 1D convolutional model for genomic sequences.

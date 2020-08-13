@@ -186,7 +186,6 @@ def get_learning_rate_schedule(
   elif schedule_name == 'resnet50':
     return resnet50_learning_rate_schedule(base_learning_rate, steps_per_epoch)
   elif schedule_name == 'linear_warmup':
-    print('schedule_kwargs : ', schedule_kwargs)
     warmup_hparams = ['decay_ratio', 'decay_epochs', 'warmup_epochs']
     if not all(elem in schedule_kwargs.keys() for elem in warmup_hparams):
       raise ValueError('schedule_kwargs must contain "decay_ratio", '

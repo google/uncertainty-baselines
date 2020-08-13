@@ -97,8 +97,8 @@ flags.DEFINE_integer(
 flags.DEFINE_bool(
     'gp_input_normalization', False,
     'Whether to normalize the input for GP layer using LayerNorm. This is '
-    'similar to applying automatic relevance determination (ARD) in the classic '
-    'GP literature.')
+    'similar to applying automatic relevance determination (ARD) in the '
+    'classic GP literature.')
 flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
                    'The Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
@@ -170,8 +170,14 @@ def Conv2DNormed(*conv_args, **conv_kwargs):
 
 # pylint: enable=invalid-name
 
-CONV_LAYER = Conv2DNormed if FLAGS.use_spec_norm else sngp_model.DEFAULT_CONV_LAYER
-OUTPUT_LAYER = GaussianProcess if FLAGS.use_gp_layer else sngp_model.DEFAULT_OUTPUT_LAYER
+if FLAGS.use_spec_norm:
+  CONV_LAYER = Conv2DNormed
+else:
+  CONV_LAYER = sngp_model.DEFAULT_CONV_LAYER
+if FLAGS.use_gp_layer:
+  OUTPUT_LAYER = GaussianProcess
+else:
+  OUTPUT_LAYER = sngp_model.DEFAULT_OUTPUT_LAYER
 
 
 # Utility functions.

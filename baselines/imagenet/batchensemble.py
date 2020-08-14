@@ -22,10 +22,10 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
 import tensorflow as tf
 import batchensemble_model  # local file import
 import utils  # local file import
+import uncertainty_metrics as um
 
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
@@ -161,15 +161,13 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': ed.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': ed.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/member_accuracy_mean': (
             tf.keras.metrics.SparseCategoricalAccuracy()),
-        'test/member_ece_mean': ed.metrics.ExpectedCalibrationError(
+        'test/member_ece_mean': um.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins)
     }
 
@@ -183,11 +181,11 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
           corrupt_metrics['test/member_acc_mean_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/member_ece_mean_{}'.format(dataset_name)] = (
-              ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     test_diversity = {}
     training_diversity = {}
@@ -238,7 +236,7 @@ def main(argv):
         probs = tf.nn.softmax(logits)
         per_probs = tf.reshape(
             probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-        diversity_results = ed.metrics.average_pairwise_diversity(
+        diversity_results = um.average_pairwise_diversity(
             per_probs, FLAGS.ensemble_size)
 
         if FLAGS.mixup_alpha > 0:
@@ -309,7 +307,7 @@ def main(argv):
       if dataset_name == 'clean':
         per_probs_tensor = tf.reshape(
             probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-        diversity_results = ed.metrics.average_pairwise_diversity(
+        diversity_results = um.average_pairwise_diversity(
             per_probs_tensor, FLAGS.ensemble_size)
         for k, v in diversity_results.items():
           test_diversity['test/' + k].update_state(v)

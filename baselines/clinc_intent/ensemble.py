@@ -26,16 +26,15 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
-# import clinc_intent.deterministic to inhere its flags
-
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
 import bert_utils  # local file import
+# import clinc_intent.deterministic to inhere its flags
 import deterministic  # pylint:disable=unused-import  # local file import
 import deterministic_model as cnn_model  # local file import
 import deterministic_model_bert as bert_model  # local file import
+import uncertainty_metrics as um
 
 # TODO(trandustin): We inherit
 # FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
@@ -206,7 +205,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
   }
 
   for dataset_name, test_dataset in test_datasets.items():
@@ -217,7 +216,7 @@ def main(argv):
           'test/accuracy_{}'.format(dataset_name):
               tf.keras.metrics.SparseCategoricalAccuracy(),
           'test/ece_{}'.format(dataset_name):
-              ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
       })
 
   # Evaluate model predictions.

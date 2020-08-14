@@ -22,10 +22,10 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
 import tensorflow as tf
 import efficientnet_model  # local file import
 import utils  # local file import
+import uncertainty_metrics as um
 
 # ~312.78 steps per epoch for 4x4 TPU; per_core_batch_size=128; 350 epochs;
 
@@ -150,13 +150,11 @@ def main(argv):
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'train/ece': ed.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'train/loss': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'test/ece': ed.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
     logging.info('Finished building %s model', FLAGS.model_name)
 

@@ -28,10 +28,10 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import utils  # local file import
+import uncertainty_metrics as um
 
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
@@ -295,13 +295,13 @@ def main(argv):
         'train/loss':
             tf.keras.metrics.Mean(),
         'train/ece':
-            ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood':
             tf.keras.metrics.Mean(),
         'test/accuracy':
             tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece':
-            ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
@@ -313,7 +313,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)

@@ -27,12 +27,12 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import deterministic  # local file import
 import utils  # local file import
+import uncertainty_metrics as um
 
 # TODO(trandustin): We inherit
 # FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
@@ -133,7 +133,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
   }
   corrupt_metrics = {}
   for name in test_datasets:
@@ -141,7 +141,7 @@ def main(argv):
     corrupt_metrics['test/accuracy_{}'.format(name)] = (
         tf.keras.metrics.SparseCategoricalAccuracy())
     corrupt_metrics['test/ece_{}'.format(name)] = (
-        ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+        um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
   for i in range(ensemble_size):
     metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
     metrics['test/accuracy_member_{}'.format(i)] = (
@@ -187,7 +187,7 @@ def main(argv):
           metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
           metrics['test/accuracy_member_{}'.format(i)].update_state(
               labels, member_probs)
-        diversity_results = ed.metrics.average_pairwise_diversity(
+        diversity_results = um.average_pairwise_diversity(
             per_probs, ensemble_size)
         for k, v in diversity_results.items():
           test_diversity['test/' + k].update_state(v)

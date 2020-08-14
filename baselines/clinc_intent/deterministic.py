@@ -21,13 +21,13 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
 import bert_utils  # local file import
 import deterministic_model as cnn_model  # local file import
 import deterministic_model_bert as bert_model  # local file import
+import uncertainty_metrics as um
 
 # Data flags
 flags.DEFINE_string(
@@ -237,12 +237,10 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': ed.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': ed.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
 
     for dataset_name, test_dataset in test_datasets.items():
@@ -253,7 +251,7 @@ def main(argv):
             'test/accuracy_{}'.format(dataset_name):
                 tf.keras.metrics.SparseCategoricalAccuracy(),
             'test/ece_{}'.format(dataset_name):
-                ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+                um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
         })
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)

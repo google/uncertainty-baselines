@@ -21,12 +21,12 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import sngp  # local file import
 import sngp_model  # local file import
 import utils  # local file import
+import uncertainty_metrics as um
 
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
@@ -127,7 +127,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
   }
   corrupt_metrics = {}
   for name in test_datasets:
@@ -135,7 +135,7 @@ def main(argv):
     corrupt_metrics['test/accuracy_{}'.format(name)] = (
         tf.keras.metrics.SparseCategoricalAccuracy())
     corrupt_metrics['test/ece_{}'.format(
-        name)] = ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+        name)] = um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
 
   # Evaluate model predictions.
   for n, (name, test_dataset) in enumerate(test_datasets.items()):

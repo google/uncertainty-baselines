@@ -27,12 +27,12 @@ from absl import app
 from absl import flags
 from absl import logging
 
-import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import sngp  # local file import
 import utils  # local file import
+import uncertainty_metrics as um
 
 # TODO(trandustin): We inherit
 # FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
@@ -146,7 +146,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
   }
   corrupt_metrics = {}
   for name in test_datasets:
@@ -154,7 +154,7 @@ def main(argv):
     corrupt_metrics['test/accuracy_{}'.format(name)] = (
         tf.keras.metrics.SparseCategoricalAccuracy())
     corrupt_metrics['test/ece_{}'.format(name)] = (
-        ed.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+        um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
   # Evaluate model predictions.
   for n, (name, test_dataset) in enumerate(test_datasets.items()):

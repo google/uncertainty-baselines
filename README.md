@@ -150,6 +150,17 @@ We define metrics used across datasets below. All results are reported by roughl
     It is equivalent up to a constant to the KL divergence from the true data distribution to the model, therefore capturing the overall goodness of fit to the true distribution ([Murphy, 2012](https://www.cs.ubc.ca/~murphyk/MLbook/)). It can also be intepreted as the amount of bits (nats) to explain the data ([Grunwald, 2004](https://arxiv.org/abs/math/0406077)).
 5. __Train/Test Runtime.__ Training runtime is the total wall-clock time to train the model, including any intermediate test set evaluations. Test runtime is the total wall-clock make and evaluate predictions on the test set.
 
+### Viewing metrics
+
+Uncertainty baselines writes TensorFlow summaries to the `model_dir` which can be consumed by TensorBoard. This included the TensorBoard hyperparameters plugin, which can be used to analyze hyperparamter tuning sweeps.
+
+If you wish to upload to the *PUBLICLY READABLE* [tensorboard.dev](https://tensorboard.dev/) you can use the following command:
+
+```
+tensorboard dev upload --logdir MODEL_DIR --plugins "scalars,graphs,hparams" --name "My experiment" --description "My experiment details"
+```
+
+
 ## Experiments
 
 The `experiments/` directory is for projects that use the codebase that the

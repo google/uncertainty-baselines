@@ -94,9 +94,11 @@ def define_flags() -> List[str]:
 
   # Loss function related flags.
   flags.DEFINE_enum('loss_name', None,
-                    enum_values=['crossentropy', 'dm_loss', 'one_vs_all'],
+                    enum_values=['crossentropy', 'dm_loss', 'one_vs_all',
+                                 'focal_loss'],
                     help='Loss function')
   flags.DEFINE_float('dm_alpha', 1.0, 'DM Alpha parameter.')
+  flags.DEFINE_float('focal_gamma', 3.0, 'Gamma parameter for focal loss.')
   flags.DEFINE_bool('distance_logits', False,
                     'Whether to use a distance-based last layer.')
 

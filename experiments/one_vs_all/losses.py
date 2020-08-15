@@ -22,7 +22,8 @@ import tensorflow.compat.v2 as tf
 def get(
     loss_name: str,
     from_logits: bool = True,
-    dm_alpha: float = 1.0):
+    dm_alpha: float = 1.0,
+    focal_gamma: float = 3.0):
   """Returns a loss function for training a tf.keras.Model.
 
   Args:
@@ -31,6 +32,8 @@ def get(
       probabilities.
     dm_alpha: float indicating the value of the alpha term to use for
       distance-based loss functions.
+    focal_gamma: float indicating the value of the gamma term to use for
+      focal loss functions.
   """
   loss_name = loss_name.lower()
   if loss_name == 'crossentropy':
@@ -40,13 +43,15 @@ def get(
     return dm_loss_fn(dm_alpha=dm_alpha, from_logits=from_logits)
   elif loss_name in ['one_vs_all', 'one_vs_all_dm']:
     return one_vs_all_loss_fn(dm_alpha=dm_alpha, from_logits=from_logits)
+  elif loss_name == 'focal_loss':
+    return focal_loss_fn(gamma=focal_gamma, from_logits=from_logits)
   else:
     raise ValueError('Unrecognized loss name: {}'.format(loss_name))
 
 
 def get_normalized_probabilities(logits: tf.Tensor, loss_name: str):
   loss_name = loss_name.lower()
-  if loss_name in ['crossentropy', 'dm_loss']:
+  if loss_name in ['crossentropy', 'dm_loss', 'focal_loss']:
     return tf.nn.softmax(logits, axis=-1)
   elif loss_name == 'one_vs_all':
     return tf.nn.sigmoid(logits)
@@ -128,3 +133,35 @@ def one_vs_all_loss_fn(dm_alpha: float = 1., from_logits: bool = True):
 
   return one_vs_all_loss
 
+
+def focal_loss_fn(gamma: float = 3., from_logits: bool = True):
+  """Requires from_logits=True to calculate correctly."""
+  if not from_logits:
+    raise ValueError('Focal loss requires inputs to the loss function to be'
+                     'logits, not probabilities.')
+
+  def focal_loss(labels, logits):
+    r"""Implements the Focal Loss function.
+
+    As implemented in https://openreview.net/forum?id=SJxTZeHFPH, weighs the
+    misclassified samples more. The focal loss for the training set is
+    calculated as -
+      J_{f} = \sum_i^N -(1 - \hat{p}_{i, y_i})^{\gamma} \log \hat{p}_{i, y_i}
+
+    Args:
+      labels: Integer Tensor of dense labels, shape [batch_size].
+      logits: Tensor of shape [batch_size, num_classes].
+
+    Returns:
+    A tensor containing the Focal loss averaged over a batch.
+    """
+    probs = tf.math.softmax(logits, axis=-1)
+
+    row_ids = tf.range(tf.shape(probs)[0], dtype=tf.int32)
+    idx = tf.stack([row_ids, tf.squeeze(labels)], axis=1)
+    class_probs = tf.gather_nd(probs, idx)
+
+    return tf.reduce_mean(
+        -tf.math.pow((1. - class_probs), gamma) * tf.math.log(class_probs))
+
+  return focal_loss

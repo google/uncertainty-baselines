@@ -74,7 +74,8 @@ flags.DEFINE_float('dm_alpha', 1.0, 'DM Alpha parameter.')
 flags.DEFINE_bool('distance_logits', False,
                   'Whether to use a distance-based last layer.')
 flags.DEFINE_enum('loss_name', 'crossentropy',
-                  enum_values=['crossentropy', 'dm_loss', 'one_vs_all'],
+                  enum_values=['crossentropy', 'dm_loss', 'one_vs_all',
+                               'focal_loss'],
                   help='Loss function')
 
 # Model flags.
@@ -132,7 +133,8 @@ def run(trial_dir: str):
     loss_fn = loss_lib.get(
         loss_name=FLAGS.loss_name,
         from_logits=True,
-        dm_alpha=FLAGS.dm_alpha)
+        dm_alpha=FLAGS.dm_alpha,
+        focal_gamma=FLAGS.focal_gamma)
     model.compile(
         optimizer=optimizer,
         loss=loss_fn,

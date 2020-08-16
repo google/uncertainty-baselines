@@ -75,8 +75,7 @@ def make_conv2d_layer(num_filters: Optional[int] = None,
       use_bias=use_bias,
       kernel_initializer=kernel_initializer,
       activation=activation,
-      data_format='channels_last',
-      name='conv')
+      data_format='channels_last')
 
   if use_spec_norm:
     if spec_norm_iteration and spec_norm_bound:

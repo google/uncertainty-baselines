@@ -50,8 +50,9 @@ def _check_batch_replica_divisible(
             batch_size, strategy.num_replicas_in_sync))
 
 
-def _setup_trial_dir(trial_dir: str, flag_string: Optional[str]):
-  if not trial_dir:
+def _setup_trial_dir(trial_dir: str, flag_string: Optional[str], mode: str):
+  # Do not write to the same flags.cfg file unless this is the trainer job.
+  if not trial_dir or 'train' not in mode:
     return
   if not tf.io.gfile.exists(trial_dir):
     tf.io.gfile.makedirs(trial_dir)
@@ -64,7 +65,8 @@ def _setup_trial_dir(trial_dir: str, flag_string: Optional[str]):
 def _maybe_setup_trial_dir(
     strategy,
     trial_dir: str,
-    flag_string: Optional[str]):
+    flag_string: Optional[str],
+    mode: str):
   """Create `trial_dir` if it does not exist and save the flags if provided."""
   if trial_dir:
     logging.info('Saving to dir: %s', trial_dir)
@@ -76,9 +78,9 @@ def _maybe_setup_trial_dir(
   # file writing error.
   if strategy.num_replicas_in_sync > 1:
     if strategy.cluster_resolver.task_id == 0:
-      _setup_trial_dir(trial_dir, flag_string)
+      _setup_trial_dir(trial_dir, flag_string, mode)
   else:
-    _setup_trial_dir(trial_dir, flag_string)
+    _setup_trial_dir(trial_dir, flag_string, mode)
 
 
 class BrierScore(tf.keras.metrics.Mean):
@@ -124,7 +126,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
 
   strategy = ub.strategy_utils.get_strategy(FLAGS.master, FLAGS.use_tpu)
   with strategy.scope():
-    _maybe_setup_trial_dir(strategy, trial_dir, flag_string)
+    _maybe_setup_trial_dir(strategy, trial_dir, flag_string, FLAGS.mode)
 
     # TODO(znado): pass all dataset and model kwargs.
     dataset_builder = ub.datasets.get(

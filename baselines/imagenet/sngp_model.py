@@ -23,6 +23,27 @@ import tensorflow as tf
 BATCH_NORM_DECAY = 0.9
 BATCH_NORM_EPSILON = 1e-5
 
+
+def MonteCarloDropout(  # pylint:disable=invalid-name
+    inputs,
+    dropout_rate,
+    use_mc_dropout,
+    filterwise_dropout):
+  """Defines the Monte Carlo dropout layer."""
+  training = None
+  noise_shape = None
+
+  if use_mc_dropout:
+    training = True
+
+  if filterwise_dropout:
+    noise_shape = [inputs.shape[0], 1, 1, inputs.shape[3]]
+
+  return tf.keras.layers.Dropout(
+      dropout_rate, noise_shape=noise_shape)(
+          inputs, training=training)
+
+
 # Default layers.
 DEFAULT_CONV_LAYER = functools.partial(tf.keras.layers.Conv2D, padding='same')
 
@@ -32,8 +53,15 @@ DEFAULT_OUTPUT_LAYER = functools.partial(
     kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
     name='fc1000')
 
+DEFAULT_DROPOUT_LAYER = functools.partial(
+    MonteCarloDropout,
+    dropout_rate=0.,
+    use_mc_dropout=False,
+    filterwise_dropout=False)
 
-def bottleneck_block(inputs, filters, stage, block, strides, conv_layer):
+
+def bottleneck_block(inputs, filters, stage, block, strides, conv_layer,
+                     dropout_layer):
   """Residual block with 1x1 -> 3x3 -> 1x1 convs in main path.
 
   Note that strides appear in the second conv (3x3) rather than the first (1x1).
@@ -47,6 +75,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, conv_layer):
     block: 'a','b'..., current block label, used for generating layer names
     strides: Strides for the second conv layer in the block.
     conv_layer: tf.keras.layers.Layer.
+    dropout_layer: Callable for dropout layer.
 
   Returns:
     tf.Tensor.
@@ -67,6 +96,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, conv_layer):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(x)
   x = tf.keras.layers.Activation('relu')(x)
+  x = dropout_layer(x)
 
   x = conv_layer(
       filters2,
@@ -82,6 +112,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, conv_layer):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(x)
   x = tf.keras.layers.Activation('relu')(x)
+  x = dropout_layer(x)
 
   x = conv_layer(
       filters3,
@@ -109,13 +140,15 @@ def bottleneck_block(inputs, filters, stage, block, strides, conv_layer):
         momentum=BATCH_NORM_DECAY,
         epsilon=BATCH_NORM_EPSILON,
         name=bn_name_base + '1')(shortcut)
+    shortcut = dropout_layer(shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
   x = tf.keras.layers.Activation('relu')(x)
   return x
 
 
-def group(inputs, filters, num_blocks, stage, strides, conv_layer):
+def group(inputs, filters, num_blocks, stage, strides, conv_layer,
+          dropout_layer):
   """Group of residual blocks."""
   blocks = string.ascii_lowercase
   x = bottleneck_block(
@@ -124,7 +157,8 @@ def group(inputs, filters, num_blocks, stage, strides, conv_layer):
       stage,
       block=blocks[0],
       strides=strides,
-      conv_layer=conv_layer)
+      conv_layer=conv_layer,
+      dropout_layer=dropout_layer)
   for i in range(num_blocks - 1):
     x = bottleneck_block(
         x,
@@ -132,7 +166,8 @@ def group(inputs, filters, num_blocks, stage, strides, conv_layer):
         stage,
         block=blocks[i + 1],
         strides=1,
-        conv_layer=conv_layer)
+        conv_layer=conv_layer,
+        dropout_layer=dropout_layer)
   return x
 
 
@@ -140,7 +175,8 @@ def resnet50(input_shape,
              batch_size,
              num_classes,
              conv_layer=DEFAULT_CONV_LAYER,
-             output_layer=DEFAULT_OUTPUT_LAYER):
+             output_layer=DEFAULT_OUTPUT_LAYER,
+             dropout_layer=DEFAULT_DROPOUT_LAYER):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -154,6 +190,7 @@ def resnet50(input_shape,
     num_classes: Number of output classes.
     conv_layer: tf.keras.layers.Layer.
     output_layer: tf.keras.layers.Layer.
+    dropout_layer: Callable for dropout layer.
 
   Returns:
     tf.keras.Model.
@@ -174,27 +211,37 @@ def resnet50(input_shape,
       epsilon=BATCH_NORM_EPSILON,
       name='bn_conv1')(x)
   x = tf.keras.layers.Activation('relu')(x)
+  x = dropout_layer(x)
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
+
   x = group(
-      x, [64, 64, 256], stage=2, num_blocks=3, strides=1, conv_layer=conv_layer)
+      x, [64, 64, 256],
+      stage=2,
+      num_blocks=3,
+      strides=1,
+      conv_layer=conv_layer,
+      dropout_layer=dropout_layer)
   x = group(
       x, [128, 128, 512],
       stage=3,
       num_blocks=4,
       strides=2,
-      conv_layer=conv_layer)
+      conv_layer=conv_layer,
+      dropout_layer=dropout_layer)
   x = group(
       x, [256, 256, 1024],
       stage=4,
       num_blocks=6,
       strides=2,
-      conv_layer=conv_layer)
+      conv_layer=conv_layer,
+      dropout_layer=dropout_layer)
   x = group(
       x, [512, 512, 2048],
       stage=5,
       num_blocks=3,
       strides=2,
-      conv_layer=conv_layer)
+      conv_layer=conv_layer,
+      dropout_layer=dropout_layer)
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
 
   outputs = output_layer(num_classes)(x)

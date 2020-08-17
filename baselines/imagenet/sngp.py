@@ -72,6 +72,16 @@ flags.DEFINE_bool('use_spec_norm', True,
 flags.DEFINE_bool('use_gp_layer', True,
                   'Whether to use Gaussian process as the output layer.')
 
+# Dropout flags.
+flags.DEFINE_float('dropout_rate', 0., 'Dropout rate.')
+flags.DEFINE_bool(
+    'filterwise_dropout', True, 'Dropout whole convolutional'
+    'filters instead of individual values in the feature map.')
+flags.DEFINE_bool('use_mc_dropout', False,
+                  'Whether to use Monte Carlo dropout during inference.')
+flags.DEFINE_integer('num_dropout_samples', 1,
+                     'Number of samples to use for MC Dropout prediction.')
+
 # Spectral normalization flags.
 flags.DEFINE_integer(
     'spec_norm_iteration', 1,
@@ -118,7 +128,7 @@ flags.DEFINE_bool(
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_bool('use_bfloat16', True, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 32, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
@@ -178,6 +188,12 @@ if FLAGS.use_gp_layer:
   OUTPUT_LAYER = GaussianProcess
 else:
   OUTPUT_LAYER = sngp_model.DEFAULT_OUTPUT_LAYER
+
+DROPOUT_LAYER = functools.partial(
+    sngp_model.MonteCarloDropout,
+    dropout_rate=FLAGS.dropout_rate,
+    use_mc_dropout=FLAGS.use_mc_dropout,
+    filterwise_dropout=FLAGS.filterwise_dropout)
 
 
 # Utility functions.
@@ -255,7 +271,8 @@ def main(argv):
         batch_size=batch_size,
         num_classes=NUM_CLASSES,
         conv_layer=CONV_LAYER,
-        output_layer=OUTPUT_LAYER)
+        output_layer=OUTPUT_LAYER,
+        dropout_layer=DROPOUT_LAYER)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -357,23 +374,43 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images, labels = inputs
-      logits = model(images, training=False)
 
-      if isinstance(logits, tuple):
-        # If model returns a tuple of (logits, covmat), extract both
-        logits, covmat = logits
-      else:
-        covmat = tf.eye(FLAGS.per_core_batch_size)
+      logits_list = []
+      stddev_list = []
+      for _ in range(FLAGS.num_dropout_samples):
+        logits = model(images, training=False)
 
-      if FLAGS.use_bfloat16:
-        logits = tf.cast(logits, tf.float32)
+        if isinstance(logits, tuple):
+          # If model returns a tuple of (logits, covmat), extract both
+          logits, covmat = logits
+        else:
+          covmat = tf.eye(FLAGS.per_core_batch_size)
 
-      logits = mean_field_logits(
-          logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
-      probs = tf.nn.softmax(logits)
-      stddev = tf.sqrt(tf.linalg.diag_part(covmat))
+        if FLAGS.use_bfloat16:
+          logits = tf.cast(logits, tf.float32)
+
+        logits = mean_field_logits(
+            logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
+        stddev = tf.sqrt(tf.linalg.diag_part(covmat))
+
+        stddev_list.append(stddev)
+        logits_list.append(logits)
+
+      # Logits dimension is (num_samples, batch_size, num_classes).
+      logits_list = tf.stack(logits_list, axis=0)
+      stddev_list = tf.stack(stddev_list, axis=0)
+
+      stddev = tf.reduce_mean(stddev_list, axis=0)
+      probs_list = tf.nn.softmax(logits_list)
+      probs = tf.reduce_mean(probs_list, axis=0)
+
+      labels_broadcasted = tf.broadcast_to(
+          labels, [FLAGS.num_dropout_samples, labels.shape[0]])
+      log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
+          labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(
-          tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
+          -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
+          tf.math.log(float(FLAGS.num_dropout_samples)))
 
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(

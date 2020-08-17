@@ -20,7 +20,11 @@ from absl import logging
 
 
 _IMPORTS = [
-    'datasets', 'models', 'optimizers', 'strategy_utils', 'utils'
+    'datasets',
+    'models',
+    'optimizers',
+    'strategy_utils',
+    'utils',
 ]
 
 

@@ -245,7 +245,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         k[len('schedule_hparams_'):]: FLAGS[k].value for k in FLAGS
         if k.startswith('schedule_hparams_')
     })
-    print(optimizer_kwargs)
+
     optimizer = ub.optimizers.get(
         optimizer_name=FLAGS.optimizer,
         learning_rate_schedule=FLAGS.learning_rate_schedule,

@@ -38,7 +38,8 @@ class OodSplit(enum.Enum):
 # have elements that are Sequence[tf.Tensor], but for TFDS datasets they will be
 # Dict[str, tf.Tensor].
 PreProcessFn = Callable[
-    [Union[Sequence[tf.Tensor], Dict[str, tf.Tensor]]], Dict[str, tf.Tensor]]
+    [Union[int, Sequence[tf.Tensor], Dict[str, tf.Tensor]]],
+    Dict[str, tf.Tensor]]
 
 
 @six.add_metaclass(abc.ABCMeta)

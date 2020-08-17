@@ -30,6 +30,8 @@ from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
+from uncertainty_baselines.datasets.random import RandomGaussianImageDataset
+from uncertainty_baselines.datasets.random import RandomRademacherImageDataset
 from uncertainty_baselines.datasets.svhn import SvhnDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
@@ -47,6 +49,8 @@ def get_dataset_names() -> List[str]:
       'imagenet',
       'mnist',
       'mnli',
+      'random_gaussian',
+      'random_rademacher',
       'svhn',
       'glue/cola',
       'glue/sst2',
@@ -105,6 +109,10 @@ def get(
     dataset_class = MnistDataset
   elif dataset_name == 'mnli':
     dataset_class = MnliDataset
+  elif dataset_name == 'random_gaussian':
+    dataset_class = RandomGaussianImageDataset
+  elif dataset_name == 'random_rademacher':
+    dataset_class = RandomRademacherImageDataset
   elif dataset_name == 'svhn':
     dataset_class = SvhnDataset
   elif 'glue/' in dataset_name:

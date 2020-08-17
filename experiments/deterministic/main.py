@@ -143,6 +143,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
     metrics = {
         'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'brier_score': BrierScore(name='brier_score'),
+        'ece': um.ExpectedCalibrationError(num_bins=10, name='ece'),
         'loss': tf.keras.metrics.SparseCategoricalCrossentropy(),
     }
 

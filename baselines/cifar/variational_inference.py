@@ -96,31 +96,6 @@ Conv2DFlipout = functools.partial(  # pylint: disable=invalid-name
     use_bias=False)
 
 
-class NormalKLDivergenceWithTiedMean(tf.keras.regularizers.Regularizer):
-  """KL with normal prior whose mean is fixed at the variational posterior's."""
-
-  def __init__(self, stddev=1., scale_factor=1.):
-    """Constructs regularizer."""
-    self.stddev = stddev
-    self.scale_factor = scale_factor
-
-  def __call__(self, x):
-    """Computes regularization given an ed.Normal random variable as input."""
-    if not isinstance(x, ed.RandomVariable):
-      raise ValueError('Input must be an ed.RandomVariable.')
-    prior = ed.Independent(
-        ed.Normal(loc=x.distribution.mean(), scale=self.stddev).distribution,
-        reinterpreted_batch_ndims=len(x.distribution.event_shape))
-    regularization = x.distribution.kl_divergence(prior.distribution)
-    return self.scale_factor * regularization
-
-  def get_config(self):
-    return {
-        'stddev': self.stddev,
-        'scale_factor': self.scale_factor,
-    }
-
-
 def basic_block(inputs, filters, strides, prior_stddev, dataset_size,
                 stddev_init):
   """Basic residual block of two 3x3 convs.
@@ -146,7 +121,7 @@ def basic_block(inputs, filters, strides, prior_stddev, dataset_size,
       kernel_initializer=ed.initializers.TrainableHeNormal(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_init)), stddev=0.1)),
-      kernel_regularizer=NormalKLDivergenceWithTiedMean(
+      kernel_regularizer=ed.regularizers.NormalKLDivergenceWithTiedMean(
           stddev=prior_stddev, scale_factor=1./dataset_size))(y)
   y = BatchNormalization()(y)
   y = tf.keras.layers.Activation('relu')(y)
@@ -156,7 +131,7 @@ def basic_block(inputs, filters, strides, prior_stddev, dataset_size,
       kernel_initializer=ed.initializers.TrainableHeNormal(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_init)), stddev=0.1)),
-      kernel_regularizer=NormalKLDivergenceWithTiedMean(
+      kernel_regularizer=ed.regularizers.NormalKLDivergenceWithTiedMean(
           stddev=prior_stddev, scale_factor=1./dataset_size))(y)
   if not x.shape.is_compatible_with(y.shape):
     x = Conv2DFlipout(
@@ -166,7 +141,7 @@ def basic_block(inputs, filters, strides, prior_stddev, dataset_size,
         kernel_initializer=ed.initializers.TrainableHeNormal(
             stddev_initializer=tf.keras.initializers.TruncatedNormal(
                 mean=np.log(np.expm1(stddev_init)), stddev=0.1)),
-        kernel_regularizer=NormalKLDivergenceWithTiedMean(
+        kernel_regularizer=ed.regularizers.NormalKLDivergenceWithTiedMean(
             stddev=prior_stddev, scale_factor=1./dataset_size))(x)
   x = tf.keras.layers.add([x, y])
   return x
@@ -214,7 +189,7 @@ def wide_resnet(input_shape, depth, width_multiplier, num_classes,
       kernel_initializer=ed.initializers.TrainableHeNormal(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_init)), stddev=0.1)),
-      kernel_regularizer=NormalKLDivergenceWithTiedMean(
+      kernel_regularizer=ed.regularizers.NormalKLDivergenceWithTiedMean(
           stddev=prior_stddev, scale_factor=1./dataset_size))(inputs)
   for strides, filters in zip([1, 2, 2], [16, 32, 64]):
     x = group(x,
@@ -234,7 +209,7 @@ def wide_resnet(input_shape, depth, width_multiplier, num_classes,
       kernel_initializer=ed.initializers.TrainableHeNormal(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_init)), stddev=0.1)),
-      kernel_regularizer=NormalKLDivergenceWithTiedMean(
+      kernel_regularizer=ed.regularizers.NormalKLDivergenceWithTiedMean(
           stddev=prior_stddev, scale_factor=1./dataset_size))(x)
   return tf.keras.Model(inputs=inputs, outputs=x)
 

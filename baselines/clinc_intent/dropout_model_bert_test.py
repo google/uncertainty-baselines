@@ -113,6 +113,37 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
     self.assertListEqual(output_shape_observed, output_shape_expected)
 
+  @parameterized.named_parameters(('no_mc_dropout', False, False),
+                                  ('classic_dropout', True, False),
+                                  ('channel_wise_dropout', True, True))
+  def test_transformer(self, use_mc_dropout, channel_wise_dropout):
+    """Tests if DropoutTransformer can be compiled successfully."""
+    inputs_tensor = self.input_3d
+    inputs_shape = inputs_tensor.shape[1:]
+
+    # Compiles model and get output.
+    inputs = tf.keras.Input(shape=inputs_shape, batch_size=self.batch_size)
+    outputs_transformer = dropout_model_bert.DropoutTransformer(
+        num_attention_heads=self.num_heads,
+        intermediate_size=self.hidden_dim,
+        intermediate_activation=tf.nn.relu,
+        dropout_rate=self.dropout_rate,
+        attention_dropout_rate=self.dropout_rate,
+        use_mc_dropout_mha=use_mc_dropout,
+        use_mc_dropout_att=use_mc_dropout,
+        use_mc_dropout_ffn=use_mc_dropout,
+        channel_wise_dropout_mha=channel_wise_dropout,
+        channel_wise_dropout_att=channel_wise_dropout,
+        channel_wise_dropout_ffn=channel_wise_dropout)(inputs)
+    model = tf.keras.Model(inputs=inputs, outputs=outputs_transformer)
+    outputs_tensor = model(inputs_tensor, training=False)
+
+    # Compares shape.
+    output_shape_expected = [self.batch_size, self.seq_length, self.hidden_dim]
+    output_shape_observed = outputs_tensor.shape.as_list()
+
+    self.assertListEqual(output_shape_observed, output_shape_expected)
+
 
 if __name__ == '__main__':
   tf.test.main()

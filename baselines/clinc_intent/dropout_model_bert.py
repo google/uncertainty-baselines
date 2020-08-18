@@ -23,7 +23,7 @@ import tensorflow as tf
 
 from official.modeling import tf_utils  # pylint: disable=unused-import
 from official.nlp.modeling import layers as bert_layers
-from official.nlp.modeling import networks as bert_encoder  # pylint: disable=unused-import
+from official.nlp.modeling import networks as bert_encoder
 
 
 def _monte_carlo_dropout(inputs: tf.Tensor, dropout_rate: float,
@@ -59,9 +59,8 @@ def _monte_carlo_dropout(inputs: tf.Tensor, dropout_rate: float,
       # Input is a 4D attention mask [batch_size, num_head, seq_len, seq_len]
       noise_shape = [inputs.shape[0], inputs.shape[1], 1, 1]
 
-  return tf.keras.layers.Dropout(
-      dropout_rate, noise_shape=noise_shape)(
-          inputs, training=training)
+  return tf.keras.layers.Dropout(dropout_rate, noise_shape=noise_shape)(
+      inputs, training=training)
 
 
 class DropoutMultiHeadAttention(bert_layers.MultiHeadAttention):
@@ -115,3 +114,113 @@ class DropoutMultiHeadAttention(bert_layers.MultiHeadAttention):
     attention_output = tf.einsum(self._combine_equation,
                                  attention_scores_dropout, value)
     return attention_output, attention_scores
+
+
+class DropoutTransformer(bert_layers.TransformerScaffold):
+  """Transformer encoder with Monte Carlo dropout."""
+
+  def __init__(self,
+               use_mc_dropout_mha: bool = False,
+               use_mc_dropout_att: bool = False,
+               use_mc_dropout_ffn: bool = False,
+               channel_wise_dropout_mha: bool = False,
+               channel_wise_dropout_att: bool = False,
+               channel_wise_dropout_ffn: bool = False,
+               **kwargs: Dict[str, Any]):
+    """Initializer.
+
+    Args:
+      use_mc_dropout_mha: Whether to apply MC Dropout to the multi-head
+        attention score layer.
+      use_mc_dropout_att: Whether to apply MC Dropout to the attention
+        output layer.
+      use_mc_dropout_ffn: Whether to apply MC Dropout to the feedforward
+        layer.
+      channel_wise_dropout_mha: Whether to apply MC Dropout to the
+        multi-head attention score layer.
+      channel_wise_dropout_att: Whether to apply MC Dropout to the
+        attention output layer.
+      channel_wise_dropout_ffn: Whether to apply MC Dropout to the
+        feedforward layer.
+      **kwargs: Additional keyword arguments to TransformerScaffold.
+    """
+    attention_cls = functools.partial(
+        DropoutMultiHeadAttention,
+        use_mc_dropout=use_mc_dropout_mha,
+        channel_wise_dropout=channel_wise_dropout_mha)
+
+    super(DropoutTransformer, self).__init__(
+        attention_cls=attention_cls, **kwargs)
+
+    # Build custom _attention_dropout and _output_dropout layers.
+    self._attention_mc_dropout = functools.partial(
+        _monte_carlo_dropout,
+        dropout_rate=self._dropout_rate,
+        use_mc_dropout=use_mc_dropout_att,
+        channel_wise_dropout=channel_wise_dropout_att)
+    self._feedforward_mc_dropout = functools.partial(
+        _monte_carlo_dropout,
+        dropout_rate=self._dropout_rate,
+        use_mc_dropout=use_mc_dropout_ffn,
+        channel_wise_dropout=channel_wise_dropout_ffn)
+
+  def call(self, inputs: tf.Tensor) -> tf.Tensor:
+    if isinstance(inputs, (list, tuple)) and len(inputs) == 2:
+      input_tensor, attention_mask = inputs
+    else:
+      input_tensor, attention_mask = (inputs, None)
+
+    attention_output = self._attention_layer(
+        query=input_tensor, value=input_tensor, attention_mask=attention_mask)
+    # Replace the default dropout layer with mc_dropout layer.
+    attention_output = self._attention_mc_dropout(attention_output)
+    attention_output = self._attention_layer_norm(input_tensor +
+                                                  attention_output)
+    if self._feedforward_block is None:
+      intermediate_output = self._intermediate_dense(attention_output)
+      intermediate_output = self._intermediate_activation_layer(
+          intermediate_output)
+      layer_output = self._output_dense(intermediate_output)
+      # Replace the default dropout layer with mc_dropout layer.
+      layer_output = self._feedforward_mc_dropout(layer_output)
+      layer_output = tf.cast(layer_output, tf.float32)
+      layer_output = self._output_layer_norm(layer_output + attention_output)
+    else:
+      layer_output = self._feedforward_block(attention_output)
+
+    return layer_output
+
+
+class DropoutTransformerEncoder(bert_encoder.EncoderScaffold):
+  """Transformer encoder network with Monte Carlo dropout."""
+
+  def __init__(
+      self,
+      use_mc_dropout_mha: bool = False,
+      use_mc_dropout_att: bool = False,
+      use_mc_dropout_ffn: bool = False,
+      channel_wise_dropout_mha: bool = False,
+      channel_wise_dropout_att: bool = False,
+      channel_wise_dropout_ffn: bool = False,
+      # A dict of kwargs to pass to the transformer.
+      hidden_cfg: Union[tf.Tensor, None] = None,
+      **kwargs: Dict[str, Any]):
+    hidden_cls = DropoutTransformer
+
+    # Add MC Dropout arguments to default transformer config.
+    mc_dropout_cfg = {
+        'use_mc_dropout_mha': use_mc_dropout_mha,
+        'use_mc_dropout_att': use_mc_dropout_att,
+        'use_mc_dropout_ffn': use_mc_dropout_ffn,
+        'channel_wise_dropout_mha': channel_wise_dropout_mha,
+        'channel_wise_dropout_att': channel_wise_dropout_att,
+        'channel_wise_dropout_ffn': channel_wise_dropout_ffn
+    }
+
+    if hidden_cfg:
+      hidden_cfg.update(mc_dropout_cfg)
+    else:
+      hidden_cfg = mc_dropout_cfg
+
+    super(DropoutTransformerEncoder, self).__init__(
+        hidden_cls=hidden_cls, hidden_cfg=hidden_cfg, **kwargs)

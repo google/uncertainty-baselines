@@ -132,16 +132,16 @@ class DropoutTransformer(bert_layers.TransformerScaffold):
     Args:
       use_mc_dropout_mha: Whether to apply MC Dropout to the multi-head
         attention score layer.
-      use_mc_dropout_att: Whether to apply MC Dropout to the attention
-        output layer.
-      use_mc_dropout_ffn: Whether to apply MC Dropout to the feedforward
+
+      use_mc_dropout_att: Whether to apply MC Dropout to the attention output
         layer.
-      channel_wise_dropout_mha: Whether to apply MC Dropout to the
-        multi-head attention score layer.
-      channel_wise_dropout_att: Whether to apply MC Dropout to the
-        attention output layer.
-      channel_wise_dropout_ffn: Whether to apply MC Dropout to the
-        feedforward layer.
+      use_mc_dropout_ffn: Whether to apply MC Dropout to the feedforward layer.
+      channel_wise_dropout_mha: Whether to apply MC Dropout to the multi-head
+        attention score layer.
+      channel_wise_dropout_att: Whether to apply MC Dropout to the attention
+        output layer.
+      channel_wise_dropout_ffn: Whether to apply MC Dropout to the feedforward
+        layer.
       **kwargs: Additional keyword arguments to TransformerScaffold.
     """
     attention_cls = functools.partial(
@@ -149,8 +149,7 @@ class DropoutTransformer(bert_layers.TransformerScaffold):
         use_mc_dropout=use_mc_dropout_mha,
         channel_wise_dropout=channel_wise_dropout_mha)
 
-    super(DropoutTransformer, self).__init__(
-        attention_cls=attention_cls, **kwargs)
+    super().__init__(attention_cls=attention_cls, **kwargs)
 
     # Build custom _attention_dropout and _output_dropout layers.
     self._attention_mc_dropout = functools.partial(
@@ -164,7 +163,7 @@ class DropoutTransformer(bert_layers.TransformerScaffold):
         use_mc_dropout=use_mc_dropout_ffn,
         channel_wise_dropout=channel_wise_dropout_ffn)
 
-  def call(self, inputs: tf.Tensor) -> tf.Tensor:
+  def call(self, inputs):
     if isinstance(inputs, (list, tuple)) and len(inputs) == 2:
       input_tensor, attention_mask = inputs
     else:
@@ -224,3 +223,166 @@ class DropoutTransformerEncoder(bert_encoder.EncoderScaffold):
 
     super(DropoutTransformerEncoder, self).__init__(
         hidden_cls=hidden_cls, hidden_cfg=hidden_cfg, **kwargs)
+
+
+class DropoutBertClassifier(tf.keras.Model):
+  """Classifier model based on a BERT encoder with MC dropout.
+
+  `DropoutBertClassifier` builds a classification model by adding a Monte Carlo
+  dropout-enabled Dense layer to the BERT encoder network.
+
+  This implementation follows closely bert_models.BertClassifier, with the
+  exception that dropout is enabled at inference time.
+  """
+
+  def __init__(
+      self,
+      network: tf.keras.Model,
+      num_classes: int,
+      initializer: Union[str,
+                         tf.keras.initializers.Initializer] = 'glorot_uniform',
+      dropout_rate: float = 0.1,
+      use_mc_dropout: bool = False,
+      **kwargs: Dict[str, Any]):
+    """Initializer.
+
+    Args:
+      network: A transformer network. This network should output a sequence
+        output and a classification output. Furthermore, it should expose its
+        embedding table via a "get_embedding_table" method.
+      num_classes: Number of classes to predict from the classification network.
+      initializer: The initializer (if any) to use in the classification
+        networks. Defaults to a Glorot uniform initializer.
+      dropout_rate: The dropout probability of the cls head.
+      use_mc_dropout: Whether to use MC Dropout before the dense output layer.
+      **kwargs: Additional keyword arguments.
+    """
+    self._self_setattr_tracking = False
+    self._network = network
+    self._config = {
+        'network': network,
+        'num_classes': num_classes,
+        'initializer': initializer,
+        'use_mc_dropout': use_mc_dropout
+    }
+
+    # We want to use the inputs of the passed network as the inputs to this
+    # Model. To do this, we need to keep a handle to the network inputs for use
+    # when we construct the Model object at the end of init.
+    inputs = network.inputs
+
+    # Construct classifier using CLS token of the BERT encoder output.
+    _, cls_output = network(inputs)
+
+    # Perform MC Dropout on the CLS embedding.
+    training = True if use_mc_dropout else None
+    cls_output = tf.keras.layers.Dropout(rate=dropout_rate)(
+        cls_output, training=training)
+
+    # Produce final logits.
+    self.classifier = bert_encoder.Classification(
+        input_width=cls_output.shape[-1],
+        num_classes=num_classes,
+        initializer=initializer,
+        output='logits',
+        name='sentence_prediction')
+    predictions = self.classifier(cls_output)
+
+    super().__init__(inputs=inputs, outputs=predictions, **kwargs)
+
+
+def get_mc_dropout_transformer_encoder(bert_config,
+                                       use_mc_dropout_mha=False,
+                                       use_mc_dropout_att=False,
+                                       use_mc_dropout_ffn=False,
+                                       channel_wise_dropout_mha=False,
+                                       channel_wise_dropout_att=False,
+                                       channel_wise_dropout_ffn=False):
+  """Gets a DropoutTransformerEncoder from a bert_config object.
+
+  Args:
+    bert_config: A 'modeling.BertConfig' object.
+    use_mc_dropout_mha: (bool) Whether to apply MC Dropout to the multi-head
+      attention score layer.
+    use_mc_dropout_att: (bool) Whether to apply MC Dropout to the attention
+      output layer.
+    use_mc_dropout_ffn: (bool) Whether to apply MC Dropout to the feedforward
+      layer.
+    channel_wise_dropout_mha: (bool) Whether to apply MC Dropout to the
+      multi-head attention score layer.
+    channel_wise_dropout_att: (bool) Whether to apply MC Dropout to the
+      attention output layer.
+    channel_wise_dropout_ffn: (bool) Whether to apply MC Dropout to the
+      feedforward layer.
+
+  Returns:
+    A DropoutTransformerEncoder object.
+  """
+  embedding_cfg = dict(
+      vocab_size=bert_config.vocab_size,
+      type_vocab_size=bert_config.type_vocab_size,
+      hidden_size=bert_config.hidden_size,
+      max_seq_length=bert_config.max_position_embeddings,
+      initializer=tf.keras.initializers.TruncatedNormal(
+          stddev=bert_config.initializer_range),
+      dropout_rate=bert_config.hidden_dropout_prob,
+  )
+  hidden_cfg = dict(
+      num_attention_heads=bert_config.num_attention_heads,
+      intermediate_size=bert_config.intermediate_size,
+      intermediate_activation=tf_utils.get_activation(bert_config.hidden_act),
+      dropout_rate=bert_config.hidden_dropout_prob,
+      attention_dropout_rate=bert_config.attention_probs_dropout_prob,
+      kernel_initializer=tf.keras.initializers.TruncatedNormal(
+          stddev=bert_config.initializer_range),
+  )
+  kwargs = dict(
+      embedding_cfg=embedding_cfg,
+      num_hidden_instances=bert_config.num_hidden_layers,
+      pooled_output_dim=bert_config.hidden_size,
+      pooler_layer_initializer=tf.keras.initializers.TruncatedNormal(
+          stddev=bert_config.initializer_range))
+
+  return DropoutTransformerEncoder(
+      use_mc_dropout_mha=use_mc_dropout_mha,
+      use_mc_dropout_att=use_mc_dropout_att,
+      use_mc_dropout_ffn=use_mc_dropout_ffn,
+      channel_wise_dropout_mha=channel_wise_dropout_mha,
+      channel_wise_dropout_att=channel_wise_dropout_att,
+      channel_wise_dropout_ffn=channel_wise_dropout_ffn,
+      hidden_cfg=hidden_cfg,
+      **kwargs)
+
+
+def create_model(num_classes,
+                 bert_config,
+                 use_mc_dropout_mha=False,
+                 use_mc_dropout_att=False,
+                 use_mc_dropout_ffn=False,
+                 use_mc_dropout_output=False,
+                 channel_wise_dropout_mha=False,
+                 channel_wise_dropout_att=False,
+                 channel_wise_dropout_ffn=False):
+  """Creates a BERT classifier model with MC dropout."""
+  last_layer_initializer = tf.keras.initializers.TruncatedNormal(
+      stddev=bert_config.initializer_range)
+
+  # Build encoder model.
+  mc_dropout_bert_encoder = get_mc_dropout_transformer_encoder(
+      bert_config,
+      use_mc_dropout_mha=use_mc_dropout_mha,
+      use_mc_dropout_att=use_mc_dropout_att,
+      use_mc_dropout_ffn=use_mc_dropout_ffn,
+      channel_wise_dropout_mha=channel_wise_dropout_mha,
+      channel_wise_dropout_att=channel_wise_dropout_att,
+      channel_wise_dropout_ffn=channel_wise_dropout_ffn)
+
+  # Build classification model.
+  mc_dropout_bert_model = DropoutBertClassifier(
+      mc_dropout_bert_encoder,
+      num_classes=num_classes,
+      dropout_rate=bert_config.hidden_dropout_prob,
+      use_mc_dropout=use_mc_dropout_output,
+      initializer=last_layer_initializer)
+
+  return mc_dropout_bert_model, mc_dropout_bert_encoder

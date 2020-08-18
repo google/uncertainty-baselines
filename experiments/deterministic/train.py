@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Iterator, Optional
 from absl import logging
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import uncertainty_baselines.experiments.deterministic.eval as eval_lib
+import eval as eval_lib  # local file import
 from tensorboard.plugins.hparams import api as hp
 
 

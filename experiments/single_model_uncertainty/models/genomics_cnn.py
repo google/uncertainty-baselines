@@ -37,7 +37,7 @@ from typing import Any, Dict
 from absl import logging
 from edward2.experimental import sngp
 import tensorflow.compat.v2 as tf
-import uncertainty_baselines.experiments.single_model_uncertainty.models.util as models_util
+import util as models_util  # local file import
 
 
 VOCAB_SIZE = 4  # DNA sequences are composed of {A, C, G, T}

@@ -28,9 +28,9 @@ from absl import logging
 import numpy as np
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import uncertainty_baselines.experiments.deterministic.eval as eval_lib
-import uncertainty_baselines.experiments.deterministic.flags as flags_lib
-import uncertainty_baselines.experiments.deterministic.train as train_lib
+import eval as eval_lib  # local file import
+import flags as flags_lib  # local file import
+import train as train_lib  # local file import
 import uncertainty_metrics as um
 
 

@@ -29,10 +29,10 @@ from absl import logging
 import numpy as np
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import uncertainty_baselines.experiments.single_model_uncertainty.eval as eval_lib
-import uncertainty_baselines.experiments.single_model_uncertainty.flags as flags_lib
-import uncertainty_baselines.experiments.single_model_uncertainty.models.models as ub_smu_models
-import uncertainty_baselines.experiments.single_model_uncertainty.train as train_lib
+import eval as eval_lib  # local file import
+import flags as flags_lib  # local file import
+import models as ub_smu_models  # local file import
+import train as train_lib  # local file import
 import uncertainty_metrics as um
 
 FLAGS = flags.FLAGS
@@ -157,7 +157,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
     else:
       gp_layer_hparams = None
 
-    model = ub_smu_models.get(
+    model = ub_smu_models.models.get(
         FLAGS.model_name,
         batch_size=FLAGS.batch_size,
         len_seqs=FLAGS.len_seqs,

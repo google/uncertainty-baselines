@@ -42,7 +42,7 @@ from typing import Any, Dict, Iterable, Optional
 from edward2.experimental import sngp
 import tensorflow as tf
 
-import uncertainty_baselines.experiments.single_model_uncertainty.models.util as models_util
+import util as models_util  # local file import
 # pylint: disable=invalid-name
 
 BatchNormalization = functools.partial(

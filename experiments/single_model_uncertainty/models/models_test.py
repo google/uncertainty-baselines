@@ -17,13 +17,13 @@
 """Tests for single_model_uncertainty.models.get()."""
 
 import tensorflow.compat.v2 as tf
-import uncertainty_baselines.experiments.single_model_uncertainty.models.models as ub_smu_models
+import models  # local file import
 
 
 class ModelsTest(tf.test.TestCase):
 
   def testGetModel(self):
-    model = ub_smu_models.get(
+    model = models.get(
         'genomics_cnn',
         batch_size=8,
         len_seqs=250,

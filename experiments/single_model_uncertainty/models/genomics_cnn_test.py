@@ -20,7 +20,7 @@ from absl.testing import parameterized
 
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import uncertainty_baselines.experiments.single_model_uncertainty.models.genomics_cnn as genomics_cnn
+import genomics_cnn  # local file import
 
 
 class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):

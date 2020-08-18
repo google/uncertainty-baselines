@@ -30,17 +30,29 @@ from absl import logging
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import deterministic  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
-# TODO(trandustin): We inherit
-# FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
-# is not intuitive, which suggests we need to either refactor to avoid importing
-# from a binary or duplicate the model definition here.
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
 flags.mark_flag_as_required('checkpoint_dir')
+flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
+flags.DEFINE_enum('dataset', 'cifar10',
+                  enum_values=['cifar10', 'cifar100'],
+                  help='Dataset.')
+# TODO(ghassen): consider adding CIFAR-100-C to TFDS.
+flags.DEFINE_string('cifar100_c_path', None,
+                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
+                    '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
+flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
+
+# Accelerator flags.
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
 
 
@@ -81,7 +93,7 @@ def main(argv):
           use_bfloat16=FLAGS.use_bfloat16)
       test_datasets[dataset_name] = corrupted_input_fn()
 
-  model = deterministic.wide_resnet(
+  model = ub.models.wide_resnet_deterministic(
       input_shape=ds_info.features['image'].shape,
       depth=28,
       width_multiplier=10,

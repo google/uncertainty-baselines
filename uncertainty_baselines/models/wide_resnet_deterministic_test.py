@@ -13,18 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for BatchEnsemble."""
+"""Tests for Wide ResNet."""
 
 import tensorflow as tf
-import batchensemble_model  # local file import
+import uncertainty_baselines as ub
 
 
-class BatchEnsembleModelTest(tf.test.TestCase):
+class WideResnetDeterministicTest(tf.test.TestCase):
 
-  def testWideResnet(self):
+  def testWideResnetDeterministic(self):
     tf.random.set_seed(83922)
     dataset_size = 10
-    batch_size = 4  # must be divisible by ensemble_size
+    batch_size = 5
     input_shape = (32, 32, 1)
     num_classes = 2
 
@@ -36,13 +36,12 @@ class BatchEnsembleModelTest(tf.test.TestCase):
     dataset = tf.data.Dataset.from_tensor_slices((features, labels))
     dataset = dataset.repeat().shuffle(dataset_size).batch(batch_size)
 
-    model = batchensemble_model.wide_resnet(input_shape=input_shape,
-                                            depth=10,
-                                            width_multiplier=1,
-                                            num_classes=num_classes,
-                                            ensemble_size=2,
-                                            random_sign_init=-0.5,
-                                            l2=0.)
+    model = ub.models.wide_resnet_deterministic(input_shape=input_shape,
+                                                depth=10,
+                                                width_multiplier=1,
+                                                num_classes=num_classes,
+                                                l2=0.,
+                                                version=2)
     model.compile(
         'adam',
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))

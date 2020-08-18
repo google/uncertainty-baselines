@@ -16,12 +16,12 @@
 """Tests for variational inference."""
 
 import tensorflow as tf
-import variational_inference  # local file import
+import uncertainty_baselines as ub
 
 
-class VariationalInferenceTest(tf.test.TestCase):
+class WideResnetVariationalTest(tf.test.TestCase):
 
-  def testResNetV1(self):
+  def testWideResnetVariational(self):
     tf.random.set_seed(83922)
     dataset_size = 10
     batch_size = 5
@@ -36,7 +36,7 @@ class VariationalInferenceTest(tf.test.TestCase):
     dataset = tf.data.Dataset.from_tensor_slices((features, labels))
     dataset = dataset.repeat().shuffle(dataset_size).batch(batch_size)
 
-    model = variational_inference.wide_resnet(input_shape=input_shape,
+    model = ub.models.wide_resnet_variational(input_shape=input_shape,
                                               depth=10,
                                               width_multiplier=1,
                                               num_classes=num_classes,

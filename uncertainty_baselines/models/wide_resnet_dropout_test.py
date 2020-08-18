@@ -16,12 +16,12 @@
 """Tests for WRN 28-10 with Monte Carlo dropout."""
 
 import tensorflow as tf
-import dropout  # local file import
+import uncertainty_baselines as ub
 
 
-class DropoutTest(tf.test.TestCase):
+class WideResnetDropoutTest(tf.test.TestCase):
 
-  def testWideResnet(self):
+  def testWideResnetDropout(self):
     tf.random.set_seed(83922)
     dataset_size = 15
     batch_size = 5
@@ -36,14 +36,14 @@ class DropoutTest(tf.test.TestCase):
     dataset = tf.data.Dataset.from_tensor_slices((features, labels))
     dataset = dataset.repeat().shuffle(dataset_size).batch(batch_size)
 
-    model = dropout.wide_resnet(input_shape=input_shape,
-                                depth=10,
-                                width_multiplier=1,
-                                num_classes=num_classes,
-                                l2=0.,
-                                dropout_rate=0.01,
-                                residual_dropout=True,
-                                filterwise_dropout=False)
+    model = ub.models.wide_resnet_dropout(input_shape=input_shape,
+                                          depth=10,
+                                          width_multiplier=1,
+                                          num_classes=num_classes,
+                                          l2=0.,
+                                          dropout_rate=0.01,
+                                          residual_dropout=True,
+                                          filterwise_dropout=False)
     model.compile(
         'adam',
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))

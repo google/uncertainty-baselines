@@ -97,8 +97,13 @@ def group(inputs, filters, strides, num_blocks, **kwargs):
   return x
 
 
-def wide_resnet(input_shape, depth, width_multiplier, num_classes,
-                ensemble_size, random_sign_init, l2):
+def wide_resnet_batchensemble(input_shape,
+                              depth,
+                              width_multiplier,
+                              num_classes,
+                              ensemble_size,
+                              random_sign_init,
+                              l2):
   """Builds Wide ResNet.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the

@@ -25,6 +25,10 @@ from uncertainty_baselines.models.resnet20 import create_model as ResNet20Builde
 from uncertainty_baselines.models.resnet50 import create_model as ResNet50Builder
 from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
 from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
+from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
+from uncertainty_baselines.models.wide_resnet_deterministic import wide_resnet_deterministic
+from uncertainty_baselines.models.wide_resnet_dropout import wide_resnet_dropout
+from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_variational
 
 try:
   from uncertainty_baselines.models.bert import create_model as BERTBuilder  # pylint: disable=g-import-not-at-top

@@ -21,8 +21,8 @@ import logging
 from typing import List
 
 import tensorflow.compat.v2 as tf
-from uncertainty_baselines.experiments.single_model_uncertainty.models import genomics_cnn
-from uncertainty_baselines.experiments.single_model_uncertainty.models import wide_resnet
+import genomics_cnn  # local file import
+import wide_resnet  # local file import
 from uncertainty_baselines.models import bert
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import resnet20

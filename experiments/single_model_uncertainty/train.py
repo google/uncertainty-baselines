@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Iterator, Optional
 from absl import logging
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-from uncertainty_baselines.experiments.single_model_uncertainty import eval as eval_lib
+import uncertainty_baselines.experiments.single_model_uncertainty.eval as eval_lib
 from tensorboard.plugins.hparams import api as hp
 
 _TensorDict = Dict[str, tf.Tensor]

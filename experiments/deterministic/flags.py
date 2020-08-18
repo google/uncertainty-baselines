@@ -80,7 +80,8 @@ def define_flags() -> List[str]:
   flags.DEFINE_string(
       'learning_rate_schedule',
       'constant',
-      'Learning rate schedule to use.')
+      'Learning rate schedule to use. See `get_learning_rate_schedule` in '
+      'uncertainty_baselines/optimizers.py for more details.')
   flags.DEFINE_string('optimizer', 'adam', 'Optimizer to use.')
   flags.DEFINE_float('optimizer_hparams_momentum', 0.9, 'SGD momentum.')
   flags.DEFINE_float('optimizer_hparams_beta_1', 0.9, 'Adam beta_1.')

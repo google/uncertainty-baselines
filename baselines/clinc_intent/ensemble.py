@@ -32,8 +32,8 @@ import uncertainty_baselines as ub
 import bert_utils  # local file import
 # import clinc_intent.deterministic to inhere its flags
 import deterministic  # pylint:disable=unused-import  # local file import
-import deterministic_model as cnn_model  # local file import
 import deterministic_model_bert as bert_model  # local file import
+import deterministic_model_textcnn as cnn_model  # local file import
 import uncertainty_metrics as um
 
 # TODO(trandustin): We inherit

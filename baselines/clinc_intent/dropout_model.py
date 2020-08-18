@@ -21,7 +21,7 @@ from typing import Any, Dict, Union, Tuple
 
 import tensorflow as tf
 
-from official.modeling import tf_utils  # pylint: disable=unused-import
+from official.modeling import tf_utils
 from official.nlp.modeling import layers as bert_layers
 from official.nlp.modeling import networks as bert_encoder
 

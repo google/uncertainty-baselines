@@ -17,7 +17,7 @@
 from absl.testing import parameterized
 
 import tensorflow as tf
-import dropout_model_bert  # local file import
+import dropout_model  # local file import
 from official.nlp.bert import configs as bert_configs  # pylint: disable=unused-import
 
 
@@ -70,7 +70,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
     # Compiles dropout model.
     inputs = tf.keras.Input(shape=inputs_shape, batch_size=self.batch_size)
-    outputs_dropout = dropout_model_bert._monte_carlo_dropout(
+    outputs_dropout = dropout_model._monte_carlo_dropout(
         inputs,
         self.dropout_rate,
         use_mc_dropout=use_mc_dropout,
@@ -94,7 +94,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
       # Total input shape is inputs_dim_shape + 1.
       inputs = tf.keras.Input(
           shape=inputs_dim_shape, batch_size=self.batch_size)
-      outputs_dropout = dropout_model_bert._monte_carlo_dropout(
+      outputs_dropout = dropout_model._monte_carlo_dropout(
           inputs,
           self.dropout_rate,
           use_mc_dropout=True,
@@ -111,7 +111,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
     # Compiles model and get output.
     inputs = tf.keras.Input(shape=inputs_shape, batch_size=self.batch_size)
-    outputs_multihead_attention = dropout_model_bert.DropoutMultiHeadAttention(
+    outputs_multihead_attention = dropout_model.DropoutMultiHeadAttention(
         num_heads=self.num_heads,
         key_dim=self.key_dim,
         dropout=self.dropout_rate,
@@ -136,7 +136,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
     # Compiles model and get output.
     inputs = tf.keras.Input(shape=inputs_shape, batch_size=self.batch_size)
-    outputs_transformer = dropout_model_bert.DropoutTransformer(
+    outputs_transformer = dropout_model.DropoutTransformer(
         num_attention_heads=self.num_heads,
         intermediate_size=self.hidden_dim,
         intermediate_activation=tf.nn.relu,
@@ -167,7 +167,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
     network = tf.keras.Model(inputs=inputs, outputs=[outputs, outputs])
 
     # Compiles dropout model.
-    model = dropout_model_bert.DropoutBertClassifier(
+    model = dropout_model.DropoutBertClassifier(
         network,
         num_classes=self.num_classes,
         dropout_rate=self.dropout_rate,
@@ -184,7 +184,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_get_mc_dropout_transformer_encoder(self):
     """Tests if bert_config can be correctly passed into TransformerEncoder."""
-    bert_encoder = dropout_model_bert.get_mc_dropout_transformer_encoder(
+    bert_encoder = dropout_model.get_mc_dropout_transformer_encoder(
         self.bert_test_config,
         use_mc_dropout_mha=True,
         use_mc_dropout_att=True,
@@ -199,9 +199,9 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
     self.assertLen(hidden_layers, self.bert_test_config.num_hidden_layers)
     self.assertIsInstance(example_hidden_layer,
-                          dropout_model_bert.DropoutTransformer)
+                          dropout_model.DropoutTransformer)
     self.assertIsInstance(example_attention_layer,
-                          dropout_model_bert.DropoutMultiHeadAttention)
+                          dropout_model.DropoutMultiHeadAttention)
     self.assertEqual(example_hidden_layer._dropout_rate,
                      self.bert_test_config.hidden_dropout_prob)
     self.assertEqual(example_attention_layer._dropout,
@@ -209,7 +209,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_create_model(self):
     """Integration test for create_model."""
-    bert_model, bert_encoder = dropout_model_bert.create_model(
+    bert_model, bert_encoder = dropout_model.create_model(
         num_classes=self.num_classes,
         bert_config=self.bert_test_config,
         use_mc_dropout_mha=True,
@@ -219,9 +219,9 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
         channel_wise_dropout_att=True,
         channel_wise_dropout_ffn=True)
 
-    self.assertIsInstance(bert_model, dropout_model_bert.DropoutBertClassifier)
+    self.assertIsInstance(bert_model, dropout_model.DropoutBertClassifier)
     self.assertIsInstance(bert_encoder,
-                          dropout_model_bert.DropoutTransformerEncoder)
+                          dropout_model.DropoutTransformerEncoder)
 
 
 if __name__ == '__main__':

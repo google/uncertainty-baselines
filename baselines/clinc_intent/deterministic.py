@@ -25,8 +25,8 @@ import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
 import bert_utils  # local file import
-import deterministic_model as cnn_model  # local file import
 import deterministic_model_bert as bert_model  # local file import
+import deterministic_model_textcnn as cnn_model  # local file import
 import uncertainty_metrics as um
 
 # Data flags
@@ -36,7 +36,7 @@ flags.DEFINE_string(
     'Intent Detection Data.')
 
 # Model flags
-flags.DEFINE_string('model_family', 'textcnn',
+flags.DEFINE_string('model_family', 'bert',
                     'Types of model to use. Can be either TextCNN or BERT.')
 
 # Model flags, TextCNN

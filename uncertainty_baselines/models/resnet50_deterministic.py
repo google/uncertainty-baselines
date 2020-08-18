@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """ResNet50 model."""
+# TODO(trandustin): Merge with resnet50.py.
 
 import string
 import tensorflow as tf
@@ -112,7 +113,7 @@ def group(inputs, filters, num_blocks, stage, strides):
   return x
 
 
-def resnet50(input_shape, num_classes):
+def resnet50_deterministic(input_shape, num_classes):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the

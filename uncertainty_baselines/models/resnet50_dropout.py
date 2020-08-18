@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ResNet50 model."""
+"""ResNet50 model with Monte Carlo dropout."""
 
 import string
 import tensorflow as tf
@@ -145,7 +145,10 @@ def group(inputs, filters, num_blocks, stage, strides, dropout_rate,
   return x
 
 
-def resnet50(input_shape, num_classes, dropout_rate, filterwise_dropout):
+def resnet50_dropout(input_shape,
+                     num_classes,
+                     dropout_rate,
+                     filterwise_dropout):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the

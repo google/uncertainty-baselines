@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Batch Ensemble ResNet50."""
+"""BatchEnsemble ResNet50."""
 
 import functools
 import string
@@ -168,11 +168,11 @@ def group(inputs, filters, num_blocks, stage, strides,
   return x
 
 
-def ensemble_resnet50(input_shape,
-                      num_classes,
-                      ensemble_size,
-                      random_sign_init,
-                      use_ensemble_bn):
+def resnet50_batchensemble(input_shape,
+                           num_classes,
+                           ensemble_size,
+                           random_sign_init,
+                           use_ensemble_bn):
   """Builds BatchEnsemble ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the

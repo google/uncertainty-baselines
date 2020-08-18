@@ -23,6 +23,9 @@ from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCN
 from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.resnet20 import create_model as ResNet20Builder
 from uncertainty_baselines.models.resnet50 import create_model as ResNet50Builder
+from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchensemble
+from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
+from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
 from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
 from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble

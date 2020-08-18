@@ -24,7 +24,7 @@ from absl import flags
 from absl import logging
 
 import tensorflow as tf
-import dropout_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -135,10 +135,11 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')
-    model = dropout_model.resnet50(input_shape=(224, 224, 3),
-                                   num_classes=NUM_CLASSES,
-                                   dropout_rate=FLAGS.dropout_rate,
-                                   filterwise_dropout=FLAGS.filterwise_dropout)
+    model = ub.models.resnet50_dropout(
+        input_shape=(224, 224, 3),
+        num_classes=NUM_CLASSES,
+        dropout_rate=FLAGS.dropout_rate,
+        filterwise_dropout=FLAGS.filterwise_dropout)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())

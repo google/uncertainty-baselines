@@ -28,7 +28,7 @@ from absl import logging
 
 import numpy as np
 import tensorflow as tf
-import deterministic_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -86,8 +86,8 @@ def main(argv):
           drop_remainder=True,
           use_bfloat16=False)
 
-  model = deterministic_model.resnet50(input_shape=(224, 224, 3),
-                                       num_classes=NUM_CLASSES)
+  model = ub.models.resnet50_deterministic(input_shape=(224, 224, 3),
+                                           num_classes=NUM_CLASSES)
 
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)

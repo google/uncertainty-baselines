@@ -23,7 +23,7 @@ from absl import flags
 from absl import logging
 
 import tensorflow as tf
-import batchensemble_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -139,7 +139,7 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')
-    model = batchensemble_model.ensemble_resnet50(
+    model = ub.models.resnet50_batchensemble(
         input_shape=(224, 224, 3),
         num_classes=NUM_CLASSES,
         ensemble_size=FLAGS.ensemble_size,

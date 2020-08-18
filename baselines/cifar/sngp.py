@@ -54,10 +54,9 @@ from absl import app
 from absl import flags
 from absl import logging
 
-from edward2.experimental import sngp
-
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -73,19 +72,9 @@ flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
                   'Epochs to decay learning rate by.')
 flags.DEFINE_float('l2', 3e-4, 'L2 regularization coefficient.')
-
-# Dropout flags
-flags.DEFINE_bool('use_mc_dropout', False,
-                  'Whether to use Monte Carlo dropout for the hidden layers.')
-flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
-flags.DEFINE_integer('num_dropout_samples', 1,
-                     'Number of dropout samples to use for prediction.')
-flags.DEFINE_integer('num_dropout_samples_training', 1,
-                     'Number of dropout samples for training.')
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
-
 flags.DEFINE_string('cifar100_c_path', None,
                     'Path to the TFRecords files for CIFAR-100-C. Only valid '
                     '(and required) if dataset is cifar100 and corruptions.')
@@ -99,13 +88,18 @@ flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
 
-# SNGP flags.
-flags.DEFINE_bool('use_spec_norm', True,
-                  'Whether to apply spectral normalization.')
-flags.DEFINE_bool('use_gp_layer', True,
-                  'Whether to use Gaussian process as the output layer.')
+# Dropout flags
+flags.DEFINE_bool('use_mc_dropout', False,
+                  'Whether to use Monte Carlo dropout for the hidden layers.')
+flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
+flags.DEFINE_integer('num_dropout_samples', 1,
+                     'Number of dropout samples to use for prediction.')
+flags.DEFINE_integer('num_dropout_samples_training', 1,
+                     'Number of dropout samples for training.')
 
 # Spectral normalization flags.
+flags.DEFINE_bool('use_spec_norm', True,
+                  'Whether to apply spectral normalization.')
 flags.DEFINE_integer(
     'spec_norm_iteration', 1,
     'Number of power iterations to perform for estimating '
@@ -114,30 +108,31 @@ flags.DEFINE_float('spec_norm_bound', 6.,
                    'Upper bound to spectral norm of weight matrices.')
 
 # Gaussian process flags.
+flags.DEFINE_bool('use_gp_layer', True,
+                  'Whether to use Gaussian process as the output layer.')
 flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
 flags.DEFINE_float(
     'gp_scale', 2.,
     'The length-scale parameter for the RBF kernel of the GP layer.')
 flags.DEFINE_integer(
     'gp_input_dim', 128,
-    'The dimension to reduce the neural network input to for the GP layer '
+    'The dimension to reduce the neural network input for the GP layer '
     '(via random Gaussian projection which preserves distance by the '
-    ' Johnson-Lindenstrauss lemma). If -1 the no dimension reduction.')
+    ' Johnson-Lindenstrauss lemma). If -1, no dimension reduction.')
 flags.DEFINE_integer(
     'gp_hidden_dim', 1024,
     'The hidden dimension of the GP layer, which corresponds to the number of '
-    'random features used to for the approximation ')
+    'random features used for the approximation.')
 flags.DEFINE_bool(
     'gp_input_normalization', True,
     'Whether to normalize the input using LayerNorm for GP layer.'
     'This is similar to automatic relevance determination (ARD) in the classic '
     'GP learning.')
 flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
-                   'The Ridge penalty parameter for GP posterior covariance.')
+                   'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
     'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of '
-    'precision matrix.')
+    'The discount factor to compute the moving average of precision matrix.')
 flags.DEFINE_float(
     'gp_mean_field_factor', 0.001,
     'The tunable multiplicative factor used in the mean-field approximation '
@@ -152,202 +147,10 @@ flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
 FLAGS = flags.FLAGS
 
-# pylint: disable=invalid-name
-
-BatchNormalization = functools.partial(
-    tf.keras.layers.BatchNormalization,
-    epsilon=1e-5,  # using epsilon and momentum defaults from Torch
-    momentum=0.9)
-
-GaussianProcess = functools.partial(
-    sngp.RandomFeatureGaussianProcess,
-    num_inducing=FLAGS.gp_hidden_dim,
-    gp_kernel_scale=FLAGS.gp_scale,
-    gp_output_bias=FLAGS.gp_bias,
-    normalize_input=FLAGS.gp_input_normalization,
-    gp_cov_momentum=FLAGS.gp_cov_discount_factor,
-    gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty)
-
-Conv2DBase = functools.partial(
-    tf.keras.layers.Conv2D,
-    kernel_size=3,
-    padding='same',
-    use_bias=False,
-    kernel_initializer='he_normal')
-
-
-def Conv2DNormed(*conv_args, **conv_kwargs):
-  conv_layer = Conv2DBase(*conv_args, **conv_kwargs)
-  return sngp.SpectralNormalizationConv2D(
-      conv_layer,
-      iteration=FLAGS.spec_norm_iteration,
-      norm_multiplier=FLAGS.spec_norm_bound)
-
-
-Conv2D = Conv2DNormed if FLAGS.use_spec_norm else Conv2DBase
-# pylint: enable=invalid-name
-
-
-def apply_dropout(inputs, dropout_rate, use_mc_dropout):
-  """Applies a filter-wise dropout layer to the inputs."""
-  logging.info('apply_dropout input shape %s', inputs.shape)
-  dropout_layer = tf.keras.layers.Dropout(
-      dropout_rate, noise_shape=[inputs.shape[0], 1, 1, inputs.shape[3]])
-
-  if use_mc_dropout:
-    return dropout_layer(inputs, training=True)
-
-  return dropout_layer(inputs)
-
-
-def basic_block(inputs, filters, strides, l2, dropout_rate, use_mc_dropout):
-  """Basic residual block of two 3x3 convs.
-
-  Args:
-    inputs: tf.Tensor.
-    filters: Number of filters for Conv2D.
-    strides: Stride dimensions for Conv2D.
-    l2: L2 regularization coefficient.
-    dropout_rate: Dropout rate.
-    use_mc_dropout: Whether to apply Monte Carlo dropout.
-
-  Returns:
-    tf.Tensor.
-  """
-  x = inputs
-  y = inputs
-  y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                         gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
-  y = apply_dropout(y, dropout_rate, use_mc_dropout)
-
-  y = Conv2D(filters,
-             strides=strides,
-             kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                         gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
-  y = apply_dropout(y, dropout_rate, use_mc_dropout)
-
-  y = Conv2D(filters,
-             strides=1,
-             kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
-  if not x.shape.is_compatible_with(y.shape):
-    x = Conv2D(filters,
-               kernel_size=1,
-               strides=strides,
-               kernel_regularizer=tf.keras.regularizers.l2(l2))(x)
-    y = apply_dropout(y, dropout_rate, use_mc_dropout)
-
-  x = tf.keras.layers.add([x, y])
-  return x
-
-
-def group(inputs, filters, strides, num_blocks, l2, dropout_rate,
-          use_mc_dropout):
-  """Group of residual blocks."""
-  x = basic_block(inputs,
-                  filters=filters,
-                  strides=strides,
-                  l2=l2,
-                  dropout_rate=dropout_rate,
-                  use_mc_dropout=use_mc_dropout)
-  for _ in range(num_blocks - 1):
-    x = basic_block(x,
-                    filters=filters,
-                    strides=1,
-                    l2=l2,
-                    dropout_rate=dropout_rate,
-                    use_mc_dropout=use_mc_dropout)
-  return x
-
-
-def wide_resnet(input_shape, batch_size, depth, width_multiplier, num_classes,
-                l2, dropout_rate, use_mc_dropout, gp_input_dim, use_gp_layer):
-  """Builds Wide ResNet.
-
-  Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the
-  number of filters. Using three groups of residual blocks, the network maps
-  spatial features of size 32x32 -> 16x16 -> 8x8.
-
-  Args:
-    input_shape: tf.Tensor.
-    batch_size: The batch size of the input layer. Required by the spectral
-      normalization.
-    depth: Total number of convolutional layers. "n" in WRN-n-k. It differs from
-      He et al. (2015)'s notation which uses the maximum depth of the network
-      counting non-conv layers like dense.
-    width_multiplier: Integer to multiply the number of typical filters by. "k"
-      in WRN-n-k.
-    num_classes: Number of output classes.
-    l2: L2 regularization coefficient.
-    dropout_rate: Dropout rate.
-    use_mc_dropout: Whether to apply Monte Carlo dropout.
-    gp_input_dim: The input dimension to GP layer.
-    use_gp_layer: Whether to use Gaussian process layer as the output layer.
-
-  Returns:
-    tf.keras.Model.
-  """
-  if (depth - 4) % 6 != 0:
-    raise ValueError('depth should be 6n+4 (e.g., 16, 22, 28, 40).')
-  num_blocks = (depth - 4) // 6
-  inputs = tf.keras.layers.Input(shape=input_shape, batch_size=batch_size)
-
-  x = Conv2D(16,
-             strides=1,
-             kernel_regularizer=tf.keras.regularizers.l2(l2))(inputs)
-  x = apply_dropout(x, dropout_rate, use_mc_dropout)
-
-  x = group(x,
-            filters=16 * width_multiplier,
-            strides=1,
-            num_blocks=num_blocks,
-            l2=l2,
-            dropout_rate=dropout_rate,
-            use_mc_dropout=use_mc_dropout)
-  x = group(x,
-            filters=32 * width_multiplier,
-            strides=2,
-            num_blocks=num_blocks,
-            l2=l2,
-            dropout_rate=dropout_rate,
-            use_mc_dropout=use_mc_dropout)
-  x = group(x,
-            filters=64 * width_multiplier,
-            strides=2,
-            num_blocks=num_blocks,
-            l2=l2,
-            dropout_rate=dropout_rate,
-            use_mc_dropout=use_mc_dropout)
-  x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                         gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
-  x = tf.keras.layers.Activation('relu')(x)
-  x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
-
-  if use_gp_layer:
-    # Uses random projection to reduce the input dimension of the GP layer.
-    if gp_input_dim > 0:
-      x = tf.keras.layers.Dense(
-          gp_input_dim,
-          kernel_initializer='random_normal',
-          use_bias=False,
-          trainable=False)(x)
-    logits, covmat = GaussianProcess(num_classes)(x)
-  else:
-    logits = tf.keras.layers.Dense(
-        num_classes,
-        kernel_initializer='he_normal',
-        kernel_regularizer=tf.keras.regularizers.l2(l2),
-        bias_regularizer=tf.keras.regularizers.l2(l2))(x)
-    covmat = tf.eye(batch_size)
-
-  return tf.keras.Model(inputs=inputs, outputs=[logits, covmat])
-
 
 def mean_field_logits(logits, covmat, mean_field_factor=1.):
   """Adjust the predictive logits so its softmax approximates posterior mean."""
+  # TODO(jereliu): Maybe move to ed2 library or ed2.experimental.sngp.
   logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
   if mean_field_factor > 0:
     logits = logits / tf.expand_dims(logits_scale, axis=-1)
@@ -429,16 +232,26 @@ def main(argv):
     if FLAGS.use_gp_layer:
       logging.info('Use GP layer with hidden units %d', FLAGS.gp_hidden_dim)
 
-    model = wide_resnet(input_shape=ds_info.features['image'].shape,
-                        batch_size=batch_size,
-                        depth=28,
-                        width_multiplier=10,
-                        num_classes=num_classes,
-                        l2=FLAGS.l2,
-                        dropout_rate=FLAGS.dropout_rate,
-                        use_mc_dropout=FLAGS.use_mc_dropout,
-                        gp_input_dim=FLAGS.gp_input_dim,
-                        use_gp_layer=FLAGS.use_gp_layer)
+    model = ub.models.wide_resnet_sngp(
+        input_shape=ds_info.features['image'].shape,
+        batch_size=batch_size,
+        depth=28,
+        width_multiplier=10,
+        num_classes=num_classes,
+        l2=FLAGS.l2,
+        use_mc_dropout=FLAGS.use_mc_dropout,
+        dropout_rate=FLAGS.dropout_rate,
+        use_gp_layer=FLAGS.use_gp_layer,
+        gp_input_dim=FLAGS.gp_input_dim,
+        gp_hidden_dim=FLAGS.gp_hidden_dim,
+        gp_scale=FLAGS.gp_scale,
+        gp_bias=FLAGS.gp_bias,
+        gp_input_normalization=FLAGS.gp_input_normalization,
+        gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
+        gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
+        use_spec_norm=FLAGS.use_spec_norm,
+        spec_norm_iteration=FLAGS.spec_norm_iteration,
+        spec_norm_bound=FLAGS.spec_norm_bound)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())

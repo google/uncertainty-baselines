@@ -31,6 +31,7 @@ from uncertainty_baselines.models.wide_resnet import create_model as WideResNetB
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
 from uncertainty_baselines.models.wide_resnet_deterministic import wide_resnet_deterministic
 from uncertainty_baselines.models.wide_resnet_dropout import wide_resnet_dropout
+from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_variational
 
 try:

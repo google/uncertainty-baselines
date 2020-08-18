@@ -30,24 +30,90 @@ from absl import logging
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import sngp  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
-# TODO(trandustin): We inherit
-# FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
-# is not intuitive, which suggests we need to either refactor to avoid importing
-# from a binary or duplicate the model definition here.
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
+flags.mark_flag_as_required('checkpoint_dir')
+flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
+flags.DEFINE_enum('dataset', 'cifar10',
+                  enum_values=['cifar10', 'cifar100'],
+                  help='Dataset.')
+# TODO(ghassen): consider adding CIFAR-100-C to TFDS.
+flags.DEFINE_string('cifar100_c_path', None,
+                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
+                    '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
+flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
+
+# SNGP ensemble flags
 flags.DEFINE_float(
     'gp_mean_field_factor_ensemble', 0.0005,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean.')
 
-flags.mark_flag_as_required('checkpoint_dir')
+# Dropout flags
+flags.DEFINE_bool('use_mc_dropout', False,
+                  'Whether to use Monte Carlo dropout for the hidden layers.')
+flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
+
+# SNGP flags.
+flags.DEFINE_bool('use_spec_norm', True,
+                  'Whether to apply spectral normalization.')
+flags.DEFINE_bool('use_gp_layer', True,
+                  'Whether to use Gaussian process as the output layer.')
+
+# Spectral normalization flags.
+flags.DEFINE_integer(
+    'spec_norm_iteration', 1,
+    'Number of power iterations to perform for estimating '
+    'the spectral norm of weight matrices.')
+flags.DEFINE_float('spec_norm_bound', 6.,
+                   'Upper bound to spectral norm of weight matrices.')
+
+# Gaussian process flags.
+flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
+flags.DEFINE_float(
+    'gp_scale', 2.,
+    'The length-scale parameter for the RBF kernel of the GP layer.')
+flags.DEFINE_integer(
+    'gp_input_dim', 128,
+    'The dimension to reduce the neural network input for the GP layer '
+    '(via random Gaussian projection which preserves distance by the '
+    ' Johnson-Lindenstrauss lemma). If -1, no dimension reduction.')
+flags.DEFINE_integer(
+    'gp_hidden_dim', 1024,
+    'The hidden dimension of the GP layer, which corresponds to the number of '
+    'random features used for the approximation.')
+flags.DEFINE_bool(
+    'gp_input_normalization', True,
+    'Whether to normalize the input using LayerNorm for GP layer.'
+    'This is similar to automatic relevance determination (ARD) in the classic '
+    'GP learning.')
+flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
+                   'Ridge penalty parameter for GP posterior covariance.')
+flags.DEFINE_float(
+    'gp_cov_discount_factor', 0.999,
+    'The discount factor to compute the moving average of precision matrix.')
+
+# Accelerator flags.
+flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_integer('num_cores', 1, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
+
+
+def mean_field_logits(logits, covmat, mean_field_factor=1.):
+  """Adjust the predictive logits so its softmax approximates posterior mean."""
+  logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
+  if mean_field_factor > 0:
+    logits = logits / tf.expand_dims(logits_scale, axis=-1)
+
+  return logits
 
 
 def main(argv):
@@ -87,17 +153,26 @@ def main(argv):
           use_bfloat16=FLAGS.use_bfloat16)
       test_datasets[dataset_name] = corrupted_input_fn()
 
-  model = sngp.wide_resnet(
+  model = ub.models.wide_resnet_sngp(
       input_shape=ds_info.features['image'].shape,
       batch_size=FLAGS.per_core_batch_size,
       depth=28,
       width_multiplier=10,
       num_classes=num_classes,
       l2=0.,
-      dropout_rate=FLAGS.dropout_rate,
       use_mc_dropout=FLAGS.use_mc_dropout,
+      dropout_rate=FLAGS.dropout_rate,
+      use_gp_layer=FLAGS.use_gp_layer,
       gp_input_dim=FLAGS.gp_input_dim,
-      use_gp_layer=FLAGS.use_gp_layer)
+      gp_hidden_dim=FLAGS.gp_hidden_dim,
+      gp_scale=FLAGS.gp_scale,
+      gp_bias=FLAGS.gp_bias,
+      gp_input_normalization=FLAGS.gp_input_normalization,
+      gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
+      gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
+      use_spec_norm=FLAGS.use_spec_norm,
+      spec_norm_iteration=FLAGS.spec_norm_iteration,
+      spec_norm_bound=FLAGS.spec_norm_bound)
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)
   logging.info('Model number of weights: %s', model.count_params())
@@ -126,7 +201,7 @@ def main(argv):
         for _ in range(steps_per_eval):
           features, _ = next(test_iterator)  # pytype: disable=attribute-error
           logits_member, covmat_member = model(features, training=False)
-          logits_member = sngp.mean_field_logits(
+          logits_member = mean_field_logits(
               logits_member, covmat_member, FLAGS.gp_mean_field_factor_ensemble)
           logits.append(logits_member)
 

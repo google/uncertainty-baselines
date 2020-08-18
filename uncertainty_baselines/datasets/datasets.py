@@ -93,7 +93,7 @@ def get(
       'Building dataset %s with additional kwargs:\n%s',
       dataset_name,
       json.dumps(hyperparameters, indent=2, sort_keys=True))
-  elif dataset_name == 'cifar100':
+  if dataset_name == 'cifar100':
     dataset_class = Cifar100Dataset
   elif dataset_name == 'cifar10':
     dataset_class = Cifar10Dataset

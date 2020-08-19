@@ -30,7 +30,7 @@ _NUM_TEST = 10000 * 10
 # tfrecord data filenames
 _TRAIN_FILEPATTERN = 'genomics_ood-train.tfrecord*'
 _VAL_FILEPATTERN = 'genomics_ood-validation.tfrecord*'
-_TEST_FILEPATTERN = 'genomics_ood-validation.tfrecord*'
+_TEST_FILEPATTERN = 'genomics_ood-test.tfrecord*'
 _VAL_OOD_FILEPATTERN = 'genomics_ood-validation_ood.tfrecord*'
 _TEST_OOD_FILEPATTERN = 'genomics_ood-test_ood.tfrecord*'
 

@@ -90,6 +90,7 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
                dropout: float,
                use_layer_norm: bool = True,
                use_spec_norm: bool = False,
+
                spec_norm_kwargs: Optional[Mapping[str, Any]] = None,
                name: str = 'feedforward',
                **common_kwargs: Mapping[str, Any]):
@@ -183,4 +184,60 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
         'spec_norm_kwargs': self._spec_norm_kwargs
     })
     config.update(self._common_kwargs)
+    return config
+
+
+class SpectralNormalizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
+  """Multi-head attention with spectral-normalized dense layers.
+
+  This is an implementation of multi-headed attention layer [2] with the option
+  to replace the original EinsumDense layer with its spectral-normalized
+  counterparts.
+  """
+
+  def __init__(self,
+               use_spec_norm: bool = False,
+               spec_norm_kwargs: Optional[Dict[str, Any]] = None,
+               **kwargs: Dict[str, Any]):
+    super().__init__(**kwargs)
+    self._use_spec_norm = use_spec_norm
+    self._spec_norm_kwargs = spec_norm_kwargs
+    self._spec_norm_dense_layer = make_spec_norm_dense_layer(**spec_norm_kwargs)
+
+  def _update_einsum_dense(
+      self, einsum_dense_layer: tf.keras.layers.Layer) -> tf.keras.layers.Layer:
+    """Updates the EinsumDense layer to its spectral-normalized counterparts."""
+    if not self._use_spec_norm:
+      return einsum_dense_layer
+
+    # Overwrites EinsumDense using the same arguments.
+    einsum_dense_kwargs = einsum_dense_layer.get_config()
+    return self._spec_norm_dense_layer(**einsum_dense_kwargs)
+
+  def _build_from_signature(self,
+                            query: tf.Tensor,
+                            value: tf.Tensor,
+                            key: Optional[tf.Tensor] = None):
+    """Builds layers and variables.
+
+    This function overwrites the default _build_from_signature to build dense
+    layers from self.einsum_dense_layer. Once the method is called,
+    self._built_from_signature will be set to True.
+
+    Args:
+      query: query tensor or TensorShape.
+      value: value tensor or TensorShape.
+      key: key tensor or TensorShape.
+    """
+    super()._build_from_signature(query, value, key)
+    # Overwrites EinsumDense layers for query, value, key and layer output.
+    self._query_dense = self._update_einsum_dense(self._query_dense)
+    self._key_dense = self._update_einsum_dense(self._key_dense)
+    self._value_dense = self._update_einsum_dense(self._value_dense)
+    self._output_dense = self._update_einsum_dense(self._output_dense)
+
+  def get_config(self):
+    config = super().get_config()
+    config['use_spec_norm'] = self._use_spec_norm
+    config['spec_norm_kwargs'] = self._spec_norm_kwargs
     return config

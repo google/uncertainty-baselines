@@ -132,7 +132,6 @@ class DropoutTransformer(bert_layers.TransformerScaffold):
     Args:
       use_mc_dropout_mha: Whether to apply MC Dropout to the multi-head
         attention score layer.
-
       use_mc_dropout_att: Whether to apply MC Dropout to the attention output
         layer.
       use_mc_dropout_ffn: Whether to apply MC Dropout to the feedforward layer.

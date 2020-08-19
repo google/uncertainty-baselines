@@ -23,6 +23,7 @@ import tensorflow as tf
 import sngp_model  # local file import
 
 SNFeedforward = sngp_model.SpectralNormalizedFeedforwardLayer
+SNAttention = sngp_model.SpectralNormalizedMultiHeadAttention
 
 
 def _compute_spectral_norm(weight):
@@ -93,25 +94,30 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     self.assertAllClose(
         spectral_norm_computed, self.sn_norm_multiplier, atol=1e-3)
 
-  def test_layer_spectral_normalization(self):
+  @parameterized.named_parameters(('feedforward', False), ('attention', True))
+  def test_layer_spectral_normalization(self, test_attention):
     """Tests if the layer weights can be correctly normalized."""
+    layer_class = SNAttention if test_attention else SNFeedforward
+    input_shape = self.input_shape_4d if test_attention else self.input_shape_3d
+    kwargs = self.attention_kwargs if test_attention else self.feedforward_kwargs
+
     # Create input data.
     tf.random.set_seed(self.random_seed)
-    input_tensors = tf.random.normal(self.input_shape_3d)
+    random_data = tf.random.normal(input_shape)
+    input_tensors = (random_data,) * 2 if test_attention else (random_data,)
 
-    layer_instance = SNFeedforward(
-        use_spec_norm=True,
-        spec_norm_kwargs=self.spec_norm_kwargs,
-        **self.feedforward_kwargs)
+    layer_instance = layer_class(
+        use_spec_norm=True, spec_norm_kwargs=self.spec_norm_kwargs, **kwargs)
 
     # Invoke spectral normalization via model call.
-    _ = layer_instance(input_tensors)
+    _ = layer_instance(*input_tensors)
 
     spec_norm_list_observed = _compute_layer_spectral_norms(layer_instance)
-    spec_norm_list_expected = [self.sn_norm_multiplier] * 2
+    spec_norm_list_expected = [self.sn_norm_multiplier
+                              ] * len(spec_norm_list_observed)
 
-    self.assertAllClose(
-        spec_norm_list_observed, spec_norm_list_expected, atol=1e-3)
+    self.assertAllClose(spec_norm_list_observed, spec_norm_list_expected,
+                        atol=1e-3)
 
 
 if __name__ == '__main__':

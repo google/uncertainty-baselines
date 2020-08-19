@@ -263,6 +263,7 @@ class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     }
 
 
+# TODO(baselines): Remove reliance on hard-coded metric names.
 def aggregate_corrupt_metrics(metrics,
                               corruption_types,
                               max_intensity,
@@ -286,6 +287,8 @@ def aggregate_corrupt_metrics(metrics,
   diversity_keys = ['disagreement', 'cosine_similarity', 'average_kl']
   results = {
       'test/nll_mean_corrupted': 0.,
+      'test/kl_mean_corrupted': 0.,
+      'test/elbo_mean_corrupted': 0.,
       'test/accuracy_mean_corrupted': 0.,
       'test/ece_mean_corrupted': 0.,
       'test/member_acc_mean_corrupted': 0.,
@@ -297,9 +300,11 @@ def aggregate_corrupt_metrics(metrics,
       results['corrupt_diversity/{}_mean_corrupted'.format(key)] = 0.
 
   for intensity in range(1, max_intensity + 1):
-    ece = np.zeros(len(corruption_types))
     nll = np.zeros(len(corruption_types))
+    kl = np.zeros(len(corruption_types))
+    elbo = np.zeros(len(corruption_types))
     acc = np.zeros(len(corruption_types))
+    ece = np.zeros(len(corruption_types))
     member_acc = np.zeros(len(corruption_types))
     member_ece = np.zeros(len(corruption_types))
     disagreement = np.zeros(len(corruption_types))
@@ -309,6 +314,14 @@ def aggregate_corrupt_metrics(metrics,
     for i in range(len(corruption_types)):
       dataset_name = '{0}_{1}'.format(corruption_types[i], intensity)
       nll[i] = metrics['test/nll_{}'.format(dataset_name)].result()
+      if 'test/kl_{}'.format(dataset_name) in metrics.keys():
+        kl[i] = metrics['test/kl_{}'.format(dataset_name)].result()
+      else:
+        kl[i] = 0.
+      if 'test/elbo_{}'.format(dataset_name) in metrics.keys():
+        elbo[i] = metrics['test/elbo_{}'.format(dataset_name)].result()
+      else:
+        elbo[i] = 0.
       acc[i] = metrics['test/accuracy_{}'.format(dataset_name)].result()
       ece[i] = metrics['test/ece_{}'.format(dataset_name)].result()
       if 'test/member_acc_mean_{}'.format(dataset_name) in metrics.keys():
@@ -334,6 +347,8 @@ def aggregate_corrupt_metrics(metrics,
                 dataset_name)].result())
       if log_fine_metrics or output_dir is not None:
         fine_metrics_results['test/nll_{}'.format(dataset_name)] = nll[i]
+        fine_metrics_results['test/kl_{}'.format(dataset_name)] = kl[i]
+        fine_metrics_results['test/elbo_{}'.format(dataset_name)] = elbo[i]
         fine_metrics_results['test/accuracy_{}'.format(dataset_name)] = acc[i]
         fine_metrics_results['test/ece_{}'.format(dataset_name)] = ece[i]
         if corrupt_diversity is not None:
@@ -344,19 +359,27 @@ def aggregate_corrupt_metrics(metrics,
           fine_metrics_results['corrupt_diversity/average_kl_{}'.format(
               dataset_name)] = average_kl[i]
     avg_nll = np.mean(nll)
+    avg_kl = np.mean(kl)
+    avg_elbo = np.mean(elbo)
     avg_accuracy = np.mean(acc)
     avg_ece = np.mean(ece)
     avg_member_acc = np.mean(member_acc)
     avg_member_ece = np.mean(member_ece)
     results['test/nll_mean_{}'.format(intensity)] = avg_nll
+    results['test/kl_mean_{}'.format(intensity)] = avg_kl
+    results['test/elbo_mean_{}'.format(intensity)] = avg_elbo
     results['test/accuracy_mean_{}'.format(intensity)] = avg_accuracy
     results['test/ece_mean_{}'.format(intensity)] = avg_ece
     results['test/nll_median_{}'.format(intensity)] = np.median(nll)
+    results['test/kl_median_{}'.format(intensity)] = np.median(kl)
+    results['test/elbo_median_{}'.format(intensity)] = np.median(elbo)
     results['test/accuracy_median_{}'.format(intensity)] = np.median(acc)
     results['test/ece_median_{}'.format(intensity)] = np.median(ece)
     results['test/member_acc_mean_{}'.format(intensity)] = avg_member_acc
     results['test/member_ece_mean_{}'.format(intensity)] = avg_member_ece
     results['test/nll_mean_corrupted'] += avg_nll
+    results['test/kl_mean_corrupted'] += avg_kl
+    results['test/elbo_mean_corrupted'] += avg_elbo
     results['test/accuracy_mean_corrupted'] += avg_accuracy
     results['test/ece_mean_corrupted'] += avg_ece
     results['test/member_acc_mean_corrupted'] += avg_member_acc
@@ -370,6 +393,8 @@ def aggregate_corrupt_metrics(metrics,
         results['corrupt_diversity/{}_mean_corrupted'.format(key)] += avg
 
   results['test/nll_mean_corrupted'] /= max_intensity
+  results['test/kl_mean_corrupted'] /= max_intensity
+  results['test/elbo_mean_corrupted'] /= max_intensity
   results['test/accuracy_mean_corrupted'] /= max_intensity
   results['test/ece_mean_corrupted'] /= max_intensity
   results['test/member_acc_mean_corrupted'] /= max_intensity

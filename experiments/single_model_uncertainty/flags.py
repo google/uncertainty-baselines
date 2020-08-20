@@ -99,7 +99,8 @@ def define_flags() -> List[str]:
   flags.DEFINE_float('optimizer_hparams_beta_1', 0.9, 'Adam beta_1.')
   flags.DEFINE_float('optimizer_hparams_beta_2', 0.999, 'Adam beta_2.')
   flags.DEFINE_float('optimizer_hparams_epsilon', 1e-7, 'Adam epsilon.')
-  flags.DEFINE_float('weight_decay', 0.0, 'Weight decay.')
+  flags.DEFINE_float('weight_decay', 0.0, 'Weight decay for optimizer.')
+  flags.DEFINE_float('l2_regularization', 1e-4, 'L2 regularization for models.')
   flags.DEFINE_integer('seed', 42, 'Random seed.')
   flags.DEFINE_float(
       'validation_percent',

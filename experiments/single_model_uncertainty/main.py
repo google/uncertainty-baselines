@@ -166,7 +166,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         num_denses=FLAGS.num_denses,
         depth=FLAGS.wide_resnet_depth,
         width=FLAGS.wide_resnet_depth,
-        l2=FLAGS.weight_decay,
+        l2_weight=FLAGS.l2_regularization,
         depth_multiplier=FLAGS.wide_resnet_width_multiplier,
         dropout_rate=FLAGS.dropout_rate,
         before_conv_dropout=FLAGS.before_conv_dropout,

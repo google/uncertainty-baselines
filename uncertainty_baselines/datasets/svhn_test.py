@@ -16,7 +16,7 @@
 # Lint as: python3
 """Tests for SVHN."""
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import uncertainty_baselines as ub
 
 

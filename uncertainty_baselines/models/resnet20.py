@@ -18,7 +18,7 @@
 
 from typing import Any, Dict
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 
 def _resnet_layer(

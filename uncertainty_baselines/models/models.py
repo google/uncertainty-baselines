@@ -21,7 +21,7 @@ import logging
 from typing import List
 import warnings
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import genomics_cnn

@@ -17,7 +17,7 @@
 """TF Keras model for an MLP for Criteo, from arxiv.org/abs/1906.02530."""
 
 from typing import Any, Dict, List, Tuple
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 from uncertainty_baselines import datasets
 

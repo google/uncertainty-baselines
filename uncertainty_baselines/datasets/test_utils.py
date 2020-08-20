@@ -18,7 +18,7 @@
 
 from typing import Any, Dict, Sequence, Type, TypeVar
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 from uncertainty_baselines.datasets import base
 
 

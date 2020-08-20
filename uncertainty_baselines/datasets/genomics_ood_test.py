@@ -16,7 +16,7 @@
 # Lint as: python3
 """Tests for Genomics_OOD."""
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import uncertainty_baselines as ub
 from uncertainty_baselines.datasets import base
 

@@ -17,7 +17,7 @@
 """Collection of utilities for running on different device types."""
 
 from typing import Union
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 
 _Strategy = Union[

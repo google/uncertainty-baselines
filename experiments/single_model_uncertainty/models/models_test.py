@@ -16,7 +16,7 @@
 # Lint as: python3
 """Tests for single_model_uncertainty.models.get()."""
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import models  # local file import
 
 

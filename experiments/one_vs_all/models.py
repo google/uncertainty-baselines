@@ -16,7 +16,7 @@
 """subclassed models from ub.models with distance-based logits."""
 from typing import Any, Dict
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import uncertainty_baselines as ub
 
 

@@ -27,7 +27,7 @@ A 1D CNN model for genomic sequence classification.
      http://papers.nips.cc/paper/9611-likelihood-ratios-for-out-of-distribution-detection
 """
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 VOCAB_SIZE = 4  # DNA sequences are composed of {A, C, G, T}
 

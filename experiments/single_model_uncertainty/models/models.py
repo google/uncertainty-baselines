@@ -20,7 +20,7 @@ import json
 import logging
 from typing import List
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import genomics_cnn  # local file import
 import wide_resnet  # local file import
 from uncertainty_baselines.models import bert

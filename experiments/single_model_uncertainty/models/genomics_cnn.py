@@ -36,7 +36,7 @@ import functools
 from typing import Any, Dict
 from absl import logging
 from edward2.experimental import sngp
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import util as models_util  # local file import
 
 

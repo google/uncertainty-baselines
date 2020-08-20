@@ -26,7 +26,7 @@ A standard 1D CNN model for sentence classification.
 from typing import Any, Dict, Iterator
 
 import numpy as np
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 
 def _embedding_block(inputs: tf.Tensor,

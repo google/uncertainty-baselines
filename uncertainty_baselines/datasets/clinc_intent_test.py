@@ -18,7 +18,7 @@
 
 from absl.testing import parameterized
 import numpy as np
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import uncertainty_baselines as ub
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import clinc_intent

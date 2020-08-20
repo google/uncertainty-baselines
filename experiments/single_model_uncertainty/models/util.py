@@ -20,7 +20,7 @@ import functools
 from typing import Optional, Tuple, Union
 from absl import logging
 from edward2.experimental import sngp
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 
 # pylint: disable=invalid-name

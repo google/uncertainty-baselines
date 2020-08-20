@@ -16,7 +16,7 @@
 # Lint as: python3
 """Utilities related to custom losses for one_vs_all classifiers."""
 
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 
 
 def get(

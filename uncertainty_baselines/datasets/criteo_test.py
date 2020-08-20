@@ -17,7 +17,7 @@
 """Tests for Criteo."""
 
 from absl.testing import parameterized
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import uncertainty_baselines as ub
 from uncertainty_baselines.datasets import base
 

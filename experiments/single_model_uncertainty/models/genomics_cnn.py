@@ -77,6 +77,7 @@ def create_model(batch_size: int,
                  num_classes: int = 10,
                  embed_size: int = 4,
                  one_hot: bool = True,
+                 l2_weight: float = 0.0,
                  dropout_rate: float = 0.1,
                  before_conv_dropout: bool = False,
                  use_mc_dropout: bool = False,
@@ -95,6 +96,7 @@ def create_model(batch_size: int,
     num_classes: (int) Number of output classes.
     embed_size: (int) Static size of hidden dimension of the embedding output.
     one_hot: (bool) If using one hot encoding to encode input sequences.
+    l2_weight: (float) L2 regularization coefficient.
     dropout_rate: (float) Fraction of the convolutional output units and dense.
       layer output units to drop.
     before_conv_dropout: (bool) Whether to use filter wise dropout before the
@@ -135,17 +137,23 @@ def create_model(batch_size: int,
       use_spec_norm=(spec_norm_hparams is not None),
       spec_norm_bound=spec_norm_bound,
       spec_norm_iteration=spec_norm_iteration)
-  x = _conv_pooled_block(x, conv_layer=conv2d())
+  x = _conv_pooled_block(
+      x,
+      conv_layer=conv2d(kernel_regularizer=tf.keras.regularizers.l2(l2_weight)))
   x = models_util.apply_dropout(x, dropout_rate, use_mc_dropout)
   x = tf.keras.layers.Dense(
       num_denses,
       activation=tf.keras.activations.relu,
-      name='dense')(x)
+      kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
+      name='dense')(
+          x)
   x = tf.keras.layers.Dropout(dropout_rate, name='dropout2')(x)
   x = tf.keras.layers.Dense(
       num_classes,
       activation=None,
-      name='logits')(x)
+      kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
+      name='logits')(
+          x)
   x = models_util.apply_dropout(x, dropout_rate, use_mc_dropout)
   if gp_layer_hparams:
     gp_output_layer = functools.partial(

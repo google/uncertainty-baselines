@@ -18,7 +18,7 @@ from absl.testing import parameterized
 
 import tensorflow as tf
 import dropout_model  # local file import
-from official.nlp.bert import configs as bert_configs  # pylint: disable=unused-import
+from official.nlp.bert import configs as bert_configs
 
 
 class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):

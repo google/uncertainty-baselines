@@ -21,13 +21,16 @@ import numpy as np
 import tensorflow as tf
 
 import sngp_model  # local file import
+from official.nlp.bert import configs as bert_configs
 
 SNFeedforward = sngp_model.SpectralNormalizedFeedforwardLayer
 SNAttention = sngp_model.SpectralNormalizedMultiHeadAttention
+SNTransformer = sngp_model.SpectralNormalizedTransformer
 
 
 def _compute_spectral_norm(weight):
   """Computes the spectral norm for a numpy weight matrix."""
+  # TODO(b/165683434): Support different re-shaping options.
   if weight.ndim > 2:
     # Reshape weight to a 2D matrix.
     weight_shape = weight.shape
@@ -51,18 +54,31 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     self.random_seed = 42
 
     self.batch_size = 4
-    self.max_seq_length = 12
+    self.seq_length = 12
     self.hidden_dim = 32
     self.num_heads = 8
     self.key_dim = self.hidden_dim // self.num_heads
 
+    self.bert_test_config = bert_configs.BertConfig(
+        attention_probs_dropout_prob=0.12,
+        hidden_dropout_prob=0.34,
+        hidden_act='gelu',
+        hidden_size=self.hidden_dim,
+        initializer_range=0.02,
+        intermediate_size=self.hidden_dim,
+        max_position_embeddings=self.seq_length,
+        num_attention_heads=self.num_heads,
+        num_hidden_layers=2,
+        type_vocab_size=2,
+        vocab_size=128)
+
     self.input_shape_3d = tf.TensorShape(
-        (self.batch_size, self.max_seq_length, self.hidden_dim))
+        (self.batch_size, self.seq_length, self.hidden_dim))
     self.input_shape_4d = tf.TensorShape(
-        (self.batch_size, self.max_seq_length, self.num_heads, self.key_dim))
+        (self.batch_size, self.seq_length, self.num_heads, self.key_dim))
 
     # Layer arguments.
-    self.sn_norm_multiplier = 0.95
+    self.sn_norm_multiplier = 0.15
     self.spec_norm_kwargs = dict(
         iteration=1000, norm_multiplier=self.sn_norm_multiplier)
     self.attention_kwargs = dict(num_heads=self.num_heads, key_dim=self.key_dim)
@@ -81,7 +97,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     eisum_layer_class = sngp_model.make_spec_norm_dense_layer(
         **self.spec_norm_kwargs)
     dense_layer = eisum_layer_class(
-        output_shape=(self.max_seq_length, 10),
+        output_shape=(self.seq_length, 10),
         equation=einsum_equation,
         activation='relu')
 
@@ -118,6 +134,66 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
 
     self.assertAllClose(spec_norm_list_observed, spec_norm_list_expected,
                         atol=1e-3)
+
+  @parameterized.named_parameters(('att_and_ffn', True, True),
+                                  ('att_only', False, True),
+                                  ('ffn_only', True, False))
+  def test_transformer_spectral_normalization(self, use_spec_norm_att,
+                                              use_spec_norm_ffn):
+    """Tests if the transorfmer weights can be correctly normalized."""
+    tf.random.set_seed(self.random_seed)
+    input_tensor = tf.random.normal(self.input_shape_3d)
+
+    transformer_model = SNTransformer(
+        num_attention_heads=self.num_heads,
+        intermediate_size=self.hidden_dim,
+        intermediate_activation='gelu',
+        use_layer_norm_att=False,
+        use_layer_norm_ffn=False,
+        use_spec_norm_att=use_spec_norm_att,
+        use_spec_norm_ffn=use_spec_norm_ffn,
+        spec_norm_kwargs=self.spec_norm_kwargs)
+    _ = transformer_model(input_tensor)
+
+    spec_norm_list_all = _compute_layer_spectral_norms(transformer_model)
+
+    # Collect spectral norms of the normalized kernel matrices.
+    spec_norm_list_observed = []
+    if use_spec_norm_att:
+      spec_norm_list_observed += spec_norm_list_all[:3]
+    if use_spec_norm_ffn:
+      spec_norm_list_observed += spec_norm_list_all[-2:]
+    spec_norm_list_expected = [self.sn_norm_multiplier
+                              ] * len(spec_norm_list_observed)
+
+    self.assertAllClose(
+        spec_norm_list_observed, spec_norm_list_expected, atol=1e-3)
+
+  def test_transformer_encoder_spectral_normalization(self):
+    """Tests if the transorfmer encoder weights are correctly normalized."""
+    input_ids = tf.ones((self.batch_size, self.seq_length), dtype=tf.int32)
+    input_tensors = [input_ids, input_ids, input_ids]
+
+    transformer_encoder = (
+        sngp_model.get_spectral_normalized_transformer_encoder(
+            bert_config=self.bert_test_config,
+            spec_norm_kwargs=self.spec_norm_kwargs,
+            use_layer_norm_att=True,
+            use_layer_norm_ffn=True,
+            use_spec_norm_att=True,
+            use_spec_norm_ffn=True))
+    _ = transformer_encoder(input_tensors)
+
+    # Currently the model does not apply spectral normalization to the CLS
+    # pooler layer (i.e. the last trainable kernel matrix). Remove it from
+    # evaluation for now.
+    spec_norm_list_observed = _compute_layer_spectral_norms(transformer_encoder)
+    del spec_norm_list_observed[-1]
+    spec_norm_list_expected = [self.sn_norm_multiplier
+                              ] * len(spec_norm_list_observed)
+
+    self.assertAllClose(
+        spec_norm_list_observed, spec_norm_list_expected, atol=1e-3)
 
 
 if __name__ == '__main__':

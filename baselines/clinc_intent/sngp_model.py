@@ -31,10 +31,17 @@ with a Gaussian process layer.
      _Neural Information Processing System_, 2017.
      https://papers.nips.cc/paper/7181-attention-is-all-you-need
 """
+import functools
+
 from typing import Any, Dict, Mapping, Optional
 from edward2.experimental import sngp
 
 import tensorflow as tf
+
+from official.modeling import tf_utils
+from official.nlp.bert import configs as bert_configs
+from official.nlp.modeling import layers as bert_layers
+from official.nlp.modeling import networks as bert_encoder
 
 _EinsumDense = tf.keras.layers.experimental.EinsumDense
 
@@ -241,3 +248,170 @@ class SpectralNormalizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
     config['use_spec_norm'] = self._use_spec_norm
     config['spec_norm_kwargs'] = self._spec_norm_kwargs
     return config
+
+
+class SpectralNormalizedTransformer(bert_layers.TransformerScaffold):
+  """Transformer layer with spectral-normalized dense layers."""
+
+  def __init__(self,
+               use_layer_norm_att: bool = True,
+               use_layer_norm_ffn: bool = True,
+               use_spec_norm_att: bool = False,
+               use_spec_norm_ffn: bool = False,
+               spec_norm_kwargs: Optional[Mapping[str, Any]] = None,
+               **kwargs):
+    """Initializer.
+
+    Args:
+      use_layer_norm_att: Whether to use layer normalization in the attention
+        layer.
+      use_layer_norm_ffn: Whether to use layer normalization in the feedforward
+        layer.
+      use_spec_norm_att: Whether to use spectral normalization in the attention
+        layer.
+      use_spec_norm_ffn: Whether to use spectral normalization in the
+        feedforward layer.
+      spec_norm_kwargs: Keyword arguments to the spectral normalization layer.
+      **kwargs: Additional keyword arguments to TransformerScaffold.
+    """
+    self._use_layer_norm_att = use_layer_norm_att
+    self._use_layer_norm_ffn = use_layer_norm_ffn
+    self._use_spec_norm_att = use_spec_norm_att
+    self._use_spec_norm_ffn = use_spec_norm_ffn
+    self._spec_norm_kwargs = spec_norm_kwargs
+
+    feedforward_cls = functools.partial(
+        SpectralNormalizedFeedforwardLayer,
+        use_layer_norm=self._use_layer_norm_ffn,
+        use_spec_norm=self._use_spec_norm_ffn,
+        spec_norm_kwargs=self._spec_norm_kwargs)
+
+    attention_cls = functools.partial(
+        SpectralNormalizedMultiHeadAttention,
+        use_spec_norm=self._use_spec_norm_att,
+        spec_norm_kwargs=self._spec_norm_kwargs)
+
+    super().__init__(
+        feedforward_cls=feedforward_cls, attention_cls=attention_cls, **kwargs)
+
+  def call(self, inputs):
+    """Overwrites default call function to allow diabling layernorm."""
+    if isinstance(inputs, (list, tuple)) and len(inputs) == 2:
+      input_tensor, attention_mask = inputs
+    else:
+      input_tensor, attention_mask = (inputs, None)
+
+    attention_output = self._attention_layer(
+        query=input_tensor, value=input_tensor, attention_mask=attention_mask)
+    attention_output = self._attention_dropout(attention_output)
+    attention_output = input_tensor + attention_output
+    if self._use_layer_norm_att:
+      attention_output = self._attention_layer_norm(attention_output)
+
+    if self._feedforward_block is None:
+      intermediate_output = self._intermediate_dense(attention_output)
+      intermediate_output = self._intermediate_activation_layer(
+          intermediate_output)
+      layer_output = self._output_dense(intermediate_output)
+      layer_output = self._output_dropout(layer_output)
+      # During mixed precision training, attention_output is from layer norm
+      # and is always fp32 for now. Cast layer_output to fp32 for the subsequent
+      # add.
+      layer_output = tf.cast(layer_output, tf.float32)
+      layer_output = self._output_layer_norm(layer_output + attention_output)
+    else:
+      layer_output = self._feedforward_block(attention_output)
+
+    return layer_output
+
+
+class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
+  """Spectral-normalized Transformer Encoder with default embedding layer."""
+
+  def __init__(
+      self,
+      use_layer_norm_att: bool = True,
+      use_layer_norm_ffn: bool = True,
+      use_spec_norm_att: bool = False,
+      use_spec_norm_ffn: bool = False,
+      # A dict of kwargs to pass to the Transformer class.
+      hidden_cfg: Optional[Dict[str, Any]] = None,
+      **kwargs: Mapping[str, Any]):
+    """Initializer."""
+    hidden_cls = SpectralNormalizedTransformer
+
+    # Add MC Dropout arguments to default transformer config.
+    normalization_cfg = {
+        'use_layer_norm_att': use_layer_norm_att,
+        'use_layer_norm_ffn': use_layer_norm_ffn,
+        'use_spec_norm_att': use_spec_norm_att,
+        'use_spec_norm_ffn': use_spec_norm_ffn,
+    }
+
+    if hidden_cfg:
+      hidden_cfg.update(normalization_cfg)
+    else:
+      hidden_cfg = normalization_cfg
+
+    # TODO(jereliu): Add spectral normalization also to the CLS pooler layer
+    # by bebuild model graph using the initialized layers.
+    super().__init__(hidden_cls=hidden_cls, hidden_cfg=hidden_cfg, **kwargs)
+
+
+def get_spectral_normalized_transformer_encoder(
+    bert_config: bert_configs.BertConfig,
+    spec_norm_kwargs: Mapping[str, Any],
+    use_layer_norm_att: bool = True,
+    use_layer_norm_ffn: bool = True,
+    use_spec_norm_att: bool = False,
+    use_spec_norm_ffn: bool = False) -> SpectralNormalizedTransformerEncoder:
+  """Creates a SpectralNormalizedTransformerEncoder from a bert_config.
+
+  Args:
+    bert_config: A 'BertConfig' object.
+    spec_norm_kwargs: Keyword arguments to the spectral normalization layer.
+    use_layer_norm_att: (bool) Whether to apply layer normalization to the
+      attention layer.
+    use_layer_norm_ffn: (bool) Whether to apply layer normalization to the
+      feedforward layer.
+    use_spec_norm_att: (bool) Whether to apply spectral normalization to the
+      attention layer.
+    use_spec_norm_ffn: (bool) Whether to apply spectral normalization to the
+      feedforward layer.
+
+  Returns:
+    A SpectralNormalizedTransformerEncoder object.
+  """
+  embedding_cfg = dict(
+      vocab_size=bert_config.vocab_size,
+      type_vocab_size=bert_config.type_vocab_size,
+      hidden_size=bert_config.hidden_size,
+      max_seq_length=bert_config.max_position_embeddings,
+      initializer=tf.keras.initializers.TruncatedNormal(
+          stddev=bert_config.initializer_range),
+      dropout_rate=bert_config.hidden_dropout_prob,
+  )
+  hidden_cfg = dict(
+      num_attention_heads=bert_config.num_attention_heads,
+      intermediate_size=bert_config.intermediate_size,
+      intermediate_activation=tf_utils.get_activation(bert_config.hidden_act),
+      dropout_rate=bert_config.hidden_dropout_prob,
+      attention_dropout_rate=bert_config.attention_probs_dropout_prob,
+      kernel_initializer=tf.keras.initializers.TruncatedNormal(
+          stddev=bert_config.initializer_range),
+      spec_norm_kwargs=spec_norm_kwargs,
+  )
+  kwargs = dict(
+      embedding_cfg=embedding_cfg,
+      num_hidden_instances=bert_config.num_hidden_layers,
+      pooled_output_dim=bert_config.hidden_size,
+      pooler_layer_initializer=tf.keras.initializers.TruncatedNormal(
+          stddev=bert_config.initializer_range))
+
+  return SpectralNormalizedTransformerEncoder(
+      use_layer_norm_att=use_layer_norm_att,
+      use_layer_norm_ffn=use_layer_norm_ffn,
+      use_spec_norm_att=use_spec_norm_att,
+      use_spec_norm_ffn=use_spec_norm_ffn,
+      hidden_cfg=hidden_cfg,
+      **kwargs)

@@ -30,7 +30,6 @@ a Gaussian process.
      https://arxiv.org/abs/2006.07584
 """
 
-import functools
 import os
 import time
 
@@ -38,9 +37,8 @@ from absl import app
 from absl import flags
 from absl import logging
 
-from edward2.experimental import sngp
 import tensorflow as tf
-import sngp_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -66,23 +64,19 @@ flags.DEFINE_string('alexnet_errors_path', None,
                     'Path to AlexNet corruption errors file.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
 
-# SNGP flags.
-flags.DEFINE_bool('use_spec_norm', True,
-                  'Whether to apply spectral normalization.')
-flags.DEFINE_bool('use_gp_layer', True,
-                  'Whether to use Gaussian process as the output layer.')
-
 # Dropout flags.
+flags.DEFINE_bool('use_mc_dropout', False,
+                  'Whether to use Monte Carlo dropout during inference.')
 flags.DEFINE_float('dropout_rate', 0., 'Dropout rate.')
 flags.DEFINE_bool(
     'filterwise_dropout', True, 'Dropout whole convolutional'
     'filters instead of individual values in the feature map.')
-flags.DEFINE_bool('use_mc_dropout', False,
-                  'Whether to use Monte Carlo dropout during inference.')
 flags.DEFINE_integer('num_dropout_samples', 1,
                      'Number of samples to use for MC Dropout prediction.')
 
 # Spectral normalization flags.
+flags.DEFINE_bool('use_spec_norm', True,
+                  'Whether to apply spectral normalization.')
 flags.DEFINE_integer(
     'spec_norm_iteration', 1,
     'Number of power iterations to perform for estimating '
@@ -91,30 +85,26 @@ flags.DEFINE_float('spec_norm_bound', 6.,
                    'Upper bound to spectral norm of weight matrices.')
 
 # Gaussian process flags.
+flags.DEFINE_bool('use_gp_layer', True,
+                  'Whether to use Gaussian process as the output layer.')
 flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
 flags.DEFINE_float(
     'gp_scale', 1.,
     'The length-scale parameter for the RBF kernel of the GP layer.')
 flags.DEFINE_integer(
-    'gp_input_dim', -1,
-    'The dimension to reduce the neural network input to for the GP layer '
-    '(via random Gaussian projection which preserves distance by the '
-    ' Johnson-Lindenstrauss lemma). If -1 the no dimension reduction.')
-flags.DEFINE_integer(
     'gp_hidden_dim', 1024,
     'The hidden dimension of the GP layer, which corresponds to the number of '
-    'random features used to for the approximation ')
+    'random features used for the approximation.')
 flags.DEFINE_bool(
     'gp_input_normalization', False,
     'Whether to normalize the input for GP layer using LayerNorm. This is '
     'similar to applying automatic relevance determination (ARD) in the '
     'classic GP literature.')
 flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
-                   'The Ridge penalty parameter for GP posterior covariance.')
+                   'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
     'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of '
-    'precision matrix.')
+    'The discount factor to compute the moving average of precision matrix.')
 flags.DEFINE_float(
     'gp_mean_field_factor', 1e-6,
     'The tunable multiplicative factor used in the mean-field approximation '
@@ -125,14 +115,14 @@ flags.DEFINE_bool(
     'Whether to initialize GP output layer using Gaussian with small '
     'standard deviation (sd=0.01).')
 
-
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', True, 'Whether to use mixed precision.')
+# TODO(jereliu): Support use_bfloat16=True which currently raises error with
+# spectral normalization.
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 32, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
-
 
 FLAGS = flags.FLAGS
 
@@ -147,58 +137,10 @@ _LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
     (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
 ]
 
-# Layer defintions.
-gp_output_initializer = None
 
-if FLAGS.gp_output_imagenet_initializer:
-  # Use the same initializer as dense
-  gp_output_initializer = tf.keras.initializers.RandomNormal(
-      stddev=0.01)
-
-gp_output_kwargs = {'kernel_initializer': gp_output_initializer}
-
-# pylint: disable=invalid-name
-GaussianProcess = functools.partial(
-    sngp.RandomFeatureGaussianProcess,
-    num_inducing=FLAGS.gp_hidden_dim,
-    gp_kernel_scale=FLAGS.gp_scale,
-    gp_output_bias=FLAGS.gp_bias,
-    normalize_input=FLAGS.gp_input_normalization,
-    gp_cov_momentum=FLAGS.gp_cov_discount_factor,
-    gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
-    scale_random_features=False,
-    use_custom_random_features=True,
-    **gp_output_kwargs)
-
-
-def Conv2DNormed(*conv_args, **conv_kwargs):
-  conv_layer = sngp_model.DEFAULT_CONV_LAYER(*conv_args, **conv_kwargs)
-  return sngp.SpectralNormalizationConv2D(
-      conv_layer,
-      iteration=FLAGS.spec_norm_iteration,
-      norm_multiplier=FLAGS.spec_norm_bound)
-
-# pylint: enable=invalid-name
-
-if FLAGS.use_spec_norm:
-  CONV_LAYER = Conv2DNormed
-else:
-  CONV_LAYER = sngp_model.DEFAULT_CONV_LAYER
-if FLAGS.use_gp_layer:
-  OUTPUT_LAYER = GaussianProcess
-else:
-  OUTPUT_LAYER = sngp_model.DEFAULT_OUTPUT_LAYER
-
-DROPOUT_LAYER = functools.partial(
-    sngp_model.MonteCarloDropout,
-    dropout_rate=FLAGS.dropout_rate,
-    use_mc_dropout=FLAGS.use_mc_dropout,
-    filterwise_dropout=FLAGS.filterwise_dropout)
-
-
-# Utility functions.
 def mean_field_logits(logits, covmat, mean_field_factor=1.):
   """Adjust the predictive logits so its softmax approximates posterior mean."""
+  # TODO(jereliu): Maybe move to ed2 library or ed2.experimental.sngp.
   logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
   if mean_field_factor > 0:
     logits = logits / tf.expand_dims(logits_scale, axis=-1)
@@ -266,13 +208,24 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')
-    model = sngp_model.resnet50(
+    model = ub.models.resnet50_sngp(
         input_shape=(224, 224, 3),
         batch_size=batch_size,
         num_classes=NUM_CLASSES,
-        conv_layer=CONV_LAYER,
-        output_layer=OUTPUT_LAYER,
-        dropout_layer=DROPOUT_LAYER)
+        use_mc_dropout=FLAGS.use_mc_dropout,
+        dropout_rate=FLAGS.dropout_rate,
+        filterwise_dropout=FLAGS.filterwise_dropout,
+        use_gp_layer=FLAGS.use_gp_layer,
+        gp_hidden_dim=FLAGS.gp_hidden_dim,
+        gp_scale=FLAGS.gp_scale,
+        gp_bias=FLAGS.gp_bias,
+        gp_input_normalization=FLAGS.gp_input_normalization,
+        gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
+        gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
+        gp_output_imagenet_initializer=FLAGS.gp_output_imagenet_initializer,
+        use_spec_norm=FLAGS.use_spec_norm,
+        spec_norm_iteration=FLAGS.spec_norm_iteration,
+        spec_norm_bound=FLAGS.spec_norm_bound)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())

@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ResNet50 model."""
+"""ResNet50 model with SNGP."""
 import functools
 import string
-
+from edward2.experimental import sngp
 import tensorflow as tf
 
 # Use batch normalization defaults from Pytorch.
@@ -44,20 +44,18 @@ def MonteCarloDropout(  # pylint:disable=invalid-name
           inputs, training=training)
 
 
-# Default layers.
-DEFAULT_CONV_LAYER = functools.partial(tf.keras.layers.Conv2D, padding='same')
+def make_conv2d_layer(use_spec_norm,
+                      spec_norm_iteration,
+                      spec_norm_bound):
+  """Defines type of Conv2D layer to use based on spectral normalization."""
+  Conv2DBase = functools.partial(tf.keras.layers.Conv2D, padding='same')  # pylint: disable=invalid-name
+  def Conv2DNormed(*conv_args, **conv_kwargs):  # pylint: disable=invalid-name
+    return sngp.SpectralNormalizationConv2D(
+        Conv2DBase(*conv_args, **conv_kwargs),
+        iteration=spec_norm_iteration,
+        norm_multiplier=spec_norm_bound)
 
-DEFAULT_OUTPUT_LAYER = functools.partial(
-    tf.keras.layers.Dense,
-    activation=None,
-    kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
-    name='fc1000')
-
-DEFAULT_DROPOUT_LAYER = functools.partial(
-    MonteCarloDropout,
-    dropout_rate=0.,
-    use_mc_dropout=False,
-    filterwise_dropout=False)
+  return Conv2DNormed if use_spec_norm else Conv2DBase
 
 
 def bottleneck_block(inputs, filters, stage, block, strides, conv_layer,
@@ -171,12 +169,23 @@ def group(inputs, filters, num_blocks, stage, strides, conv_layer,
   return x
 
 
-def resnet50(input_shape,
-             batch_size,
-             num_classes,
-             conv_layer=DEFAULT_CONV_LAYER,
-             output_layer=DEFAULT_OUTPUT_LAYER,
-             dropout_layer=DEFAULT_DROPOUT_LAYER):
+def resnet50_sngp(input_shape,
+                  batch_size,
+                  num_classes,
+                  use_mc_dropout,
+                  dropout_rate,
+                  filterwise_dropout,
+                  use_gp_layer,
+                  gp_hidden_dim,
+                  gp_scale,
+                  gp_bias,
+                  gp_input_normalization,
+                  gp_cov_discount_factor,
+                  gp_cov_ridge_penalty,
+                  gp_output_imagenet_initializer,
+                  use_spec_norm,
+                  spec_norm_iteration,
+                  spec_norm_bound):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -188,13 +197,40 @@ def resnet50(input_shape,
     batch_size: The batch size of the input layer. Required by the spectral
       normalization.
     num_classes: Number of output classes.
-    conv_layer: tf.keras.layers.Layer.
-    output_layer: tf.keras.layers.Layer.
-    dropout_layer: Callable for dropout layer.
+    use_mc_dropout: Whether to apply Monte Carlo dropout.
+    dropout_rate: Dropout rate.
+    filterwise_dropout:  Dropout whole convolutional filters instead of
+      individual values in the feature map.
+    use_gp_layer: Whether to use Gaussian process layer as the output layer.
+    gp_hidden_dim: The hidden dimension of the GP layer, which corresponds to
+      the number of random features used for the approximation.
+    gp_scale: The length-scale parameter for the RBF kernel of the GP layer.
+    gp_bias: The bias term for GP layer.
+    gp_input_normalization: Whether to normalize the input using LayerNorm for
+      GP layer. This is similar to automatic relevance determination (ARD) in
+      the classic GP learning.
+    gp_cov_discount_factor: The discount factor to compute the moving average of
+      precision matrix.
+    gp_cov_ridge_penalty: Ridge penalty parameter for GP posterior covariance.
+    gp_output_imagenet_initializer: Whether to initialize GP output layer using
+      Gaussian with small standard deviation (sd=0.01).
+    use_spec_norm: Whether to apply spectral normalization.
+    spec_norm_iteration: Number of power iterations to perform for estimating
+      the spectral norm of weight matrices.
+    spec_norm_bound: Upper bound to spectral norm of weight matrices.
 
   Returns:
     tf.keras.Model.
   """
+  dropout_layer = functools.partial(
+      MonteCarloDropout,
+      dropout_rate=dropout_rate,
+      use_mc_dropout=use_mc_dropout,
+      filterwise_dropout=filterwise_dropout)
+  conv_layer = make_conv2d_layer(use_spec_norm=use_spec_norm,
+                                 spec_norm_iteration=spec_norm_iteration,
+                                 spec_norm_bound=spec_norm_bound)
+
   inputs = tf.keras.layers.Input(shape=input_shape, batch_size=batch_size)
   x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
   # TODO(jereliu): apply SpectralNormalization to input layer as well.
@@ -244,6 +280,28 @@ def resnet50(input_shape,
       dropout_layer=dropout_layer)
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
 
-  outputs = output_layer(num_classes)(x)
+  if use_gp_layer:
+    gp_output_initializer = None
+    if gp_output_imagenet_initializer:
+      # Use the same initializer as dense
+      gp_output_initializer = tf.keras.initializers.RandomNormal(stddev=0.01)
+    output_layer = functools.partial(
+        sngp.RandomFeatureGaussianProcess,
+        num_inducing=gp_hidden_dim,
+        gp_kernel_scale=gp_scale,
+        gp_output_bias=gp_bias,
+        normalize_input=gp_input_normalization,
+        gp_cov_momentum=gp_cov_discount_factor,
+        gp_cov_ridge_penalty=gp_cov_ridge_penalty,
+        scale_random_features=False,
+        use_custom_random_features=True,
+        kernel_initializer=gp_output_initializer)
+  else:
+    output_layer = functools.partial(
+        tf.keras.layers.Dense,
+        activation=None,
+        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
+        name='fc1000')
 
+  outputs = output_layer(num_classes)(x)
   return tf.keras.Model(inputs=inputs, outputs=outputs, name='resnet50')

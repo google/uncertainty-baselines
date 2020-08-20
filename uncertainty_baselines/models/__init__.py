@@ -26,6 +26,7 @@ from uncertainty_baselines.models.resnet50 import create_model as ResNet50Builde
 from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
+from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
 from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble

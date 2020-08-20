@@ -23,25 +23,93 @@ from absl import logging
 
 import numpy as np
 import tensorflow as tf
-import sngp  # local file import
-import sngp_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
+flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
+flags.DEFINE_integer('seed', 0, 'Random seed.')
+flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
+flags.mark_flag_as_required('data_dir')
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
 flags.mark_flag_as_required('checkpoint_dir')
+flags.DEFINE_string('output_dir', '/tmp/imagenet',
+                    'The directory where the model weights and '
+                    'training/evaluation summaries are stored.')
+flags.DEFINE_string('alexnet_errors_path', None,
+                    'Path to AlexNet corruption errors file.')
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
+
+# SNGP ensemble flags
 flags.DEFINE_float(
     'gp_mean_field_factor_ensemble', -1,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean.')
 
+# Dropout flags.
+flags.DEFINE_bool('use_mc_dropout', False,
+                  'Whether to use Monte Carlo dropout during inference.')
+flags.DEFINE_float('dropout_rate', 0., 'Dropout rate.')
+flags.DEFINE_bool(
+    'filterwise_dropout', True, 'Dropout whole convolutional'
+    'filters instead of individual values in the feature map.')
+
+# Spectral normalization flags.
+flags.DEFINE_bool('use_spec_norm', True,
+                  'Whether to apply spectral normalization.')
+flags.DEFINE_integer(
+    'spec_norm_iteration', 1,
+    'Number of power iterations to perform for estimating '
+    'the spectral norm of weight matrices.')
+flags.DEFINE_float('spec_norm_bound', 6.,
+                   'Upper bound to spectral norm of weight matrices.')
+
+# Gaussian process flags.
+flags.DEFINE_bool('use_gp_layer', True,
+                  'Whether to use Gaussian process as the output layer.')
+flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
+flags.DEFINE_float(
+    'gp_scale', 1.,
+    'The length-scale parameter for the RBF kernel of the GP layer.')
+flags.DEFINE_integer(
+    'gp_hidden_dim', 1024,
+    'The hidden dimension of the GP layer, which corresponds to the number of '
+    'random features used for the approximation.')
+flags.DEFINE_bool(
+    'gp_input_normalization', False,
+    'Whether to normalize the input for GP layer using LayerNorm. This is '
+    'similar to applying automatic relevance determination (ARD) in the '
+    'classic GP literature.')
+flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
+                   'Ridge penalty parameter for GP posterior covariance.')
+flags.DEFINE_float(
+    'gp_cov_discount_factor', 0.999,
+    'The discount factor to compute the moving average of precision matrix.')
+flags.DEFINE_bool(
+    'gp_output_imagenet_initializer', True,
+    'Whether to initialize GP output layer using Gaussian with small '
+    'standard deviation (sd=0.01).')
+
+# Accelerator flags.
+flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_integer('num_cores', 1, 'Number of TPU cores or number of GPUs.')
+
 FLAGS = flags.FLAGS
 
 # Number of images in eval dataset.
 IMAGENET_VALIDATION_IMAGES = 50000
 NUM_CLASSES = 1000
+
+
+def mean_field_logits(logits, covmat, mean_field_factor=1.):
+  """Adjust the predictive logits so its softmax approximates posterior mean."""
+  logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
+  if mean_field_factor > 0:
+    logits = logits / tf.expand_dims(logits_scale, axis=-1)
+
+  return logits
 
 
 def main(argv):
@@ -73,12 +141,24 @@ def main(argv):
           drop_remainder=True,
           use_bfloat16=False)
 
-  model = sngp_model.resnet50(
+  model = ub.models.resnet50_sngp(
       input_shape=(224, 224, 3),
       batch_size=FLAGS.per_core_batch_size,
       num_classes=NUM_CLASSES,
-      conv_layer=sngp.CONV_LAYER,
-      output_layer=sngp.OUTPUT_LAYER)
+      use_mc_dropout=FLAGS.use_mc_dropout,
+      dropout_rate=FLAGS.dropout_rate,
+      filterwise_dropout=FLAGS.filterwise_dropout,
+      use_gp_layer=FLAGS.use_gp_layer,
+      gp_hidden_dim=FLAGS.gp_hidden_dim,
+      gp_scale=FLAGS.gp_scale,
+      gp_bias=FLAGS.gp_bias,
+      gp_input_normalization=FLAGS.gp_input_normalization,
+      gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
+      gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
+      gp_output_imagenet_initializer=FLAGS.gp_output_imagenet_initializer,
+      use_spec_norm=FLAGS.use_spec_norm,
+      spec_norm_iteration=FLAGS.spec_norm_iteration,
+      spec_norm_bound=FLAGS.spec_norm_bound)
 
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)
@@ -107,7 +187,7 @@ def main(argv):
         for _ in range(steps_per_eval):
           features, _ = next(test_iterator)  # pytype: disable=attribute-error
           logits_member, covmat_member = model(features, training=False)
-          logits_member = sngp.mean_field_logits(
+          logits_member = mean_field_logits(
               logits_member, covmat_member, FLAGS.gp_mean_field_factor_ensemble)
           logits.append(logits_member)
 

@@ -140,7 +140,12 @@ def run(trial_dir: str, flag_string: Optional[str]):
         batch_size=FLAGS.batch_size,
         num_motifs=FLAGS.num_motifs,
         len_motifs=FLAGS.len_motifs,
-        num_denses=FLAGS.num_denses)
+        num_denses=FLAGS.num_denses,
+        l2_weight=FLAGS.l2_regularization,
+        depth=FLAGS.wide_resnet_depth,
+        width_multiplier=FLAGS.wide_resnet_width_multiplier,
+        version=FLAGS.wide_resnet_version
+        )
 
     metrics = {
         'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
@@ -175,6 +180,11 @@ def run(trial_dir: str, flag_string: Optional[str]):
         k[len('optimizer_hparams_'):]: FLAGS[k].value for k in FLAGS
         if k.startswith('optimizer_hparams_')
     }
+    optimizer_kwargs.update({
+        k[len('schedule_hparams_'):]: FLAGS[k].value for k in FLAGS
+        if k.startswith('schedule_hparams_')
+    })
+
     optimizer = ub.optimizers.get(
         optimizer_name=FLAGS.optimizer,
         learning_rate_schedule=FLAGS.learning_rate_schedule,

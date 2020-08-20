@@ -82,6 +82,13 @@ def define_flags() -> List[str]:
       'constant',
       'Learning rate schedule to use. See `get_learning_rate_schedule` in '
       'uncertainty_baselines/optimizers.py for more details.')
+  flags.DEFINE_integer('schedule_hparams_warmup_epochs', 1,
+                       'Number of epochs for a linear warmup to the initial '
+                       'learning rate. Use 0 to do no warmup.')
+  flags.DEFINE_float('schedule_hparams_decay_ratio', 0.2,
+                     'Amount to decay learning rate.')
+  flags.DEFINE_list('schedule_hparams_decay_epochs', ['60', '120', '160'],
+                    'Epochs to decay learning rate by.')
   flags.DEFINE_string('optimizer', 'adam', 'Optimizer to use.')
   flags.DEFINE_float('optimizer_hparams_momentum', 0.9, 'SGD momentum.')
   flags.DEFINE_float('optimizer_hparams_beta_1', 0.9, 'Adam beta_1.')
@@ -95,6 +102,15 @@ def define_flags() -> List[str]:
       'Percent of training data to hold out and use as a validation set.')
   flags.DEFINE_integer(
       'shuffle_buffer_size', 16384, 'Dataset shuffle buffer size.')
+
+  # Model flags, Wide Resnet
+  flags.DEFINE_integer('wide_resnet_depth', 28,
+                       'Depth of wide resnet model.')
+  flags.DEFINE_integer('wide_resnet_width_multiplier', 10,
+                       'Width multiplier for wide resnet model.')
+  flags.DEFINE_integer('wide_resnet_version', 2,
+                       'Version of the wide resnet model.')
+  flags.DEFINE_float('l2_regularization', 1e-4, 'L2 regularization for models.')
 
   # Flags relating to genomics_cnn model
   flags.DEFINE_integer('num_motifs', 1024,

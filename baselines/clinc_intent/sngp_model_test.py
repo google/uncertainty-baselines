@@ -53,10 +53,11 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     super().setUp()
     self.random_seed = 42
 
+    self.num_classes = 10
     self.batch_size = 4
-    self.seq_length = 12
-    self.hidden_dim = 32
-    self.num_heads = 8
+    self.seq_length = 4
+    self.hidden_dim = 8
+    self.num_heads = 2
     self.key_dim = self.hidden_dim // self.num_heads
 
     self.bert_test_config = bert_configs.BertConfig(
@@ -78,15 +79,20 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
         (self.batch_size, self.seq_length, self.num_heads, self.key_dim))
 
     # Layer arguments.
-    self.sn_norm_multiplier = 0.15
+    self.sn_norm_multiplier = 0.05
     self.spec_norm_kwargs = dict(
         iteration=1000, norm_multiplier=self.sn_norm_multiplier)
     self.attention_kwargs = dict(num_heads=self.num_heads, key_dim=self.key_dim)
     self.feedforward_kwargs = dict(
-        intermediate_size=1024,
+        intermediate_size=128,
         intermediate_activation='gelu',
         dropout=0.1,
         use_layer_norm=True)
+    self.gp_layer_kwargs = dict(
+        num_inducing=32,
+        gp_cov_momentum=0.999,
+        gp_cov_ridge_penalty=1e-6,
+        use_custom_random_features=True)
 
   def test_make_spec_norm_dense_layer(self):
     """Tests if the weights of spec_norm_dense_layer is correctly normalized."""
@@ -195,6 +201,57 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     self.assertAllClose(
         spec_norm_list_observed, spec_norm_list_expected, atol=1e-3)
 
+  def test_bert_gp_classifier(self):
+    """Tests if BertGaussianProcessClassifier can be compiled successfully."""
+    # Compile a mock input model
+    inputs = tf.keras.Input(shape=self.seq_length, batch_size=self.batch_size)
+    outputs = tf.keras.layers.Lambda(lambda x: x)(inputs)
+    network = tf.keras.Model(inputs=inputs, outputs=[outputs, outputs])
+
+    # Compiles classifier model.
+    model = sngp_model.BertGaussianProcessClassifier(
+        network,
+        num_classes=self.num_classes,
+        dropout_rate=0.1,
+        use_gp_layer=True,
+        gp_layer_kwargs=self.gp_layer_kwargs)
+
+    # Computes output.
+    tf.random.set_seed(self.random_seed)
+    inputs_tensor = tf.random.normal((self.batch_size, self.seq_length))
+    logits, stddev = model(inputs_tensor, training=False)
+
+    # Check if output tensors have correct shapes.
+    logits_shape_observed = logits.shape.as_list()
+    stddev_shape_observed = stddev.shape.as_list()
+
+    logits_shape_expected = [self.batch_size, self.num_classes]
+    stddev_shape_expected = [self.batch_size, self.batch_size]
+
+    self.assertEqual(logits_shape_observed, logits_shape_expected)
+    self.assertEqual(stddev_shape_observed, stddev_shape_expected)
+
+  def test_create_model(self):
+    """Integration test for create_model."""
+    # Set iteration to 1 to avoid long waiting time.
+    spec_norm_kwargs = dict(iteration=1,
+                            norm_multiplier=self.sn_norm_multiplier)
+
+    bert_model, bert_encoder = sngp_model.create_model(
+        num_classes=10,
+        bert_config=self.bert_test_config,
+        gp_layer_kwargs=self.gp_layer_kwargs,
+        spec_norm_kwargs=spec_norm_kwargs,
+        use_gp_layer=True,
+        use_spec_norm_att=True,
+        use_spec_norm_ffn=True,
+        use_layer_norm_att=False,
+        use_layer_norm_ffn=False)
+
+    self.assertIsInstance(bert_model,
+                          sngp_model.BertGaussianProcessClassifier)
+    self.assertIsInstance(bert_encoder,
+                          sngp_model.SpectralNormalizedTransformerEncoder)
 
 if __name__ == '__main__':
   tf.test.main()

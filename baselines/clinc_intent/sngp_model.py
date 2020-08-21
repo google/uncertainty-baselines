@@ -415,3 +415,100 @@ def get_spectral_normalized_transformer_encoder(
       use_spec_norm_ffn=use_spec_norm_ffn,
       hidden_cfg=hidden_cfg,
       **kwargs)
+
+
+class BertGaussianProcessClassifier(tf.keras.Model):
+  """Classifier model based on a Gaussian process with BERT encoder."""
+
+  def __init__(self,
+               network: tf.keras.Model,
+               num_classes: int,
+               initializer: Optional[tf.keras.initializers.Initializer] = None,
+               dropout_rate: float = 0.1,
+               use_gp_layer: bool = True,
+               gp_layer_kwargs: Optional[Mapping[str, Any]] = None,
+               **kwargs: Mapping[str, Any]):
+    """Initializer.
+
+    Args:
+      network: A transformer network. This network should output a sequence
+        output and a classification output. Furthermore, it should expose its
+        embedding table via a "get_embedding_table" method.
+      num_classes: Number of classes to predict from the classification network.
+      initializer: The initializer (if any) to use in the classification
+        networks. Defaults to a Glorot uniform initializer.
+      dropout_rate: The dropout probability of the cls head.
+      use_gp_layer: Whether to use Gaussian process output layer.
+      gp_layer_kwargs: Keyword arguments to Gaussian process layer.
+      **kwargs: Additional keyword arguments.
+    """
+    self._self_setattr_tracking = False
+    self._network = network
+    self._config = {
+        'network': network,
+        'num_classes': num_classes,
+        'initializer': initializer,
+        'dropout_rate': dropout_rate,
+        'use_gp_layer': use_gp_layer,
+        'gp_layer_kwargs': gp_layer_kwargs
+    }
+
+    # We want to use the inputs of the passed network as the inputs to this
+    # Model. To do this, we need to keep a handle to the network inputs for use
+    # when we construct the Model object at the end of init.
+    inputs = network.inputs
+
+    # Construct classifier using CLS token of the BERT encoder output.
+    _, cls_output = network(inputs)
+
+    # Perform MC Dropout on the CLS embedding.
+    cls_output = tf.keras.layers.Dropout(rate=dropout_rate)(cls_output)
+
+    # Produce final logits.
+    if use_gp_layer:
+      self.classifier = sngp.RandomFeatureGaussianProcess(
+          units=num_classes, kernel_initializer=initializer, **gp_layer_kwargs)
+    else:
+      self.classifier = bert_encoder.Classification(
+          input_width=cls_output.shape[-1],
+          num_classes=num_classes,
+          initializer=initializer,
+          output='logits',
+          name='sentence_prediction')
+    predictions = self.classifier(cls_output)
+
+    super().__init__(inputs=inputs, outputs=predictions, **kwargs)
+
+
+def create_model(num_classes,
+                 bert_config,
+                 gp_layer_kwargs,
+                 spec_norm_kwargs,
+                 use_gp_layer=True,
+                 use_spec_norm_att=True,
+                 use_spec_norm_ffn=True,
+                 use_layer_norm_att=False,
+                 use_layer_norm_ffn=False):
+  """Creates a BERT classifier model with MC dropout."""
+  last_layer_initializer = tf.keras.initializers.TruncatedNormal(
+      stddev=bert_config.initializer_range)
+
+  # Build encoder model.
+  sngp_bert_encoder = get_spectral_normalized_transformer_encoder(
+      bert_config,
+      spec_norm_kwargs,
+      use_layer_norm_att=use_layer_norm_att,
+      use_layer_norm_ffn=use_layer_norm_ffn,
+      use_spec_norm_att=use_spec_norm_att,
+      use_spec_norm_ffn=use_spec_norm_ffn)
+
+  # Build classification model.
+  sngp_bert_model = BertGaussianProcessClassifier(
+      sngp_bert_encoder,
+      num_classes=num_classes,
+      initializer=last_layer_initializer,
+      dropout_rate=bert_config.hidden_dropout_prob,
+      use_gp_layer=use_gp_layer,
+      gp_layer_kwargs=gp_layer_kwargs)
+
+  return sngp_bert_model, sngp_bert_encoder

@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 from absl import logging
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import uncertainty_baselines.experiments.single_model_uncertainty.models.util as models_util
+import uncertainty_baselines.experimental.single_model_uncertainty.models.util as models_util
 from tensorboard.plugins.hparams import api as hp
 
 _EVAL_SLEEP_SECS = 5

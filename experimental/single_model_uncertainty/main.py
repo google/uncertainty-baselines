@@ -32,7 +32,7 @@ import uncertainty_baselines as ub
 import eval as eval_lib  # local file import
 import flags as flags_lib  # local file import
 import train as train_lib  # local file import
-import uncertainty_baselines.experiments.single_model_uncertainty.models.models as ub_smu_models
+import uncertainty_baselines.experimental.single_model_uncertainty.models.models as ub_smu_models
 import uncertainty_metrics as um
 
 FLAGS = flags.FLAGS

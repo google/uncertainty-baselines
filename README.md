@@ -163,7 +163,7 @@ tensorboard dev upload --logdir MODEL_DIR --plugins "scalars,graphs,hparams" --n
 
 ## Experiments
 
-The `experiments/` directory is for projects that use the codebase that the
+The `experimental/` directory is for projects that use the codebase that the
 authors believe others in the community will find useful.
 
 ## References

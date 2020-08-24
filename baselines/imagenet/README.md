@@ -2,15 +2,15 @@
 
 ## ResNet-50
 
-| Method | ImageNet | ImageNet-C | ImageNet-A | ImageNetV2 | ImageNet-Vid-Robust | YTBB-Robust | ObjectNet | Train Runtime (hours) | Test Runtime (ms / example)| # Parameters |
+| Method | ImageNet | ImageNet-C | ImageNet-A | ImageNetV2 | ImageNet-Vid-Robust | YTBB-Robust | ObjectNet | Train Runtime (hours) | Wall-clock/Compute Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- | ----------- | ----------- | ----------- |
-| Deterministic | 0.939 / 76.2% / 0.032 | 3.21 / 40.5% / 0.103 (75.4%) | 8.09 / 0.7% / 0.425 | 1.58 / 64.4% / 0.074 | 29.9% | 21.7% | 25.9% | 5 (32 TPUv3 cores) | 1.60 (32 TPUv2 cores) | 25.6M |
-| BatchEnsemble | 0.944 / 76.7% / 0.049 | 3.18 / 41.8% / 0.110 (73.7%) | - | - | - | - | - | 17.5 (32 TPUv2 cores) | 8.33 (32 TPUv2 cores) | 25.8M |
-| Monte Carlo Dropout (size=10) | 0.925 / 76.4% / 0.025 | 2.95 / 42.4% / 0.045 (72.9%) | - | - | - | - | - | 6 (32 TPUv3 cores) | 1.79 (32 TPUv2 cores) | 25.6M |
-| SNGP | 0.937 / 76.0% / 0.014 | 3.06 / 40.9% / 0.050 (75.0%) | - | - | - | - | - | 5 (32 TPUv3 cores) | 1.74 (32 TPUv2 cores) | 25.6M |
-| SNGP, with MC Dropout (size=10) | 0.913 / 76.6% / 0.020 | 3.05 / 41.2% / 0.058 (74.5%) | - | - | - | - | - | 5 (32 TPUv3 cores) | 1.80 (32 TPUv2 cores) | 25.6M |
-| SNGP Ensemble (size=4) | 0.851 / 78.1% / 0.039 | 2.77 / 44.9% / 0.050 (69.73%) | - | - | - | - | - | 17.5 (128 TPUv2 cores) | 6.52 (32 TPUv2 cores) | 102.4M |
-| Ensemble (size=4) | 0.877 / 77.5% / 0.031 | 2.99 / 42.1% / 0.051 (73.3%) | - | - | - | - | - | 17.5 (128 TPUv2 cores) | 6.40 (32 TPUv2 cores) | 102.4M |
+| Deterministic | 0.939 / 76.2% / 0.032 | 3.21 / 40.5% / 0.103 (75.4%) | 8.09 / 0.7% / 0.425 | 1.58 / 64.4% / 0.074 | 29.9% | 21.7% | 25.9% | 5 (32 TPUv2 cores) | 1.60 / 0.020 (32 TPUv2 cores) | 25.6M |
+| BatchEnsemble | 0.944 / 76.7% / 0.049 | 3.18 / 41.8% / 0.110 (73.7%) | - | - | - | - | - | 17.5 (32 TPUv2 cores) | 8.33 / 0.081 (32 TPUv2 cores) | 25.8M |
+| Monte Carlo Dropout (size=10) | 0.925 / 76.4% / 0.025 | 2.95 / 42.4% / 0.045 (72.9%) | - | - | - | - | - | 6 (32 TPUv2 cores) | 1.79 / 0.205 (32 TPUv2 cores) | 25.6M |
+| SNGP | 0.937 / 76.0% / 0.014 | 3.06 / 40.9% / 0.050 (75.0%) | - | - | - | - | - | 5 (32 TPUv3 cores) | 1.74 / 0.017 (32 TPUv3 cores) | 25.6M |
+| SNGP, with MC Dropout (size=10) | 0.913 / 76.6% / 0.020 | 3.05 / 41.2% / 0.058 (74.5%) | - | - | - | - | - | 5 (32 TPUv3 cores) | 1.80 / 0.126 (32 TPUv3 cores) | 25.6M |
+| SNGP Ensemble (size=4) | 0.851 / 78.1% / 0.039 | 2.77 / 44.9% / 0.050 (69.73%) | - | - | - | - | - | 17.5 (128 TPUv3 cores) | 6.52 / 0.055 (32 TPUv3 cores) | 102.4M |
+| Ensemble (size=4) | 0.877 / 77.5% / 0.031 | 2.99 / 42.1% / 0.051 (73.3%) | - | - | - | - | - | 17.5 (128 TPUv2 cores) | 6.40 / 0.082 (32 TPUv2 cores) | 102.4M |
 
 ## EfficientNet
 

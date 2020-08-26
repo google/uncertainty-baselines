@@ -114,6 +114,7 @@ class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
 
     if use_gp_layer:
       gp_layer_hparams = {
+          'gp_input_dim': 128,
           'gp_hidden_dim': 1024,
           'gp_scale': 2.0,
           'gp_bias': 0.0,

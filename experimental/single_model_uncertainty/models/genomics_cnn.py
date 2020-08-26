@@ -32,10 +32,8 @@ sequence classification.
      arXiv:2006.10108 (2020).
 """
 
-import functools
 from typing import Any, Dict
 from absl import logging
-from edward2.experimental import sngp
 import tensorflow as tf
 import util as models_util  # local file import
 
@@ -66,6 +64,19 @@ def _conv_pooled_block(
   # Max pooling over all positions for each motifs.
   out = tf.reduce_max(out, axis=1)  # [batch_size, num_motifs]
 
+  return out
+
+
+def _input_embedding(inputs, vocab_size, one_hot=True, embed_size=None):
+  """Transform input integers into one-hot encodings or through embeddings."""
+  if one_hot:
+    out = tf.one_hot(inputs, depth=vocab_size)
+    embed_size = vocab_size
+  else:
+    if embed_size:
+      out = tf.keras.layers.Embedding(vocab_size, embed_size)(inputs)
+    else:
+      raise ValueError('Embed input integers but embedding size is not given.')
   return out
 
 
@@ -110,61 +121,69 @@ def create_model(batch_size: int,
   Returns:
     (tf.keras.Model) The 1D convolutional model for genomic sequences.
   """
-  inputs = tf.keras.Input(
-      shape=[len_seqs], batch_size=batch_size, dtype=tf.int32)
-
-  if one_hot:
-    x = tf.one_hot(inputs, depth=VOCAB_SIZE)
-    embed_size = VOCAB_SIZE
-  else:
-    x = tf.keras.layers.Embedding(
-        VOCAB_SIZE, embed_size, name='embedding')(
-            inputs)
-  # filter-wise dropout before conv, x.shape=[batch_size, len_seqs, embed_size]
-  if before_conv_dropout:
-    x = models_util.apply_dropout(
-        x, dropout_rate, use_mc_dropout, filter_wise_dropout=True)
+  # define layers
   if spec_norm_hparams:
     spec_norm_bound = spec_norm_hparams['spec_norm_bound']
     spec_norm_iteration = spec_norm_hparams['spec_norm_iteration']
   else:
     spec_norm_bound = None
     spec_norm_iteration = None
-  conv2d = models_util.make_conv2d_layer(
-      num_filters=num_motifs,
-      kernel_size=(len_motifs, embed_size),
-      strides=(1, 1),
+
+  conv_layer = models_util.make_conv2d_layer(
       use_spec_norm=(spec_norm_hparams is not None),
       spec_norm_bound=spec_norm_bound,
       spec_norm_iteration=spec_norm_iteration)
+
+  dense_layer = models_util.make_dense_layer(
+      use_spec_norm=(spec_norm_hparams is not None),
+      spec_norm_bound=spec_norm_bound,
+      spec_norm_iteration=spec_norm_iteration)
+
+  output_layer = models_util.make_output_layer(
+      gp_layer_hparams=gp_layer_hparams)
+
+  # compute outputs given inputs
+  inputs = tf.keras.Input(
+      shape=[len_seqs], batch_size=batch_size, dtype=tf.int32)
+  x = _input_embedding(
+      inputs, VOCAB_SIZE, one_hot=one_hot, embed_size=embed_size)
+
+  # filter-wise dropout before conv,
+  # x.shape=[batch_size, len_seqs, vocab_size/embed_size]
+  if before_conv_dropout:
+    x = models_util.apply_dropout(
+        x,
+        dropout_rate,
+        use_mc_dropout,
+        filter_wise_dropout=True,
+        name='conv_dropout')
+
   x = _conv_pooled_block(
       x,
-      conv_layer=conv2d(kernel_regularizer=tf.keras.regularizers.l2(l2_weight)))
-  x = models_util.apply_dropout(x, dropout_rate, use_mc_dropout)
-  x = tf.keras.layers.Dense(
-      num_denses,
+      conv_layer=conv_layer(
+          filters=num_motifs,
+          kernel_size=(len_motifs, embed_size),
+          strides=(1, 1),
+          kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
+          name='conv'))
+  x = models_util.apply_dropout(
+      x, dropout_rate, use_mc_dropout, name='dropout1')
+  x = dense_layer(
+      units=num_denses,
       activation=tf.keras.activations.relu,
       kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
       name='dense')(
           x)
-  x = tf.keras.layers.Dropout(dropout_rate, name='dropout2')(x)
-  x = tf.keras.layers.Dense(
-      num_classes,
-      activation=None,
-      kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
-      name='logits')(
-          x)
-  x = models_util.apply_dropout(x, dropout_rate, use_mc_dropout)
-  if gp_layer_hparams:
-    gp_output_layer = functools.partial(
-        sngp.RandomFeatureGaussianProcess,
-        num_inducing=gp_layer_hparams['gp_hidden_dim'],
-        gp_kernel_scale=gp_layer_hparams['gp_scale'],
-        gp_output_bias=gp_layer_hparams['gp_bias'],
-        normalize_input=gp_layer_hparams['gp_input_normalization'],
-        gp_cov_momentum=gp_layer_hparams['gp_cov_discount_factor'],
-        gp_cov_ridge_penalty=gp_layer_hparams['gp_cov_ridge_penalty'])
-    outputs = gp_output_layer(num_classes)(x)
-  else:
-    outputs = tf.keras.layers.Dense(num_classes, name='dense_to_logits')(x)
+  x = models_util.apply_dropout(
+      x, dropout_rate, use_mc_dropout, name='dropout2')
+  if gp_layer_hparams and gp_layer_hparams['gp_input_dim'] > 0:
+    # Uses random projection to reduce the input dimension of the GP layer.
+    x = tf.keras.layers.Dense(
+        gp_layer_hparams['gp_input_dim'],
+        kernel_initializer='random_normal',
+        use_bias=False,
+        trainable=False,
+        name='gp_random_projection')(
+            x)
+  outputs = output_layer(num_classes, name='logits')(x)
   return tf.keras.Model(inputs=inputs, outputs=outputs)

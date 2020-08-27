@@ -138,7 +138,7 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building ResNet model')
-    model = ub.models.wide_resnet_deterministic(
+    model = ub.models.wide_resnet(
         input_shape=ds_info.features['image'].shape,
         depth=28,
         width_multiplier=10,

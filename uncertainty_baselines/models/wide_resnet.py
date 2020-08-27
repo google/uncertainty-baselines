@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Lint as: python3
-"""TF Keras definition for Resnet-20 for CIFAR."""
+"""Wide Residual Network."""
 
 import functools
 from typing import Any, Dict, Iterable, Optional
@@ -92,7 +92,6 @@ def group(inputs, filters, strides, num_blocks, l2, version):
 
 
 def wide_resnet(
-    batch_size: Optional[int],
     input_shape: Iterable[int],
     depth: int,
     width_multiplier: int,
@@ -106,8 +105,6 @@ def wide_resnet(
   spatial features of size 32x32 -> 16x16 -> 8x8.
 
   Args:
-    batch_size: int, the batch size for the model. Can be None if the batch size
-      is not statically known.
     input_shape: tf.Tensor.
     depth: Total number of convolutional layers. "n" in WRN-n-k. It differs from
       He et al. (2015)'s notation which uses the maximum depth of the network
@@ -125,7 +122,7 @@ def wide_resnet(
   if (depth - 4) % 6 != 0:
     raise ValueError('depth should be 6n+4 (e.g., 16, 22, 28, 40).')
   num_blocks = (depth - 4) // 6
-  inputs = tf.keras.layers.Input(shape=input_shape, batch_size=batch_size)
+  inputs = tf.keras.layers.Input(shape=input_shape)
   x = Conv2D(16,
              strides=1,
              kernel_regularizer=tf.keras.regularizers.l2(l2))(inputs)
@@ -177,11 +174,11 @@ def create_model(
     l2_weight: float = 0.0,
     version: int = 1,
     **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
-  return wide_resnet(
-      batch_size=batch_size,
-      input_shape=input_shape,
-      depth=depth,
-      width_multiplier=width_multiplier,
-      num_classes=num_classes,
-      l2=l2_weight,
-      version=version)
+  """Creates model."""
+  del batch_size  # unused arg
+  return wide_resnet(input_shape=input_shape,
+                     depth=depth,
+                     width_multiplier=width_multiplier,
+                     num_classes=num_classes,
+                     l2=l2_weight,
+                     version=version)

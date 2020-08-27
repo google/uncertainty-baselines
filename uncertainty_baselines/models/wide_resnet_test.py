@@ -13,14 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-"""Tests for uncertainty_baselines.models.wide_resnet."""
+"""Tests for Wide ResNet."""
 
 import tensorflow as tf
 import uncertainty_baselines as ub
 
 
-class ResNet20Test(tf.test.TestCase):
+class WideResnetTest(tf.test.TestCase):
 
   def testCreateModel(self):
     batch_size = 31
@@ -28,6 +27,37 @@ class ResNet20Test(tf.test.TestCase):
         batch_size, depth=28, width_multiplier=10)
     logits = model(tf.random.uniform((batch_size, 32, 32, 3)))
     self.assertEqual(logits.shape, (batch_size, 10))
+
+  def testWideResnet(self):
+    tf.random.set_seed(83922)
+    dataset_size = 10
+    batch_size = 5
+    input_shape = (32, 32, 1)
+    num_classes = 2
+
+    features = tf.random.normal((dataset_size,) + input_shape)
+    coeffs = tf.random.normal([tf.reduce_prod(input_shape), num_classes])
+    net = tf.reshape(features, [dataset_size, -1])
+    logits = tf.matmul(net, coeffs)
+    labels = tf.random.categorical(logits, 1)
+    dataset = tf.data.Dataset.from_tensor_slices((features, labels))
+    dataset = dataset.repeat().shuffle(dataset_size).batch(batch_size)
+
+    model = ub.models.wide_resnet(input_shape=input_shape,
+                                  depth=10,
+                                  width_multiplier=1,
+                                  num_classes=num_classes,
+                                  l2=0.,
+                                  version=2)
+    model.compile(
+        'adam',
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))
+    history = model.fit(dataset,
+                        steps_per_epoch=dataset_size // batch_size,
+                        epochs=2)
+
+    loss_history = history.history['loss']
+    self.assertAllGreaterEqual(loss_history, 0.)
 
 
 if __name__ == '__main__':

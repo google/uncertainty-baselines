@@ -93,7 +93,7 @@ def main(argv):
           use_bfloat16=FLAGS.use_bfloat16)
       test_datasets[dataset_name] = corrupted_input_fn()
 
-  model = ub.models.wide_resnet_deterministic(
+  model = ub.models.wide_resnet(
       input_shape=ds_info.features['image'].shape,
       depth=28,
       width_multiplier=10,

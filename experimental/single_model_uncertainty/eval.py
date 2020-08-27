@@ -21,9 +21,9 @@ import time
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 
 from absl import logging
+from edward2.experimental import sngp
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import uncertainty_baselines.experimental.single_model_uncertainty.models.util as models_util
 from tensorboard.plugins.hparams import api as hp
 
 _EVAL_SLEEP_SECS = 5
@@ -65,8 +65,7 @@ def eval_step_fn(
         covmat = tf.eye(per_core_batch_size)
 
       # TODO(jjren) set mean_field_factor as an argument
-      logits = models_util.mean_field_logits(
-          logits, covmat, mean_field_factor=0.001)
+      logits = sngp.mean_field_logits(logits, covmat, mean_field_factor=0.001)
 
       predictions = tf.nn.softmax(logits, axis=-1)
       if label_key != 'labels':

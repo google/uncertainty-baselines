@@ -37,6 +37,7 @@ from absl import app
 from absl import flags
 from absl import logging
 
+from edward2.experimental import sngp
 import tensorflow as tf
 import uncertainty_baselines as ub
 import utils  # local file import
@@ -136,16 +137,6 @@ NUM_CLASSES = 1000
 _LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
     (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
 ]
-
-
-def mean_field_logits(logits, covmat, mean_field_factor=1.):
-  """Adjust the predictive logits so its softmax approximates posterior mean."""
-  # TODO(jereliu): Maybe move to ed2 library or ed2.experimental.sngp.
-  logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
-  if mean_field_factor > 0:
-    logits = logits / tf.expand_dims(logits_scale, axis=-1)
-
-  return logits
 
 
 def main(argv):
@@ -342,7 +333,7 @@ def main(argv):
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
-        logits = mean_field_logits(
+        logits = sngp.mean_field_logits(
             logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
         stddev = tf.sqrt(tf.linalg.diag_part(covmat))
 

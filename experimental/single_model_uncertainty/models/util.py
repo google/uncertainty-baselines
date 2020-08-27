@@ -30,15 +30,6 @@ _GP_HPARAM_LIST = [
 ]
 
 
-def mean_field_logits(logits, covmat, mean_field_factor=1.):
-  """Adjust the predictive logits so its softmax approximates posterior mean."""
-  logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
-  if mean_field_factor > 0:
-    logits = logits / tf.expand_dims(logits_scale, axis=-1)
-
-  return logits
-
-
 def make_conv2d_layer(num_filters: Optional[int] = None,
                       kernel_size: Union[Tuple[int, int], int] = None,
                       strides: Union[Tuple[int, int], int] = None,

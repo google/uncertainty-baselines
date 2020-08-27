@@ -54,6 +54,7 @@ from absl import app
 from absl import flags
 from absl import logging
 
+from edward2.experimental import sngp
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -146,16 +147,6 @@ flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
 FLAGS = flags.FLAGS
-
-
-def mean_field_logits(logits, covmat, mean_field_factor=1.):
-  """Adjust the predictive logits so its softmax approximates posterior mean."""
-  # TODO(jereliu): Maybe move to ed2 library or ed2.experimental.sngp.
-  logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
-  if mean_field_factor > 0:
-    logits = logits / tf.expand_dims(logits_scale, axis=-1)
-
-  return logits
 
 
 def main(argv):
@@ -349,7 +340,7 @@ def main(argv):
         logits, covmat = model(images, training=False)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
-        logits = mean_field_logits(
+        logits = sngp.mean_field_logits(
             logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
         stddev = tf.sqrt(tf.linalg.diag_part(covmat))
 

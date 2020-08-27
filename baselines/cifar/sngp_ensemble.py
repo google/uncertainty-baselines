@@ -27,6 +27,7 @@ from absl import app
 from absl import flags
 from absl import logging
 
+from edward2.experimental import sngp
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -105,15 +106,6 @@ flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 1, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
-
-
-def mean_field_logits(logits, covmat, mean_field_factor=1.):
-  """Adjust the predictive logits so its softmax approximates posterior mean."""
-  logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
-  if mean_field_factor > 0:
-    logits = logits / tf.expand_dims(logits_scale, axis=-1)
-
-  return logits
 
 
 def main(argv):
@@ -201,7 +193,7 @@ def main(argv):
         for _ in range(steps_per_eval):
           features, _ = next(test_iterator)  # pytype: disable=attribute-error
           logits_member, covmat_member = model(features, training=False)
-          logits_member = mean_field_logits(
+          logits_member = sngp.mean_field_logits(
               logits_member, covmat_member, FLAGS.gp_mean_field_factor_ensemble)
           logits.append(logits_member)
 

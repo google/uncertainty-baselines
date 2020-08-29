@@ -17,8 +17,13 @@
 
 import functools
 import string
-import edward2 as ed
+import warnings
 import tensorflow as tf
+
+try:
+  import edward2 as ed  # pylint: disable=g-import-not-at-top
+except ImportError as e:
+  warnings.warn(f'Skipped due to ImportError: {e}')
 
 # Use batch normalization defaults from Pytorch.
 BATCH_NORM_DECAY = 0.9

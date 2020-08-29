@@ -15,9 +15,15 @@
 
 """Wide ResNet with SNGP."""
 import functools
+import warnings
 from absl import logging
-from edward2.experimental import sngp
 import tensorflow as tf
+
+try:
+  from edward2.experimental import sngp  # pylint: disable=g-import-not-at-top
+except ImportError as e:
+  warnings.warn(f'Skipped due to ImportError: {e}')
+
 
 # pylint: disable=invalid-name
 BatchNormalization = functools.partial(

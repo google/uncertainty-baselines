@@ -31,9 +31,13 @@ setup(
         'tensorflow-datasets>=1.3.0',
     ],
     extras_require={
+        'experimental': [
+            'git+https://github.com/google/uncertainty-metrics.git#egg=uncertainty_metrics[tensorflow]',
+        ],
         'models': [
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
-            ],
+            'git+https://github.com/google/edward2.git#egg=edward2[tf-nightly]',
+        ],
         'tests': ['pylint>=1.9.0'],
     },
     classifiers=[

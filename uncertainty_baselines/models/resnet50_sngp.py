@@ -16,8 +16,14 @@
 """ResNet50 model with SNGP."""
 import functools
 import string
-from edward2.experimental import sngp
+import warnings
 import tensorflow as tf
+
+try:
+  from edward2.experimental import sngp  # pylint: disable=g-import-not-at-top
+except ImportError as e:
+  warnings.warn(f'Skipped due to ImportError: {e}')
+
 
 # Use batch normalization defaults from Pytorch.
 BATCH_NORM_DECAY = 0.9

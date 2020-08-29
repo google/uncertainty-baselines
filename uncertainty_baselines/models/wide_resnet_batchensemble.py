@@ -16,9 +16,13 @@
 """BatchEnsemble for a Wide ResNet architecture."""
 
 import functools
-import edward2 as ed
+import warnings
 import tensorflow as tf
 
+try:
+  import edward2 as ed  # pylint: disable=g-import-not-at-top
+except ImportError as e:
+  warnings.warn(f'Skipped due to ImportError: {e}')
 
 BatchNormalization = functools.partial(  # pylint: disable=invalid-name
     tf.keras.layers.BatchNormalization,

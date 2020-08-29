@@ -31,6 +31,20 @@ _TensorDict = Dict[str, tf.Tensor]
 EvalStepFn = Callable[[Iterator[_TensorDict]], _TensorDict]
 
 
+def _compute_accuracy(labels: tf.Tensor, logits: tf.Tensor) -> tf.Tensor:
+  """Computes classification accuracy given logits and dense labels.
+
+  Args:
+    labels: Integer Tensor of dense labels, shape [batch_size].
+    logits: Tensor of shape [batch_size, num_classes].
+  Returns:
+    A scalar for the classification accuracy.
+  """
+  correct_prediction = tf.equal(
+      tf.argmax(logits, 1, output_type=tf.int32), labels)
+  return tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+
 def eval_step_fn(
     model: tf.keras.Model,
     loss_fn,
@@ -47,10 +61,9 @@ def eval_step_fn(
       labels = per_replica_inputs['labels']
       logits = model(features, training=False)
       loss = loss_fn(labels, logits)
-      # TODO(znado): refactor this to use uncertainty metrics.
       # Later when metric.result() is called, it will return the computed
       # result, averaged across replicas.
-      accuracy = ub.utils.compute_accuracy(labels=labels, logits=logits)
+      accuracy = _compute_accuracy(labels=labels, logits=logits)
       metrics['accuracy'].update_state(accuracy)
       metrics['loss'].update_state(loss)
 

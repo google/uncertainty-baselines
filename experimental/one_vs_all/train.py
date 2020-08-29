@@ -29,6 +29,20 @@ _TensorDict = Dict[str, tf.Tensor]
 _TrainStepFn = Callable[[Iterator[_TensorDict]], _TensorDict]
 
 
+def _compute_accuracy(labels: tf.Tensor, logits: tf.Tensor) -> tf.Tensor:
+  """Computes classification accuracy given logits and dense labels.
+
+  Args:
+    labels: Integer Tensor of dense labels, shape [batch_size].
+    logits: Tensor of shape [batch_size, num_classes].
+  Returns:
+    A scalar for the classification accuracy.
+  """
+  correct_prediction = tf.equal(
+      tf.argmax(logits, 1, output_type=tf.int32), labels)
+  return tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+
 def _train_step_fn(
     model: tf.keras.Model,
     optimizer: tf.keras.optimizers.Optimizer,
@@ -62,12 +76,10 @@ def _train_step_fn(
         # and step, which will be the case because we use padding.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
-      # TODO(znado): remove loss/accuracy and plug in a more generic metrics
-      # argument once we have the final implementations in Uncertainty Metrics.
       # Note that the metrics returned from this function will be averaged
       # across replicas, because we handle that ourselves.
       metrics = {
-          'accuracy': ub.utils.compute_accuracy(labels=labels, logits=logits),
+          'accuracy': _compute_accuracy(labels=labels, logits=logits),
           'loss': loss,
       }
       grads = tape.gradient(scaled_loss, model.trainable_variables)

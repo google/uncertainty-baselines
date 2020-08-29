@@ -24,6 +24,42 @@ import tensorflow.compat.v2 as tf
 from uncertainty_baselines.datasets import base
 
 
+def apply_label_smoothing(one_hot_targets, label_smoothing):
+  """Apply label smoothing to the one-hot targets.
+
+  Applies label smoothing such that the on-values are transformed from 1.0 to
+  `1.0 - label_smoothing + label_smoothing / num_classes`, and the off-values
+  are transformed from 0.0 to `label_smoothing / num_classes`. This weighted
+  mixture of `one_hot_targets` with the uniform distribution is the same as is
+  done in [1] and the original label smoothing paper [2].
+
+  #### References
+  [1]: Müller, Rafael, Simon Kornblith, and Geoffrey E. Hinton.
+  "When does label smoothing help?." Advances in Neural Information Processing
+  Systems. 2019.
+  https://arxiv.org/abs/1906.02629
+  [2]:  Christian Szegedy, Vincent Vanhoucke, Sergey Ioffe, Jon Shlens, and
+  Zbigniew Wojna. "Rethinking the inception architecture for computer vision."
+  In Proceedings of the IEEE conference on computer vision and pattern
+  recognition, pages 2818–2826, 2016.
+  https://arxiv.org/abs/1512.00567
+
+  Args:
+    one_hot_targets: one-hot targets for an example, a [batch, ..., num_classes]
+      float array.
+    label_smoothing: a scalarin [0, 1] used to smooth the labels.
+
+  Returns:
+    A float array of the same shape as `one_hot_targets` with smoothed label
+    values.
+  """
+  on_value = 1.0 - label_smoothing
+  num_classes = one_hot_targets.shape[-1]
+  off_value = label_smoothing / num_classes
+  one_hot_targets = one_hot_targets * on_value + off_value
+  return one_hot_targets
+
+
 def assert_weights_loaded(model: tf.keras.Model, before_restore_vars):
   """Assert that all variables changed after restoring."""
   after_restore_vars = model.trainable_weights
@@ -93,17 +129,3 @@ def call_step_fn(
     }
   return step_outputs
 
-
-# TODO(znado): remove when uncertainty metrics has this implemented.
-def compute_accuracy(labels: tf.Tensor, logits: tf.Tensor) -> tf.Tensor:
-  """Computes classification accuracy given logits and dense labels.
-
-  Args:
-    labels: Integer Tensor of dense labels, shape [batch_size].
-    logits: Tensor of shape [batch_size, num_classes].
-  Returns:
-    A scalar for the classification accuracy.
-  """
-  correct_prediction = tf.equal(
-      tf.argmax(logits, 1, output_type=tf.int32), labels)
-  return tf.reduce_mean(tf.cast(correct_prediction, tf.float32))

@@ -416,37 +416,6 @@ def aggregate_corrupt_metrics(metrics,
     return results
 
 
-def double_fault(logits_1, logits_2, labels):
-  """Double fault [1] is the number of examples both classifiers predict wrong.
-
-  Args:
-    logits_1: tf.Tensor.
-    logits_2: tf.Tensor.
-    labels: tf.Tensor.
-
-  Returns:
-    Scalar double-fault diversity metric.
-
-  ## References
-
-  [1] Kuncheva, Ludmila I., and Christopher J. Whitaker. "Measures of diversity
-      in classifier ensembles and their relationship with the ensemble
-      accuracy." Machine learning 51.2 (2003): 181-207.
-  """
-  preds_1 = tf.cast(tf.argmax(logits_1, axis=-1), labels.dtype)
-  preds_2 = tf.cast(tf.argmax(logits_2, axis=-1), labels.dtype)
-
-  fault_1_idx = tf.squeeze(tf.where(preds_1 != labels))
-  fault_1_idx = tf.cast(fault_1_idx, tf.int32)
-
-  preds_2_at_idx = tf.gather(preds_2, fault_1_idx)
-  labels_at_idx = tf.gather(labels, fault_1_idx)
-
-  double_faults = preds_2_at_idx != labels_at_idx
-  double_faults = tf.cast(double_faults, tf.float32)
-  return tf.reduce_mean(double_faults)
-
-
 def ensemble_negative_log_likelihood(labels, logits):
   """Negative log-likelihood for ensemble.
 

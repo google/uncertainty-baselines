@@ -182,26 +182,26 @@ def define_flags() -> List[str]:
   flags.mark_flag_as_required('model_name')
 
   # Flags relating to OOD metrics
-  flags.DEFINE_list('sensitivity_thresholds',
-                    ['0.1', '0.8', '10'],
-                    'List of sensitivities at which to calculate specificity.'
-                    ' The list should contains '
-                    '[lower bound, upper bound, num_elements]')
-  flags.DEFINE_list('specificity_thresholds',
-                    ['0.1', '0.8', '10'],
-                    'List of specificities at which to calculate sensitivity.'
-                    ' The list should contains '
-                    '[lower bound, upper bound, num_elements]')
-  flags.DEFINE_list('precision_thresholds',
-                    ['0.1', '0.8', '10'],
-                    'List of precisions at which to calculate recall.'
-                    ' The list should contains '
-                    '[lower bound, upper bound, num_elements]')
-  flags.DEFINE_list('recall_thresholds',
-                    ['0.1', '0.8', '10'],
-                    'List of recalls at which to calculate precision.'
-                    ' The list should contains '
-                    '[lower bound, upper bound, num_elements]')
+  flags.DEFINE_list(
+      'sensitivity_thresholds', ['0.05', '0.95', '10'],
+      'List of sensitivities at which to calculate specificity.'
+      ' The list should contains '
+      '[lower bound, upper bound, num_elements]')
+  flags.DEFINE_list(
+      'specificity_thresholds', ['0.05', '0.95', '10'],
+      'List of specificities at which to calculate sensitivity.'
+      ' The list should contains '
+      '[lower bound, upper bound, num_elements]')
+  flags.DEFINE_list(
+      'precision_thresholds', ['0.05', '0.95', '10'],
+      'List of precisions at which to calculate recall.'
+      ' The list should contains '
+      '[lower bound, upper bound, num_elements]')
+  flags.DEFINE_list(
+      'recall_thresholds', ['0.05', '0.95', '10'],
+      'List of recalls at which to calculate precision.'
+      ' The list should contains '
+      '[lower bound, upper bound, num_elements]')
 
   all_flags = set(FLAGS)
   program_flag_names = sorted(list(all_flags - predefined_flags))

@@ -180,12 +180,11 @@ def main(argv):
       _, labels = next(test_iterator)  # pytype: disable=attribute-error
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
-      negative_log_likelihood = tf.reduce_mean(
-          utils.ensemble_negative_log_likelihood(labels, logits))
+      negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
       per_probs = tf.nn.softmax(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
       if name == 'clean':
-        gibbs_ce = tf.reduce_mean(utils.gibbs_cross_entropy(labels, logits))
+        gibbs_ce = um.gibbs_cross_entropy(labels, logits)
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)

@@ -31,7 +31,7 @@ import functools
 
 import edward2 as ed
 import tensorflow as tf
-import rank1_bnn_utils  # local file import
+from uncertainty_baselines.models import rank1_bnn_utils
 
 BatchNormalization = functools.partial(  # pylint: disable=invalid-name
     tf.keras.layers.BatchNormalization,
@@ -143,20 +143,20 @@ def group(inputs, filters, strides, num_blocks, **kwargs):
   return x
 
 
-def wide_resnet(input_shape,
-                depth,
-                width_multiplier,
-                num_classes,
-                alpha_initializer,
-                gamma_initializer,
-                alpha_regularizer,
-                gamma_regularizer,
-                use_additive_perturbation,
-                ensemble_size,
-                random_sign_init,
-                dropout_rate,
-                prior_mean,
-                prior_stddev):
+def wide_resnet_rank1(input_shape,
+                      depth,
+                      width_multiplier,
+                      num_classes,
+                      alpha_initializer,
+                      gamma_initializer,
+                      alpha_regularizer,
+                      gamma_regularizer,
+                      use_additive_perturbation,
+                      ensemble_size,
+                      random_sign_init,
+                      dropout_rate,
+                      prior_mean,
+                      prior_stddev):
   """Builds Wide ResNet.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the

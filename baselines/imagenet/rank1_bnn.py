@@ -35,7 +35,7 @@ from absl import flags
 from absl import logging
 
 import tensorflow as tf
-import rank1_bnn_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -171,7 +171,7 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')
-    model = rank1_bnn_model.rank1_resnet50(
+    model = ub.models.resnet50_rank1(
         input_shape=(224, 224, 3),
         num_classes=NUM_CLASSES,
         alpha_initializer=FLAGS.alpha_initializer,

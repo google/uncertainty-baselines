@@ -36,7 +36,7 @@ from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import rank1_bnn_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -181,7 +181,7 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras model')
-    model = rank1_bnn_model.wide_resnet(
+    model = ub.models.wide_resnet_rank1(
         input_shape=ds_info.features['image'].shape,
         depth=28,
         width_multiplier=10,

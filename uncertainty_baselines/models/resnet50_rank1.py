@@ -31,7 +31,7 @@ import functools
 import string
 import edward2 as ed
 import tensorflow as tf
-import rank1_bnn_utils  # local file import
+from uncertainty_baselines.models import rank1_bnn_utils
 
 # Use batch normalization defaults from Pytorch.
 BATCH_NORM_DECAY = 0.9
@@ -234,7 +234,7 @@ def group(inputs,
   return x
 
 
-def rank1_resnet50(input_shape,
+def resnet50_rank1(input_shape,
                    num_classes,
                    alpha_initializer,
                    gamma_initializer,

@@ -5,7 +5,7 @@
 | Method | Train/Test NLL | Train/Test Accuracy | Train/Test Cal. Error | cNLL/cA/cCE | Train Runtime (hours) | Wall-clock/Compute Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- |
 | Deterministic | 1e-3 / 0.159 | 99.9% / 96.0% | 1e-3 / 0.0231 | 1.05 / 76.1% / 0.153 | 1.2 (8 TPUv2 cores) | 5.17 / 0.079 (8 TPUv2 cores) | 36.5M |
-| BatchEnsemble (size=4) | 0.08 / 0.143 | 99.9% / 96.2% |  5e-5 / 0.0206 | 1.02 / 77.5% / 0.129 | 5.4 (8 TPUv2 cores) | 11.9 / 0.319 (8 TPUv2 cores) | 36.6M |
+| BatchEnsemble (size=4) | 0.08 / 0.136 | 99.9% / 96.3% |  5e-5 / 0.0177 | 0.97 / 77.8% / 0.124 | 5.4 (8 TPUv2 cores) | 11.9 / 0.319 (8 TPUv2 cores) | 36.6M |
 | Rank-1 BNN (Gaussian, size=4) | - / 0.128 | - / 96.3% |  - / 0.008 | 0.84 / 76.7% / 0.080 | 7.3 (8 TPUv2 cores) | - | 36.6M |
 | Rank-1 BNN (Cauchy, size=4, 4 samples) | - / 0.120 | - / 96.5% |  - / 0.009 | 0.74 / 80.5% / 0.090 | 7.3 (8 TPUv2 cores) | - | 36.6M |
 | SNGP | 1e-3 / 0.134 | 99.9% / 96.0% |  5e-4 / 0.008 | 0.75 / 78.2% / 0.076 | 2.6 (8 TPUv2 cores) | 6.2 / 0.378 (8 TPUv2 cores) | 36.5M |
@@ -22,7 +22,7 @@
 | Method | Train/Test NLL | Train/Test Accuracy | Train/Test Cal. Error | cNLL/cA/cCE | Train Runtime (hours) | Wall-clock/Compute Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- |
 | Deterministic<sup>10</sup> | 1e-3 / 0.875 | 99.9% / 79.8% | 2e-3 / 0.0857 | 2.70 / 51.37% / 0.239 | 1.1 (8 TPUv2 cores) | 4.6 / 0.079 (8 TPUv2 cores) | 36.5M |
-| BatchEnsemble (size=4) | 3e-3 / 0.740 | 99.7% / 81.5% | 2e-3 / 0.0561 | 2.49 / 54.1% / 0.191 | 5.5 (8 TPUv2 cores) | 13.7 / 0.319 (8 TPUv2 cores) | 36.6M |
+| BatchEnsemble (size=4) | 3e-3 / 0.690 | 99.7% / 81.9% | 2e-3 / 0.0265 | 2.56 / 53.1% / 0.149 | 5.5 (8 TPUv2 cores) | 13.7 / 0.319 (8 TPUv2 cores) | 36.6M |
 | Rank-1 BNN (Gaussian, size=4) | - / 0.692 | - / 81.3% |  - / 0.018 | 2.24 / 53.8% / 0.117 | 7.3 (8 TPUv2 cores) | - | 36.6M |
 | Rank-1 BNN (Cauchy, size=4, 4 samples) | - / 0.689 | - / 82.4% |  - / 0.012 | 2.04 / 57.8% / 0.142 | 7.3 (8 TPUv2 cores) | - | 36.6M |
 | SNGP | 7e-3 / 0.805 | 99.9% / 79.6% |  5e-4 / 0.024 | 2.13 / 53.8% / 0.098 | 2.6 (8 TPUv2 cores) | 5.8 / 0.378 (8 TPUv2 cores) | 36.5M |

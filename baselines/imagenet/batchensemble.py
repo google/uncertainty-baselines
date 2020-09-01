@@ -35,7 +35,7 @@ flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.1,
                    'Base learning rate when train batch size is 256.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
-flags.DEFINE_float('fast_weight_lr_multiplier', 0.5,
+flags.DEFINE_float('fast_weight_lr_multiplier', 0.25,
                    'fast weights lr multiplier.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')

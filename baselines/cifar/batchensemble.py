@@ -36,7 +36,7 @@ flags.DEFINE_integer('per_core_batch_size', 64,
 flags.DEFINE_float('random_sign_init', -0.5,
                    'Use random sign init for fast weights.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_float('fast_weight_lr_multiplier', 1.0,
+flags.DEFINE_float('fast_weight_lr_multiplier', 0.5,
                    'fast weights lr multiplier.')
 flags.DEFINE_float('train_proportion', default=1.0,
                    help='only use a proportion of training set.')

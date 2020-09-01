@@ -5,7 +5,7 @@
 | Method | ImageNet | ImageNet-C | ImageNet-A | ImageNetV2 | ImageNet-Vid-Robust | YTBB-Robust | ObjectNet | Train Runtime (hours) | Wall-clock/Compute Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- | ----------- | ----------- | ----------- |
 | Deterministic | 0.939 / 76.2% / 0.032 | 3.21 / 40.5% / 0.103 (75.4%) | 8.09 / 0.7% / 0.425 | 1.58 / 64.4% / 0.074 | 29.9% | 21.7% | 25.9% | 5 (32 TPUv2 cores) | 1.60 / 0.020 (32 TPUv2 cores) | 25.6M |
-| BatchEnsemble | 0.944 / 76.7% / 0.049 | 3.18 / 41.8% / 0.110 (73.7%) | - | - | - | - | - | 17.5 (32 TPUv2 cores) | 8.33 / 0.081 (32 TPUv2 cores) | 25.8M |
+| BatchEnsemble | 0.922 / 76.8% / 0.037 | 3.09 / 41.9% / 0.089 (73.5%) | - | - | - | - | - | 17.5 (32 TPUv2 cores) | 8.33 / 0.081 (32 TPUv2 cores) | 25.8M |
 | Rank-1 BNN (Gaussian, size=4) | 0.886 / 77.3% / 0.0166 | 2.95 / 42.9% / 0.054 (72.12%) | - | - | - | - | - | 21.1 (32 TPUv2 cores) | - | 26.0M |
 | Rank-1 BNN (Cauchy, size=4, 4 samples) | 0.897 / 77.2% / 0.0192 | 2.98 / 42.5 / 0.059 (72.66%) | - | - | - | - | - | 21.1 (32 TPUv2 cores) | - | 26.0M |
 | Monte Carlo Dropout (size=10)  | 0.919 / 76.6% / 0.026 | 2.96 / 42.4% / 0.046 (72.9%) | 7.58 / 0.4% / 0.344 | 1.53 / 64.6% / 0.021 | 31.0% | 23.1% | 26.2% | 6 (32 TPUv2 cores) | 1.79 / 0.205 (32 TPUv2 cores) | 25.6M |

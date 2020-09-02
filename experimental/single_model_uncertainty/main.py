@@ -84,7 +84,7 @@ def _maybe_setup_trial_dir(
 class BrierScore(tf.keras.metrics.Mean):
 
   def update_state(self, y_true, y_pred, sample_weight=None):
-    brier_score = um.brier_score(labels=y_true, logits=y_pred)
+    brier_score = um.brier_score(labels=y_true, probabilities=y_pred)
     super(BrierScore, self).update_state(brier_score)
 
 

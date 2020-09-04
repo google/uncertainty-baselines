@@ -34,8 +34,8 @@ with a Gaussian process layer.
 import functools
 
 from typing import Any, Dict, Mapping, Optional
-from edward2.experimental import sngp
 
+import edward2 as ed
 import tensorflow as tf
 
 from official.modeling import tf_utils
@@ -50,17 +50,17 @@ def make_spec_norm_dense_layer(**spec_norm_kwargs: Mapping[str, Any]):
   """Defines a spectral-normalized EinsumDense layer.
 
   Args:
-    **spec_norm_kwargs: Keyword arguments to the sngp.SpectralNormalization
-      layer wrapper.
+    **spec_norm_kwargs: Keyword arguments to the SpectralNormalization
+    layer wrapper.
 
   Returns:
     (callable) A function that defines a dense layer and wraps it with
-      sngp.SpectralNormalization.
+      SpectralNormalization.
   """
 
   def spec_norm_dense(*dense_args, **dense_kwargs):
     base_layer = _EinsumDense(*dense_args, **dense_kwargs)
-    return sngp.SpectralNormalization(base_layer, **spec_norm_kwargs)
+    return ed.layers.SpectralNormalization(base_layer, **spec_norm_kwargs)
 
   return spec_norm_dense
 
@@ -466,7 +466,7 @@ class BertGaussianProcessClassifier(tf.keras.Model):
 
     # Produce final logits.
     if use_gp_layer:
-      self.classifier = sngp.RandomFeatureGaussianProcess(
+      self.classifier = ed.layers.RandomFeatureGaussianProcess(
           units=num_classes, kernel_initializer=initializer, **gp_layer_kwargs)
     else:
       self.classifier = bert_encoder.Classification(

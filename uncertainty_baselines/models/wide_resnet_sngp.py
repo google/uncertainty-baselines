@@ -15,14 +15,10 @@
 
 """Wide ResNet with SNGP."""
 import functools
-import warnings
 from absl import logging
-import tensorflow as tf
 
-try:
-  from edward2.experimental import sngp  # pylint: disable=g-import-not-at-top
-except ImportError as e:
-  warnings.warn(f'Skipped due to ImportError: {e}')
+import edward2 as ed
+import tensorflow as tf
 
 
 # pylint: disable=invalid-name
@@ -44,7 +40,7 @@ def make_conv2d_layer(use_spec_norm,
       kernel_initializer='he_normal')
 
   def Conv2DNormed(*conv_args, **conv_kwargs):
-    return sngp.SpectralNormalizationConv2D(
+    return ed.layers.SpectralNormalizationConv2D(
         Conv2DBase(*conv_args, **conv_kwargs),
         iteration=spec_norm_iteration,
         norm_multiplier=spec_norm_bound)
@@ -194,7 +190,7 @@ def wide_resnet_sngp(input_shape,
                              spec_norm_iteration,
                              spec_norm_bound)
   GaussianProcess = functools.partial(  # pylint: disable=invalid-name
-      sngp.RandomFeatureGaussianProcess,
+      ed.layers.RandomFeatureGaussianProcess,
       num_inducing=gp_hidden_dim,
       gp_kernel_scale=gp_scale,
       gp_output_bias=gp_bias,

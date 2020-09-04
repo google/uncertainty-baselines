@@ -19,7 +19,8 @@
 import functools
 from typing import Optional, Tuple, Union
 from absl import logging
-from edward2.experimental import sngp
+
+import edward2 as ed
 import tensorflow as tf
 
 
@@ -88,7 +89,7 @@ def make_conv2d_layer(num_filters: Optional[int] = None,
 
   def Conv2DNormed(*conv_args, **conv_kwargs):
     conv_layer = Conv2DBase(*conv_args, **conv_kwargs)
-    return sngp.SpectralNormalizationConv2D(
+    return ed.layers.SpectralNormalizationConv2D(
         conv_layer,
         iteration=spec_norm_iteration,
         norm_multiplier=spec_norm_bound)
@@ -144,7 +145,7 @@ def make_dense_layer(num_units: Optional[int] = None,
 
   def DenseNormed(*dense_args, **dense_kwargs):
     dense_layer = DenseBase(*dense_args, **dense_kwargs)
-    return sngp.SpectralNormalization(
+    return ed.layers.SpectralNormalization(
         dense_layer,
         iteration=spec_norm_iteration,
         norm_multiplier=spec_norm_bound)
@@ -187,7 +188,7 @@ def make_output_layer(gp_layer_hparams=None):
     raise ValueError('GP layer is in use but hyperparameters are incomplete.')
 
   output_layer = functools.partial(
-      sngp.RandomFeatureGaussianProcess,
+      ed.layers.RandomFeatureGaussianProcess,
       num_inducing=gp_layer_hparams['gp_hidden_dim'],
       gp_kernel_scale=gp_layer_hparams['gp_scale'],
       gp_output_bias=gp_layer_hparams['gp_bias'],

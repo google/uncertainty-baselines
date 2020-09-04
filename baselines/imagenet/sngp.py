@@ -37,7 +37,7 @@ from absl import app
 from absl import flags
 from absl import logging
 
-from edward2.experimental import sngp
+import edward2 as ed
 import tensorflow as tf
 import uncertainty_baselines as ub
 import utils  # local file import
@@ -333,7 +333,7 @@ def main(argv):
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
-        logits = sngp.mean_field_logits(
+        logits = ed.layers.utils.mean_field_logits(
             logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
         stddev = tf.sqrt(tf.linalg.diag_part(covmat))
 

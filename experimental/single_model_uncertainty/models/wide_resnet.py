@@ -39,7 +39,7 @@ greater than 1.
 
 import functools
 from typing import Any, Dict, Iterable, Optional
-from edward2.experimental import sngp
+import edward2 as ed
 import tensorflow as tf
 
 import util as models_util  # local file import
@@ -218,7 +218,7 @@ def wide_resnet(
   if gp_layer_hparams:
     # add random projection layer to reduce dimension
     gp_output_layer = functools.partial(
-        sngp.RandomFeatureGaussianProcess,
+        ed.layers.utils.RandomFeatureGaussianProcess,
         num_inducing=gp_layer_hparams['gp_hidden_dim'],
         gp_kernel_scale=gp_layer_hparams['gp_scale'],
         gp_output_bias=gp_layer_hparams['gp_bias'],

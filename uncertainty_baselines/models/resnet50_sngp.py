@@ -16,13 +16,9 @@
 """ResNet50 model with SNGP."""
 import functools
 import string
-import warnings
-import tensorflow as tf
 
-try:
-  from edward2.experimental import sngp  # pylint: disable=g-import-not-at-top
-except ImportError as e:
-  warnings.warn(f'Skipped due to ImportError: {e}')
+import edward2 as ed
+import tensorflow as tf
 
 
 # Use batch normalization defaults from Pytorch.
@@ -56,7 +52,7 @@ def make_conv2d_layer(use_spec_norm,
   """Defines type of Conv2D layer to use based on spectral normalization."""
   Conv2DBase = functools.partial(tf.keras.layers.Conv2D, padding='same')  # pylint: disable=invalid-name
   def Conv2DNormed(*conv_args, **conv_kwargs):  # pylint: disable=invalid-name
-    return sngp.SpectralNormalizationConv2D(
+    return ed.layers.SpectralNormalizationConv2D(
         Conv2DBase(*conv_args, **conv_kwargs),
         iteration=spec_norm_iteration,
         norm_multiplier=spec_norm_bound)
@@ -292,7 +288,7 @@ def resnet50_sngp(input_shape,
       # Use the same initializer as dense
       gp_output_initializer = tf.keras.initializers.RandomNormal(stddev=0.01)
     output_layer = functools.partial(
-        sngp.RandomFeatureGaussianProcess,
+        ed.layers.RandomFeatureGaussianProcess,
         num_inducing=gp_hidden_dim,
         gp_kernel_scale=gp_scale,
         gp_output_bias=gp_bias,

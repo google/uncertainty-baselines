@@ -21,7 +21,7 @@ from absl import app
 from absl import flags
 from absl import logging
 
-from edward2.experimental import sngp
+import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
@@ -179,7 +179,7 @@ def main(argv):
         for _ in range(steps_per_eval):
           features, _ = next(test_iterator)  # pytype: disable=attribute-error
           logits_member, covmat_member = model(features, training=False)
-          logits_member = sngp.mean_field_logits(
+          logits_member = ed.layers.utils.mean_field_logits(
               logits_member, covmat_member, FLAGS.gp_mean_field_factor_ensemble)
           logits.append(logits_member)
 

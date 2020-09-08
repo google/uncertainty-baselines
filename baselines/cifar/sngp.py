@@ -45,6 +45,13 @@ under-confidence [3].
 [3]: Rahul Rahaman, Alexandre H. Thiery. Uncertainty Quantification and Deep
      Ensembles.  _arXiv preprint arXiv:2007.08792_, 2020.
      https://arxiv.org/abs/2007.08792
+[4]: Hendrycks, Dan et al. AugMix: A Simple Data Processing Method to Improve
+     Robustness and Uncertainty. In _International Conference on Learning
+     Representations_, 2020.
+     https://arxiv.org/abs/1912.02781
+[5]: Zhang, Hongyi et al. mixup: Beyond Empirical Risk Minimization. In
+     _International Conference on Learning Representations_, 2018.
+     https://arxiv.org/abs/1710.09412
 """
 
 import functools
@@ -58,6 +65,7 @@ import edward2 as ed
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import data_utils  # local file import
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -89,16 +97,25 @@ flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
 
-# Dropout flags
-flags.DEFINE_bool('use_mc_dropout', False,
-                  'Whether to use Monte Carlo dropout for the hidden layers.')
-flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
-flags.DEFINE_integer('num_dropout_samples', 1,
-                     'Number of dropout samples to use for prediction.')
-flags.DEFINE_integer('num_dropout_samples_training', 1,
-                     'Number of dropout samples for training.')
+# Data Augmentation flags.
+flags.DEFINE_bool('augmix', False,
+                  'Whether to perform AugMix [4] on the input data.')
+flags.DEFINE_integer('aug_count', 1,
+                     'Number of augmentation operations in AugMix to perform '
+                     'on the input image. In the simgle model context, it'
+                     'should be 1. In the ensembles context, it should be'
+                     'ensemble_size if we perform random_augment only; It'
+                     'should be (ensemble_size - 1) if we perform augmix.')
+flags.DEFINE_float('augmix_prob_coeff', 0.5, 'Augmix probability coefficient.')
+flags.DEFINE_integer('augmix_depth', -1,
+                     'Augmix depth, -1 meaning sampled depth. This corresponds'
+                     'to line 7 in the Algorithm box in [4].')
+flags.DEFINE_integer('augmix_width', 3,
+                     'Augmix width. This corresponds to the k in line 5 in the'
+                     'Algorithm box in [4].')
+flags.DEFINE_float('mixup_alpha', 0., 'Mixup hyperparameter, 0. to diable.')
 
-# Spectral normalization flags.
+# SNGP flags.
 flags.DEFINE_bool('use_spec_norm', True,
                   'Whether to apply spectral normalization.')
 flags.DEFINE_integer(
@@ -166,12 +183,22 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.experimental.TPUStrategy(resolver)
 
-  train_input_fn = utils.load_input_fn(
+  aug_params = {
+      'augmix': FLAGS.augmix,
+      'aug_count': FLAGS.aug_count,
+      'augmix_depth': FLAGS.augmix_depth,
+      'augmix_prob_coeff': FLAGS.augmix_prob_coeff,
+      'augmix_width': FLAGS.augmix_width,
+      'ensemble_size': 1,
+      'mixup_alpha': FLAGS.mixup_alpha,
+  }
+  train_input_fn = data_utils.load_input_fn(
       split=tfds.Split.TRAIN,
       name=FLAGS.dataset,
       batch_size=FLAGS.per_core_batch_size //
       FLAGS.num_dropout_samples_training,
-      use_bfloat16=FLAGS.use_bfloat16)
+      use_bfloat16=FLAGS.use_bfloat16,
+      aug_params=aug_params)
   clean_test_input_fn = utils.load_input_fn(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
@@ -299,17 +326,33 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images, labels = inputs
+      if FLAGS.augmix and FLAGS.aug_count >= 1:
+        # Index 0 at augmix preprocessing is the unperturbed image.
+        images = images[:, 1, ...]
+        # This is for the case of combining AugMix and Mixup.
+        if FLAGS.mixup_alpha > 0:
+          labels = tf.split(labels, FLAGS.aug_count + 1, axis=0)[1]
       images = tf.tile(images, [FLAGS.num_dropout_samples_training, 1, 1, 1])
-      labels = tf.tile(labels, [FLAGS.num_dropout_samples_training])
+      if FLAGS.mixup_alpha > 0:
+        labels = tf.tile(labels, [FLAGS.num_dropout_samples_training, 1])
+      else:
+        labels = tf.tile(labels, [FLAGS.num_dropout_samples_training])
 
       with tf.GradientTape() as tape:
         logits, _ = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
-        negative_log_likelihood = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                            logits,
-                                                            from_logits=True))
+        if FLAGS.mixup_alpha > 0:
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.categorical_crossentropy(labels,
+                                                       logits,
+                                                       from_logits=True))
+        else:
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.sparse_categorical_crossentropy(labels,
+                                                              logits,
+                                                              from_logits=True))
+
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
@@ -319,6 +362,8 @@ def main(argv):
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
       probs = tf.nn.softmax(logits)
+      if FLAGS.mixup_alpha > 0:
+        labels = tf.argmax(labels, axis=-1)
       metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(

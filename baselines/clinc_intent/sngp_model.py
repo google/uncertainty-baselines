@@ -68,7 +68,7 @@ def make_spec_norm_dense_layer(**spec_norm_kwargs: Mapping[str, Any]):
 class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
   """Two-layer feed-forward network with spectral-normalized dense layers.
 
-  This class implements a dropout-in replacement of the feedforward_block module
+  This class implements a drop-in replacement of the feedforward_block module
   within tensorflow_models.official.nlp.modeling.layers.TransformerScaffold,
   with additional options for applying spectral normalization to its hidden
   weights, and for turning off layer normalization.
@@ -353,9 +353,62 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
     else:
       hidden_cfg = normalization_cfg
 
-    # TODO(jereliu): Add spectral normalization also to the CLS pooler layer
-    # by bebuild model graph using the initialized layers.
+    # Intialize default layers.
     super().__init__(hidden_cls=hidden_cls, hidden_cfg=hidden_cfg, **kwargs)
+
+    # Rebuild BERT model graph using default layers.
+    seq_length = self._embedding_cfg.get('seq_length', None)
+
+    # Create inputs layers.
+    word_ids = tf.keras.layers.Input(
+        shape=(seq_length,), dtype=tf.int32, name='input_word_ids')
+    mask = tf.keras.layers.Input(
+        shape=(seq_length,), dtype=tf.int32, name='input_mask')
+    type_ids = tf.keras.layers.Input(
+        shape=(seq_length,), dtype=tf.int32, name='input_type_ids')
+    inputs = [word_ids, mask, type_ids]
+
+    # Define Input Embeddings Layers.
+    word_embeddings = self._embedding_layer(word_ids)
+    position_embeddings = self._position_embedding_layer(word_embeddings)
+    type_embeddings = self._type_embedding_layer(type_ids)
+
+    embeddings = tf.keras.layers.Add()(
+        [word_embeddings, position_embeddings, type_embeddings])
+    # TODO(jereliu): Add option to disable embedding layer normalization.
+    embeddings = self._embedding_norm_layer(embeddings)
+    embeddings = (
+        tf.keras.layers.Dropout(
+            rate=self._embedding_cfg['dropout_rate'])(embeddings))
+
+    # Define self-attention layers. Rename to match with BERT checkpoint.
+    attention_mask = bert_layers.SelfAttentionMask()([embeddings, mask])
+    data = embeddings
+
+    layer_output_data = []
+    self._hidden_layers = []
+    for i in range(self._num_hidden_instances):
+      layer = hidden_cls(
+          **self._hidden_cfg,
+          name='transformer/layer_%d' % i)  # Rename to match BERT checkpoint.
+      data = layer([data, attention_mask])
+      layer_output_data.append(data)
+      self._hidden_layers.append(layer)
+
+    # Define output layers (i.e., the CLS token).
+    first_token_tensor = (
+        tf.keras.layers.Lambda(lambda x: tf.squeeze(x[:, 0:1, :], axis=1))(
+            layer_output_data[-1]))
+    cls_output = first_token_tensor
+
+    if self._return_all_layer_outputs:
+      outputs = [layer_output_data, cls_output]
+    else:
+      outputs = [layer_output_data[-1], cls_output]
+
+    # Compile model with updated graph.
+    super(bert_encoder.EncoderScaffold, self).__init__(
+        inputs=inputs, outputs=outputs, **self._kwargs)
 
 
 def get_spectral_normalized_transformer_encoder(

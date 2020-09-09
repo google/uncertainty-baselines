@@ -115,6 +115,15 @@ flags.DEFINE_integer('augmix_width', 3,
                      'Algorithm box in [4].')
 flags.DEFINE_float('mixup_alpha', 0., 'Mixup hyperparameter, 0. to diable.')
 
+# Dropout flags
+flags.DEFINE_bool('use_mc_dropout', False,
+                  'Whether to use Monte Carlo dropout for the hidden layers.')
+flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
+flags.DEFINE_integer('num_dropout_samples', 1,
+                     'Number of dropout samples to use for prediction.')
+flags.DEFINE_integer('num_dropout_samples_training', 1,
+                     'Number of dropout samples for training.')
+
 # SNGP flags.
 flags.DEFINE_bool('use_spec_norm', True,
                   'Whether to apply spectral normalization.')

@@ -158,6 +158,7 @@ def load_input_fn(split,
                   use_bfloat16,
                   normalize=True,
                   drop_remainder=True,
+                  repeat=False,
                   proportion=1.0):
   """Loads CIFAR dataset for training or testing.
 
@@ -168,6 +169,7 @@ def load_input_fn(split,
     use_bfloat16: data type, bfloat16 precision or float32.
     normalize: Whether to apply mean-std normalization on features.
     drop_remainder: bool.
+    repeat: bool.
     proportion: float, the proportion of dataset to be used.
 
   Returns:
@@ -204,11 +206,17 @@ def load_input_fn(split,
     else:
       new_name = '{}:3.*.*'.format(name)
       if split == tfds.Split.TRAIN:
-        new_split = 'train[:{}%]'.format(int(100 * proportion))
+        # use round instead of floor to resolve bug when e.g. using
+        # proportion = 1 - 0.8 = 0.19999999
+        new_split = 'train[:{}%]'.format(round(100 * proportion))
+      elif split == tfds.Split.VALIDATION:
+        new_split = 'train[-{}%:]'.format(round(100 * proportion))
+      elif split == tfds.Split.TEST:
+        new_split = 'test[:{}%]'.format(round(100 * proportion))
       else:
-        new_split = 'test[:{}%]'.format(int(100 * proportion))
+        raise ValueError('Provide valid split.')
       dataset = tfds.load(new_name, split=new_split, as_supervised=True)
-    if split == tfds.Split.TRAIN:
+    if split == tfds.Split.TRAIN or repeat:
       dataset = dataset.shuffle(buffer_size=dataset_size).repeat()
 
     dataset = dataset.map(preprocess,

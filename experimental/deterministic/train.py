@@ -85,9 +85,11 @@ def _train_step_fn(
 def _write_summaries(
     train_step_outputs: Dict[str, Any],
     current_step: int,
-    train_summary_writer: tf.summary.SummaryWriter,
+    train_summary_writer: Optional[tf.summary.SummaryWriter],
     hparams: Optional[Dict[str, Any]] = None) -> None:
   """Log metrics every using tf.summary."""
+  if not train_summary_writer:
+    return
   with train_summary_writer.as_default():
     if hparams:
       hp.hparams(hparams)
@@ -101,7 +103,7 @@ def run_train_loop(
     optimizer: tf.keras.optimizers.Optimizer,
     eval_frequency: int,
     log_frequency: int,
-    trial_dir: str,
+    trial_dir: Optional[str],
     train_steps: int,
     mode: str,
     strategy: tf.distribute.Strategy,
@@ -142,8 +144,11 @@ def run_train_loop(
       strategy,
       metrics,
       iterations_per_loop=iterations_per_loop)
-  train_summary_writer = tf.summary.create_file_writer(
-      os.path.join(trial_dir, 'train'))
+  if trial_dir:
+    train_summary_writer = tf.summary.create_file_writer(
+        os.path.join(trial_dir, 'train'))
+  else:
+    train_summary_writer = None
 
   val_summary_writer = None
   test_summary_writer = None

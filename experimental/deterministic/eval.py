@@ -84,13 +84,15 @@ def run_eval_epoch(
     val_outputs_np = {k: v.numpy() for k, v in val_outputs.items()}
     logging.info(
         'Validation metrics for step %d: %s', current_step, val_outputs_np)
-  test_iterator = iter(test_dataset)
-  test_outputs = test_fn(test_iterator)
-  with test_summary_writer.as_default():
-    if hparams:
-      hp.hparams(hparams)
-    for name, metric in test_outputs.items():
-      tf.summary.scalar(name, metric, step=current_step)
+  test_outputs = {}
+  if test_summary_writer:
+    test_iterator = iter(test_dataset)
+    test_outputs = test_fn(test_iterator)
+    with test_summary_writer.as_default():
+      if hparams:
+        hp.hparams(hparams)
+      for name, metric in test_outputs.items():
+        tf.summary.scalar(name, metric, step=current_step)
   return val_outputs_np, {k: v.numpy() for k, v in test_outputs.items()}
 
 
@@ -100,19 +102,22 @@ _EvalSetupResult = Tuple[
     Optional[tf.summary.SummaryWriter],
     EvalStepFn,
     tf.data.Dataset,
-    tf.summary.SummaryWriter]
+    Optional[tf.summary.SummaryWriter]]
 
 
 def setup_eval(
     dataset_builder: ub.datasets.BaseDataset,
     strategy,
-    trial_dir: str,
+    trial_dir: Optional[str],
     model: tf.keras.Model,
     metrics: Dict[str, tf.keras.metrics.Metric]) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
   test_dataset = ub.utils.build_dataset(dataset_builder, strategy, 'test')
-  test_summary_writer = tf.summary.create_file_writer(
-      os.path.join(trial_dir, 'test'))
+  if trial_dir:
+    test_summary_writer = tf.summary.create_file_writer(
+        os.path.join(trial_dir, 'test'))
+  else:
+    test_summary_writer = None
   num_test_steps = (
       dataset_builder.info['num_test_examples'] //
       dataset_builder.eval_batch_size)
@@ -134,8 +139,9 @@ def setup_eval(
         dataset_builder.eval_batch_size)
     val_dataset = ub.utils.build_dataset(
         dataset_builder, strategy, 'validation')
-    val_summary_writer = tf.summary.create_file_writer(
-        os.path.join(trial_dir, 'validation'))
+    if trial_dir:
+      val_summary_writer = tf.summary.create_file_writer(
+          os.path.join(trial_dir, 'validation'))
     if num_val_steps == num_test_steps:
       val_fn = test_fn
     else:

@@ -103,7 +103,7 @@ def define_flags() -> List[str]:
   flags.DEFINE_integer(
       'shuffle_buffer_size', 16384, 'Dataset shuffle buffer size.')
 
-  # Model flags, Wide Resnet
+  # Model flags for the Wide Resnet model.
   flags.DEFINE_integer('wide_resnet_depth', 28,
                        'Depth of wide resnet model.')
   flags.DEFINE_integer('wide_resnet_width_multiplier', 10,
@@ -112,7 +112,7 @@ def define_flags() -> List[str]:
                        'Version of the wide resnet model.')
   flags.DEFINE_float('l2_regularization', 1e-4, 'L2 regularization for models.')
 
-  # Flags relating to genomics_cnn model
+  # Flags relating to the genomics_cnn model.
   flags.DEFINE_integer('num_motifs', 1024,
                        'Number of motifs, only used for the genomics dataset.')
   flags.DEFINE_integer('len_motifs', 20,
@@ -123,6 +123,7 @@ def define_flags() -> List[str]:
   flags.mark_flag_as_required('dataset_name')
   flags.mark_flag_as_required('experiment_name')
   flags.mark_flag_as_required('model_name')
+  flags.mark_flag_as_required('batch_size')
 
   all_flags = set(FLAGS)
   program_flag_names = sorted(list(all_flags - predefined_flags))

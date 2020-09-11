@@ -129,11 +129,15 @@ def run(trial_dir: str, flag_string: Optional[str]):
     _maybe_setup_trial_dir(strategy, trial_dir, flag_string, FLAGS.mode)
 
     # TODO(znado): pass all dataset and model kwargs.
+    if FLAGS.eval_batch_size is None:
+      eval_batch_size = FLAGS.batch_size
+    else:
+      eval_batch_size = FLAGS.eval_batch_size
     dataset_builder = ub.datasets.get(
         FLAGS.dataset_name,
         batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.eval_batch_size,
-        data_dir=FLAGS.model_dir,
+        data_dir=FLAGS.output_dir,
         validation_percent=FLAGS.validation_percent,
         shuffle_buffer_size=FLAGS.shuffle_buffer_size)
     model = ub.models.get(
@@ -157,7 +161,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
     hparams = _get_hparams()
 
     if FLAGS.mode == 'eval':
-      _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
+      _check_batch_replica_divisible(eval_batch_size, strategy)
       eval_lib.run_eval_loop(
           dataset_builder=dataset_builder,
           model=model,
@@ -171,7 +175,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
 
     _check_batch_replica_divisible(FLAGS.batch_size, strategy)
     if FLAGS.mode == 'train_and_eval':
-      _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
+      _check_batch_replica_divisible(eval_batch_size, strategy)
 
     steps_per_epoch = (
         dataset_builder.info['num_train_examples'] // FLAGS.batch_size)
@@ -212,14 +216,17 @@ def run(trial_dir: str, flag_string: Optional[str]):
 def main(program_flag_names):
   logging.info(
       'Starting Uncertainty Baselines experiment %s', FLAGS.experiment_name)
-  logging.info(
-      '\n\nRun the following command to view outputs in tensorboard.dev:\n\n'
-      'tensorboard dev upload --logdir %s --plugins scalars,graphs,hparams\n\n',
-      FLAGS.output_dir)
+  if FLAGS.output_dir:
+    logging.info(
+        '\n\nRun the following command to view outputs in tensorboard.dev:\n\n'
+        'tensorboard dev upload --logdir %s --plugins scalars,graphs,hparams\n\n',
+        FLAGS.output_dir)
 
-  # TODO(znado): when open sourced tuning is supported, change this to include
-  # the trial number.
-  trial_dir = os.path.join(FLAGS.output_dir, '0')
+    # TODO(znado): when open sourced tuning is supported, change this to include
+    # the trial number.
+    trial_dir = os.path.join(FLAGS.output_dir, '0')
+  else:
+    trial_dir = None
   program_flags = {name: FLAGS[name].value for name in program_flag_names}
   flag_string = flags_lib.serialize_flags(program_flags)
   run(trial_dir, flag_string)

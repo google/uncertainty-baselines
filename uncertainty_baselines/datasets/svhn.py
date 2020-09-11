@@ -16,7 +16,7 @@
 # Lint as: python3
 """SVHN dataset builder."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -32,6 +32,7 @@ class SvhnDataset(base.BaseDataset):
       eval_batch_size: int,
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
+      data_dir: Optional[str] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a SVHN tf.data.Dataset builder.
 
@@ -42,6 +43,8 @@ class SvhnDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      data_dir: optional dir to save TFDS data to. If none then the local
+        filesystem is used. Required for using TPUs on Cloud.
     """
     _, info = tfds.load('svhn_cropped', with_info=True)
     super(SvhnDataset, self).__init__(
@@ -52,20 +55,33 @@ class SvhnDataset(base.BaseDataset):
         batch_size=batch_size,
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls)
+        num_parallel_parser_calls=num_parallel_parser_calls,
+        data_dir=data_dir)
 
   def _read_examples(self, split: base.Split) -> tf.data.Dataset:
     """We use the original 'validation' set as test."""
     if split == base.Split.TRAIN:
       train_split = tfds.core.ReadInstruction(
           'train', to=-self._num_validation_examples, unit='abs')
-      return tfds.load('svhn_cropped', split=train_split)
+      return tfds.load(
+          'svhn_cropped',
+          split=train_split,
+          try_gcs=True,
+          data_dir=self._data_dir)
     elif split == base.Split.VAL:
       val_split = tfds.core.ReadInstruction(
           'train', from_=-self._num_validation_examples, unit='abs')
-      return tfds.load('svhn_cropped', split=val_split)
+      return tfds.load(
+          'svhn_cropped',
+          split=val_split,
+          try_gcs=True,
+          data_dir=self._data_dir)
     elif split == base.Split.TEST:
-      return tfds.load('svhn_cropped', split='test')
+      return tfds.load(
+          'svhn_cropped',
+          split='test',
+          try_gcs=True,
+          data_dir=self._data_dir)
     else:
       raise ValueError(
           'Invalid dataset split in _read_examples: {}'.format(split))

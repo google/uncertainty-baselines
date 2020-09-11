@@ -58,7 +58,8 @@ class BaseDataset(object):
       num_validation_examples: int,
       num_test_examples: int,
       shuffle_buffer_size: int = None,
-      num_parallel_parser_calls: int = 64):
+      num_parallel_parser_calls: int = 64,
+      data_dir: Optional[str] = None):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -73,6 +74,8 @@ class BaseDataset(object):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      data_dir: optional dir to save TFDS data to. If none then the local
+        filesystem is used. Required for using TPUs on Cloud.
     """
     self.name = name
 
@@ -90,6 +93,7 @@ class BaseDataset(object):
       self._shuffle_buffer_size = shuffle_buffer_size
 
     self._num_parallel_parser_calls = num_parallel_parser_calls
+    self._data_dir = data_dir
 
   def _is_training(self, split: Split) -> bool:
     return split == Split.TRAIN

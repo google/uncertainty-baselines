@@ -80,7 +80,6 @@ class GenomicsOodDataset(base.BaseDataset):
       data_dir: data directory.
     """
     self._data_mode = data_mode
-    self._data_dir = data_dir
 
 
     super(GenomicsOodDataset, self).__init__(
@@ -91,7 +90,8 @@ class GenomicsOodDataset(base.BaseDataset):
         batch_size=batch_size,
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls)
+        num_parallel_parser_calls=num_parallel_parser_calls,
+        data_dir=data_dir)
 
   def _read_examples(self, split: base.Split) -> tf.data.Dataset:
     """We use the original 'validation' set as test."""

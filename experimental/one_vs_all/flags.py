@@ -61,7 +61,7 @@ def define_flags() -> List[str]:
       'eval_frequency',
       None,
       'How many steps between evaluating on the (validation and) test set.')
-  flags.DEFINE_string('model_dir', None, 'Base output directory.')
+  flags.DEFINE_string('output_dir', None, 'Base output directory.')
   flags.DEFINE_enum(
       'model_name',
       None,

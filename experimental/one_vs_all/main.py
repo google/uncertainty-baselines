@@ -167,11 +167,11 @@ def main(program_flag_names):
   logging.info('Starting Uncertainty Baselines experiment!')
   logging.info(
       '\n\nRun the following command to view outputs in tensorboard.dev:\n\n'
-      'tensorboard dev upload --logdir %s\n\n', FLAGS.model_dir)
+      'tensorboard dev upload --logdir %s\n\n', FLAGS.output_dir)
 
   # TODO(znado): when open sourced tuning is supported, change this to include
   # the trial number.
-  trial_dir = os.path.join(FLAGS.model_dir, '0')
+  trial_dir = os.path.join(FLAGS.output_dir, '0')
   program_flags = {name: FLAGS[name].value for name in program_flag_names}
   flag_string = flags_lib.serialize_flags(program_flags)
   run(trial_dir, flag_string)

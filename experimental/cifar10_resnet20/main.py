@@ -45,7 +45,7 @@ flags.DEFINE_bool('use_tpu', False, 'Whether to run on CPU or TPU.')
 flags.DEFINE_string('master', '', 'Name of the TPU to use.')
 
 # Flags relating to the training/eval loop.
-flags.DEFINE_string('model_dir', None, 'Base output directory.')
+flags.DEFINE_string('output_dir', None, 'Base output directory.')
 flags.DEFINE_integer(
     'eval_frequency',
     100,
@@ -140,7 +140,7 @@ def run(trial_dir: str):
 def main(argv):
   del argv
   logging.info('Starting CIFAR-10 ResNet-20 experiment!')
-  trial_dir = os.path.join(FLAGS.model_dir, '0')
+  trial_dir = os.path.join(FLAGS.output_dir, '0')
   logging.info('Saving to dir: %s', trial_dir)
   if not tf.io.gfile.exists(trial_dir):
     tf.io.gfile.makedirs(trial_dir)

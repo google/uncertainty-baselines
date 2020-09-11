@@ -41,7 +41,7 @@ def define_flags() -> List[str]:
   flags.DEFINE_string('experiment_name', None, 'Name of this experiment.')
 
   # Flags relating to setting up the job.
-  flags.DEFINE_string('master', '', 'Name of the TPU to use.')
+  flags.DEFINE_string('tpu', None, 'Name of the TPU to use.')
   flags.DEFINE_enum(
       'mode',
       'train_and_eval',

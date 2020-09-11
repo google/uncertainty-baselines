@@ -42,7 +42,7 @@ flags.DEFINE_float(
 
 # Flags relating to setting up the job.
 flags.DEFINE_bool('use_tpu', False, 'Whether to run on CPU or TPU.')
-flags.DEFINE_string('master', '', 'Name of the TPU to use.')
+flags.DEFINE_string('tpu', '', 'Name of the TPU to use.')
 
 # Flags relating to the training/eval loop.
 flags.DEFINE_string('output_dir', None, 'Base output directory.')
@@ -72,7 +72,7 @@ def run(trial_dir: str):
   """Run the experiment."""
   tf.random.set_seed(FLAGS.seed)
   np.random.seed(FLAGS.seed)
-  strategy = ub.strategy_utils.get_strategy(FLAGS.master, FLAGS.use_tpu)
+  strategy = ub.strategy_utils.get_strategy(FLAGS.tpu, FLAGS.use_tpu)
   with strategy.scope():
     # Setup CIFAR-10 tf.data.Dataset splits.
     dataset_builder = ub.datasets.Cifar10Dataset(

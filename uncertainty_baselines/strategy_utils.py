@@ -24,11 +24,11 @@ _Strategy = Union[
     tf.distribute.MirroredStrategy, tf.distribute.experimental.TPUStrategy]
 
 
-def get_strategy(master: str, use_tpu: bool) -> _Strategy:
+def get_strategy(tpu: str, use_tpu: bool) -> _Strategy:
   """Gets a strategy to run locally on CPU or on a fleet of TPUs.
 
   Args:
-    master: A string of the master TPU to run on. Ignored if use_tpu=False.
+    tpu: A string of the master TPU to run on. Ignored if use_tpu=False.
     use_tpu: Whether or not to use TPU or CPU.
 
   Returns:
@@ -36,7 +36,7 @@ def get_strategy(master: str, use_tpu: bool) -> _Strategy:
   """
   if use_tpu:
     cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
-        tpu=master)
+        tpu=tpu)
     tf.config.experimental_connect_to_cluster(cluster_resolver)
     tf.tpu.experimental.initialize_tpu_system(cluster_resolver)
     tpu_strategy = tf.distribute.experimental.TPUStrategy(cluster_resolver)

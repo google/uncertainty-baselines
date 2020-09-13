@@ -26,6 +26,7 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
+import diversity_utils  # local file import
 import uncertainty_metrics as um
 
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
@@ -74,6 +75,17 @@ flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
+flags.DEFINE_enum('similarity_metric', 'cosine',
+                  ['cosine', 'dpp_logdet', 'average_kl'], 'Similarity metric.')
+flags.DEFINE_enum('dpp_kernel', 'linear', [
+    'l2', 'rbf', 'gaussian', 'linear', 'dot-product', 'cos-sim', 'l1',
+    'laplacian', 'manhattan'
+], 'Kernel for DPP log determinant.')
+flags.DEFINE_enum('similarity_space', 'outputs', ['outputs', 'weights'],
+                  'The space on which to evaluate ensemble similarity.')
+flags.DEFINE_float('similarity_coeff', 0.0,
+                   'Regularization coefficient for the similarity term.')
+
 FLAGS = flags.FLAGS
 
 
@@ -179,11 +191,30 @@ def main(argv):
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/member_accuracy_mean': (
+            tf.keras.metrics.SparseCategoricalAccuracy()),
+        'test/member_ece_mean': um.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins)
+
     }
     for i in range(FLAGS.ensemble_size):
       metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
       metrics['test/accuracy_member_{}'.format(i)] = (
           tf.keras.metrics.SparseCategoricalAccuracy())
+
+    test_diversity = {
+        'test/disagreement': tf.keras.metrics.Mean(),
+        'test/average_kl': tf.keras.metrics.Mean(),
+        'test/cosine_similarity': tf.keras.metrics.Mean(),
+    }
+    train_diversity = {
+        'train/disagreement': tf.keras.metrics.Mean(),
+        'train/average_kl': tf.keras.metrics.Mean(),
+        'train/cosine_similarity': tf.keras.metrics.Mean(),
+        'train/weights_similarity': tf.keras.metrics.Mean(),
+        'train/outputs_similarity': tf.keras.metrics.Mean(),
+    }
+
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, max_intensity + 1):
@@ -223,8 +254,31 @@ def main(argv):
             tf.keras.losses.sparse_categorical_crossentropy(labels,
                                                             logits,
                                                             from_logits=True))
+        probs = tf.nn.softmax(logits)
+        per_probs_tensor = tf.reshape(
+            probs, [FLAGS.ensemble_size, -1, probs.shape[-1]])
+        diversity_results = um.average_pairwise_diversity(
+            per_probs_tensor, FLAGS.ensemble_size)
+        outputs_similarity = diversity_utils.outputs_similarity(
+            per_probs_tensor, FLAGS.similarity_metric, FLAGS.dpp_kernel)
+        weights_similarity = diversity_utils.fast_weights_similarity(
+            model.trainable_variables, FLAGS.similarity_metric,
+            FLAGS.dpp_kernel)
+
+        similarity_loss = 0.
+        if FLAGS.similarity_coeff > 0:
+          if FLAGS.similarity_space == 'outputs':
+            if FLAGS.similarity_metric == 'average_kl':
+              # TODO(ghassen): add flag for clipping the average_kl.
+              similarity_loss = tf.clip_by_value(
+                  diversity_results['average_kl'], 0, 2.)
+            else:
+              similarity_loss = outputs_similarity
+          else:  # for weights similarity
+            similarity_loss = weights_similarity
+
         l2_loss = sum(model.losses)
-        loss = negative_log_likelihood + l2_loss
+        loss = negative_log_likelihood + l2_loss + FLAGS.similarity_coeff * similarity_loss
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
@@ -248,9 +302,17 @@ def main(argv):
       probs = tf.nn.softmax(logits)
       metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
+      metrics['train/similarity_loss'].update_state(FLAGS.similarity_coeff *
+                                                    similarity_loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
+      train_diversity['train/weights_similarity'].update_state(
+          weights_similarity)
+      train_diversity['train/outputs_similarity'].update_state(
+          outputs_similarity)
+      for k, v in diversity_results.items():
+        train_diversity['train/' + k].update_state(v)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -268,13 +330,24 @@ def main(argv):
       per_probs = tf.split(probs,
                            num_or_size_splits=FLAGS.ensemble_size,
                            axis=0)
-      for i in range(FLAGS.ensemble_size):
-        member_probs = per_probs[i]
-        member_loss = tf.keras.losses.sparse_categorical_crossentropy(
-            labels, member_probs)
-        metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
-        metrics['test/accuracy_member_{}'.format(i)].update_state(labels,
-                                                                  member_probs)
+      if dataset_name == 'clean':
+        per_probs_tensor = tf.reshape(
+            probs, tf.concat([[FLAGS.be_size, -1], probs.shape[1:]], 0))
+        diversity_results = um.average_pairwise_diversity(
+            per_probs_tensor, FLAGS.ensemble_size)
+        for k, v in diversity_results.items():
+          test_diversity['test/' + k].update_state(v)
+
+        for i in range(FLAGS.ensemble_size):
+          member_probs = per_probs[i]
+          member_loss = tf.keras.losses.sparse_categorical_crossentropy(
+              labels, member_probs)
+          metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
+          metrics['test/accuracy_member_{}'.format(i)].update_state(
+              labels, member_probs)
+          metrics['test/member_accuracy_mean'].update_state(
+              labels, member_probs)
+          metrics['test/member_ece_mean'].update_state(labels, member_probs)
 
       probs = tf.reduce_mean(per_probs, axis=0)
       negative_log_likelihood = tf.reduce_mean(
@@ -354,7 +427,11 @@ def main(argv):
       logging.info('Member %d Test Loss: %.4f, Accuracy: %.2f%%',
                    i, metrics['test/nll_member_{}'.format(i)].result(),
                    metrics['test/accuracy_member_{}'.format(i)].result() * 100)
-    total_results = {name: metric.result() for name, metric in metrics.items()}
+    total_metrics = metrics.copy()
+    total_metrics.update(train_diversity)
+    total_metrics.update(test_diversity)
+    total_results = {name: metric.result()
+                     for name, metric in total_metrics.items()}
     total_results.update(corrupt_results)
     with summary_writer.as_default():
       for name, result in total_results.items():

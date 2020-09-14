@@ -45,7 +45,7 @@ def make_conv2d_batchensemble_layer(use_spec_norm,
       kernel_initializer='he_normal')
 
   def Conv2DBatchEnsembleNormed(*conv_args, **conv_kwargs):
-    return ed.experimental.sngp.normalization.SpectralNormalizationConv2D(
+    return ed.layers.SpectralNormalizationConv2D(
         Conv2DBatchEnsemble(*conv_args, **conv_kwargs),
         iteration=spec_norm_iteration,
         norm_multiplier=spec_norm_bound)
@@ -191,7 +191,7 @@ def wide_resnet_sngp_be(input_shape,
       spec_norm_iteration,
       spec_norm_bound)
   GaussianProcess = functools.partial(
-      ed.experimental.sngp.RandomFeatureGaussianProcess,
+      ed.layers.RandomFeatureGaussianProcess,
       num_inducing=gp_hidden_dim,
       gp_kernel_scale=gp_scale,
       gp_output_bias=gp_bias,

@@ -9,12 +9,12 @@ Task-oriented dialog systems need to know when a query falls outside their range
 | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- |
 | Determinisitic | 0.003 / 0.186 | 99.9% / 96.5% | 3e-4 / 0.0218 | 1.803 / 77.6% / 0.142 | 0.942 / 0.853 | 0.8 (8 TPUv3 cores) | 110M |
 | Monte Carlo Dropout (Size=10) | 0.003 / 0.171 | 99.9% / 96.5% | 3e-3 / 0.0170 | 1.717 / 77.7% / 0.126 | 0.951 / 0.861 | 0.8 (80 TPUv3 cores) | 110M |
+| SNGP | 0.012 / 0.139 | 99.8% / 96.9% | 6e-3 / 0.0104 | 1.576 / 78.0% / 0.080 | 0.969 / 0.908 | 0.4 (80 TPUv3 cores) | 110M |
 | Ensemble (Size=10) | 0.001 / 0.169 | 99.9% / 97.5% | 1e-4 / 0.0128 | - / - / - | - / - | 0.8 (80 TPUv3 cores) | 1100M |
 
 ## Metrics
 
 We define metrics specific to CLINC OOS below.
 
-1. __cNLL/cA/cCE__. Testing negative-log-likelihood, accuracy, and calibration error on combined in-scope and 
-out-of-scope queries.
+1. __cNLL/cA/cCE__. Testing negative-log-likelihood, accuracy, and calibration error on combined in-scope and out-of-scope queries.
 2. __OOD AUROC/AUPRC__. Areas under the receiver-operating-characteristics (ROC) curve and the precision-recall (PR) curve for the model's ability in distinguish in-scope and out-of-scope queries.

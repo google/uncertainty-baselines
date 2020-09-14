@@ -84,6 +84,7 @@ flags.DEFINE_integer('checkpoint_interval', 27,
 flags.DEFINE_string('alexnet_errors_path', None,
                     'Path to AlexNet corruption errors file.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
+flags.DEFINE_bool('use_ensemble_bn', False, 'Whether to use ensemble bn.')
 
 flags.DEFINE_integer('num_eval_samples', 1,
                      'Number of model predictions to sample per example at '
@@ -183,7 +184,8 @@ def main(argv):
         random_sign_init=FLAGS.random_sign_init,
         dropout_rate=FLAGS.dropout_rate,
         prior_stddev=FLAGS.prior_stddev,
-        use_tpu=not FLAGS.use_gpu)
+        use_tpu=not FLAGS.use_gpu,
+        use_ensemble_bn=FLAGS.use_ensemble_bn)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -209,6 +211,11 @@ def main(argv):
         'test/elbo': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/member_accuracy_mean': (
+            tf.keras.metrics.SparseCategoricalAccuracy()),
+        'test/member_ece_mean': um.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins)
+
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
@@ -384,6 +391,9 @@ def main(argv):
             metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
             metrics['test/accuracy_member_{}'.format(i)].update_state(
                 labels, member_probs)
+            metrics['test/member_accuracy_mean'].update_state(
+                labels, member_probs)
+            metrics['test/member_ece_mean'].update_state(labels, member_probs)
 
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)

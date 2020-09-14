@@ -37,6 +37,15 @@ from uncertainty_baselines.models import rank1_bnn_utils
 BATCH_NORM_DECAY = 0.9
 BATCH_NORM_EPSILON = 1e-5
 
+EnsembleSyncBatchNormalization = functools.partial(  # pylint: disable=invalid-name
+    ed.layers.EnsembleSyncBatchNorm,
+    epsilon=BATCH_NORM_EPSILON,
+    momentum=BATCH_NORM_DECAY)
+BatchNormalization = functools.partial(  # pylint: disable=invalid-name
+    tf.keras.layers.BatchNormalization,
+    epsilon=BATCH_NORM_EPSILON,
+    momentum=BATCH_NORM_DECAY)
+
 
 def bottleneck_block(inputs,
                      filters,
@@ -52,7 +61,8 @@ def bottleneck_block(inputs,
                      random_sign_init,
                      dropout_rate,
                      prior_stddev,
-                     use_tpu):
+                     use_tpu,
+                     use_ensemble_bn):
   """Residual block with 1x1 -> 3x3 -> 1x1 convs in main path.
 
   Note that strides appear in the second conv (3x3) rather than the first (1x1).
@@ -81,6 +91,7 @@ def bottleneck_block(inputs,
     dropout_rate: Dropout rate.
     prior_stddev: Standard deviation of the prior.
     use_tpu: whether the model runs on TPU.
+    use_ensemble_bn: Whether to use ensemble sync BN.
 
   Returns:
     tf.Tensor.
@@ -105,13 +116,19 @@ def bottleneck_block(inputs,
       use_additive_perturbation=use_additive_perturbation,
       name=conv_name_base + '2a',
       ensemble_size=ensemble_size)(inputs)
-  x = ed.layers.ensemble_batchnorm(
-      x,
-      ensemble_size=ensemble_size,
-      use_tpu=use_tpu,
-      momentum=BATCH_NORM_DECAY,
-      epsilon=BATCH_NORM_EPSILON,
-      name=bn_name_base+'2a')
+
+  if use_ensemble_bn:
+    x = EnsembleSyncBatchNormalization(
+        ensemble_size=ensemble_size, name=bn_name_base + '2a')(x)
+  else:
+    x = ed.layers.ensemble_batchnorm(
+        x,
+        ensemble_size=ensemble_size,
+        use_tpu=use_tpu,
+        momentum=BATCH_NORM_DECAY,
+        epsilon=BATCH_NORM_EPSILON,
+        name=bn_name_base+'2a')
+
   x = tf.keras.layers.Activation('relu')(x)
 
   x = ed.layers.Conv2DRank1(
@@ -132,13 +149,19 @@ def bottleneck_block(inputs,
       use_additive_perturbation=use_additive_perturbation,
       name=conv_name_base + '2b',
       ensemble_size=ensemble_size)(x)
-  x = ed.layers.ensemble_batchnorm(
-      x,
-      ensemble_size=ensemble_size,
-      use_tpu=use_tpu,
-      momentum=BATCH_NORM_DECAY,
-      epsilon=BATCH_NORM_EPSILON,
-      name=bn_name_base+'2b')
+
+  if use_ensemble_bn:
+    x = EnsembleSyncBatchNormalization(
+        ensemble_size=ensemble_size, name=bn_name_base + '2b')(x)
+  else:
+    x = ed.layers.ensemble_batchnorm(
+        x,
+        ensemble_size=ensemble_size,
+        use_tpu=use_tpu,
+        momentum=BATCH_NORM_DECAY,
+        epsilon=BATCH_NORM_EPSILON,
+        name=bn_name_base+'2b')
+
   x = tf.keras.layers.Activation('relu')(x)
 
   x = ed.layers.Conv2DRank1(
@@ -157,13 +180,18 @@ def bottleneck_block(inputs,
       use_additive_perturbation=use_additive_perturbation,
       name=conv_name_base + '2c',
       ensemble_size=ensemble_size)(x)
-  x = ed.layers.ensemble_batchnorm(
-      x,
-      ensemble_size=ensemble_size,
-      use_tpu=use_tpu,
-      momentum=BATCH_NORM_DECAY,
-      epsilon=BATCH_NORM_EPSILON,
-      name=bn_name_base+'2c')
+
+  if use_ensemble_bn:
+    x = EnsembleSyncBatchNormalization(
+        ensemble_size=ensemble_size, name=bn_name_base + '2c')(x)
+  else:
+    x = ed.layers.ensemble_batchnorm(
+        x,
+        ensemble_size=ensemble_size,
+        use_tpu=use_tpu,
+        momentum=BATCH_NORM_DECAY,
+        epsilon=BATCH_NORM_EPSILON,
+        name=bn_name_base + '2c')
 
   shortcut = inputs
   if not x.shape.is_compatible_with(shortcut.shape):
@@ -184,13 +212,17 @@ def bottleneck_block(inputs,
         use_additive_perturbation=use_additive_perturbation,
         name=conv_name_base + '1',
         ensemble_size=ensemble_size)(inputs)
-    shortcut = ed.layers.ensemble_batchnorm(
-        shortcut,
-        ensemble_size=ensemble_size,
-        use_tpu=use_tpu,
-        momentum=BATCH_NORM_DECAY,
-        epsilon=BATCH_NORM_EPSILON,
-        name=bn_name_base+'1')
+    if use_ensemble_bn:
+      shortcut = EnsembleSyncBatchNormalization(
+          ensemble_size=ensemble_size, name=bn_name_base + '1')(shortcut)
+    else:
+      shortcut = ed.layers.ensemble_batchnorm(
+          shortcut,
+          ensemble_size=ensemble_size,
+          use_tpu=use_tpu,
+          momentum=BATCH_NORM_DECAY,
+          epsilon=BATCH_NORM_EPSILON,
+          name=bn_name_base + '1')
 
   x = tf.keras.layers.add([x, shortcut])
   x = tf.keras.layers.Activation('relu')(x)
@@ -211,7 +243,8 @@ def group(inputs,
           random_sign_init,
           dropout_rate,
           prior_stddev,
-          use_tpu):
+          use_tpu,
+          use_ensemble_bn):
   """Group of residual blocks."""
   bottleneck_block_ = functools.partial(
       bottleneck_block,
@@ -226,7 +259,8 @@ def group(inputs,
       random_sign_init=random_sign_init,
       dropout_rate=dropout_rate,
       prior_stddev=prior_stddev,
-      use_tpu=use_tpu)
+      use_tpu=use_tpu,
+      use_ensemble_bn=use_ensemble_bn)
   blocks = string.ascii_lowercase
   x = bottleneck_block_(inputs, block=blocks[0], strides=strides)
   for i in range(num_blocks - 1):
@@ -245,7 +279,8 @@ def resnet50_rank1(input_shape,
                    random_sign_init,
                    dropout_rate,
                    prior_stddev,
-                   use_tpu):
+                   use_tpu,
+                   use_ensemble_bn):
   """Builds ResNet50 with rank 1 priors.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -271,6 +306,7 @@ def resnet50_rank1(input_shape,
     dropout_rate: Dropout rate.
     prior_stddev: Standard deviation of the prior.
     use_tpu: whether the model runs on TPU.
+    use_ensemble_bn: Whether to use ensemble batch norm.
 
   Returns:
     tf.keras.Model.
@@ -286,7 +322,8 @@ def resnet50_rank1(input_shape,
       random_sign_init=random_sign_init,
       dropout_rate=dropout_rate,
       prior_stddev=prior_stddev,
-      use_tpu=use_tpu)
+      use_tpu=use_tpu,
+      use_ensemble_bn=use_ensemble_bn)
   inputs = tf.keras.layers.Input(shape=input_shape)
   x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
   x = ed.layers.Conv2DRank1(
@@ -307,13 +344,18 @@ def resnet50_rank1(input_shape,
       use_additive_perturbation=use_additive_perturbation,
       name='conv1',
       ensemble_size=ensemble_size)(x)
-  x = ed.layers.ensemble_batchnorm(
-      x,
-      ensemble_size=ensemble_size,
-      use_tpu=use_tpu,
-      momentum=BATCH_NORM_DECAY,
-      epsilon=BATCH_NORM_EPSILON,
-      name='bn_conv1')
+  if use_ensemble_bn:
+    x = EnsembleSyncBatchNormalization(
+        ensemble_size=ensemble_size, name='bn_conv1')(x)
+  else:
+    x = ed.layers.ensemble_batchnorm(
+        x,
+        ensemble_size=ensemble_size,
+        use_tpu=use_tpu,
+        momentum=BATCH_NORM_DECAY,
+        epsilon=BATCH_NORM_EPSILON,
+        name='bn_conv1')
+
   x = tf.keras.layers.Activation('relu')(x)
   x = tf.keras.layers.MaxPooling2D(3, strides=(2, 2), padding='same')(x)
   x = group_(x, [64, 64, 256], stage=2, num_blocks=3, strides=1)

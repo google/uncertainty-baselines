@@ -30,12 +30,20 @@ directory. For example,
 [`baselines/cifar/determinstic.py`](https://github.com/google/uncertainty-baselines/tree/master/baselines/cifar/deterministic.py)
 is a Wide ResNet 28-10 obtaining 96.0% test accuracy on CIFAR-10.
 
+The
+[`experimental/`](https://github.com/google/uncertainty-baselines/tree/master/experimental)
+directory is for active research projects.
+
+Below we outline modules in Uncertainty Baselines.
+
 ### Datasets
 
-We implement datasets using the `tf.data.Dataset` API, available via the code
-below:
+The [`ub.datasets`](https://github.com/google/uncertainty-
+baselines/tree/master/uncertainty_baselines/datasets) module consists of
+datasets following the `tf.data.Dataset` API. Typically, they add minimal logic
+on top of TensorFlow Datasets such as default data preprocessing. Access it as:
 
-```
+```python
 dataset_builder = ub.datasets.Cifar10Dataset(
     batch_size=FLAGS.batch_size,
     eval_batch_size=FLAGS.eval_batch_size,
@@ -44,9 +52,9 @@ train_dataset = ub.utils.build_dataset(
     dataset_builder, strategy, 'train', as_tuple=True) # as_tuple for model.fit()
 ```
 
-or via our getter method
+Alternatively, use the getter command:
 
-```
+```python
 dataset_builder = ub.datasets.get(
     dataset_name,
     batch_size=batch_size,
@@ -54,7 +62,7 @@ dataset_builder = ub.datasets.get(
     **dataset_kwargs)
 ```
 
-We support the following datasets:
+Supported datasets include:
 
 - CIFAR-10
 - CIFAR-100
@@ -67,9 +75,7 @@ We support the following datasets:
 - MNLI
 - Wikipedia Talk Toxicity Classification, [download](https://www.tensorflow.org/datasets/catalog/wikipedia_toxicity_subtypes)
 
-#### Adding a dataset
-
-To add a new dataset:
+__Adding a new dataset.__
 
 1. Add the bibtex reference to the `References` section below.
 2. Add the dataset definition to the datasets/ dir. Every file should have a subclass of `datasets.base.BaseDataset`, which at a minimum requires implementing a constructor, `_read_examples`, and `_create_process_example_fn`.
@@ -79,20 +85,21 @@ To add a new dataset:
 
 ### Models
 
-We implement models using the `tf.keras.Model` API, available via the code
-below:
+The
+[`ub.models`](https://github.com/google/uncertainty-baselines/tree/master/uncertainty_baselines/models)
+module consists of models following the `tf.keras.Model` API. Access it as:
 
-```
+```python
 model = ub.models.ResNet20Builder(batch_size=FLAGS.batch_size, l2_weight=None)
 ```
 
-or via our getter method
+Alternatively, use the getter command:
 
-```
+```python
 model = ub.models.get(FLAGS.model_name, batch_size=FLAGS.batch_size)
 ```
 
-We support the following models:
+Supported models include:
 
 - ResNet-20 v1
 - ResNet-50 v1
@@ -101,14 +108,12 @@ We support the following models:
 - Text CNN
 - BERT
 
-#### Adding a model
-
-To add a new model:
+__Adding a new model.__
 
 1. Add the bibtex reference to the `References` section below.
 2. Add the model definition to the models/ dir. Every file should have a `create_model` function with the following signature:
 
-    ```
+    ```python
     def create_model(
         batch_size: int,
         ...
@@ -150,48 +155,40 @@ We define metrics used across datasets below. All results are reported by roughl
     It is equivalent up to a constant to the KL divergence from the true data distribution to the model, therefore capturing the overall goodness of fit to the true distribution ([Murphy, 2012](https://www.cs.ubc.ca/~murphyk/MLbook/)). It can also be intepreted as the amount of bits (nats) to explain the data ([Grunwald, 2004](https://arxiv.org/abs/math/0406077)).
 5. __Train/Test Runtime.__ Training runtime is the total wall-clock time to train the model, including any intermediate test set evaluations. Wall-clock Test Runtime refers to the wall time of testing a batch of inputs. Compute Test Runtime refers to the time it takes to run a forward pass on the GPU/TPU i.e. the duration for which the device is not idle. Compute Test Runtime is lower than Wall-clock Test Runtime becuase it does not include the time it takes to schedule the job on the GPU/TPU and fetch the data.
 
-### Viewing metrics
-
-Uncertainty baselines writes TensorFlow summaries to the `model_dir` which can be consumed by TensorBoard. This included the TensorBoard hyperparameters plugin, which can be used to analyze hyperparamter tuning sweeps.
+__Viewing metrics.__
+Uncertainty Baselines writes TensorFlow summaries to the `model_dir` which can
+be consumed by TensorBoard. This included the TensorBoard hyperparameters
+plugin, which can be used to analyze hyperparamter tuning sweeps.
 
 If you wish to upload to the *PUBLICLY READABLE* [tensorboard.dev](https://tensorboard.dev/) you can use the following command:
 
-```
+```sh
 tensorboard dev upload --logdir MODEL_DIR --plugins "scalars,graphs,hparams" --name "My experiment" --description "My experiment details"
 ```
 
-
-## Experiments
-
-The `experimental/` directory is for projects that use the codebase that the
-authors believe others in the community will find useful.
-
 ## References
 
+We don't yet have a recommended BibTeX entry if you'd like to cite our work. If
+you're using specific datasets, models, or baselines, see below.
+
 ### Datasets
-CIFAR-10
 
 ```
+# CIFAR-10
 @article{cifar10,
 title = {CIFAR-10 (Canadian Institute for Advanced Research)},
 author = {Alex Krizhevsky and Vinod Nair and Geoffrey Hinton},
 url = {http://www.cs.toronto.edu/~kriz/cifar.html},
 }
-```
 
-CIFAR-100
-
-```
+# CIFAR-100
 @article{cifar100,
 title = {CIFAR-100 (Canadian Institute for Advanced Research)},
 author = {Alex Krizhevsky and Vinod Nair and Geoffrey Hinton},
 url = {http://www.cs.toronto.edu/~kriz/cifar.html},
 }
-```
 
-Civil Comments Toxicity Classification
-
-```
+# Civil Comments Toxicity Classification
 @article{civil_comments,
   title     = {Nuanced Metrics for Measuring Unintended Bias with Real Data for Text
                Classification},
@@ -206,31 +203,22 @@ Civil Comments Toxicity Classification
   biburl    = {https://dblp.org/rec/bib/journals/corr/abs-1903-04561},
   bibsource = {dblp computer science bibliography, https://dblp.org}
 }
-```
 
-CLINIC
-
-```
+# CLINIC
 @article{clinic,
   title = {An Evaluation Dataset for Intent Classification and Out-of-Scope Prediction},
   author = {Larson, Stefan and Mahendran, Anish and Peper, Joseph J and Clarke, Christopher and Lee, Andrew and Hill, Parker and Kummerfeld, Jonathan K and Leach, Kevin and Laurenzano, Michael A and Tang, Lingjia and others},
   journal = {arXiv preprint arXiv:1909.02027},
   year = {2019}
 }
-```
 
-Criteo
-
-```
+# Criteo
 @article{criteo,
 title = {Display Advertising Challenge},
 url = {https://www.kaggle.com/c/criteo-display-ad-challenge.},
 }
-```
 
-GLUE
-
-```
+# GLUE
 @inproceedings{glue,
     title = "{GLUE}: A Multi-Task Benchmark and Analysis Platform for Natural Language Understanding",
     author = "Wang, Alex  and
@@ -248,11 +236,8 @@ GLUE
     doi = "10.18653/v1/W18-5446",
     pages = "353--355"
 }
-```
 
-ImageNet
-
-```
+# ImageNet
 @article{imagenet,
     Author = {Olga Russakovsky and Jia Deng and Hao Su and Jonathan Krause and Sanjeev Satheesh and Sean Ma and Zhiheng Huang and Andrej Karpathy and Aditya Khosla and Michael Bernstein and Alexander C. Berg and Li Fei-Fei},
     Title = {{ImageNet Large Scale Visual Recognition Challenge}},
@@ -262,22 +247,16 @@ ImageNet
     number = {3},
     pages = {211-252}
     }
-```
 
-MNIST
-
-```
+# MNIST
 @article{mnist,
   author = {LeCun, Yann and Cortes, Corinna},
   title = {{MNIST} handwritten digit database},
   url = {http://yann.lecun.com/exdb/mnist/},
   year = 2010
 }
-```
 
-MNLI
-
-```
+# MNLI
 @InProceedings{N18-1101,
   author = "Williams, Adina
             and Nangia, Nikita
@@ -295,11 +274,8 @@ MNLI
   location = "New Orleans, Louisiana",
   url = "http://aclweb.org/anthology/N18-1101"
 }
-```
 
-Wikipedia Talk Toxicity Classification
-
-```
+# Wikipedia Talk Toxicity Classification
 @inproceedings{wikipedia_talk,
   author = {Wulczyn, Ellery and Thain, Nithum and Dixon, Lucas},
   title = {Ex Machina: Personal Attacks Seen at Scale},
@@ -319,19 +295,16 @@ Wikipedia Talk Toxicity Classification
 ```
 
 ### Models
-ResNet-20, ResNet-50
 
 ```
+# Residual Networks
 @misc{resnet,
   title={Deep residual learning for image recognition. CoRR abs/1512.03385 (2015)},
   author={He, Kaiming and Zhang, Xiangyu and Ren, Shaoqing and Sun, Jian},
   year={2015}
 }
-```
 
-Criteo MLP
-
-```
+# Criteo MLP
 @inproceedings{uncertaintybenchmark,
   title={Can you trust your model's uncertainty? Evaluating predictive uncertainty under dataset shift},
   author={Snoek, Jasper and Ovadia, Yaniv and Fertig, Emily and Lakshminarayanan, Balaji and Nowozin, Sebastian and Sculley, D and Dillon, Joshua and Ren, Jie and Nado, Zachary},
@@ -339,11 +312,8 @@ Criteo MLP
   pages={13969--13980},
   year={2019}
 }
-```
 
-Text CNN
-
-```
+# Text CNN
 @inproceedings{textcnn,
     title = "Convolutional Neural Networks for Sentence Classification",
     author = "Kim, Yoon",
@@ -356,11 +326,8 @@ Text CNN
     doi = "10.3115/v1/D14-1181",
     pages = "1746--1751",
 }
-```
 
-BERT
-
-```
+# BERT
 @inproceedings{bert,
     title = "{BERT}: Pre-training of Deep Bidirectional Transformers for Language Understanding",
     author = "Devlin, Jacob  and
@@ -376,11 +343,8 @@ BERT
     doi = "10.18653/v1/N19-1423",
     pages = "4171--4186",
 }
-```
 
-Wide ResNet-*-*
-
-```
+# Wide ResNet-*-*
 @article{zagoruyko2016wide,
   title={Wide residual networks},
   author={Zagoruyko, Sergey and Komodakis, Nikos},
@@ -388,7 +352,6 @@ Wide ResNet-*-*
   year={2016}
 }
 ```
-
 
 ## Contributors
 

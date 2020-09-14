@@ -89,10 +89,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
         dropout=0.1,
         use_layer_norm=True)
     self.gp_layer_kwargs = dict(
-        num_inducing=32,
-        gp_cov_momentum=0.999,
-        gp_cov_ridge_penalty=1e-6,
-        use_custom_random_features=True)
+        num_inducing=32, gp_cov_momentum=0.999, gp_cov_ridge_penalty=1e-6)
 
   def test_make_spec_norm_dense_layer(self):
     """Tests if the weights of spec_norm_dense_layer is correctly normalized."""
@@ -135,6 +132,10 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     _ = layer_instance(*input_tensors)
 
     spec_norm_list_observed = _compute_layer_spectral_norms(layer_instance)
+    if test_attention:
+      # Remove the key, query and value layers from comparison since they are
+      # not normalized.
+      spec_norm_list_observed = spec_norm_list_observed[3:]
     spec_norm_list_expected = [self.sn_norm_multiplier
                               ] * len(spec_norm_list_observed)
 
@@ -146,7 +147,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
                                   ('ffn_only', True, False))
   def test_transformer_spectral_normalization(self, use_spec_norm_att,
                                               use_spec_norm_ffn):
-    """Tests if the transorfmer weights can be correctly normalized."""
+    """Tests if the transformer weights can be correctly normalized."""
     tf.random.set_seed(self.random_seed)
     input_tensor = tf.random.normal(self.input_shape_3d)
 
@@ -166,8 +167,10 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     # Collect spectral norms of the normalized kernel matrices.
     spec_norm_list_observed = []
     if use_spec_norm_att:
-      spec_norm_list_observed += spec_norm_list_all[:3]
+      # Collect the output layers.
+      spec_norm_list_observed += spec_norm_list_all[3:4]
     if use_spec_norm_ffn:
+      # Collect the last two feedforward layers.
       spec_norm_list_observed += spec_norm_list_all[-2:]
     spec_norm_list_expected = [self.sn_norm_multiplier
                               ] * len(spec_norm_list_observed)
@@ -190,11 +193,11 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
             use_spec_norm_ffn=True))
     _ = transformer_encoder(input_tensors)
 
-    # Currently the model does not apply spectral normalization to the CLS
-    # pooler layer (i.e. the last trainable kernel matrix). Remove it from
-    # evaluation for now.
+    # Currently the model does not apply spectral normalization to the
+    # key and query layers. Remove them from evaluation.
     spec_norm_list_observed = _compute_layer_spectral_norms(transformer_encoder)
-    del spec_norm_list_observed[-1]
+    spec_norm_list_observed = (
+        spec_norm_list_observed[3:5] + spec_norm_list_observed[9:10])
     spec_norm_list_expected = [self.sn_norm_multiplier
                               ] * len(spec_norm_list_observed)
 

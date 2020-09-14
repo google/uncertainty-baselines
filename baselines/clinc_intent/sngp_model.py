@@ -45,6 +45,14 @@ from official.nlp.modeling import networks as bert_encoder
 
 _EinsumDense = tf.keras.layers.experimental.EinsumDense
 
+# A dict of regex patterns and their replacements. Use to update weight names
+# in a classic pre-trained checkpoint to those in
+# SpectralNormalizedTransformerEncoder.
+CHECKPOINT_REPL_PATTERNS = {
+    '/intermediate': '/feedforward/intermediate',
+    '/output': '/feedforward/output'
+}
+
 
 def make_spec_norm_dense_layer(**spec_norm_kwargs: Mapping[str, Any]):
   """Defines a spectral-normalized EinsumDense layer.
@@ -60,7 +68,9 @@ def make_spec_norm_dense_layer(**spec_norm_kwargs: Mapping[str, Any]):
 
   def spec_norm_dense(*dense_args, **dense_kwargs):
     base_layer = _EinsumDense(*dense_args, **dense_kwargs)
-    return ed.layers.SpectralNormalization(base_layer, **spec_norm_kwargs)
+    # Inhere base_layer name to match with those in a classic BERT checkpoint.
+    return ed.layers.SpectralNormalization(
+        base_layer, inhere_layer_name=True, **spec_norm_kwargs)
 
   return spec_norm_dense
 
@@ -97,7 +107,6 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
                dropout: float,
                use_layer_norm: bool = True,
                use_spec_norm: bool = False,
-
                spec_norm_kwargs: Optional[Mapping[str, Any]] = None,
                name: str = 'feedforward',
                **common_kwargs: Mapping[str, Any]):
@@ -237,10 +246,9 @@ class SpectralNormalizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
       key: key tensor or TensorShape.
     """
     super()._build_from_signature(query, value, key)
-    # Overwrites EinsumDense layers for query, value, key and layer output.
-    self._query_dense = self._update_einsum_dense(self._query_dense)
-    self._key_dense = self._update_einsum_dense(self._key_dense)
-    self._value_dense = self._update_einsum_dense(self._value_dense)
+    # Overwrites EinsumDense layers.
+    # TODO(b/168256394): Enable spectral normalization also for key, query and
+    # value layers in the self-attention module.
     self._output_dense = self._update_einsum_dense(self._output_dense)
 
   def get_config(self):
@@ -330,17 +338,18 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
 
   def __init__(
       self,
-      use_layer_norm_att: bool = True,
-      use_layer_norm_ffn: bool = True,
       use_spec_norm_att: bool = False,
       use_spec_norm_ffn: bool = False,
+      use_spec_norm_plr: bool = False,
+      use_layer_norm_att: bool = True,
+      use_layer_norm_ffn: bool = True,
       # A dict of kwargs to pass to the Transformer class.
       hidden_cfg: Optional[Dict[str, Any]] = None,
       **kwargs: Mapping[str, Any]):
     """Initializer."""
     hidden_cls = SpectralNormalizedTransformer
 
-    # Add MC Dropout arguments to default transformer config.
+    # Add layer normalization arguments to default transformer config.
     normalization_cfg = {
         'use_layer_norm_att': use_layer_norm_att,
         'use_layer_norm_ffn': use_layer_norm_ffn,
@@ -395,11 +404,25 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
       layer_output_data.append(data)
       self._hidden_layers.append(layer)
 
-    # Define output layers (i.e., the CLS token).
+    # Extract BERT encoder output (i.e., the CLS token).
     first_token_tensor = (
         tf.keras.layers.Lambda(lambda x: tf.squeeze(x[:, 0:1, :], axis=1))(
             layer_output_data[-1]))
-    cls_output = first_token_tensor
+
+    # Define the pooler layer (i.e., the output layer), and optionally apply
+    # spectral normalization.
+    self._pooler_layer = tf.keras.layers.Dense(
+        units=self._pooled_output_dim,
+        activation='tanh',
+        kernel_initializer=self._pooler_layer_initializer,
+        name='pooler_transform')
+    if use_spec_norm_plr:
+      self._pooler_layer = ed.layers.SpectralNormalization(
+          self._pooler_layer,
+          inhere_layer_name=True,
+          **hidden_cfg['spec_norm_kwargs'])
+
+    cls_output = self._pooler_layer(first_token_tensor)
 
     if self._return_all_layer_outputs:
       outputs = [layer_output_data, cls_output]
@@ -417,7 +440,8 @@ def get_spectral_normalized_transformer_encoder(
     use_layer_norm_att: bool = True,
     use_layer_norm_ffn: bool = True,
     use_spec_norm_att: bool = False,
-    use_spec_norm_ffn: bool = False) -> SpectralNormalizedTransformerEncoder:
+    use_spec_norm_ffn: bool = False,
+    use_spec_norm_plr: bool = False) -> SpectralNormalizedTransformerEncoder:
   """Creates a SpectralNormalizedTransformerEncoder from a bert_config.
 
   Args:
@@ -431,6 +455,8 @@ def get_spectral_normalized_transformer_encoder(
       attention layer.
     use_spec_norm_ffn: (bool) Whether to apply spectral normalization to the
       feedforward layer.
+    use_spec_norm_plr: (bool) Whether to apply spectral normalization to the
+      final pooler layer for CLS token.
 
   Returns:
     A SpectralNormalizedTransformerEncoder object.
@@ -466,6 +492,7 @@ def get_spectral_normalized_transformer_encoder(
       use_layer_norm_ffn=use_layer_norm_ffn,
       use_spec_norm_att=use_spec_norm_att,
       use_spec_norm_ffn=use_spec_norm_ffn,
+      use_spec_norm_plr=use_spec_norm_plr,
       hidden_cfg=hidden_cfg,
       **kwargs)
 
@@ -476,10 +503,10 @@ class BertGaussianProcessClassifier(tf.keras.Model):
   def __init__(self,
                network: tf.keras.Model,
                num_classes: int,
+               gp_layer_kwargs: Dict[str, Any],
                initializer: Optional[tf.keras.initializers.Initializer] = None,
                dropout_rate: float = 0.1,
                use_gp_layer: bool = True,
-               gp_layer_kwargs: Optional[Mapping[str, Any]] = None,
                **kwargs: Mapping[str, Any]):
     """Initializer.
 
@@ -488,11 +515,11 @@ class BertGaussianProcessClassifier(tf.keras.Model):
         output and a classification output. Furthermore, it should expose its
         embedding table via a "get_embedding_table" method.
       num_classes: Number of classes to predict from the classification network.
+      gp_layer_kwargs: Keyword arguments to Gaussian process layer.
       initializer: The initializer (if any) to use in the classification
         networks. Defaults to a Glorot uniform initializer.
       dropout_rate: The dropout probability of the cls head.
       use_gp_layer: Whether to use Gaussian process output layer.
-      gp_layer_kwargs: Keyword arguments to Gaussian process layer.
       **kwargs: Additional keyword arguments.
     """
     self._self_setattr_tracking = False
@@ -513,14 +540,16 @@ class BertGaussianProcessClassifier(tf.keras.Model):
 
     # Construct classifier using CLS token of the BERT encoder output.
     _, cls_output = network(inputs)
-
-    # Perform MC Dropout on the CLS embedding.
     cls_output = tf.keras.layers.Dropout(rate=dropout_rate)(cls_output)
 
     # Produce final logits.
     if use_gp_layer:
       self.classifier = ed.layers.RandomFeatureGaussianProcess(
-          units=num_classes, kernel_initializer=initializer, **gp_layer_kwargs)
+          units=num_classes,
+          scale_random_features=False,
+          use_custom_random_features=True,
+          kernel_initializer=initializer,
+          **gp_layer_kwargs)
     else:
       self.classifier = bert_encoder.Classification(
           input_width=cls_output.shape[-1],
@@ -541,7 +570,8 @@ def create_model(num_classes,
                  use_spec_norm_att=True,
                  use_spec_norm_ffn=True,
                  use_layer_norm_att=False,
-                 use_layer_norm_ffn=False):
+                 use_layer_norm_ffn=False,
+                 use_spec_norm_plr=False):
   """Creates a BERT classifier model with MC dropout."""
   last_layer_initializer = tf.keras.initializers.TruncatedNormal(
       stddev=bert_config.initializer_range)
@@ -553,7 +583,8 @@ def create_model(num_classes,
       use_layer_norm_att=use_layer_norm_att,
       use_layer_norm_ffn=use_layer_norm_ffn,
       use_spec_norm_att=use_spec_norm_att,
-      use_spec_norm_ffn=use_spec_norm_ffn)
+      use_spec_norm_ffn=use_spec_norm_ffn,
+      use_spec_norm_plr=use_spec_norm_plr)
 
   # Build classification model.
   sngp_bert_model = BertGaussianProcessClassifier(

@@ -11,6 +11,7 @@
 | SNGP | 1e-3 / 0.134 | 99.9% / 96.0% |  5e-4 / 0.008 | 0.75 / 78.2% / 0.076 | 2.6 (8 TPUv2 cores) | 6.2 / 0.378 (8 TPUv2 cores) | 36.5M |
 | SNGP, with AugMix| 1e-3 / 0.103 | 94.9% / 96.9% |  0.0038 / 0.0045 | 0.33 / 89.1% / 0.015 | 2.6 (8 TPUv2 cores) | 6.2 / 0.378 (8 TPUv2 cores) | 36.5M |
 | SNGP, with MC Dropout (size=10) | 1e-3 / 0.131 | 99.9% / 95.9% |  7e-4 / 0.008 | 0.76 / 77.7% / 0.082 | 4.5 (8 TPUv2 cores) | 7.6 / 2.846 (8 TPUv2 cores) | 36.5M |
+| SNGP, with BatchEnsemble (size=4) | - / 0.127 | -% / 96.2% |  - / 0.006 | 0.75 / 78.1% / 0.080 | - (8 TPUv2 cores) | - / - (8 TPUv2 cores) | -M |
 | SNGP Ensemble (size=4) | 1e-3 / 0.109 | 99.9% / 96.7% |  5e-4 / 0.005 | 0.72 / 79.2% / 0.074 | 2.6 (32 TPUv2 cores) | 24.5 / 1.199 (8 TPUv2 cores) | 146M |
 | Monte Carlo Dropout (size=1) | 2e-3 / 0.160 | 99.9% / 95.9% | 2e-3 / 0.0241 | 1.27 / 68.8% / 0.166 | 1.2 (8 TPUv2 cores) | 4.7 / 0.082 (8 TPUv2 cores) | 36.5M |
 | Monte Carlo Dropout (size=30) | 1e-3 / 0.145 | 99.9% / 96.1% | 1.5e-3 / 0.019 | 1.27 / 70.0% / 0.167 | 1.2 (8 TPUv2 cores) | 19.1 / 2.457  (8 TPUv2 cores) | 36.5M |
@@ -29,6 +30,7 @@
 | SNGP | 7e-3 / 0.805 | 99.9% / 79.6% |  5e-4 / 0.024 | 2.13 / 53.8% / 0.098 | 2.6 (8 TPUv2 cores) | 5.8 / 0.378 (8 TPUv2 cores) | 36.5M |
 | SNGP, with AugMix | 0.68 / 0.755 | 83.8% / 80.6% |  0.07 / 0.024 | 1.44 / 65.9% / 0.054 | 2.6 (8 TPUv2 cores) | 5.8 / 0.378 (8 TPUv2 cores) | 36.5M |
 | SNGP, with MC Dropout (size=10) | 2e-2 / 0.750 | 99.9% / 79.6% | 1e-2 / 0.017 | 2.06 / 53.8% / 0.087 | 4.5 (8 TPUv2 cores) | 6.7 / 2.841 (8 TPUv2 cores) | 36.5M |
+| SNGP, with BatchEnsemble (size=4) | - / 0.755 | -% / 81.4% |  - / 0.032 | 2.03 / 55.2% / 0.112 | - (8 TPUv2 cores) | - / - (8 TPUv2 cores) | -M |
 | SNGP Ensemble (size=4) | 7e-3 / 0.665 | 99.9% / 81.9% | 5e-4 / 0.011 | 1.95 / 56.8% / 0.091 | 2.6 (32 TPUv2 cores) | 23.32 / 1.198 (8 TPUv2 cores) | 146M |
 | Monte Carlo Dropout (size=1) | 1e-2 / 0.830 | 99.9% / 79.6% | 9e-3 / 0.0501 | 2.90 / 42.63% / 0.202 | 1.1 (8 TPUv2 cores) | 4.8 / 0.082 (8 TPUv2 cores) | 36.5M |
 | Monte Carlo Dropout (size=30) | 6e-3 / 0.785 | 99.9% / 80.7% | 5e-3 / 0.0487 | 2.73 / 46.2 / 0.207 | 1.1 (8 TPUv2 cores) | 19.5 / 2.457 (8 TPUv2 cores) | 36.5M |

@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 import tensorflow.compat.v1 as tf
 import tensorflow_datasets as tfds
+import tensorflow_probability as tfp
+tfd = tfp.distributions
 
 IMAGE_SIZE = 224
 CROP_PADDING = 32
@@ -345,7 +347,9 @@ class ImageNetInput(object):
     resize_method: If None, use bicubic in default.
     mixup_alpha: `float` to control the strength of Mixup regularization, set to
         0.0 to disable.
+    mixup_params: `Dict` to store the hparams of mixup.
     ensemble_size: `int` for number of ensemble members.
+    validation: `Bool`, if True, return a training set without augmentation.
   """
 
   def __init__(self,
@@ -358,8 +362,9 @@ class ImageNetInput(object):
                drop_remainder=True,
                use_bfloat16=False,
                resize_method=None,
-               mixup_alpha=0.,
-               ensemble_size=1):
+               mixup_params=None,
+               ensemble_size=1,
+               validation=False):
     self.image_preprocessing_fn = preprocess_image
     self.is_training = is_training
     self.use_bfloat16 = use_bfloat16
@@ -370,8 +375,13 @@ class ImageNetInput(object):
     self.normalize_input = normalize_input
     self.one_hot = one_hot
     self.resize_method = resize_method
-    self.mixup_alpha = mixup_alpha
+    self.mixup_params = mixup_params
+    if mixup_params is not None:
+      self.mixup_alpha = mixup_params.get('mixup_alpha', 0.)
+    else:
+      self.mixup_alpha = 0.
     self.ensemble_size = ensemble_size
+    self.validation = validation
 
   def mixup(self, batch_size, alpha, images, labels):
     """Applies Mixup regularization to a batch of images and labels.
@@ -399,6 +409,49 @@ class ImageNetInput(object):
     images_mix = (
         images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
     mix_weight = tf.cast(mix_weight, labels.dtype)
+    labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
+    return images_mix, labels_mix
+
+  def adaptive_mixup(self, batch_size, images, labels):
+    """Applies CAMixup regularization to a batch of images and labels.
+
+    Arguments:
+      batch_size: The input batch size for images and labels.
+      images: A batch of images of shape [batch_size, ...]
+      labels: A batch of labels of shape [batch_size, num_classes]
+
+    Returns:
+      A tuple of (images, labels) with the same dimensions as the input with
+      Mixup regularization applied.
+    """
+    ensemble_size = self.mixup_params.get('ensemble_size', 1)
+    mixup_coeff = self.mixup_params['mixup_coeff']
+    scalar_labels = tf.argmax(labels, axis=1)
+    alpha = tf.gather(mixup_coeff, scalar_labels, axis=-1)
+
+    # Need to filter out elements in alpha which equal to 0.
+    greater_zero_indicator = tf.cast(alpha > 0, alpha.dtype)
+    less_one_indicator = tf.cast(alpha < 1, alpha.dtype)
+    valid_alpha_indicator = tf.cast(
+        greater_zero_indicator * less_one_indicator, tf.bool)
+
+    dummy_alpha = 0.1 * tf.ones_like(alpha)
+    sampled_alpha = tf.where(valid_alpha_indicator, alpha, dummy_alpha)
+    mix_weight = tfd.Beta(sampled_alpha, sampled_alpha).sample()
+    mix_weight = tf.where(valid_alpha_indicator, mix_weight, alpha)
+    mix_weight = tf.reshape(mix_weight, [ensemble_size * batch_size, 1])
+    mix_weight = tf.clip_by_value(mix_weight, 0, 1)
+    mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
+    images_mix_weight = tf.reshape(mix_weight,
+                                   [ensemble_size * batch_size, 1, 1, 1])
+
+    # Mixup on a single batch is implemented by taking a weighted sum with the
+    # same batch in reverse.
+    images = tf.tile(images, [ensemble_size, 1, 1, 1])
+    labels = tf.tile(labels, [ensemble_size, 1])
+    images_mix_weight = tf.cast(images_mix_weight, images.dtype)
+    images_mix = (
+        images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
     labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
     return images_mix, labels_mix
 
@@ -430,7 +483,7 @@ class ImageNetInput(object):
 
     image = self.image_preprocessing_fn(
         image_bytes=image_bytes,
-        is_training=self.is_training,
+        is_training=(self.is_training and not self.validation),
         use_bfloat16=self.use_bfloat16,
         image_size=self.image_size,
         resize_method=self.resize_method)
@@ -491,9 +544,18 @@ class ImageNetInput(object):
         batch_size=self.batch_size, drop_remainder=self.drop_remainder)
 
     if self.is_training and self.mixup_alpha > 0.0:
-      dataset = dataset.map(
-          functools.partial(self.mixup, self.batch_size, self.mixup_alpha),
-          num_parallel_calls=tf.data.experimental.AUTOTUNE)
+      if self.mixup_params['adaptive_mixup']:
+        if 'mixup_coeff' not in self.mixup_params:
+          # Hard target in the first epoch!
+          self.mixup_params['mixup_coeff'] = tf.ones(
+              [self.ensemble_size, self.mixup_params['num_classes']])
+        dataset = dataset.map(
+            functools.partial(self.adaptive_mixup, self.batch_size),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+      else:
+        dataset = dataset.map(
+            functools.partial(self.mixup, self.batch_size, self.mixup_alpha),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 

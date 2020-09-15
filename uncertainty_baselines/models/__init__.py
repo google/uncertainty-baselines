@@ -17,13 +17,15 @@
 
 import warnings
 
-# When adding a new model, also add to models.py for easier user access.
+from uncertainty_baselines.google.models.criteo_sngp import create_model as CriteoSngpBuilder
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
 from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.resnet20 import create_model as ResNet20Builder
 from uncertainty_baselines.models.resnet50 import create_model as ResNet50Builder
+from uncertainty_baselines.models.resnet50_batchensemble import resnet101_batchensemble
 from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchensemble
+from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
@@ -40,6 +42,8 @@ from uncertainty_baselines.models.wide_resnet_rank1 import wide_resnet_rank1
 from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be
 from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_variational
+
+# When adding a new model, also add to models.py for easier user access.
 
 try:
   from uncertainty_baselines.models.bert import create_model as BERTBuilder  # pylint: disable=g-import-not-at-top

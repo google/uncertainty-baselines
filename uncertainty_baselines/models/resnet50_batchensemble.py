@@ -233,3 +233,102 @@ def resnet50_batchensemble(input_shape,
       activation=None,
       name='fc1000')(x)
   return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')
+
+
+def resnet101_batchensemble(input_shape,
+                            num_classes,
+                            ensemble_size,
+                            random_sign_init,
+                            use_ensemble_bn):
+  """Builds BatchEnsemble ResNet101.
+
+  Using strided conv, pooling, four groups of residual blocks, and pooling, the
+  network maps spatial features of size 224x224 -> 112x112 -> 56x56 -> 28x28 ->
+  14x14 -> 7x7 (Table 1 of He et al. (2015)).
+
+  Args:
+    input_shape: Shape tuple of input excluding batch dimension.
+    num_classes: Number of output classes.
+    ensemble_size: Ensemble size.
+    random_sign_init: float, probability of RandomSign initializer.
+    use_ensemble_bn: whether to use ensemble batch norm.
+
+  Returns:
+    tf.keras.Model.
+  """
+  group_ = functools.partial(group,
+                             ensemble_size=ensemble_size,
+                             use_ensemble_bn=use_ensemble_bn,
+                             random_sign_init=random_sign_init)
+  inputs = tf.keras.layers.Input(shape=input_shape)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = ed.layers.Conv2DBatchEnsemble(
+      64,
+      kernel_size=7,
+      strides=2,
+      padding='valid',
+      use_bias=False,
+      kernel_initializer='he_normal',
+      alpha_initializer=make_random_sign_initializer(random_sign_init),
+      gamma_initializer=make_random_sign_initializer(random_sign_init),
+      name='conv1',
+      ensemble_size=ensemble_size)(x)
+  if use_ensemble_bn:
+    x = EnsembleBatchNormalization(
+        ensemble_size=ensemble_size,
+        name='bn_conv1')(x)
+  else:
+    x = BatchNormalization(name='bn_conv1')(x)
+  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.MaxPooling2D(3, strides=(2, 2), padding='same')(x)
+  x = group_(x, [64, 64, 256], stage=2, num_blocks=3, strides=1)
+  x = group_(x, [128, 128, 512], stage=3, num_blocks=4, strides=2)
+  x = group_(x, [256, 256, 1024], stage=4, num_blocks=23, strides=2)
+  x = group_(x, [512, 512, 2048], stage=5, num_blocks=3, strides=2)
+  x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
+  x = ed.layers.DenseBatchEnsemble(
+      num_classes,
+      ensemble_size=ensemble_size,
+      kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
+      alpha_initializer=make_random_sign_initializer(random_sign_init),
+      gamma_initializer=make_random_sign_initializer(random_sign_init),
+      activation=None,
+      name='fc1000')(x)
+  return tf.keras.Model(inputs=inputs, outputs=x, name='resnet101')
+
+
+def resnet_batchensemble(input_shape,
+                         num_classes,
+                         ensemble_size,
+                         random_sign_init,
+                         use_ensemble_bn,
+                         depth=50):
+  """Builds BatchEnsemble ResNet50 or ResNet 101.
+
+  Args:
+    input_shape: Shape tuple of input excluding batch dimension.
+    num_classes: Number of output classes.
+    ensemble_size: Ensemble size.
+    random_sign_init: float, probability of RandomSign initializer.
+    use_ensemble_bn: whether to use ensemble batch norm.
+    depth: ResNet depth, default to 50.
+
+  Returns:
+    tf.keras.Model.
+  """
+  if depth == 50:
+    return resnet50_batchensemble(
+        input_shape,
+        num_classes,
+        ensemble_size,
+        random_sign_init,
+        use_ensemble_bn)
+  elif depth == 101:
+    return resnet101_batchensemble(
+        input_shape,
+        num_classes,
+        ensemble_size,
+        random_sign_init,
+        use_ensemble_bn)
+  else:
+    raise ValueError('Only support ResNet with depth 50 or 101 for now.')

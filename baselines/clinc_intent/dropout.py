@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TextCNN trained with maximum likelihood."""
+"""BERT model with Monte Carlo dropout."""
 
 import os
 import time
@@ -24,12 +24,11 @@ from absl import logging
 import tensorflow as tf
 import uncertainty_baselines as ub
 import bert_utils  # local file import
-import dropout_model as bert_model  # local file import
 import uncertainty_metrics as um
 
 # Data flags
 flags.DEFINE_string(
-    'dataset_dir', None,
+    'data_dir', None,
     'Directory containing the TFRecord datasets and the tokenizer for Clinc '
     'Intent Detection Data.')
 
@@ -148,22 +147,22 @@ def main(argv):
   train_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ind')
   ind_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       batch_size=batch_size,
       eval_batch_size=FLAGS.eval_batch_size,
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ind')
   ood_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       batch_size=batch_size,
       eval_batch_size=FLAGS.eval_batch_size,
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ood')
   all_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       batch_size=batch_size,
       eval_batch_size=FLAGS.eval_batch_size,
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='all')
 
   dataset_builders = {
@@ -203,7 +202,7 @@ def main(argv):
     bert_config_dir, bert_ckpt_dir = resolve_bert_ckpt_and_config_dir(
         FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
     bert_config = bert_utils.create_config(bert_config_dir)
-    model, bert_encoder = bert_model.create_model(
+    model, bert_encoder = ub.models.DropoutBertBuilder(
         num_classes=num_classes,
         bert_config=bert_config,
         use_mc_dropout_mha=FLAGS.use_mc_dropout_mha,

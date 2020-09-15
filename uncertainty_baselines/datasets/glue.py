@@ -44,7 +44,7 @@ See https://gluebenchmark.com/ for further detail.
     https://www.aclweb.org/anthology/W18-5446/
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -72,7 +72,6 @@ class _GLUEDataset(base.BaseDataset):
                eval_batch_size: int,
                shuffle_buffer_size: int = None,
                num_parallel_parser_calls: int = 64,
-               data_dir: Optional[str] = None,
                **unused_kwargs: Dict[str, Any]):
     """Create a GLUE tf.data.Dataset builder.
 
@@ -84,8 +83,6 @@ class _GLUEDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
     """
     tfds_name = 'glue/' + name
     dataset_info = tfds.builder(tfds_name).info
@@ -102,29 +99,16 @@ class _GLUEDataset(base.BaseDataset):
         batch_size=batch_size,
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        num_parallel_parser_calls=num_parallel_parser_calls)
 
   def _read_examples(self, split: base.Split) -> tf.data.Dataset:
     """Creates a dataset to be processed by _create_process_example_fn."""
     if split == base.Split.TEST:
-      return tfds.load(
-          self.name,
-          split='test',
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name, split='test')
     elif split == base.Split.TRAIN:
-      return tfds.load(
-          self.name,
-          split='train',
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name, split='train')
     else:
-      return tfds.load(
-          self.name,
-          split='validation',
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name, split='validation')
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""

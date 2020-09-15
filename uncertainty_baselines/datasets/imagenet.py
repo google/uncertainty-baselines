@@ -22,7 +22,7 @@ is also done in the NeurIPS uncertainty benchmark paper
 https://arxiv.org/abs/1906.02530 (which used (100 / 1024)% as a validation set).
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
@@ -39,7 +39,6 @@ class ImageNetDataset(base.BaseDataset):
       validation_percent: float = 0.0,
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create an ImageNet tf.data.Dataset builder.
 
@@ -52,8 +51,6 @@ class ImageNetDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
     """
     num_train_examples = 1281167
     num_validation_examples = int(num_train_examples * validation_percent)
@@ -66,8 +63,7 @@ class ImageNetDataset(base.BaseDataset):
         batch_size=batch_size,
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        num_parallel_parser_calls=num_parallel_parser_calls)
 
   def _read_examples(self, split: base.Split) -> tf.data.Dataset:
     """Read ImageNet examples. We use the original 'validation' set as test."""
@@ -79,11 +75,7 @@ class ImageNetDataset(base.BaseDataset):
       else:
         train_split = tfds.core.ReadInstruction(
             'train', to=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          'imagenet2012:5.0.0',
-          split=train_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load('imagenet2012:5.0.0', split=train_split)
     elif split == base.Split.VAL:
       if self._num_validation_examples == 0:
         raise ValueError(
@@ -91,17 +83,9 @@ class ImageNetDataset(base.BaseDataset):
             'take a subset of the training set as validation.')
       val_split = tfds.core.ReadInstruction(
           'train', from_=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          'imagenet2012:5.0.0',
-          split=val_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load('imagenet2012:5.0.0', split=val_split)
     elif split == base.Split.TEST:
-      return tfds.load(
-          'imagenet2012',
-          split='validation',
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load('imagenet2012', split='validation')
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
     """Create a pre-process function to return images in [0, 1]."""

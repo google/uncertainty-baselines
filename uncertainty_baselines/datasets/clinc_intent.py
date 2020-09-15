@@ -47,7 +47,7 @@ Note:
 import json
 import os.path
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import tensorflow.compat.v2 as tf
 from uncertainty_baselines.datasets import base
@@ -162,7 +162,7 @@ class ClincIntentDetectionDataset(base.BaseDataset):
                eval_batch_size: int,
                shuffle_buffer_size: int = None,
                num_parallel_parser_calls: int = 64,
-               data_dir: Optional[str] = None,
+               dataset_dir: str = None,
                data_mode: str = 'ind',
                **unused_kwargs: Dict[str, Any]):
     """Initializer.
@@ -174,13 +174,14 @@ class ClincIntentDetectionDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: directory containing the TFRecord datasets and the tokenizer.
+      dataset_dir: directory containing the TFRecord datasets and the tokenizer.
       data_mode: One of ['ind', 'ood', 'all'] to decide whether to read only
         in-domain data, or read only out-of-domain data, or read both.
     """
+    self._dataset_dir = dataset_dir
     num_examples, self._file_names = _get_num_examples_and_filenames(data_mode)
     self.tokenizer = _load_tokenizer(
-        tokenizer_dir=os.path.join(data_dir, _FILENAME_TOKENZIER))
+        tokenizer_dir=os.path.join(self._dataset_dir, _FILENAME_TOKENZIER))
 
     super(ClincIntentDetectionDataset, self).__init__(
         name='clinc_intent',
@@ -190,8 +191,7 @@ class ClincIntentDetectionDataset(base.BaseDataset):
         batch_size=batch_size,
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        num_parallel_parser_calls=num_parallel_parser_calls)
 
     self.info['num_classes'] = 150
     self.info['feature_size'] = _FEATURE_LENGTH
@@ -199,15 +199,15 @@ class ClincIntentDetectionDataset(base.BaseDataset):
   def _read_examples(self, split: base.Split) -> tf.data.Dataset:
     if split == base.Split.TRAIN:
       return _build_dataset(
-          glob_dir=os.path.join(self._data_dir, self._file_names['train']),
+          glob_dir=os.path.join(self._dataset_dir, self._file_names['train']),
           is_training=True)
     if split == base.Split.VAL:
       return _build_dataset(
-          glob_dir=os.path.join(self._data_dir, self._file_names['val']),
+          glob_dir=os.path.join(self._dataset_dir, self._file_names['val']),
           is_training=False)
     if split == base.Split.TEST:
       return _build_dataset(
-          glob_dir=os.path.join(self._data_dir, self._file_names['test']),
+          glob_dir=os.path.join(self._dataset_dir, self._file_names['test']),
           is_training=False)
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:

@@ -75,18 +75,17 @@ def _make_features_spec(
 class _JigsawToxicityDataset(base.BaseDataset):
   """Dataset builder abstract class."""
 
-  def __init__(
-      self,
-      name: str,
-      batch_size: int,
-      eval_batch_size: int,
-      additional_labels: Tuple[str] = _TOXICITY_SUBTYPE_NAMES,
-      validation_fraction: float = 0.0,
-      shuffle_buffer_size: Optional[int] = None,
-      max_seq_length: Optional[int] = 512,
-      num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
-      **unused_kwargs: Dict[str, Any]):
+  def __init__(self,
+               name: str,
+               batch_size: int,
+               eval_batch_size: int,
+               additional_labels: Tuple[str] = _TOXICITY_SUBTYPE_NAMES,
+               validation_fraction: float = 0.0,
+               shuffle_buffer_size: Optional[int] = None,
+               max_seq_length: Optional[int] = 512,
+               bert_dataset_dir: Optional[str] = None,
+               num_parallel_parser_calls: int = 64,
+               **unused_kwargs: Dict[str, Any]):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -100,14 +99,16 @@ class _JigsawToxicityDataset(base.BaseDataset):
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       max_seq_length: maximum sequence length of the tokenized sentences.
+      bert_dataset_dir: directory containing the TFRecord datasets with BERT
+        features. If None then will read text-only data from TFDS API.
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
     """
     dataset_info = tfds.builder(name).info
     self.validation_fraction = validation_fraction
     self.additional_labels = additional_labels
+
+    self._bert_dataset_dir = bert_dataset_dir
 
     self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
     self.split_names = _DATA_SPLIT_NAMES
@@ -131,16 +132,15 @@ class _JigsawToxicityDataset(base.BaseDataset):
         batch_size=batch_size,
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        num_parallel_parser_calls=num_parallel_parser_calls)
     self.info['num_classes'] = 1
     self.info['max_seq_length'] = max_seq_length
 
   def _read_examples(self, split: base.Split) -> tf.data.Dataset:
     """Creates a dataset to be processed by _create_process_example_fn."""
-    if self._data_dir:
+    if self._bert_dataset_dir:
       logging.info('Reading from local TFRecords with BERT features %s',
-                   self._data_dir)
+                   self._bert_dataset_dir)
       return self._read_examples_local(split)
     else:
       logging.info('Reading from TFDS.')
@@ -150,7 +150,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
     """Creates a dataset from local TFRecords."""
     is_training = split == base.Split.TRAIN
     return _build_dataset(
-        glob_dir=os.path.join(self._data_dir,
+        glob_dir=os.path.join(self._bert_dataset_dir,
                               self._file_name_patterns[split.value]),
         is_training=is_training)
 
@@ -162,39 +162,23 @@ class _JigsawToxicityDataset(base.BaseDataset):
       else:
         train_split = tfds.core.ReadInstruction(
             'train', to=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          self.name,
-          split=train_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name, split=train_split)
     elif split == base.Split.VAL:
       if self.validation_fraction == 0:
-        return tfds.load(
-            self.name,
-            split='validation',
-            try_gcs=True,
-            data_dir=self._data_dir)
+        return tfds.load(self.name, split='validation')
       else:
         val_split = tfds.core.ReadInstruction(
             'train', from_=-self._num_validation_examples, unit='abs')
-        return tfds.load(
-            self.name,
-            split=val_split,
-            try_gcs=True,
-            data_dir=self._data_dir)
+        return tfds.load(self.name, split=val_split)
     else:
-      return tfds.load(
-          self.name,
-          split='test',
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name, split='test')
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
       """Preprocesses sentences as well as toxicity and other labels."""
-      if self._data_dir:
+      if self._bert_dataset_dir:
         return tf.io.parse_example(example, self.feature_spec)
       else:
         label = example['toxicity']

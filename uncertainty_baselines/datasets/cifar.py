@@ -16,7 +16,7 @@
 # Lint as: python3
 """CIFAR{10,100} dataset builders."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -34,7 +34,6 @@ class _CifarDataset(base.BaseDataset):
       validation_percent: float = 0.0,
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
       normalize: bool = True,
       **unused_kwargs: Dict[str, Any]):
     """Create a CIFAR10 or CIFAR100 tf.data.Dataset builder.
@@ -49,8 +48,6 @@ class _CifarDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
       normalize: whether or not to normalize each image by the CIFAR dataset
         mean and stddev.
     """
@@ -66,17 +63,12 @@ class _CifarDataset(base.BaseDataset):
         batch_size=batch_size,
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        num_parallel_parser_calls=num_parallel_parser_calls)
 
   def _read_examples(self, split: base.Split) -> tf.data.Dataset:
     """Creates a dataset to be processed by _create_process_example_fn."""
     if split == base.Split.TEST:
-      return tfds.load(
-          self.name + ':3.*.*',
-          split='test',
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name + ':3.*.*', split='test')
 
     if split == base.Split.TRAIN:
       if self._num_validation_examples == 0:
@@ -84,11 +76,7 @@ class _CifarDataset(base.BaseDataset):
       else:
         train_split = tfds.core.ReadInstruction(
             'train', to=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          self.name + ':3.*.*',
-          split=train_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name + ':3.*.*', split=train_split)
     if split == base.Split.VAL:
       if self._num_validation_examples == 0:
         raise ValueError(
@@ -96,11 +84,7 @@ class _CifarDataset(base.BaseDataset):
             'take a subset of the training set as validation.')
       val_split = tfds.core.ReadInstruction(
           'train', from_=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          self.name + ':3.*.*',
-          split=val_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+      return tfds.load(self.name + ':3.*.*', split=val_split)
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
 

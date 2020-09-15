@@ -18,7 +18,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
@@ -39,42 +39,38 @@ from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitie
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
 
 
-_DATASETS = {
-    'cifar100': Cifar100Dataset,
-    'cifar10': Cifar10Dataset,
-    'civil_comments': CivilCommentsDataset,
-    'civil_comments_identities': CivilCommentsIdentitiesDataset,
-    'clinic_intent': ClincIntentDetectionDataset,
-    'criteo': CriteoDataset,
-    'imagenet': ImageNetDataset,
-    'mnist': MnistDataset,
-    'mnli': MnliDataset,
-    'places365': Places365Dataset,
-    'random_gaussian': RandomGaussianImageDataset,
-    'random_rademacher': RandomRademacherImageDataset,
-    'svhn': SvhnDataset,
-    'glue/cola': GlueDatasets['glue/cola'],
-    'glue/sst2': GlueDatasets['glue/sst2'],
-    'glue/mrpc': GlueDatasets['glue/mrpc'],
-    'glue/qqp': GlueDatasets['glue/qqp'],
-    'glue/qnli': GlueDatasets['glue/qnli'],
-    'glue/rte': GlueDatasets['glue/rte'],
-    'glue/wnli': GlueDatasets['glue/wnli'],
-    'glue/stsb': GlueDatasets['glue/stsb'],
-    'wikipedia_toxicity': WikipediaToxicityDataset,
-    'genomics_ood': GenomicsOodDataset,
-}
-
-
 def get_dataset_names() -> List[str]:
-  return list(_DATASETS.keys())
+  return [
+      'cifar100',
+      'cifar10',
+      'civil_comments',
+      'civil_comments_identities',
+      'clinic_intent',
+      'criteo',
+      'imagenet',
+      'mnist',
+      'mnli',
+      'places365',
+      'random_gaussian',
+      'random_rademacher',
+      'svhn',
+      'glue/cola',
+      'glue/sst2',
+      'glue/mrpc',
+      'glue/qqp',
+      'glue/qnli',
+      'glue/rte',
+      'glue/wnli',
+      'glue/stsb',
+      'wikipedia_toxicity',
+      'genomics_ood',
+  ]
 
 
 def get(
     dataset_name: str,
     batch_size: int,
     eval_batch_size: int,
-    data_dir: Optional[str] = None,
     **hyperparameters: Dict[str, Any]) -> BaseDataset:
   """Gets a dataset builder by name.
 
@@ -82,8 +78,6 @@ def get(
     dataset_name: Name of the dataset builder class.
     batch_size: the training batch size.
     eval_batch_size: the validation/test batch size.
-    data_dir: optional dir to save TFDS data to. If none then the local
-      filesystem is used. Required for using TPUs on Cloud.
     **hyperparameters: dict of possible kwargs to be passed to the dataset
       constructor.
 
@@ -99,12 +93,42 @@ def get(
       'Building dataset %s with additional kwargs:\n%s',
       dataset_name,
       json.dumps(hyperparameters, indent=2, sort_keys=True))
-  if dataset_name not in _DATASETS:
+  if dataset_name == 'cifar100':
+    dataset_class = Cifar100Dataset
+  elif dataset_name == 'cifar10':
+    dataset_class = Cifar10Dataset
+  elif dataset_name == 'civil_comments':
+    dataset_class = CivilCommentsDataset
+  elif dataset_name == 'civil_comments_identities':
+    dataset_class = CivilCommentsIdentitiesDataset
+  elif dataset_name == 'clinic_intent':
+    dataset_class = ClincIntentDetectionDataset
+  elif dataset_name == 'criteo':
+    dataset_class = CriteoDataset
+  elif dataset_name == 'imagenet':
+    dataset_class = ImageNetDataset
+  elif dataset_name == 'mnist':
+    dataset_class = MnistDataset
+  elif dataset_name == 'mnli':
+    dataset_class = MnliDataset
+  elif dataset_name == 'places365':
+    dataset_class = Places365Dataset
+  elif dataset_name == 'random_gaussian':
+    dataset_class = RandomGaussianImageDataset
+  elif dataset_name == 'random_rademacher':
+    dataset_class = RandomRademacherImageDataset
+  elif dataset_name == 'svhn':
+    dataset_class = SvhnDataset
+  elif 'glue/' in dataset_name:
+    dataset_class = GlueDatasets[dataset_name]
+  elif dataset_name == 'wikipedia_toxicity':
+    dataset_class = WikipediaToxicityDataset
+  elif dataset_name == 'genomics_ood':
+    dataset_class = GenomicsOodDataset
+  else:
     raise ValueError('Unrecognized dataset name: {!r}'.format(dataset_name))
 
-  dataset_class = _DATASETS[dataset_name]
   return dataset_class(
       batch_size=batch_size,
       eval_batch_size=eval_batch_size,
-      data_dir=data_dir,
       **hyperparameters)

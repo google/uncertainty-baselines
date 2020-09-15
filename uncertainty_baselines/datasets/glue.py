@@ -111,20 +111,17 @@ class _GLUEDataset(base.BaseDataset):
       return tfds.load(
           self.name,
           split='test',
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     elif split == base.Split.TRAIN:
       return tfds.load(
           self.name,
           split='train',
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     else:
       return tfds.load(
           self.name,
           split='validation',
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""

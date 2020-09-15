@@ -94,6 +94,10 @@ class BaseDataset(object):
 
     self._num_parallel_parser_calls = num_parallel_parser_calls
     self._data_dir = data_dir
+    self._tfds_kwargs = {}
+    if self._data_dir and self._data_dir.startswith('gs://'):
+      self._tfds_kwargs['try_gcs'] = True
+      self._tfds_kwargs['data_dir'] = self._data_dir
 
   def _is_training(self, split: Split) -> bool:
     return split == Split.TRAIN

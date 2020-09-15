@@ -66,22 +66,19 @@ class SvhnDataset(base.BaseDataset):
       return tfds.load(
           'svhn_cropped',
           split=train_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     elif split == base.Split.VAL:
       val_split = tfds.core.ReadInstruction(
           'train', from_=-self._num_validation_examples, unit='abs')
       return tfds.load(
           'svhn_cropped',
           split=val_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     elif split == base.Split.TEST:
       return tfds.load(
           'svhn_cropped',
           split='test',
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     else:
       raise ValueError(
           'Invalid dataset split in _read_examples: {}'.format(split))

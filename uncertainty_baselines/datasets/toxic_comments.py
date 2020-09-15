@@ -165,29 +165,25 @@ class _JigsawToxicityDataset(base.BaseDataset):
       return tfds.load(
           self.name,
           split=train_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     elif split == base.Split.VAL:
       if self.validation_fraction == 0:
         return tfds.load(
             self.name,
             split='validation',
-            try_gcs=True,
-            data_dir=self._data_dir)
+            **self._tfds_kwargs)
       else:
         val_split = tfds.core.ReadInstruction(
             'train', from_=-self._num_validation_examples, unit='abs')
         return tfds.load(
             self.name,
             split=val_split,
-            try_gcs=True,
-            data_dir=self._data_dir)
+            **self._tfds_kwargs)
     else:
       return tfds.load(
           self.name,
           split='test',
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""

@@ -75,8 +75,7 @@ class _CifarDataset(base.BaseDataset):
       return tfds.load(
           self.name + ':3.*.*',
           split='test',
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
 
     if split == base.Split.TRAIN:
       if self._num_validation_examples == 0:
@@ -87,8 +86,7 @@ class _CifarDataset(base.BaseDataset):
       return tfds.load(
           self.name + ':3.*.*',
           split=train_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     if split == base.Split.VAL:
       if self._num_validation_examples == 0:
         raise ValueError(
@@ -99,8 +97,7 @@ class _CifarDataset(base.BaseDataset):
       return tfds.load(
           self.name + ':3.*.*',
           split=val_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
 

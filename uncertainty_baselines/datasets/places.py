@@ -75,8 +75,7 @@ class Places365Dataset(base.BaseDataset):
       return tfds.load(
           'places365_small',
           split=train_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     elif split == base.Split.VAL:
       if self._num_validation_examples == 0:
         raise ValueError(
@@ -87,14 +86,12 @@ class Places365Dataset(base.BaseDataset):
       return tfds.load(
           'places365_small',
           split=val_split,
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
     elif split == base.Split.TEST:
       return tfds.load(
           'places365_small',
           split='validation',
-          try_gcs=True,
-          data_dir=self._data_dir)
+          **self._tfds_kwargs)
 
   def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
     """Create a pre-process function to return images in [0, 1]."""

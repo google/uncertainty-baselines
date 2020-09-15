@@ -312,7 +312,10 @@ def main(argv):
       labels = tf.tile(labels, [FLAGS.ensemble_size])
 
       with tf.GradientTape() as tape:
-        logits, _ = model(images, training=True)
+        logits = model(images, training=True)
+        if isinstance(logits, tuple):
+          # If model returns a tuple of (logits, covmat), extract logits
+          logits, _ = logits
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         negative_log_likelihood = tf.reduce_mean(
@@ -360,7 +363,12 @@ def main(argv):
       stddev_list = []
 
       for i in range(FLAGS.ensemble_size):
-        logits, covmat = model(images, training=False)
+        logits = model(images, training=False)
+        if isinstance(logits, tuple):
+          # If model returns a tuple of (logits, covmat), extract both
+          logits, covmat = logits
+        else:
+          covmat = tf.eye(FLAGS.per_core_batch_size)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         logits = mean_field_logits(

@@ -238,9 +238,9 @@ def wide_resnet_sngp_be(input_shape,
           kernel_initializer='random_normal',
           use_bias=False,
           trainable=False)(x)
-    logits, covmat = GaussianProcess(num_classes)(x)
+    outputs = GaussianProcess(num_classes)(x)
   else:
-    logits = ed.layers.DenseBatchEnsemble(
+    outputs = ed.layers.DenseBatchEnsemble(
         num_classes,
         alpha_initializer=make_sign_initializer(random_sign_init),
         gamma_initializer=make_sign_initializer(random_sign_init),
@@ -248,6 +248,5 @@ def wide_resnet_sngp_be(input_shape,
         kernel_regularizer=tf.keras.regularizers.l2(l2),
         bias_regularizer=tf.keras.regularizers.l2(l2),
         ensemble_size=ensemble_size)(x)
-    covmat = tf.eye(batch_size)
 
-  return tf.keras.Model(inputs=inputs, outputs=[logits, covmat])
+  return tf.keras.Model(inputs=inputs, outputs=outputs)

@@ -348,7 +348,10 @@ def main(argv):
         labels = tf.tile(labels, [FLAGS.num_dropout_samples_training])
 
       with tf.GradientTape() as tape:
-        logits, _ = model(images, training=True)
+        logits = model(images, training=True)
+        if isinstance(logits, tuple):
+          # If model returns a tuple of (logits, covmat), extract logits
+          logits, _ = logits
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         if FLAGS.mixup_alpha > 0:
@@ -391,7 +394,12 @@ def main(argv):
       logits_list = []
       stddev_list = []
       for _ in range(FLAGS.num_dropout_samples):
-        logits, covmat = model(images, training=False)
+        logits = model(images, training=False)
+        if isinstance(logits, tuple):
+          # If model returns a tuple of (logits, covmat), extract both
+          logits, covmat = logits
+        else:
+          covmat = tf.eye(FLAGS.per_core_batch_size)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         logits = ed.layers.utils.mean_field_logits(

@@ -192,7 +192,12 @@ def main(argv):
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval):
           features, _ = next(test_iterator)  # pytype: disable=attribute-error
-          logits_member, covmat_member = model(features, training=False)
+          logits_member = model(features, training=False)
+          if isinstance(logits_member, tuple):
+            # If model returns a tuple of (logits, covmat), extract both
+            logits_member, covmat_member = logits_member
+          else:
+            covmat_member = tf.eye(FLAGS.per_core_batch_size)
           logits_member = ed.layers.utils.mean_field_logits(
               logits_member, covmat_member, FLAGS.gp_mean_field_factor_ensemble)
           logits.append(logits_member)

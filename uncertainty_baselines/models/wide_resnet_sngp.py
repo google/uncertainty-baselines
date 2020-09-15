@@ -233,13 +233,13 @@ def wide_resnet_sngp(input_shape,
           kernel_initializer='random_normal',
           use_bias=False,
           trainable=False)(x)
-    logits, covmat = GaussianProcess(num_classes)(x)
+    outputs = GaussianProcess(num_classes)(x)
   else:
-    logits = tf.keras.layers.Dense(
+    outputs = tf.keras.layers.Dense(
         num_classes,
         kernel_initializer='he_normal',
         kernel_regularizer=tf.keras.regularizers.l2(l2),
         bias_regularizer=tf.keras.regularizers.l2(l2))(x)
-    covmat = tf.eye(batch_size)
+    # covmat = tf.ones_like(logits)
 
-  return tf.keras.Model(inputs=inputs, outputs=[logits, covmat])
+  return tf.keras.Model(inputs=inputs, outputs=outputs)

@@ -66,8 +66,17 @@ def main(argv):
       eval_batch_size=FLAGS.per_core_batch_size,
       data_dir=FLAGS.data_dir,
       data_mode='ood')
+  all_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
+      batch_size=FLAGS.per_core_batch_size,
+      eval_batch_size=FLAGS.per_core_batch_size,
+      data_dir=FLAGS.data_dir,
+      data_mode='all')
 
-  dataset_builders = {'clean': ind_dataset_builder, 'ood': ood_dataset_builder}
+  dataset_builders = {
+      'clean': ind_dataset_builder,
+      'ood': ood_dataset_builder,
+      'all': all_dataset_builder
+  }
 
   ds_info = ind_dataset_builder.info
   feature_size = ds_info['feature_size']
@@ -165,6 +174,12 @@ def main(argv):
               um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
       })
 
+  # Finally, define OOD metrics for the combined IND and OOD dataset.
+  metrics.update({
+      'test/auroc_all': tf.keras.metrics.AUC(curve='ROC'),
+      'test/auprc_all': tf.keras.metrics.AUC(curve='PR')
+  })
+
   # Evaluate model predictions.
   for n, (name, test_dataset) in enumerate(test_datasets.items()):
     logits_dataset = []
@@ -198,6 +213,14 @@ def main(argv):
         metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
         metrics['test/ece_{}'.format(name)].update_state(labels, probs)
+
+      if dataset_name == 'all':
+        ood_labels = tf.cast(labels == 150, labels.dtype)
+        ood_probs = 1. - tf.reduce_max(probs, axis=-1)
+        metrics['test/auroc_{}'.format(dataset_name)].update_state(
+            ood_labels, ood_probs)
+        metrics['test/auprc_{}'.format(dataset_name)].update_state(
+            ood_labels, ood_probs)
 
     message = ('{:.1%} completion for evaluation: dataset {:d}/{:d}'.format(
         (n + 1) / num_datasets, n + 1, num_datasets))

@@ -72,9 +72,8 @@ def create_optimizer(
 
 
 def create_model(
-    num_classes: int, max_seq_length: int, initializer_range: float,
-    hidden_dropout_prob: float,
-    **bert_kwargs: Dict[str, Any]) -> Tuple[tf.keras.Model, tf.keras.Model]:
+    num_classes: int, max_seq_length: int,
+    bert_config: configs.BertConfig) -> Tuple[tf.keras.Model, tf.keras.Model]:
   """BERT classifier model in functional API style.
 
   Construct a Keras model for predicting `num_labels` outputs from an input with
@@ -83,36 +82,25 @@ def create_model(
   Args:
     num_classes: (int) the number of classes.
     max_seq_length: (int) the maximum input sequence length.
-    initializer_range: (float) The stdev of the truncated_normal_initializer for
-      initializing all weight matrices.
-    hidden_dropout_prob: (float) The dropout probability for all fully connected
-      layers in the embeddings, encoder, and pooler.
-    **bert_kwargs: Additional arguements to the BertConfig.
+    bert_config: (BertConfig) Configuration for a BERT model.
 
   Returns:
     Combined prediction model (words, mask, type) -> (one-hot labels)
     BERT sub-model (words, mask, type) -> (bert_outputs)
   """
+  # Defines initializer and encoder.
   final_layer_initializer = tf.keras.initializers.TruncatedNormal(
-      stddev=initializer_range)
-  bert_config = configs.BertConfig(
-      initializer_range=initializer_range,
-      hidden_dropout_prob=hidden_dropout_prob,
-      **bert_kwargs)
-
+      stddev=bert_config.initializer_range)
   bert_encoder = bert_models.get_transformer_encoder(
       bert_config, max_seq_length, output_range=1)
 
-  # initializer
-  final_layer_initializer = tf.keras.initializers.TruncatedNormal(
-      stddev=initializer_range)
-
-  # build model
+  # Build model.
   inputs = bert_encoder.inputs
   _, cls_output = bert_encoder(inputs)
-  cls_output = tf.keras.layers.Dropout(rate=hidden_dropout_prob)(cls_output)
+  cls_output = tf.keras.layers.Dropout(rate=bert_config.hidden_dropout_prob)(
+      cls_output)
 
-  # build output
+  # Build output.
   outputs = tf.keras.layers.Dense(
       num_classes,
       activation=None,
@@ -120,7 +108,7 @@ def create_model(
       name='predictions/transform/logits')(
           cls_output)
 
-  # construct model
+  # Construct model.
   bert_classifier = tf.keras.Model(inputs=inputs, outputs=outputs)
 
   return bert_classifier, bert_encoder

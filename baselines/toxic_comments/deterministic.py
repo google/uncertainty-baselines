@@ -27,8 +27,9 @@ from absl import flags
 from absl import logging
 import numpy as np
 import tensorflow as tf
+import uncertainty_baselines as ub
+
 import bert_utils  # local file import
-import deterministic_model_bert as bert_model  # local file import
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
@@ -108,6 +109,7 @@ flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
 
 FLAGS = flags.FLAGS
 
+
 _MAX_SEQ_LENGTH = 512
 _IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
                     'heterosexual', 'homosexual_gay_or_lesbian', 'bisexual',
@@ -180,22 +182,22 @@ def main(argv):
   train_dataset_builder = ds.WikipediaToxicityDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
-      bert_dataset_dir=FLAGS.in_dataset_dir,
+      data_dir=FLAGS.in_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ind_dataset_builder = ds.WikipediaToxicityDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
-      bert_dataset_dir=FLAGS.in_dataset_dir,
+      data_dir=FLAGS.in_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_dataset_builder = ds.CivilCommentsDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
-      bert_dataset_dir=FLAGS.ood_dataset_dir,
+      data_dir=FLAGS.ood_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
-      bert_dataset_dir=FLAGS.identity_dataset_dir,
+      data_dir=FLAGS.identity_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
 
   dataset_builders = {
@@ -232,9 +234,9 @@ def main(argv):
     bert_config_dir, bert_ckpt_dir = resolve_bert_ckpt_and_config_dir(
         FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
     bert_config = bert_utils.create_config(bert_config_dir)
-    model, bert_encoder = bert_model.create_model(
+    model, bert_encoder = ub.models.BertBuilder(
         num_classes=num_classes,
-        feature_size=feature_size,
+        max_seq_length=feature_size,
         bert_config=bert_config)
 
     optimizer = bert_utils.create_optimizer(

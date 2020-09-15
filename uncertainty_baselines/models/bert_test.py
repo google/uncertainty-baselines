@@ -44,10 +44,10 @@ class BERTTest(tf.test.TestCase):
         attention_probs_dropout_prob=0.1,
         max_position_embeddings=512,
         type_vocab_size=16,
-        initializer_range=0.02).to_dict()
+        initializer_range=0.02)
 
-    _, bert_encoder = ub.models.BERTBuilder(num_classes, max_seq_length,
-                                            **bert_config_dict)
+    _, bert_encoder = ub.models.BertBuilder(num_classes, max_seq_length,
+                                            bert_config_dict)
     self.assertLen(bert_encoder.layers, 24)
 
 

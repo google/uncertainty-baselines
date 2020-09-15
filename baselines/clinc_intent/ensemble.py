@@ -32,7 +32,6 @@ import uncertainty_baselines as ub
 import bert_utils  # local file import
 # import clinc_intent.deterministic to inhere its flags
 import deterministic  # pylint:disable=unused-import  # local file import
-import deterministic_model_bert as bert_model  # local file import
 import deterministic_model_textcnn as cnn_model  # local file import
 import uncertainty_metrics as um
 
@@ -60,12 +59,12 @@ def main(argv):
   ind_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ind')
   ood_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       batch_size=FLAGS.per_core_batch_size,
       eval_batch_size=FLAGS.per_core_batch_size,
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ood')
 
   dataset_builders = {'clean': ind_dataset_builder, 'ood': ood_dataset_builder}
@@ -101,9 +100,9 @@ def main(argv):
     bert_config_dir, _ = deterministic.resolve_bert_ckpt_and_config_dir(
         FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
     bert_config = bert_utils.create_config(bert_config_dir)
-    model, _ = bert_model.create_model(num_classes=num_classes,
-                                       feature_size=feature_size,
-                                       bert_config=bert_config)
+    model, _ = ub.models.BertBuilder(num_classes=num_classes,
+                                     max_seq_length=feature_size,
+                                     bert_config=bert_config)
   else:
     raise ValueError('model_family ({}) can only be TextCNN or BERT.'.format(
         FLAGS.model_family))

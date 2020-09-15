@@ -46,6 +46,6 @@ from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_var
 # When adding a new model, also add to models.py for easier user access.
 
 try:
-  from uncertainty_baselines.models.bert import create_model as BERTBuilder  # pylint: disable=g-import-not-at-top
+  from uncertainty_baselines.models.bert import create_model as BertBuilder  # pylint: disable=g-import-not-at-top
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')

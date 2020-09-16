@@ -47,7 +47,10 @@ def define_flags() -> List[str]:
       'train_and_eval',
       ['train', 'eval', 'train_and_eval'],
       'Whether to execute train and/or eval.')
-  flags.DEFINE_bool('use_tpu', False, 'Whether to run on CPU or TPU.')
+  flags.DEFINE_integer(
+      'num_cores', None, 'How many TPU cores or GPUs the job is running on.')
+  flags.DEFINE_bool('use_cpu', False, 'Whether to run on CPU.')
+  flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or TPU.')
 
   # Flags relating to the training/eval loop.
   flags.DEFINE_integer(

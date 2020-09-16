@@ -90,12 +90,18 @@ class BrierScore(tf.keras.metrics.Mean):
     super(BrierScore, self).update_state(brier_score)
 
 
+def _hparams_flag_name_filter(name):
+  return (name in ['learning_rate', 'weight_decay'] or
+          name.startswith('optimizer_hparams_') or
+          name.startswith('schedule_hparams_'))
+
+
 def _get_hparams():
   """Get hyperparameter names and values to record in tensorboard."""
   hparams = {}
   possible_hparam_names = [
-      name for name in FLAGS if name.startswith('optimizer_hparams_')
-  ] + ['learning_rate', 'weight_decay']
+      name for name in FLAGS if _hparams_flag_name_filter(name)
+  ]
   for name in possible_hparam_names:
     if FLAGS[name].default != FLAGS[name].value:
       if name.startswith('optimizer_hparams_'):
@@ -124,7 +130,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         'log_frequency ({}) must evenly divide eval_frequency '
         '({}).'.format(FLAGS.log_frequency, FLAGS.eval_frequency))
 
-  strategy = ub.strategy_utils.get_strategy(FLAGS.tpu, FLAGS.use_tpu)
+  strategy = ub.strategy_utils.get_strategy(
+      FLAGS.tpu, use_tpu=not FLAGS.use_cpu and not FLAGS.use_gpu)
   with strategy.scope():
     _maybe_setup_trial_dir(strategy, trial_dir, flag_string, FLAGS.mode)
 

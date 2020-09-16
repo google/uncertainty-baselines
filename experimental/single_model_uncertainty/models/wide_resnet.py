@@ -218,7 +218,7 @@ def wide_resnet(
   if gp_layer_hparams:
     # add random projection layer to reduce dimension
     gp_output_layer = functools.partial(
-        ed.layers.utils.RandomFeatureGaussianProcess,
+        ed.layers.RandomFeatureGaussianProcess,
         num_inducing=gp_layer_hparams['gp_hidden_dim'],
         gp_kernel_scale=gp_layer_hparams['gp_scale'],
         gp_output_bias=gp_layer_hparams['gp_bias'],

@@ -122,7 +122,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         'log_frequency ({}) must evenly divide eval_frequency '
         '({}).'.format(FLAGS.log_frequency, FLAGS.eval_frequency))
 
-  strategy = ub.strategy_utils.get_strategy(FLAGS.tpu, FLAGS.use_tpu)
+  strategy = ub.strategy_utils.get_strategy(
+      FLAGS.tpu, use_tpu=not FLAGS.use_cpu and not FLAGS.use_gpu)
   with strategy.scope():
     _maybe_setup_trial_dir(strategy, trial_dir, flag_string)
 

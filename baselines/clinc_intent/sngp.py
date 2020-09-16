@@ -42,7 +42,6 @@ import tensorflow as tf
 
 import uncertainty_baselines as ub
 import bert_utils  # local file import
-import sngp_model as bert_model  # local file import
 import uncertainty_metrics as um
 
 # Data flags
@@ -260,7 +259,7 @@ def main(argv):
         iteration=FLAGS.spec_norm_iteration,
         norm_multiplier=FLAGS.spec_norm_bound)
 
-    model, bert_encoder = bert_model.create_model(
+    model, bert_encoder = ub.models.SngpBertBuilder(
         num_classes=num_classes,
         bert_config=bert_config,
         gp_layer_kwargs=gp_layer_kwargs,
@@ -305,7 +304,7 @@ def main(argv):
       bert_encoder, _, _ = bert_utils.load_bert_weight_from_ckpt(
           bert_model=bert_encoder,
           bert_ckpt_dir=bert_ckpt_dir,
-          repl_patterns=bert_model.CHECKPOINT_REPL_PATTERNS)
+          repl_patterns=ub.models.bert_sngp.CHECKPOINT_REPL_PATTERNS)
       logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
 
   # Finally, define test metrics outside the accelerator scope for CPU eval.

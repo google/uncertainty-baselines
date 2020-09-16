@@ -14,18 +14,19 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Tests for sngp_model."""
+"""Tests for bert_sngp."""
 from absl.testing import parameterized
 
 import numpy as np
 import tensorflow as tf
+import uncertainty_baselines as ub
 
-import sngp_model  # local file import
+from uncertainty_baselines.models import bert_sngp
 from official.nlp.bert import configs as bert_configs
 
-SNFeedforward = sngp_model.SpectralNormalizedFeedforwardLayer
-SNAttention = sngp_model.SpectralNormalizedMultiHeadAttention
-SNTransformer = sngp_model.SpectralNormalizedTransformer
+SNFeedforward = bert_sngp.SpectralNormalizedFeedforwardLayer
+SNAttention = bert_sngp.SpectralNormalizedMultiHeadAttention
+SNTransformer = bert_sngp.SpectralNormalizedTransformer
 
 
 def _compute_spectral_norm(weight):
@@ -97,7 +98,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     # multiplication op (along hidden dimension b) in eisum notation.
     einsum_equation = 'abc,cd->abd'
 
-    eisum_layer_class = sngp_model.make_spec_norm_dense_layer(
+    eisum_layer_class = bert_sngp.make_spec_norm_dense_layer(
         **self.spec_norm_kwargs)
     dense_layer = eisum_layer_class(
         output_shape=(self.seq_length, 10),
@@ -184,7 +185,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     input_tensors = [input_ids, input_ids, input_ids]
 
     transformer_encoder = (
-        sngp_model.get_spectral_normalized_transformer_encoder(
+        bert_sngp.get_spectral_normalized_transformer_encoder(
             bert_config=self.bert_test_config,
             spec_norm_kwargs=self.spec_norm_kwargs,
             use_layer_norm_att=True,
@@ -212,7 +213,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     network = tf.keras.Model(inputs=inputs, outputs=[outputs, outputs])
 
     # Compiles classifier model.
-    model = sngp_model.BertGaussianProcessClassifier(
+    model = bert_sngp.BertGaussianProcessClassifier(
         network,
         num_classes=self.num_classes,
         dropout_rate=0.1,
@@ -240,7 +241,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     spec_norm_kwargs = dict(iteration=1,
                             norm_multiplier=self.sn_norm_multiplier)
 
-    bert_model, bert_encoder = sngp_model.create_model(
+    bert_model, bert_encoder = ub.models.SngpBertBuilder(
         num_classes=10,
         bert_config=self.bert_test_config,
         gp_layer_kwargs=self.gp_layer_kwargs,
@@ -252,9 +253,9 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
         use_layer_norm_ffn=False)
 
     self.assertIsInstance(bert_model,
-                          sngp_model.BertGaussianProcessClassifier)
+                          bert_sngp.BertGaussianProcessClassifier)
     self.assertIsInstance(bert_encoder,
-                          sngp_model.SpectralNormalizedTransformerEncoder)
+                          bert_sngp.SpectralNormalizedTransformerEncoder)
 
 if __name__ == '__main__':
   tf.test.main()

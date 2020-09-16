@@ -48,5 +48,6 @@ from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_var
 try:
   from uncertainty_baselines.models.bert import create_model as BertBuilder  # pylint: disable=g-import-not-at-top
   from uncertainty_baselines.models.bert_dropout import create_model as DropoutBertBuilder  # pylint: disable=g-import-not-at-top
+  from uncertainty_baselines.models.bert_sngp import create_model as SngpBertBuilder  # pylint: disable=g-import-not-at-top
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')

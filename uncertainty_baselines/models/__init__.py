@@ -17,7 +17,6 @@
 
 import warnings
 
-from uncertainty_baselines.google.models.criteo_sngp import create_model as CriteoSngpBuilder
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
 from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get

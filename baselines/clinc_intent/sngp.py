@@ -15,8 +15,8 @@
 
 """Bidirectional encoder representations from transformers (BERT) with SNGP.
 
-Spectral-normalized neural GP (SNGP) [1] is a simple method to improve
-a deterministic neural network's uncertainty by applying spectral
+Spectral-normalized neural Gaussian process (SNGP) [1] is a simple method to
+improve a deterministic neural network's uncertainty. It simply applies spectral
 normalization to the hidden layers, and then replace the dense output layer
 with a Gaussian process layer.
 
@@ -121,7 +121,7 @@ flags.DEFINE_float(
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
 flags.DEFINE_integer(
-    'checkpoint_interval', -1,
+    'checkpoint_interval', 40,
     'Number of epochs between saving checkpoints. Use -1 to '
     'never save checkpoints.')
 flags.DEFINE_integer('evaluation_interval', 2,
@@ -298,9 +298,6 @@ def main(argv):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
     else:
       # load BERT from initial checkpoint
-      # bert_checkpoint = tf.train.Checkpoint(model=bert_encoder)
-      # bert_checkpoint.restore(
-      #     bert_ckpt_dir).assert_existing_objects_matched()
       bert_encoder, _, _ = bert_utils.load_bert_weight_from_ckpt(
           bert_model=bert_encoder,
           bert_ckpt_dir=bert_ckpt_dir,

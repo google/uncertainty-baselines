@@ -47,10 +47,22 @@ flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
 flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
+flags.DEFINE_integer('eval_interval', 1, 'Number of epochs between evaluation.')
+flags.DEFINE_integer('corruptions_interval', 90,
+                     'Number of epochs between evaluating on the corrupted '
+                     'test data. Use -1 to never evaluate.')
 flags.DEFINE_integer('checkpoint_interval', -1,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
+flags.DEFINE_string('alexnet_errors_path', None,
+                    'Path to AlexNet corruption errors file.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
+
+# Data Augmentation flags.
+flags.DEFINE_float('mixup_alpha', 0., 'Mixup regularization coefficient.')
+flags.DEFINE_bool('adaptive_mixup', False, 'Whether to adaptive mixup.')
+flags.DEFINE_integer('confidence_eval_iterations', 5,
+                     'Number of iterations to evaluate the reliablity diagram.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -92,11 +104,19 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.experimental.TPUStrategy(resolver)
 
+  mixup_params = {
+      'ensemble_size': 1,
+      'mixup_alpha': FLAGS.mixup_alpha,
+      'adaptive_mixup': FLAGS.adaptive_mixup,
+      'num_classes': NUM_CLASSES,
+  }
   imagenet_train = utils.ImageNetInput(
       is_training=True,
       data_dir=FLAGS.data_dir,
       batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+      one_hot=(FLAGS.mixup_alpha > 0),
+      use_bfloat16=FLAGS.use_bfloat16,
+      mixup_params=mixup_params)
   imagenet_eval = utils.ImageNetInput(
       is_training=False,
       data_dir=FLAGS.data_dir,
@@ -104,8 +124,34 @@ def main(argv):
       use_bfloat16=FLAGS.use_bfloat16)
   train_dataset = strategy.experimental_distribute_datasets_from_function(
       imagenet_train.input_fn)
-  test_dataset = strategy.experimental_distribute_datasets_from_function(
-      imagenet_eval.input_fn)
+  test_datasets = {
+      'clean':
+          strategy.experimental_distribute_datasets_from_function(
+              imagenet_eval.input_fn)
+  }
+  if FLAGS.adaptive_mixup:
+    imagenet_confidence_eval = utils.ImageNetInput(
+        is_training=True,
+        data_dir=FLAGS.data_dir,
+        batch_size=FLAGS.per_core_batch_size,
+        use_bfloat16=FLAGS.use_bfloat16,
+        validation=True)
+    imagenet_confidence_dataset = (
+        strategy.experimental_distribute_datasets_from_function(
+            imagenet_confidence_eval.input_fn))
+  if FLAGS.corruptions_interval > 0:
+    corruption_types, max_intensity = utils.load_corrupted_test_info()
+    for name in corruption_types:
+      for intensity in range(1, max_intensity + 1):
+        dataset_name = '{0}_{1}'.format(name, intensity)
+        corrupt_input_fn = utils.corrupt_test_input_fn(
+            batch_size=FLAGS.per_core_batch_size,
+            corruption_name=name,
+            corruption_intensity=intensity,
+            use_bfloat16=FLAGS.use_bfloat16)
+        test_datasets[dataset_name] = (
+            strategy.experimental_distribute_datasets_from_function(
+                corrupt_input_fn))
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -139,6 +185,17 @@ def main(argv):
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
+    if FLAGS.corruptions_interval > 0:
+      corrupt_metrics = {}
+      for intensity in range(1, max_intensity + 1):
+        for corruption in corruption_types:
+          dataset_name = '{0}_{1}'.format(corruption, intensity)
+          corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
+              tf.keras.metrics.Mean())
+          corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
+              tf.keras.metrics.SparseCategoricalAccuracy())
+          corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
     logging.info('Finished building Keras ResNet-50 model')
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -165,10 +222,16 @@ def main(argv):
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
-        negative_log_likelihood = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                            logits,
-                                                            from_logits=True))
+        if FLAGS.mixup_alpha > 0:
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.categorical_crossentropy(labels,
+                                                       logits,
+                                                       from_logits=True))
+        else:
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.sparse_categorical_crossentropy(labels,
+                                                              logits,
+                                                              from_logits=True))
         filtered_variables = []
         for var in model.trainable_variables:
           # Apply l2 on the weights. This excludes BN parameters and biases, but
@@ -186,6 +249,8 @@ def main(argv):
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
       probs = tf.nn.softmax(logits)
+      if FLAGS.mixup_alpha > 0:
+        labels = tf.argmax(labels, axis=-1)
       metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
@@ -195,14 +260,18 @@ def main(argv):
     strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator):
+  def test_step(iterator, dataset_name):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images, labels = inputs
 
       logits_list = []
-      for _ in range(FLAGS.num_dropout_samples):
+      if dataset_name == 'confidence_validation':
+        num_dropout_samples = 1
+      else:
+        num_dropout_samples = FLAGS.num_dropout_samples
+      for _ in range(num_dropout_samples):
         logits = model(images, training=False)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
@@ -213,20 +282,34 @@ def main(argv):
       probs_list = tf.nn.softmax(logits_list)
       probs = tf.reduce_mean(probs_list, axis=0)
       labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.num_dropout_samples, labels.shape[0]])
+          labels, [num_dropout_samples, labels.shape[0]])
 
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(
           -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
-          tf.math.log(float(FLAGS.num_dropout_samples)))
+          tf.math.log(float(num_dropout_samples)))
 
-      metrics['test/negative_log_likelihood'].update_state(
-          negative_log_likelihood)
-      metrics['test/accuracy'].update_state(labels, probs)
-      metrics['test/ece'].update_state(labels, probs)
+      if dataset_name == 'clean':
+        metrics['test/negative_log_likelihood'].update_state(
+            negative_log_likelihood)
+        metrics['test/accuracy'].update_state(labels, probs)
+        metrics['test/ece'].update_state(labels, probs)
+      elif dataset_name != 'confidence_validation':
+        corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
+            negative_log_likelihood)
+        corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
+            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
+            labels, probs)
 
-    strategy.run(step_fn, args=(next(iterator),))
+      if dataset_name == 'confidence_validation':
+        return tf.reshape(probs, [1, -1, NUM_CLASSES]), labels
+
+    if dataset_name == 'confidence_validation':
+      return strategy.run(step_fn, args=(next(iterator),))
+    else:
+      strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
@@ -253,14 +336,76 @@ def main(argv):
       if step % 20 == 0:
         logging.info(message)
 
-    test_iterator = iter(test_dataset)
-    for step in range(steps_per_eval):
-      if step % 20 == 0:
-        logging.info('Starting to run eval step %s of epoch: %s', step, epoch)
-      test_start_time = time.time()
-      test_step(test_iterator)
-      ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+    if FLAGS.adaptive_mixup:
+      confidence_set_iterator = iter(imagenet_confidence_dataset)
+      predictions_list = []
+      labels_list = []
+      for step in range(FLAGS.confidence_eval_iterations):
+        temp_predictions, temp_labels = test_step(
+            confidence_set_iterator, 'confidence_validation')
+        predictions_list.append(temp_predictions)
+        labels_list.append(temp_labels)
+      predictions = [tf.concat(list(predictions_list[i].values), axis=1)
+                     for i in range(len(predictions_list))]
+      labels = [tf.concat(list(labels_list[i].values), axis=0)
+                for i in range(len(labels_list))]
+      predictions = tf.concat(predictions, axis=1)
+      labels = tf.cast(tf.concat(labels, axis=0), tf.int64)
+
+      def compute_acc_conf(preds, label, focus_class):
+        class_preds = tf.boolean_mask(preds, label == focus_class, axis=1)
+        class_pred_labels = tf.argmax(class_preds, axis=-1)
+        confidence = tf.reduce_mean(tf.reduce_max(class_preds, axis=-1), -1)
+        accuracy = tf.reduce_mean(tf.cast(
+            class_pred_labels == focus_class, tf.float32), axis=-1)
+        return accuracy - confidence
+
+      calibration_per_class = [compute_acc_conf(
+          predictions, labels, i) for i in range(NUM_CLASSES)]
+      calibration_per_class = tf.stack(calibration_per_class, axis=1)
+      logging.info('calibration per class')
+      logging.info(calibration_per_class)
+      mixup_coeff = tf.where(calibration_per_class > 0, 1.0, FLAGS.mixup_alpha)
+      mixup_coeff = tf.clip_by_value(mixup_coeff, 0, 1)
+      logging.info('mixup coeff')
+      logging.info(mixup_coeff)
+      mixup_params['mixup_coeff'] = mixup_coeff
+      imagenet_train = utils.ImageNetInput(
+          is_training=True,
+          data_dir=FLAGS.data_dir,
+          batch_size=FLAGS.per_core_batch_size,
+          one_hot=(FLAGS.mixup_alpha > 0),
+          use_bfloat16=FLAGS.use_bfloat16,
+          mixup_params=mixup_params)
+      train_dataset = strategy.experimental_distribute_datasets_from_function(
+          imagenet_train.input_fn)
+      train_iterator = iter(train_dataset)
+
+    if (epoch + 1) % FLAGS.eval_interval == 0:
+      datasets_to_evaluate = {'clean': test_datasets['clean']}
+      if (FLAGS.corruptions_interval > 0 and
+          (epoch + 1) % FLAGS.corruptions_interval == 0):
+        datasets_to_evaluate = test_datasets
+      for dataset_name, test_dataset in datasets_to_evaluate.items():
+        test_iterator = iter(test_dataset)
+        logging.info('Testing on dataset %s', dataset_name)
+        for step in range(steps_per_eval):
+          if step % 20 == 0:
+            logging.info('Starting to run eval step %s of epoch: %s', step,
+                         epoch)
+          test_start_time = time.time()
+          test_step(test_iterator, dataset_name)
+          ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
+          metrics['test/ms_per_example'].update_state(ms_per_example)
+
+      logging.info('Done with testing on %s', dataset_name)
+
+      corrupt_results = {}
+      if (FLAGS.corruptions_interval > 0 and
+          (epoch + 1) % FLAGS.corruptions_interval == 0):
+        corrupt_results = utils.aggregate_corrupt_metrics(
+            corrupt_metrics, corruption_types, max_intensity,
+            FLAGS.alexnet_errors_path)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),
@@ -269,6 +414,7 @@ def main(argv):
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
+    total_results.update(corrupt_results)
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)

@@ -358,11 +358,13 @@ url = {https://www.kaggle.com/c/criteo-display-ad-challenge.},
 Contributors (past and present):
 
 * Dustin Tran
+* Florian Wenzel
 * Ghassen Jerfel
 * Jeremiah Liu
 * Jie Ren
 * Marton Havasi
 * Michael W. Dusenberry
+* Rodolphe Jenatton
 * Shreyas Padhy
 * Yeming Wen
 * Zachary Nado

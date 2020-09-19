@@ -201,7 +201,7 @@ def main(argv):
     logging.info('Building Keras ResNet-50 model')
     model = ub.models.resnet50_sngp(
         input_shape=(224, 224, 3),
-        batch_size=batch_size,
+        batch_size=None,
         num_classes=NUM_CLASSES,
         use_mc_dropout=FLAGS.use_mc_dropout,
         dropout_rate=FLAGS.dropout_rate,
@@ -445,12 +445,15 @@ def main(argv):
           FLAGS.output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
 
-  # TODO(jereliu): Convert to use SavedModel after fixing the graph-mode
-  # execution bug in SpectralNormalizationConv2D which blocks the model.save()
-  # functionality.
+  # Save final checkpoint.
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'))
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+
+  # Export final model as SavedModel.
+  final_save_name = os.path.join(FLAGS.output_dir, 'model')
+  model.save(final_save_name)
+  logging.info('Saved model to %s', final_save_name)
 
 if __name__ == '__main__':
   app.run(main)

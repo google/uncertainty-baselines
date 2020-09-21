@@ -25,7 +25,7 @@ setup(
     license='Apache 2.0',
     packages=find_packages(),
     install_requires=[
-        'absl-py>=0.5.0',
+        'absl-py==0.8.1',
         'numpy>=1.7',
         'tf-nightly',
         'tensorflow-datasets>=1.3.0',

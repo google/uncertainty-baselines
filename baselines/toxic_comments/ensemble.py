@@ -20,7 +20,9 @@ ensembles by launching independent runs of `deterministic.py` over different
 seeds.
 """
 
+import collections
 import os
+from typing import Mapping, Text
 
 from absl import app
 from absl import flags
@@ -28,7 +30,6 @@ from absl import logging
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
-
 import bert_utils  # local file import
 # import toxic_comments.deterministic to inherit its flags
 import deterministic  # pylint:disable=unused-import  # local file import
@@ -80,10 +81,16 @@ def main(argv):
       eval_batch_size=test_batch_size,
       data_dir=FLAGS.ood_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
+  ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
+      batch_size=batch_size,
+      eval_batch_size=test_batch_size,
+      data_dir=FLAGS.identity_dataset_dir,
+      shuffle_buffer_size=data_buffer_size)
 
   dataset_builders = {
       'ind': ind_dataset_builder,
       'ood': ood_dataset_builder,
+      'ood_identity': ood_identity_dataset_builder,
   }
 
   ds_info = ind_dataset_builder.info
@@ -131,14 +138,14 @@ def main(argv):
   # Write model predictions to files.
   num_datasets = len(test_datasets)
   for m, ensemble_filename in enumerate(ensemble_filenames):
-    checkpoint.restore(ensemble_filename)
-    for n, (name, test_dataset) in enumerate(test_datasets.items()):
-      filename = '{dataset}_{member}.npy'.format(dataset=name, member=m)
+    checkpoint.restore(ensemble_filename).assert_existing_objects_matched()
+    for n, (dataset_name, test_dataset) in enumerate(test_datasets.items()):
+      filename = '{dataset}_{member}.npy'.format(dataset=dataset_name, member=m)
       filename = os.path.join(FLAGS.output_dir, filename)
       if not tf.io.gfile.exists(filename):
         logits = []
         test_iterator = iter(test_dataset)
-        for step in range(steps_per_eval[name]):
+        for step in range(steps_per_eval[dataset_name]):
           try:
             inputs = next(test_iterator)
           except StopIteration:
@@ -190,22 +197,30 @@ def main(argv):
         })
 
   # Evaluate model predictions.
-  for n, (name, test_dataset) in enumerate(test_datasets.items()):
+  for n, (dataset_name, test_dataset) in enumerate(test_datasets.items()):
     logits_dataset = []
     for m in range(ensemble_size):
-      filename = '{dataset}_{member}.npy'.format(dataset=name, member=m)
+      filename = '{dataset}_{member}.npy'.format(dataset=dataset_name, member=m)
       filename = os.path.join(FLAGS.output_dir, filename)
       with tf.io.gfile.GFile(filename, 'rb') as f:
         logits_dataset.append(np.load(f))
 
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
-    for step in range(steps_per_eval[name]):
+    texts_list = []
+    logits_list = []
+    labels_list = []
+    # Use dict to collect additional labels specified by additional label names.
+    # Here we use  `OrderedDict` to get consistent ordering for this dict so
+    # we can retrieve the predictions for each identity labels in Colab.
+    additional_labels_dict = collections.OrderedDict()
+    for step in range(steps_per_eval[dataset_name]):
       try:
-        inputs = next(test_iterator)
+        inputs = next(test_iterator)  # type: Mapping[Text, tf.Tensor]
       except StopIteration:
         continue
-      features, labels, _ = deterministic.create_feature_and_label(inputs)
+      features, labels, additional_labels = (
+          deterministic.create_feature_and_label(inputs))
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
       loss_logits = tf.squeeze(logits, axis=-1)
       negative_log_likelihood = um.ensemble_cross_entropy(
@@ -218,7 +233,17 @@ def main(argv):
       ece_probs = tf.concat([1. - probs, probs], axis=1)
       auc_probs = tf.squeeze(probs, axis=1)
 
-      if name == 'ind':
+      texts_list.append(inputs['input_ids'])
+      logits_list.append(logits)
+      labels_list.append(labels)
+      if 'identity' in dataset_name:
+        for identity_label_name in deterministic._IDENTITY_LABELS:  # pylint: disable=protected-access
+          if identity_label_name not in additional_labels_dict:
+            additional_labels_dict[identity_label_name] = []
+          additional_labels_dict[identity_label_name].append(
+              additional_labels[identity_label_name].numpy())
+
+      if dataset_name == 'ind':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/auroc'].update_state(labels, auc_probs)
@@ -242,6 +267,28 @@ def main(argv):
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}_{}'.format(
               fraction, dataset_name)].update_state(ece_labels, ece_probs)
+
+    texts_all = tf.concat(texts_list, axis=0)
+    logits_all = tf.concat(logits_list, axis=1)
+    labels_all = tf.concat(labels_list, axis=0)
+    additional_labels_all = []
+    if additional_labels_dict:
+      additional_labels_all = list(additional_labels_dict.values())
+
+    deterministic.save_prediction(
+        texts_all.numpy(),
+        path=os.path.join(FLAGS.output_dir, 'texts_{}'.format(dataset_name)))
+    deterministic.save_prediction(
+        labels_all.numpy(),
+        path=os.path.join(FLAGS.output_dir, 'labels_{}'.format(dataset_name)))
+    deterministic.save_prediction(
+        logits_all.numpy(),
+        path=os.path.join(FLAGS.output_dir, 'logits_{}'.format(dataset_name)))
+    if 'identity' in dataset_name:
+      deterministic.save_prediction(
+          np.array(additional_labels_all),
+          path=os.path.join(FLAGS.output_dir,
+                            'additional_labels_{}'.format(dataset_name)))
 
     message = ('{:.1%} completion for evaluation: dataset {:d}/{:d}'.format(
         (n + 1) / num_datasets, n + 1, num_datasets))

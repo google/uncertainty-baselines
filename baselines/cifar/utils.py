@@ -159,7 +159,8 @@ def load_input_fn(split,
                   normalize=True,
                   drop_remainder=True,
                   repeat=False,
-                  proportion=1.0):
+                  proportion=1.0,
+                  data_dir=None):
   """Loads CIFAR dataset for training or testing.
 
   Args:
@@ -171,6 +172,8 @@ def load_input_fn(split,
     drop_remainder: bool.
     repeat: bool.
     proportion: float, the proportion of dataset to be used.
+    data_dir: Directory where the dataset is stored to be loaded via tfds.load.
+      Optional, useful for loading datasets stored on GCS.
 
   Returns:
     Input function which returns a locally-sharded dataset batch.
@@ -202,7 +205,8 @@ def load_input_fn(split,
   def input_fn(ctx=None):
     """Returns a locally sharded (i.e., per-core) dataset batch."""
     if proportion == 1.0:
-      dataset = tfds.load(name, split=split, as_supervised=True)
+      dataset = tfds.load(
+          name, split=split, data_dir=data_dir, as_supervised=True)
     else:
       new_name = '{}:3.*.*'.format(name)
       if split == tfds.Split.TRAIN:

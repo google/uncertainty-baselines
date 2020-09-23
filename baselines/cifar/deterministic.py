@@ -60,7 +60,16 @@ flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
+flags.DEFINE_string(
+    'data_dir',
+    None,
+    'Directory where the dataset is stored to be loaded via tfds.load. '
+    'Optional, useful for loading datasets stored on GCS.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
+flags.DEFINE_bool(
+    'common_output_dir',
+    False,
+    'Whether the output directory has the work unit id appended to it or not.')
 flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
 
 # Accelerator flags.
@@ -93,12 +102,14 @@ def main(argv):
       split=tfds.Split.TRAIN,
       name=FLAGS.dataset,
       batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=FLAGS.data_dir)
   clean_test_input_fn = utils.load_input_fn(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
       batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=FLAGS.data_dir)
   train_dataset = strategy.experimental_distribute_datasets_from_function(
       train_input_fn)
   test_datasets = {

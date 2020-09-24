@@ -34,12 +34,12 @@ class OodSplit(enum.Enum):
   IN = 'in'
   OOD = 'ood'
 
+
 # For datasets like UCI, the tf.data.Dataset returned by _read_examples will
 # have elements that are Sequence[tf.Tensor], but for TFDS datasets they will be
 # Dict[str, tf.Tensor].
-PreProcessFn = Callable[
-    [Union[int, Sequence[tf.Tensor], Dict[str, tf.Tensor]]],
-    Dict[str, tf.Tensor]]
+PreProcessFn = Callable[[Union[int, Sequence[tf.Tensor], Dict[str, tf.Tensor]]],
+                        Dict[str, tf.Tensor]]
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -49,17 +49,16 @@ class BaseDataset(object):
   Requires subclasses to override _read_examples, _create_process_example_fn.
   """
 
-  def __init__(
-      self,
-      name: str,
-      batch_size: int,
-      eval_batch_size: int,
-      num_train_examples: int,
-      num_validation_examples: int,
-      num_test_examples: int,
-      shuffle_buffer_size: int = None,
-      num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None):
+  def __init__(self,
+               name: str,
+               batch_size: int,
+               eval_batch_size: int,
+               num_train_examples: int,
+               num_validation_examples: int,
+               num_test_examples: int,
+               shuffle_buffer_size: int = None,
+               num_parallel_parser_calls: int = 64,
+               data_dir: Optional[str] = None):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -95,9 +94,10 @@ class BaseDataset(object):
     self._num_parallel_parser_calls = num_parallel_parser_calls
     self._data_dir = data_dir
     self._tfds_kwargs = {}
-    if self._data_dir and self._data_dir.startswith('gs://'):
-      self._tfds_kwargs['try_gcs'] = True
+    if self._data_dir:
       self._tfds_kwargs['data_dir'] = self._data_dir
+      if self._data_dir.startswith('gs://'):
+        self._tfds_kwargs['try_gcs'] = True
 
   def _is_training(self, split: Split) -> bool:
     return split == Split.TRAIN
@@ -150,8 +150,7 @@ class BaseDataset(object):
         logging.warn(
             'Batch size does not evenly divide the number of validation '
             'examples , cannot ensure static shapes on TPU. Batch size: %d, '
-            'validation examples: %d',
-            batch_size,
+            'validation examples: %d', batch_size,
             self._num_validation_examples)
     else:
       batch_size = self.eval_batch_size
@@ -210,13 +209,12 @@ class BaseDataset(object):
     else:
       process_example_fn = self._create_process_example_fn(split)
     if process_example_fn:
-      dataset = dataset.map(
-          process_example_fn,
-          num_parallel_calls=self._num_parallel_parser_calls)
+      dataset = dataset.map(process_example_fn,
+                            num_parallel_calls=self._num_parallel_parser_calls)
     # pylint: disable=g-long-lambda
     if as_tuple and ood_split:
-      dataset = dataset.map(lambda d: (d['features'], d['labels'],
-                                       d['is_in_distribution']))
+      dataset = dataset.map(
+          lambda d: (d['features'], d['labels'], d['is_in_distribution']))
     # pylint: enable=line-too-long
     elif as_tuple and not ood_split:
       dataset = dataset.map(lambda d: (d['features'], d['labels']))

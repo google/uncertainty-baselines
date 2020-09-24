@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Uncertainty baseline training datasets."""
 
 from uncertainty_baselines.datasets import inception_preprocessing
@@ -21,6 +20,7 @@ from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
+from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
 from uncertainty_baselines.datasets.datasets import get
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import ColaDataset
@@ -41,4 +41,3 @@ from uncertainty_baselines.datasets.test_utils import DatasetTest
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
-

@@ -18,7 +18,7 @@
 
 import abc
 import enum
-from typing import Callable, Dict, Optional, Sequence, Union
+from typing import Callable, Dict, Optional, Sequence, Union, List
 from absl import logging
 import six
 import tensorflow.compat.v2 as tf
@@ -28,6 +28,7 @@ class Split(enum.Enum):
   TRAIN = 'train'
   VAL = 'validation'
   TEST = 'test'
+  TEMPORAL = 'temporal'
 
 
 class OodSplit(enum.Enum):
@@ -117,7 +118,9 @@ class BaseDataset(object):
   def _num_test_examples(self) -> int:
     return self.info['num_test_examples']
 
-  def _read_examples(self, split: Split) -> tf.data.Dataset:
+  def _read_examples(self,
+                     split: Split,
+                     time_slice: Optional[List[int]] = None) -> tf.data.Dataset:
     """Return a tf.data.Dataset to be used by _create_process_example_fn."""
     raise NotImplementedError('Must override dataset _read_examples!')
 
@@ -149,17 +152,16 @@ class BaseDataset(object):
       batch_size = self.eval_batch_size
       if (self._num_validation_examples % batch_size != 0 and
           self.name not in uneven_datasets):
-        logging.warn(
+        logging.warning(
             'Batch size does not evenly divide the number of validation '
             'examples , cannot ensure static shapes on TPU. Batch size: %d, '
-            'validation examples: %d',
-            batch_size,
+            'validation examples: %d', batch_size,
             self._num_validation_examples)
     else:
       batch_size = self.eval_batch_size
       if (self._num_test_examples % batch_size != 0 and
           self.name not in uneven_datasets):
-        logging.warn(
+        logging.warning(
             'Batch size does not evenly divide the number of test examples, '
             'cannot ensure static shapes on TPU. Batch size: %d, test '
             'examples: %d', batch_size, self._num_test_examples)
@@ -167,12 +169,12 @@ class BaseDataset(object):
     # evenly divide the number of examples.
     return dataset.batch(batch_size, drop_remainder=drop_remainder)
 
-  def build(
-      self,
-      split: Union[str, Split],
-      as_tuple: bool = False,
-      drop_remainder: bool = True,
-      ood_split: Optional[Union[str, OodSplit]] = None) -> tf.data.Dataset:
+  def build(self,
+            split: Union[str, Split],
+            as_tuple: bool = False,
+            drop_remainder: bool = True,
+            ood_split: Optional[Union[str, OodSplit]] = None,
+            time_slice: Optional[List[int]] = None) -> tf.data.Dataset:
     """Transforms the dataset from self._read_examples() to batch, repeat, etc.
 
     Note that we do not handle replication/sharding here, because the
@@ -183,14 +185,15 @@ class BaseDataset(object):
       split: a dataset split, either one of the Split enum or their associated
         strings.
       as_tuple: whether or not to return a Dataset where each element is a Dict
-        with at least the keys ['features', 'labels'], or a tuple of
-        (feature, label). If there are keys besides 'features' and 'labels' in
-        the Dict then this ignore them.
+        with at least the keys ['features', 'labels'], or a tuple of (feature,
+        label). If there are keys besides 'features' and 'labels' in the Dict
+        then this ignore them.
       drop_remainder: whether or not to drop the last batch of data if the
-        number of points is not exactly equal to the batch size. This option
-        needs to be True for running on TPUs.
-      ood_split: an optional OOD split, either one of the OodSplit enum or
-        their associated strings.
+      number of points is not exactly equal to the batch size. This option
+      needs to be True for running on TPUs.
+      ood_split: an optional OOD split, either one of the OodSplit enum or their
+        associated strings.
+      time_slice: time slice
 
     Returns:
       A tf.data.Dataset of elements that are a dict with keys 'features' and
@@ -202,7 +205,7 @@ class BaseDataset(object):
     if isinstance(ood_split, str):
       ood_split = OodSplit(ood_split)
 
-    dataset = self._read_examples(split)
+    dataset = self._read_examples(split, time_slice)
 
     # Map the parser over the dataset.
     if ood_split:

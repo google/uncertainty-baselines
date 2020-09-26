@@ -33,6 +33,7 @@ from uncertainty_baselines.datasets.glue import WnliDataset
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
+from uncertainty_baselines.datasets.movielens import MovieLensDataset
 from uncertainty_baselines.datasets.places import Places365Dataset
 from uncertainty_baselines.datasets.random import RandomGaussianImageDataset
 from uncertainty_baselines.datasets.random import RandomRademacherImageDataset

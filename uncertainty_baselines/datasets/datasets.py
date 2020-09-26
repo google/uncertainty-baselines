@@ -30,6 +30,7 @@ from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
+from uncertainty_baselines.datasets.movielens import MovieLensDataset
 from uncertainty_baselines.datasets.places import Places365Dataset
 from uncertainty_baselines.datasets.random import RandomGaussianImageDataset
 from uncertainty_baselines.datasets.random import RandomRademacherImageDataset
@@ -49,6 +50,7 @@ _DATASETS = {
     'imagenet': ImageNetDataset,
     'mnist': MnistDataset,
     'mnli': MnliDataset,
+    'movielens': MovieLensDataset,
     'places365': Places365Dataset,
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,

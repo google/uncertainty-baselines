@@ -106,6 +106,9 @@ flags.DEFINE_string('tpu', None,
 
 # Prediction mode.
 flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
+flags.DEFINE_string('eval_checkpoint_dir', None,
+                    'The directory to restore the model weights from for '
+                    'prediction mode.')
 
 FLAGS = flags.FLAGS
 
@@ -119,6 +122,14 @@ _IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
                     'physical_disability',
                     'intellectual_or_learning_disability',
                     'psychiatric_or_mental_illness', 'other_disability')
+
+
+@flags.multi_flags_validator(
+    ['prediction_mode', 'eval_checkpoint_dir'],
+    message='`eval_checkpoint_dir` should be provided in prediction mode')
+def _check_checkpoint_dir_for_prediction_mode(flags_dict):
+  return  not flags_dict['prediction_mode'] or (
+      flags_dict['eval_checkpoint_dir'] is not None)
 
 
 def save_prediction(data, path):
@@ -257,7 +268,10 @@ def main(argv):
     }
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
-    latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
+    if FLAGS.prediction_mode:
+      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.eval_checkpoint_dir)
+    else:
+      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
     if latest_checkpoint:
       # checkpoint.restore must be within a strategy.scope() so that optimizer

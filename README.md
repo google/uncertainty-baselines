@@ -38,8 +38,7 @@ Below we outline modules in Uncertainty Baselines.
 
 ### Datasets
 
-The [`ub.datasets`](https://github.com/google/uncertainty-
-baselines/tree/master/uncertainty_baselines/datasets) module consists of
+The [`ub.datasets`](https://github.com/google/uncertainty-baselines/tree/master/uncertainty_baselines/datasets) module consists of
 datasets following the `tf.data.Dataset` API. Typically, they add minimal logic
 on top of TensorFlow Datasets such as default data preprocessing. Access it as:
 

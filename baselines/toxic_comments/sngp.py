@@ -29,6 +29,12 @@ with a Gaussian process layer.
 [2]: Zhiyun Lu, Eugene Ie, Fei Sha. Uncertainty Estimation with Infinitesimal
      Jackknife.  _arXiv preprint arXiv:2006.07584_, 2020.
      https://arxiv.org/abs/2006.07584
+[3]: Tsung-Yi Lin et al. Focal Loss for Dense Object Detection. In
+      _International Conference on Computer Vision_, 2018.
+     https://arxiv.org/abs/1708.02002.
+[4]: Jishnu Mukhoti et al. Calibrating Deep Neural Networks using Focal Loss.
+     _arXiv preprint arXiv:2002.09437_, 2020.
+     https://arxiv.org/abs/2002.09437
 """
 
 import os
@@ -40,6 +46,7 @@ from absl import logging
 import edward2 as ed
 import numpy as np
 import tensorflow as tf
+from tensorflow_addons import losses as tfa_losses
 
 import uncertainty_baselines as ub
 import bert_utils  # local file import
@@ -102,7 +109,7 @@ flags.DEFINE_float(
     'gp_scale', 2.,
     'The length-scale parameter for the RBF kernel of the GP layer.')
 flags.DEFINE_integer(
-    'gp_hidden_dim', 768,
+    'gp_hidden_dim', 1024,
     'The hidden dimension of the GP layer, which corresponds to the number of '
     'random features used for the approximation.')
 flags.DEFINE_bool(
@@ -126,11 +133,11 @@ flags.DEFINE_float(
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 32, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float(
-    'base_learning_rate', 5e-5,
+    'base_learning_rate', 2.5e-5,
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
 flags.DEFINE_integer(
-    'checkpoint_interval', 3,
+    'checkpoint_interval', 5,
     'Number of epochs between saving checkpoints. Use -1 to '
     'never save checkpoints.')
 flags.DEFINE_integer('evaluation_interval', 1,
@@ -141,24 +148,33 @@ flags.DEFINE_list(
     'A list of fractions of total examples to send to '
     'the moderators (up to 1).')
 flags.DEFINE_string('output_dir', '/tmp/toxic_comments', 'Output directory.')
-flags.DEFINE_integer('train_epochs', 3, 'Number of training epochs.')
+flags.DEFINE_integer('train_epochs', 5, 'Number of training epochs.')
 flags.DEFINE_float(
     'warmup_proportion', 0.1,
     'Proportion of training to perform linear learning rate warmup for. '
     'E.g., 0.1 = 10% of training.')
 flags.DEFINE_float(
-    'ece_label_threshold', 0.7,
+    'binary_label_threshold', 0.7,
     'Threshold used to convert toxicity score into binary labels for computing '
     'Expected Calibration Error (ECE). Default is 0.7 which is the threshold '
-    'value recommended by Jigsaw team.')
+    'value recommended by Jigsaw Conversation AI team.')
 flags.DEFINE_integer(
     'num_mc_samples', 1,
     'Number of Monte Carlo forward passes to collect for ensemble prediction. '
     'Currently can only be 1 since the model is deterministic.')
 
 # Loss type
-flags.DEFINE_enum('loss_type', 'cross_entropy', ['cross_entropy', 'mse', 'mae'],
+flags.DEFINE_enum('loss_type', 'cross_entropy',
+                  ['cross_entropy', 'focal_cross_entropy', 'mse', 'mae'],
                   'Type of loss function to use.')
+flags.DEFINE_float(
+    'focal_loss_alpha', 0.1,
+    'Multiplicative factor used in the focal loss [3]-[4] to '
+    'upweight inconfident examples.')
+flags.DEFINE_float(
+    'focal_loss_gamma', 1.,
+    'Exponentiate factor used in the focal loss [3]-[4] to '
+    'upweight inconfident examples.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -438,6 +454,14 @@ def main(argv):
           logging.info('Using cross entropy loss')
           negative_log_likelihood = tf.nn.sigmoid_cross_entropy_with_logits(
               labels, loss_logits)
+        elif FLAGS.loss_type == 'focal_cross_entropy':
+          logging.info('Using focal cross entropy loss')
+          negative_log_likelihood = tfa_losses.sigmoid_focal_crossentropy(
+              labels,
+              loss_logits,
+              alpha=FLAGS.focal_loss_alpha,
+              gamma=FLAGS.focal_loss_gamma,
+              from_logits=True)
         elif FLAGS.loss_type == 'mse':
           logging.info('Using mean squared error loss')
           loss_probs = tf.nn.sigmoid(loss_logits)

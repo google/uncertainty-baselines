@@ -347,6 +347,7 @@ def main(argv):
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.Accuracy(),
+        'train/auroc': tf.keras.metrics.AUC(),
         'train/loss': tf.keras.metrics.Mean(),
         'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
@@ -373,14 +374,14 @@ def main(argv):
 
     # Finally, define test metrics outside the accelerator scope for CPU eval.
     metrics.update({
-        'test/nll': tf.keras.metrics.Mean(),
+        'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
         'test/aupr': tf.keras.metrics.AUC(curve='PR'),
         'test/brier': tf.keras.metrics.MeanSquaredError(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/acc': tf.keras.metrics.Accuracy(),
         'test/eval_time': tf.keras.metrics.Mean(),
         'test/stddev': tf.keras.metrics.Mean(),
-        'test/acc': tf.keras.metrics.Accuracy(),
     })
     for fraction in FLAGS.fractions:
       metrics.update({
@@ -401,12 +402,12 @@ def main(argv):
                 tf.keras.metrics.MeanSquaredError(),
             'test/ece_{}'.format(dataset_name):
                 um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            'test/acc_{}'.format(dataset_name):
+                tf.keras.metrics.Accuracy(),
             'test/eval_time_{}'.format(dataset_name):
                 tf.keras.metrics.Mean(),
             'test/stddev_{}'.format(dataset_name):
                 tf.keras.metrics.Mean(),
-            'test/acc_{}'.format(dataset_name):
-                tf.keras.metrics.Accuracy()
         })
         for fraction in FLAGS.fractions:
           metrics.update({
@@ -462,13 +463,15 @@ def main(argv):
       # Cast labels to discrete for ECE computation.
       ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
       ece_probs = tf.concat([1. - probs, probs], axis=1)
+      auc_probs = tf.squeeze(probs, axis=1)
       pred_labels = tf.math.argmax(ece_probs, axis=-1)
 
-      metrics['train/accuracy'].update_state(labels, pred_labels)
-      metrics['train/ece'].update_state(ece_labels, ece_probs)
-      metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
+      metrics['train/accuracy'].update_state(labels, pred_labels)
+      metrics['train/auroc'].update_state(labels, auc_probs)
+      metrics['train/loss'].update_state(loss)
+      metrics['train/ece'].update_state(ece_labels, ece_probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -480,6 +483,7 @@ def main(argv):
       """Per-Replica StepFn."""
       features, labels, _ = create_feature_and_label(inputs)
 
+      eval_start_time = time.time()
       # Compute ensemble prediction over Monte Carlo forward-pass samples.
       logits_list = []
       stddev_list = []
@@ -503,6 +507,7 @@ def main(argv):
         logits_list.append(logits)
         stddev_list.append(stddev)
 
+      eval_time = (time.time() - eval_start_time) / FLAGS.per_core_batch_size
       # Logits dimension is (num_samples, batch_size, num_classes).
       logits_list = tf.stack(logits_list, axis=0)
       stddev_list = tf.stack(stddev_list, axis=0)
@@ -526,14 +531,15 @@ def main(argv):
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
 
       if dataset_name == 'ind':
-        metrics['test/nll'].update_state(
+        metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/auroc'].update_state(labels, auc_probs)
         metrics['test/aupr'].update_state(labels, auc_probs)
         metrics['test/brier'].update_state(labels, auc_probs)
         metrics['test/ece'].update_state(ece_labels, ece_probs)
-        metrics['test/stddev'].update_state(stddev)
         metrics['test/acc'].update_state(ece_labels, pred_labels)
+        metrics['test/eval_time'].update_state(eval_time)
+        metrics['test/stddev'].update_state(stddev)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)
@@ -548,10 +554,11 @@ def main(argv):
             labels, auc_probs)
         metrics['test/ece_{}'.format(dataset_name)].update_state(
             ece_labels, ece_probs)
-        metrics['test/stddev_{}'.format(dataset_name)].update_state(stddev)
         metrics['test/acc_{}'.format(dataset_name)].update_state(
-            ece_labels, pred_labels
-        )
+            ece_labels, pred_labels)
+        metrics['test/eval_time_{}'.format(dataset_name)].update_state(
+            eval_time)
+        metrics['test/stddev_{}'.format(dataset_name)].update_state(stddev)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}_{}'.format(
               fraction, dataset_name)].update_state(ece_labels, ece_probs)

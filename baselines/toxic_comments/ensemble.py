@@ -168,6 +168,7 @@ def main(argv):
       'test/aupr': tf.keras.metrics.AUC(curve='PR'),
       'test/brier': tf.keras.metrics.MeanSquaredError(),
       'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/acc': tf.keras.metrics.Accuracy(),
   }
   for fraction in FLAGS.fractions:
     metrics.update({
@@ -188,6 +189,8 @@ def main(argv):
               tf.keras.metrics.MeanSquaredError(),
           'test/ece_{}'.format(dataset_name):
               um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+          'test/acc_{}'.format(dataset_name):
+              tf.keras.metrics.Accuracy(),
       })
       for fraction in FLAGS.fractions:
         metrics.update({
@@ -231,6 +234,7 @@ def main(argv):
       # Cast labels to discrete for ECE computation
       ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
       ece_probs = tf.concat([1. - probs, probs], axis=1)
+      pred_labels = tf.math.argmax(ece_probs, axis=-1)
       auc_probs = tf.squeeze(probs, axis=1)
 
       texts_list.append(inputs['input_ids'])
@@ -250,6 +254,7 @@ def main(argv):
         metrics['test/aupr'].update_state(labels, auc_probs)
         metrics['test/brier'].update_state(labels, auc_probs)
         metrics['test/ece'].update_state(ece_labels, ece_probs)
+        metrics['test/acc'].update_state(ece_labels, pred_labels)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)
@@ -264,6 +269,8 @@ def main(argv):
             labels, auc_probs)
         metrics['test/ece_{}'.format(dataset_name)].update_state(
             ece_labels, ece_probs)
+        metrics['test/acc_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}_{}'.format(
               fraction, dataset_name)].update_state(ece_labels, ece_probs)

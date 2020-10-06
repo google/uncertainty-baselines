@@ -77,10 +77,10 @@ flags.DEFINE_integer('evaluation_interval', 1,
                      'Number of epochs between evaluation.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_list(
-    'fractions', ['0.0', '0.05', '0.1', '0.2'],
+    'fractions', ['0.0', '0.01', '0.05', '0.1', '0.15', '0.2'],
     'A list of fractions of total examples to send to '
     'the moderators (up to 1).')
-flags.DEFINE_string('output_dir', '/tmp/clinc_intent', 'Output directory.')
+flags.DEFINE_string('output_dir', '/tmp/toxic_comments', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 5, 'Number of training epochs.')
 flags.DEFINE_float(
     'warmup_proportion', 0.1,
@@ -262,6 +262,7 @@ def main(argv):
 
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'train/accuracy': tf.keras.metrics.Accuracy(),
         'train/auroc': tf.keras.metrics.AUC(),
         'train/loss': tf.keras.metrics.Mean(),
         'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
@@ -291,6 +292,7 @@ def main(argv):
         'test/aupr': tf.keras.metrics.AUC(curve='PR'),
         'test/brier': tf.keras.metrics.MeanSquaredError(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/acc': tf.keras.metrics.Accuracy(),
         'test/eval_time': tf.keras.metrics.Mean(),
     })
     for fraction in FLAGS.fractions:
@@ -312,8 +314,10 @@ def main(argv):
                 tf.keras.metrics.MeanSquaredError(),
             'test/ece_{}'.format(dataset_name):
                 um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            'test/acc_{}'.format(dataset_name):
+                tf.keras.metrics.Accuracy(),
             'test/eval_time_{}'.format(dataset_name):
-                tf.keras.metrics.Mean()
+                tf.keras.metrics.Mean(),
         })
         for fraction in FLAGS.fractions:
           metrics.update({
@@ -370,12 +374,14 @@ def main(argv):
       ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
       ece_probs = tf.concat([1. - probs, probs], axis=1)
       auc_probs = tf.squeeze(probs, axis=1)
+      pred_labels = tf.math.argmax(ece_probs, axis=-1)
 
-      metrics['train/ece'].update_state(ece_labels, ece_probs)
-      metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
+      metrics['train/accuracy'].update_state(labels, pred_labels)
       metrics['train/auroc'].update_state(labels, auc_probs)
+      metrics['train/loss'].update_state(loss)
+      metrics['train/ece'].update_state(ece_labels, ece_probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -397,6 +403,7 @@ def main(argv):
       # Cast labels to discrete for ECE computation.
       ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
       ece_probs = tf.concat([1. - probs, probs], axis=1)
+      pred_labels = tf.math.argmax(ece_probs, axis=-1)
       auc_probs = tf.squeeze(probs, axis=1)
 
       loss_logits = tf.squeeze(logits, axis=1)
@@ -410,6 +417,7 @@ def main(argv):
         metrics['test/aupr'].update_state(labels, auc_probs)
         metrics['test/brier'].update_state(labels, auc_probs)
         metrics['test/ece'].update_state(ece_labels, ece_probs)
+        metrics['test/acc'].update_state(ece_labels, pred_labels)
         metrics['test/eval_time'].update_state(eval_time)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
@@ -425,6 +433,8 @@ def main(argv):
             labels, auc_probs)
         metrics['test/ece_{}'.format(dataset_name)].update_state(
             ece_labels, ece_probs)
+        metrics['test/acc_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels)
         metrics['test/eval_time_{}'.format(dataset_name)].update_state(
             eval_time)
         for fraction in FLAGS.fractions:

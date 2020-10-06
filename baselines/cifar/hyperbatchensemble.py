@@ -55,7 +55,7 @@ flags.DEFINE_string(
     'cifar100_c_path', None,
     'Path to the TFRecords files for CIFAR-100-C. Only valid '
     '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', 250,
+flags.DEFINE_integer('corruptions_interval', -1,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
 flags.DEFINE_float(

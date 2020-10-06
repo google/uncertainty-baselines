@@ -168,7 +168,8 @@ def run_train_loop(
   for train_fn_step in range(start_train_fn_step, num_train_fn_steps):
     current_step = train_fn_step * iterations_per_loop
     # Checkpoint at the start of the step, before the training op is run.
-    if checkpoint_manager and current_step % eval_frequency == 0:
+    if (checkpoint_manager and current_step % eval_frequency == 0 and
+        current_step != last_checkpoint_step):
       checkpoint_manager.save(checkpoint_number=current_step)
     if mode == 'train_and_eval' and current_step % eval_frequency == 0:
       eval_lib.run_eval_epoch(

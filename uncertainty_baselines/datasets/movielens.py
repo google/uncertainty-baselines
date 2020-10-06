@@ -98,9 +98,21 @@ class MovieLensDataset(base.BaseDataset):
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """A pre-process function to return features and labels."""
+      # TODO(chenzhe): To add movie_genres feature. This feature has different
+      # lengths for different input examples.
       parsed_example = {
+          'timestamp': example['timestamp'],
+          # movie features
           'movie_id': example['movie_id'],
+          'movie_title': example['movie_title'],
+          # user features
           'user_id': example['user_id'],
+          'user_gender': example['user_gender'],
+          'bucketized_user_age': example['bucketized_user_age'],
+          'user_occupation_label': example['user_occupation_label'],
+          'user_occupation_text': example['user_occupation_text'],
+          'user_zip_code': example['user_zip_code'],
+          # label
           'labels': example['user_rating'],
       }
       return parsed_example

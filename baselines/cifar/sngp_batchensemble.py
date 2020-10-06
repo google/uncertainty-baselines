@@ -278,7 +278,9 @@ def main(argv):
       metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
       metrics['test/accuracy_member_{}'.format(i)] = (
           tf.keras.metrics.SparseCategoricalAccuracy())
-    if FLAGS.corruptions_interval > 0:
+    if FLAGS.cifar100_c_path is None:
+      FLAGS.corruptions_interval = -1
+    if FLAGS.corruptions_interval > 0 and FLAGS.cifar100_c_path:
       corrupt_metrics = {}
       for intensity in range(1, max_intensity + 1):
         for corruption in corruption_types:

@@ -188,7 +188,9 @@ def main(argv):
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
-    if FLAGS.corruptions_interval > 0:
+    if FLAGS.cifar100_c_path is None:
+      FLAGS.corruptions_interval = -1
+    if FLAGS.corruptions_interval > 0 and FLAGS.cifar100_c_path:
       corrupt_metrics = {}
       for intensity in range(1, max_intensity + 1):
         for corruption in corruption_types:

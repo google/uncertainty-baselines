@@ -41,16 +41,16 @@ class MovieLensDatasetTest(tf.test.TestCase, parameterized.TestCase):
     dataset = dataset_builder.build(split).take(1)
     element = next(iter(dataset))
 
-    movie_id = element['movie_id']
-    user_id = element['user_id']
-    labels = element['labels']
+    feature_name_arr = ['timestamp', 'movie_id', 'movie_title',
+                        'user_id', 'user_gender', 'bucketized_user_age',
+                        'user_occupation_label', 'user_occupation_text',
+                        'user_zip_code', 'labels']
 
-    expected_batch_size = (
-        batch_size if split == base.Split.TRAIN else eval_batch_size)
-
-    self.assertEqual(movie_id.shape[0], expected_batch_size)
-    self.assertEqual(user_id.shape[0], expected_batch_size)
-    self.assertEqual(labels.shape[0], expected_batch_size)
+    for name in feature_name_arr:
+      feature = element[name]
+      expected_batch_size = (
+          batch_size if split == base.Split.TRAIN else eval_batch_size)
+      self.assertEqual(feature.shape[0], expected_batch_size)
 
   @parameterized.named_parameters(('Train', base.Split.TRAIN),
                                   ('Validation', base.Split.VAL),
@@ -73,16 +73,16 @@ class MovieLensDatasetTest(tf.test.TestCase, parameterized.TestCase):
       dataset = dataset_builder.build(split).take(1)
       element = next(iter(dataset))
 
-      movie_id = element['movie_id']
-      user_id = element['user_id']
-      labels = element['labels']
+      feature_name_arr = ['timestamp', 'movie_id', 'movie_title',
+                          'user_id', 'user_gender', 'bucketized_user_age',
+                          'user_occupation_label', 'user_occupation_text',
+                          'user_zip_code', 'labels']
 
-      expected_batch_size = (
-          batch_size if split == base.Split.TRAIN else eval_batch_size)
-
-      self.assertEqual(movie_id.shape[0], expected_batch_size)
-      self.assertEqual(user_id.shape[0], expected_batch_size)
-      self.assertEqual(labels.shape[0], expected_batch_size)
+      for name in feature_name_arr:
+        feature = element[name]
+        expected_batch_size = (
+            batch_size if split == base.Split.TRAIN else eval_batch_size)
+        self.assertEqual(feature.shape[0], expected_batch_size)
 
 
 if __name__ == '__main__':

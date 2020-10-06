@@ -20,6 +20,7 @@ import warnings
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
 from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get
+from uncertainty_baselines.models.movielens import create_model as MovieLensBuilder
 from uncertainty_baselines.models.resnet20 import create_model as ResNet20Builder
 from uncertainty_baselines.models.resnet50 import create_model as ResNet50Builder
 from uncertainty_baselines.models.resnet50_batchensemble import resnet101_batchensemble

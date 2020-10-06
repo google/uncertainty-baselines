@@ -112,7 +112,9 @@ def main(argv):
       'clean': strategy.experimental_distribute_datasets_from_function(
           clean_test_input_fn),
   }
-  if FLAGS.corruptions_interval > 0:
+  if FLAGS.cifar100_c_path is None:
+    FLAGS.corruptions_interval = -1
+  if FLAGS.corruptions_interval > 0 and FLAGS.cifar100_c_path:
     if FLAGS.dataset == 'cifar10':
       load_c_input_fn = utils.load_cifar10_c_input_fn
     else:

@@ -27,8 +27,9 @@ from absl import flags
 from absl import logging
 import numpy as np
 import tensorflow as tf
-import uncertainty_baselines as ub
+from tensorflow_addons import losses as tfa_losses
 
+import uncertainty_baselines as ub
 import bert_utils  # local file import
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import toxic_comments as ds
@@ -95,7 +96,12 @@ flags.DEFINE_float(
 # Loss type
 flags.DEFINE_string('loss_type', 'cross_entropy',
                     'Type of loss function to use.')
-
+flags.DEFINE_float('focal_loss_alpha', 0.1,
+                   'Multiplicative factor used in the focal loss [1]-[2] to '
+                   'downweight common cases.')
+flags.DEFINE_float('focal_loss_gamma', 5.,
+                   'Exponentiate factor used in the focal loss [1]-[2] to '
+                   'push model to minimize in-confident examples.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -348,6 +354,12 @@ def main(argv):
           logging.info('Using cross entropy loss')
           negative_log_likelihood = tf.nn.sigmoid_cross_entropy_with_logits(
               labels, loss_logits)
+        elif FLAGS.loss_type == 'focal_cross_entropy':
+          logging.info('Using focal cross entropy loss')
+          negative_log_likelihood = tfa_losses.sigmoid_focal_crossentropy(
+              labels, loss_logits,
+              alpha=FLAGS.focal_loss_alpha, gamma=FLAGS.focal_loss_gamma,
+              from_logits=True)
         elif FLAGS.loss_type == 'mse':
           logging.info('Using mean squared error loss')
           loss_probs = tf.nn.sigmoid(loss_logits)

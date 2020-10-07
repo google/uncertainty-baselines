@@ -154,7 +154,7 @@ flags.DEFINE_float(
     'Proportion of training to perform linear learning rate warmup for. '
     'E.g., 0.1 = 10% of training.')
 flags.DEFINE_float(
-    'binary_label_threshold', 0.7,
+    'ece_label_threshold', 0.7,
     'Threshold used to convert toxicity score into binary labels for computing '
     'Expected Calibration Error (ECE). Default is 0.7 which is the threshold '
     'value recommended by Jigsaw Conversation AI team.')

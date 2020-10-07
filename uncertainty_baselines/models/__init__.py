@@ -28,6 +28,7 @@ from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchen
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
+from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
@@ -38,6 +39,7 @@ from uncertainty_baselines.models.wide_resnet_dropout import wide_resnet_dropout
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import e_factory as hyperbatchensemble_e_factory
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import LambdaConfig as HyperBatchEnsembleLambdaConfig
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import wide_resnet_hyperbatchensemble
+from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
 from uncertainty_baselines.models.wide_resnet_rank1 import wide_resnet_rank1
 from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be

@@ -100,7 +100,7 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)
       image = tf.image.resize(image, size=[512, 512], method="bilinear")
-      label = tf.cast(example['label'], tf.int32)
+      label = tf.cast(example['label'] > 1, tf.int32)  # binarise task
       parsed_example = {
           'features': image,
           'labels': label,

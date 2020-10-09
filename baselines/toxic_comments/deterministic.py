@@ -31,6 +31,7 @@ from tensorflow_addons import losses as tfa_losses
 
 import uncertainty_baselines as ub
 import bert_utils  # local file import
+import utils  # local file import
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
@@ -217,23 +218,32 @@ def main(argv):
       data_dir=FLAGS.identity_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
 
-  dataset_builders = {
+  train_dataset_builders = {
+      'wikipedia_toxicity_subtypes': train_dataset_builder
+  }
+  test_dataset_builders = {
       'ind': ind_dataset_builder,
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
-
   train_dataset = train_dataset_builder.build(split=base.Split.TRAIN)
+
+  class_weight = utils.create_class_weight(
+      train_dataset_builders, test_dataset_builders)
+  logging.info('class_weight: %s', str(class_weight))
 
   ds_info = train_dataset_builder.info
   feature_size = _MAX_SEQ_LENGTH
   num_classes = ds_info['num_classes']  # Positive and negative classes.
 
   steps_per_epoch = ds_info['num_train_examples'] // batch_size
+  train_datasets = {}
+  for dataset_name, dataset_builder in train_dataset_builders.items():
+    train_datasets[dataset_name] = dataset_builder.build(split=base.Split.TRAIN)
 
   test_datasets = {}
   steps_per_eval = {}
-  for dataset_name, dataset_builder in dataset_builders.items():
+  for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.build(split=base.Split.TEST)
     steps_per_eval[dataset_name] = (
         dataset_builder.info['num_test_examples'] // test_batch_size)
@@ -269,6 +279,7 @@ def main(argv):
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.Accuracy(),
+        'train/accuracy_weighted': tf.keras.metrics.Accuracy(),
         'train/auroc': tf.keras.metrics.AUC(),
         'train/loss': tf.keras.metrics.Mean(),
         'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
@@ -297,8 +308,10 @@ def main(argv):
         'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
         'test/aupr': tf.keras.metrics.AUC(curve='PR'),
         'test/brier': tf.keras.metrics.MeanSquaredError(),
+        'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/acc': tf.keras.metrics.Accuracy(),
+        'test/acc_weighted': tf.keras.metrics.Accuracy(),
         'test/eval_time': tf.keras.metrics.Mean(),
     })
     for fraction in FLAGS.fractions:
@@ -318,9 +331,13 @@ def main(argv):
                 tf.keras.metrics.AUC(curve='PR'),
             'test/brier_{}'.format(dataset_name):
                 tf.keras.metrics.MeanSquaredError(),
+            'test/brier_weighted_{}'.format(dataset_name):
+                tf.keras.metrics.MeanSquaredError(),
             'test/ece_{}'.format(dataset_name):
                 um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
             'test/acc_{}'.format(dataset_name):
+                tf.keras.metrics.Accuracy(),
+            'test/acc_weighted_{}'.format(dataset_name):
                 tf.keras.metrics.Accuracy(),
             'test/eval_time_{}'.format(dataset_name):
                 tf.keras.metrics.Mean(),
@@ -333,7 +350,19 @@ def main(argv):
           })
 
   @tf.function
-  def train_step(iterator):
+  def generate_sample_weight(labels, class_weight, label_threshold=0.7):
+    """Generate sample weight for weighted accuracy calculation."""
+    if label_threshold != 0.7:
+      logging.warning('The class weight was based on `label_threshold` = 0.7, '
+                      'and weighted accuracy/brier will be meaningless if '
+                      '`label_threshold` is not equal to this value, which is '
+                      'recommended by Jigsaw Conversation AI team.')
+    labels_int = tf.cast(labels > label_threshold, tf.int32)
+    sample_weight = tf.gather(class_weight, labels_int)
+    return sample_weight
+
+  @tf.function
+  def train_step(iterator, dataset_name='wikipedia_toxicity_subtypes'):
     """Training StepFn."""
 
     def step_fn(inputs):
@@ -388,9 +417,14 @@ def main(argv):
       auc_probs = tf.squeeze(probs, axis=1)
       pred_labels = tf.math.argmax(ece_probs, axis=-1)
 
+      sample_weight = generate_sample_weight(
+          labels, class_weight['train/{}'.format(dataset_name)],
+          FLAGS.ece_label_threshold)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, pred_labels)
+      metrics['train/accuracy_weighted'].update_state(
+          ece_labels, pred_labels, sample_weight=sample_weight)
       metrics['train/auroc'].update_state(labels, auc_probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/ece'].update_state(ece_labels, ece_probs)
@@ -422,14 +456,21 @@ def main(argv):
       negative_log_likelihood = tf.reduce_mean(
           tf.nn.sigmoid_cross_entropy_with_logits(labels, loss_logits))
 
+      sample_weight = generate_sample_weight(
+          labels, class_weight['test/{}'.format(dataset_name)],
+          FLAGS.ece_label_threshold)
       if dataset_name == 'ind':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/auroc'].update_state(labels, auc_probs)
         metrics['test/aupr'].update_state(labels, auc_probs)
         metrics['test/brier'].update_state(labels, auc_probs)
+        metrics['test/brier_weighted'].update_state(
+            tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
         metrics['test/ece'].update_state(ece_labels, ece_probs)
         metrics['test/acc'].update_state(ece_labels, pred_labels)
+        metrics['test/acc_weighted'].update_state(
+            ece_labels, pred_labels, sample_weight=sample_weight)
         metrics['test/eval_time'].update_state(eval_time)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
@@ -443,10 +484,14 @@ def main(argv):
             labels, auc_probs)
         metrics['test/brier_{}'.format(dataset_name)].update_state(
             labels, auc_probs)
+        metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
+            tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
         metrics['test/ece_{}'.format(dataset_name)].update_state(
             ece_labels, ece_probs)
         metrics['test/acc_{}'.format(dataset_name)].update_state(
             ece_labels, pred_labels)
+        metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels, sample_weight=sample_weight)
         metrics['test/eval_time_{}'.format(dataset_name)].update_state(
             eval_time)
         for fraction in FLAGS.fractions:

@@ -33,6 +33,7 @@ import uncertainty_baselines as ub
 import bert_utils  # local file import
 # import toxic_comments.deterministic to inherit its flags
 import deterministic  # pylint:disable=unused-import  # local file import
+import utils  # local file import
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
@@ -87,11 +88,15 @@ def main(argv):
       data_dir=FLAGS.identity_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
 
-  dataset_builders = {
+  test_dataset_builders = {
       'ind': ind_dataset_builder,
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
+
+  class_weight = utils.create_class_weight(
+      test_dataset_builders=test_dataset_builders)
+  logging.info('class_weight: %s', str(class_weight))
 
   ds_info = ind_dataset_builder.info
   feature_size = _MAX_SEQ_LENGTH
@@ -99,7 +104,7 @@ def main(argv):
 
   test_datasets = {}
   steps_per_eval = {}
-  for dataset_name, dataset_builder in dataset_builders.items():
+  for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.build(
         split=base.Split.TEST)
     steps_per_eval[dataset_name] = (
@@ -107,10 +112,10 @@ def main(argv):
 
   logging.info('Building %s model', FLAGS.model_family)
 
-  bert_config_dir, bert_ckpt_dir = deterministic.resolve_bert_ckpt_and_config_dir(
+  bert_config_dir, _ = deterministic.resolve_bert_ckpt_and_config_dir(
       FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
   bert_config = bert_utils.create_config(bert_config_dir)
-  model, bert_encoder = ub.models.BertBuilder(
+  model, _ = ub.models.BertBuilder(
       num_classes=num_classes,
       max_seq_length=feature_size,
       bert_config=bert_config)
@@ -167,8 +172,10 @@ def main(argv):
       'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
       'test/aupr': tf.keras.metrics.AUC(curve='PR'),
       'test/brier': tf.keras.metrics.MeanSquaredError(),
+      'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
       'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
       'test/acc': tf.keras.metrics.Accuracy(),
+      'test/acc_weighted': tf.keras.metrics.Accuracy(),
   }
   for fraction in FLAGS.fractions:
     metrics.update({
@@ -187,8 +194,12 @@ def main(argv):
               tf.keras.metrics.AUC(curve='PR'),
           'test/brier_{}'.format(dataset_name):
               tf.keras.metrics.MeanSquaredError(),
+          'test/brier_weighted_{}'.format(dataset_name):
+              tf.keras.metrics.MeanSquaredError(),
           'test/ece_{}'.format(dataset_name):
               um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+          'test/acc_weighted_{}'.format(dataset_name):
+              tf.keras.metrics.Accuracy(),
           'test/acc_{}'.format(dataset_name):
               tf.keras.metrics.Accuracy(),
       })
@@ -198,6 +209,18 @@ def main(argv):
                 um.OracleCollaborativeAccuracy(
                     fraction=float(fraction), num_bins=FLAGS.num_bins)
         })
+
+  @tf.function
+  def generate_sample_weight(labels, class_weight, label_threshold=0.7):
+    """Generate sample weight for weighted accuracy calculation."""
+    if label_threshold != 0.7:
+      logging.warning('The class weight was based on `label_threshold` = 0.7, '
+                      'and weighted accuracy/brier will be meaningless if '
+                      '`label_threshold` is not equal to this value, which is '
+                      'recommended by Jigsaw Conversation AI team.')
+    labels_int = tf.cast(labels > label_threshold, tf.int32)
+    sample_weight = tf.gather(class_weight, labels_int)
+    return sample_weight
 
   # Evaluate model predictions.
   for n, (dataset_name, test_dataset) in enumerate(test_datasets.items()):
@@ -247,14 +270,21 @@ def main(argv):
           additional_labels_dict[identity_label_name].append(
               additional_labels[identity_label_name].numpy())
 
+      sample_weight = generate_sample_weight(
+          labels, class_weight['test/{}'.format(dataset_name)],
+          FLAGS.ece_label_threshold)
       if dataset_name == 'ind':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/auroc'].update_state(labels, auc_probs)
         metrics['test/aupr'].update_state(labels, auc_probs)
         metrics['test/brier'].update_state(labels, auc_probs)
+        metrics['test/brier_weighted'].update_state(
+            tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
         metrics['test/ece'].update_state(ece_labels, ece_probs)
         metrics['test/acc'].update_state(ece_labels, pred_labels)
+        metrics['test/acc_weighted'].update_state(
+            ece_labels, pred_labels, sample_weight=sample_weight)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)
@@ -267,10 +297,14 @@ def main(argv):
             labels, auc_probs)
         metrics['test/brier_{}'.format(dataset_name)].update_state(
             labels, auc_probs)
+        metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
+            tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
         metrics['test/ece_{}'.format(dataset_name)].update_state(
             ece_labels, ece_probs)
         metrics['test/acc_{}'.format(dataset_name)].update_state(
             ece_labels, pred_labels)
+        metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels, sample_weight=sample_weight)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}_{}'.format(
               fraction, dataset_name)].update_state(ece_labels, ece_probs)

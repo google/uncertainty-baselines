@@ -16,10 +16,14 @@
 # Lint as: python3
 """Utility function for BERT models."""
 import json
+import os
 import re
+
 from typing import Any, Dict, List, Mapping, Optional, Tuple
+from absl import flags
 from absl import logging
 
+import numpy as np
 import tensorflow as tf
 
 from tensorflow.core.protobuf import trackable_object_graph_pb2  # pylint: disable=g-direct-tensorflow-import
@@ -37,6 +41,36 @@ NUM_POS_EXAMPLES = {
     'ood': {'train': 45451, 'test': 2458},
     'ood_identity': {'train': 12246, 'test': 634},
 }
+
+IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
+                   'heterosexual', 'homosexual_gay_or_lesbian', 'bisexual',
+                   'other_sexual_orientation', 'christian', 'jewish', 'muslim',
+                   'hindu', 'buddhist', 'atheist', 'other_religion', 'black',
+                   'white', 'asian', 'latino', 'other_race_or_ethnicity',
+                   'physical_disability', 'intellectual_or_learning_disability',
+                   'psychiatric_or_mental_illness', 'other_disability')
+
+# Prediction mode.
+flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
+flags.DEFINE_string('eval_checkpoint_dir', None,
+                    'The directory to restore the model weights from for '
+                    'prediction mode.')
+
+FLAGS = flags.FLAGS
+
+
+@flags.multi_flags_validator(
+    ['prediction_mode', 'eval_checkpoint_dir'],
+    message='`eval_checkpoint_dir` should be provided in prediction mode')
+def _check_checkpoint_dir_for_prediction_mode(flags_dict):
+  return  not flags_dict['prediction_mode'] or (
+      flags_dict['eval_checkpoint_dir'] is not None)
+
+
+def save_prediction(data, path):
+  """Save the data as numpy array to the path."""
+  with (tf.io.gfile.GFile(path + '.npy', 'w')) as test_file:
+    np.save(test_file, np.array(data))
 
 
 def create_class_weight(train_dataset_builders=None,
@@ -70,17 +104,20 @@ def create_config(config_dir: str) -> configs.BertConfig:
   return configs.BertConfig(**bert_config)
 
 
-def create_feature_and_label(inputs: Dict[str, Any], feature_size: int):
-  """Creates features and labels for a BERT model."""
-  input_token_ids = inputs['features']
+def create_feature_and_label(inputs):
+  """Creates features and labels from model inputs."""
+  input_ids = inputs['input_ids']
+  input_mask = inputs['input_mask']
+  segment_ids = inputs['segment_ids']
+
   labels = inputs['labels']
-  num_tokens = inputs['num_tokens']
+  additional_labels = {}
+  for additional_label in IDENTITY_LABELS:
+    if additional_label in inputs:
+      additional_labels[additional_label] = inputs[additional_label]
+  # labels = tf.stack([labels, 1. - labels], axis=-1)
 
-  input_mask = tf.sequence_mask(num_tokens, feature_size, dtype=tf.int32)
-  type_id = tf.sequence_mask(num_tokens, feature_size, dtype=tf.int32)
-  features = [input_token_ids, input_mask, type_id]
-
-  return features, labels
+  return [input_ids, input_mask, segment_ids], labels, additional_labels
 
 
 def create_optimizer(
@@ -99,6 +136,23 @@ def create_optimizer(
       num_warmup_steps,
       end_lr=end_lr,
       optimizer_type=optimizer_type)
+
+
+def resolve_bert_ckpt_and_config_dir(bert_model_type, bert_dir, bert_config_dir,
+                                     bert_ckpt_dir):
+  """Resolves BERT checkpoint and config file directories."""
+
+  missing_ckpt_or_config_dir = not (bert_ckpt_dir and bert_config_dir)
+  if missing_ckpt_or_config_dir:
+    if not bert_dir:
+      raise ValueError('bert_dir cannot be empty.')
+
+    if not bert_config_dir:
+      bert_config_dir = os.path.join(bert_dir, 'bert_config.json')
+
+    if not bert_ckpt_dir:
+      bert_ckpt_dir = os.path.join(bert_dir, 'bert_model.ckpt')
+  return bert_config_dir, bert_ckpt_dir
 
 
 def load_bert_weight_from_ckpt(

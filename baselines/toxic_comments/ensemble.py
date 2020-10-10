@@ -30,7 +30,6 @@ from absl import logging
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
-import bert_utils  # local file import
 # import toxic_comments.deterministic to inherit its flags
 import deterministic  # pylint:disable=unused-import  # local file import
 import utils  # local file import
@@ -112,9 +111,10 @@ def main(argv):
 
   logging.info('Building %s model', FLAGS.model_family)
 
-  bert_config_dir, _ = deterministic.resolve_bert_ckpt_and_config_dir(
-      FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
-  bert_config = bert_utils.create_config(bert_config_dir)
+  bert_config_dir, _ = utils.resolve_bert_ckpt_and_config_dir(
+      FLAGS.bert_model_type, FLAGS.bert_dir, FLAGS.bert_config_dir,
+      FLAGS.bert_ckpt_dir)
+  bert_config = utils.create_config(bert_config_dir)
   model, _ = ub.models.BertBuilder(
       num_classes=num_classes,
       max_seq_length=feature_size,
@@ -155,7 +155,7 @@ def main(argv):
             inputs = next(test_iterator)
           except StopIteration:
             continue
-          features, labels, _ = deterministic.create_feature_and_label(inputs)
+          features, labels, _ = utils.create_feature_and_label(inputs)
           logits.append(model(features, training=False))
 
         logits = tf.concat(logits, axis=0)
@@ -246,7 +246,7 @@ def main(argv):
       except StopIteration:
         continue
       features, labels, additional_labels = (
-          deterministic.create_feature_and_label(inputs))
+          utils.create_feature_and_label(inputs))
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
       loss_logits = tf.squeeze(logits, axis=-1)
       negative_log_likelihood = um.ensemble_cross_entropy(
@@ -264,7 +264,7 @@ def main(argv):
       logits_list.append(logits)
       labels_list.append(labels)
       if 'identity' in dataset_name:
-        for identity_label_name in deterministic._IDENTITY_LABELS:  # pylint: disable=protected-access
+        for identity_label_name in utils.IDENTITY_LABELS:
           if identity_label_name not in additional_labels_dict:
             additional_labels_dict[identity_label_name] = []
           additional_labels_dict[identity_label_name].append(
@@ -316,17 +316,17 @@ def main(argv):
     if additional_labels_dict:
       additional_labels_all = list(additional_labels_dict.values())
 
-    deterministic.save_prediction(
+    utils.save_prediction(
         texts_all.numpy(),
         path=os.path.join(FLAGS.output_dir, 'texts_{}'.format(dataset_name)))
-    deterministic.save_prediction(
+    utils.save_prediction(
         labels_all.numpy(),
         path=os.path.join(FLAGS.output_dir, 'labels_{}'.format(dataset_name)))
-    deterministic.save_prediction(
+    utils.save_prediction(
         logits_all.numpy(),
         path=os.path.join(FLAGS.output_dir, 'logits_{}'.format(dataset_name)))
     if 'identity' in dataset_name:
-      deterministic.save_prediction(
+      utils.save_prediction(
           np.array(additional_labels_all),
           path=os.path.join(FLAGS.output_dir,
                             'additional_labels_{}'.format(dataset_name)))

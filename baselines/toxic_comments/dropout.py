@@ -25,12 +25,10 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-import numpy as np
 import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 
 import uncertainty_baselines as ub
-import bert_utils  # local file import
 import utils  # local file import
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import toxic_comments as ds
@@ -140,69 +138,10 @@ flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
 
-# Prediction mode.
-flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
-flags.DEFINE_string('eval_checkpoint_dir', None,
-                    'The directory to restore the model weights from for '
-                    'prediction mode.')
-
 FLAGS = flags.FLAGS
 
 
 _MAX_SEQ_LENGTH = 512
-_IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
-                    'heterosexual', 'homosexual_gay_or_lesbian', 'bisexual',
-                    'other_sexual_orientation', 'christian', 'jewish', 'muslim',
-                    'hindu', 'buddhist', 'atheist', 'other_religion', 'black',
-                    'white', 'asian', 'latino', 'other_race_or_ethnicity',
-                    'physical_disability',
-                    'intellectual_or_learning_disability',
-                    'psychiatric_or_mental_illness', 'other_disability')
-
-
-@flags.multi_flags_validator(
-    ['prediction_mode', 'eval_checkpoint_dir'],
-    message='`eval_checkpoint_dir` should be provided in prediction mode')
-def _check_checkpoint_dir_for_prediction_mode(flags_dict):
-  return  not flags_dict['prediction_mode'] or (
-      flags_dict['eval_checkpoint_dir'] is not None)
-
-
-def save_prediction(data, path):
-  with (tf.io.gfile.GFile(path + '.npy', 'w')) as test_file:
-    np.save(test_file, np.array(data))
-
-
-def resolve_bert_ckpt_and_config_dir(bert_dir, bert_config_dir, bert_ckpt_dir):
-  """Resolves BERT checkpoint and config file directories."""
-
-  missing_ckpt_or_config_dir = not (bert_ckpt_dir and bert_config_dir)
-  if missing_ckpt_or_config_dir:
-    if not bert_dir:
-      raise ValueError('bert_dir cannot be empty.')
-
-    if not bert_config_dir:
-      bert_config_dir = os.path.join(bert_dir, 'bert_config.json')
-
-    if not bert_ckpt_dir:
-      bert_ckpt_dir = os.path.join(bert_dir, 'bert_model.ckpt')
-  return bert_config_dir, bert_ckpt_dir
-
-
-def create_feature_and_label(inputs):
-  """Creates features and labels from model inputs."""
-  input_ids = inputs['input_ids']
-  input_mask = inputs['input_mask']
-  segment_ids = inputs['segment_ids']
-
-  labels = inputs['labels']
-  additional_labels = {}
-  for additional_label in _IDENTITY_LABELS:
-    if additional_label in inputs:
-      additional_labels[additional_label] = inputs[additional_label]
-  # labels = tf.stack([labels, 1. - labels], axis=-1)
-
-  return [input_ids, input_mask, segment_ids], labels, additional_labels
 
 
 def main(argv):
@@ -286,9 +225,10 @@ def main(argv):
   with strategy.scope():
     logging.info('Building %s model', FLAGS.model_family)
 
-    bert_config_dir, bert_ckpt_dir = resolve_bert_ckpt_and_config_dir(
-        FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
-    bert_config = bert_utils.create_config(bert_config_dir)
+    bert_config_dir, bert_ckpt_dir = utils.resolve_bert_ckpt_and_config_dir(
+        FLAGS.bert_model_type, FLAGS.bert_dir, FLAGS.bert_config_dir,
+        FLAGS.bert_ckpt_dir)
+    bert_config = utils.create_config(bert_config_dir)
     model, bert_encoder = ub.models.DropoutBertBuilder(
         num_classes=num_classes,
         bert_config=bert_config,
@@ -300,7 +240,7 @@ def main(argv):
         channel_wise_dropout_att=FLAGS.channel_wise_dropout_att,
         channel_wise_dropout_ffn=FLAGS.channel_wise_dropout_ffn)
 
-    optimizer = bert_utils.create_optimizer(
+    optimizer = utils.create_optimizer(
         FLAGS.base_learning_rate,
         steps_per_epoch=steps_per_epoch,
         epochs=FLAGS.train_epochs,
@@ -401,7 +341,7 @@ def main(argv):
 
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      features, labels, _ = create_feature_and_label(inputs)
+      features, labels, _ = utils.create_feature_and_label(inputs)
 
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
@@ -471,7 +411,7 @@ def main(argv):
 
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      features, labels, _ = create_feature_and_label(inputs)
+      features, labels, _ = utils.create_feature_and_label(inputs)
 
       eval_start_time = time.time()
       logits = model(features, training=False)
@@ -539,7 +479,7 @@ def main(argv):
     """Final Evaluation StepFn to save prediction to directory."""
 
     def step_fn(inputs):
-      bert_features, labels, additional_labels = create_feature_and_label(
+      bert_features, labels, additional_labels = utils.create_feature_and_label(
           inputs)
       logits = model(bert_features, training=False)
       features = inputs['input_ids']
@@ -554,7 +494,7 @@ def main(argv):
       logits_list = tf.concat(per_replica_logits.values, axis=0)
       labels_list = tf.concat(per_replica_labels.values, axis=0)
       additional_labels_dict = {}
-      for additional_label in _IDENTITY_LABELS:
+      for additional_label in utils.IDENTITY_LABELS:
         if additional_label in per_replica_additional_labels:
           additional_labels_dict[additional_label] = tf.concat(
               per_replica_additional_labels[additional_label], axis=0)
@@ -563,7 +503,7 @@ def main(argv):
       logits_list = per_replica_logits
       labels_list = per_replica_labels
       additional_labels_dict = {}
-      for additional_label in _IDENTITY_LABELS:
+      for additional_label in utils.IDENTITY_LABELS:
         if additional_label in per_replica_additional_labels:
           additional_labels_dict[
               additional_label] = per_replica_additional_labels[
@@ -583,7 +523,7 @@ def main(argv):
       labels_all = []
       additional_labels_all_dict = {}
       if 'identity' in dataset_name:
-        for identity_label_name in _IDENTITY_LABELS:
+        for identity_label_name in utils.IDENTITY_LABELS:
           additional_labels_all_dict[identity_label_name] = []
 
       for step in range(steps_per_eval[dataset_name]):
@@ -602,7 +542,7 @@ def main(argv):
         logits_all.append(logits_step)
         labels_all.append(labels_step)
         if 'identity' in dataset_name:
-          for identity_label_name in _IDENTITY_LABELS:
+          for identity_label_name in utils.IDENTITY_LABELS:
             additional_labels_all_dict[identity_label_name].append(
                 additional_labels_dict_step[identity_label_name])
 
@@ -611,23 +551,23 @@ def main(argv):
       labels_all = tf.concat(labels_all, axis=0)
       additional_labels_all = []
       if additional_labels_all_dict:
-        for identity_label_name in _IDENTITY_LABELS:
+        for identity_label_name in utils.IDENTITY_LABELS:
           additional_labels_all.append(
               tf.concat(
                   additional_labels_all_dict[identity_label_name], axis=0))
       additional_labels_all = tf.convert_to_tensor(additional_labels_all)
 
-      save_prediction(
+      utils.save_prediction(
           texts_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'texts_{}'.format(dataset_name)))
-      save_prediction(
+      utils.save_prediction(
           labels_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'labels_{}'.format(dataset_name)))
-      save_prediction(
+      utils.save_prediction(
           logits_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'logits_{}'.format(dataset_name)))
       if 'identity' in dataset_name:
-        save_prediction(
+        utils.save_prediction(
             additional_labels_all.numpy(),
             path=os.path.join(FLAGS.output_dir,
                               'additional_labels_{}'.format(dataset_name)))

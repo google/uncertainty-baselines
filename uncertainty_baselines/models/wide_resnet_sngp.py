@@ -66,6 +66,7 @@ def basic_block(inputs,
                 strides,
                 l2,
                 use_mc_dropout,
+                use_filterwise_dropout,
                 dropout_rate,
                 use_spec_norm,
                 spec_norm_iteration,
@@ -78,6 +79,7 @@ def basic_block(inputs,
     strides: Stride dimensions for Conv2D.
     l2: L2 regularization coefficient.
     use_mc_dropout: Whether to apply Monte Carlo dropout.
+    use_filterwise_dropout: Whether to apply filterwise dropout.
     dropout_rate: Dropout rate.
     use_spec_norm: Whether to apply spectral normalization.
     spec_norm_iteration: Number of power iterations to perform for estimating
@@ -96,7 +98,8 @@ def basic_block(inputs,
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
   y = tf.keras.layers.Activation('relu')(y)
-  y = apply_dropout(y, dropout_rate, use_mc_dropout)
+  if use_filterwise_dropout:
+    y = apply_dropout(y, dropout_rate, use_mc_dropout)
 
   y = Conv2D(filters,
              strides=strides,
@@ -104,7 +107,8 @@ def basic_block(inputs,
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
   y = tf.keras.layers.Activation('relu')(y)
-  y = apply_dropout(y, dropout_rate, use_mc_dropout)
+  if use_filterwise_dropout:
+    y = apply_dropout(y, dropout_rate, use_mc_dropout)
 
   y = Conv2D(filters,
              strides=1,
@@ -114,7 +118,8 @@ def basic_block(inputs,
                kernel_size=1,
                strides=strides,
                kernel_regularizer=tf.keras.regularizers.l2(l2))(x)
-    y = apply_dropout(y, dropout_rate, use_mc_dropout)
+    if use_filterwise_dropout:
+      y = apply_dropout(y, dropout_rate, use_mc_dropout)
 
   x = tf.keras.layers.add([x, y])
   return x
@@ -135,6 +140,7 @@ def wide_resnet_sngp(input_shape,
                      num_classes,
                      l2,
                      use_mc_dropout,
+                     use_filterwise_dropout,
                      dropout_rate,
                      use_gp_layer,
                      gp_input_dim,
@@ -165,6 +171,7 @@ def wide_resnet_sngp(input_shape,
     num_classes: Number of output classes.
     l2: L2 regularization coefficient.
     use_mc_dropout: Whether to apply Monte Carlo dropout.
+    use_filterwise_dropout: Whether to apply filterwise dropout.
     dropout_rate: Dropout rate.
     use_gp_layer: Whether to use Gaussian process layer as the output layer.
     gp_input_dim: The input dimension to GP layer.
@@ -200,13 +207,18 @@ def wide_resnet_sngp(input_shape,
 
   if (depth - 4) % 6 != 0:
     raise ValueError('depth should be 6n+4 (e.g., 16, 22, 28, 40).')
+
+  if use_mc_dropout and not use_filterwise_dropout:
+    raise ValueError('cannot use mc dropout with filterwise dropout disabled.')
+
   num_blocks = (depth - 4) // 6
   inputs = tf.keras.layers.Input(shape=input_shape, batch_size=batch_size)
 
   x = Conv2D(16,
              strides=1,
              kernel_regularizer=tf.keras.regularizers.l2(l2))(inputs)
-  x = apply_dropout(x, dropout_rate, use_mc_dropout)
+  if use_filterwise_dropout:
+    x = apply_dropout(x, dropout_rate, use_mc_dropout)
   for strides, filters in zip([1, 2, 2], [16, 32, 64]):
     x = group(x,
               filters=filters * width_multiplier,
@@ -214,6 +226,7 @@ def wide_resnet_sngp(input_shape,
               num_blocks=num_blocks,
               l2=l2,
               use_mc_dropout=use_mc_dropout,
+              use_filterwise_dropout=use_filterwise_dropout,
               dropout_rate=dropout_rate,
               use_spec_norm=use_spec_norm,
               spec_norm_iteration=spec_norm_iteration,
@@ -240,6 +253,5 @@ def wide_resnet_sngp(input_shape,
         kernel_initializer='he_normal',
         kernel_regularizer=tf.keras.regularizers.l2(l2),
         bias_regularizer=tf.keras.regularizers.l2(l2))(x)
-    # covmat = tf.ones_like(logits)
 
   return tf.keras.Model(inputs=inputs, outputs=outputs)

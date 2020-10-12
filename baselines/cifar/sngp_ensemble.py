@@ -58,6 +58,8 @@ flags.DEFINE_float(
     'posterior mode instead of posterior mean.')
 
 # Dropout flags
+flags.DEFINE_bool('use_filterwise_dropout', True,
+                  'Whether to use filterwise dropout for the hidden layers.')
 flags.DEFINE_bool('use_mc_dropout', False,
                   'Whether to use Monte Carlo dropout for the hidden layers.')
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
@@ -153,6 +155,7 @@ def main(argv):
       num_classes=num_classes,
       l2=0.,
       use_mc_dropout=FLAGS.use_mc_dropout,
+      use_filterwise_dropout=FLAGS.use_filterwise_dropout,
       dropout_rate=FLAGS.dropout_rate,
       use_gp_layer=FLAGS.use_gp_layer,
       gp_input_dim=FLAGS.gp_input_dim,

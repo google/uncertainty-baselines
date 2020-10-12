@@ -118,6 +118,8 @@ flags.DEFINE_float('mixup_alpha', 0., 'Mixup hyperparameter, 0. to diable.')
 # Dropout flags
 flags.DEFINE_bool('use_mc_dropout', False,
                   'Whether to use Monte Carlo dropout for the hidden layers.')
+flags.DEFINE_bool('use_filterwise_dropout', True,
+                  'Whether to use filterwise dropout for the hidden layers.')
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
 flags.DEFINE_integer('num_dropout_samples', 1,
                      'Number of dropout samples to use for prediction.')
@@ -267,6 +269,7 @@ def main(argv):
         num_classes=num_classes,
         l2=FLAGS.l2,
         use_mc_dropout=FLAGS.use_mc_dropout,
+        use_filterwise_dropout=FLAGS.use_filterwise_dropout,
         dropout_rate=FLAGS.dropout_rate,
         use_gp_layer=FLAGS.use_gp_layer,
         gp_input_dim=FLAGS.gp_input_dim,

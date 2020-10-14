@@ -117,6 +117,7 @@ def define_flags() -> List[str]:
                        'Depth of wide resnet model.')
   flags.DEFINE_integer('wide_resnet_width_multiplier', 10,
                        'Width multiplier for wide resnet model.')
+  flags.DEFINE_integer('num_classes', 10, 'Number of label classes.')
 
   # Flags relating to genomics_cnn model
   flags.DEFINE_integer('len_seqs', 250,

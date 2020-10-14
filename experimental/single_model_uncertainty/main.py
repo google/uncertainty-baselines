@@ -160,6 +160,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
 
     model = ub_smu_models.get(
         FLAGS.model_name,
+        num_classes=FLAGS.num_classes,
         batch_size=FLAGS.batch_size,
         len_seqs=FLAGS.len_seqs,
         num_motifs=FLAGS.num_motifs,

@@ -158,14 +158,13 @@ def main(argv):
       shuffle_buffer_size=data_buffer_size)
 
   train_dataset_builders = {
-      'wikipedia_toxicity_subtypes': train_dataset_builder
+      'wikipedia_toxicity_subtypes': train_dataset_builder,
   }
   test_dataset_builders = {
       'ind': ind_dataset_builder,
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
-  train_dataset = train_dataset_builder.build(split=base.Split.TRAIN)
 
   class_weight = utils.create_class_weight(
       train_dataset_builders, test_dataset_builders)
@@ -175,10 +174,14 @@ def main(argv):
   feature_size = _MAX_SEQ_LENGTH
   num_classes = ds_info['num_classes']  # Positive and negative classes.
 
-  steps_per_epoch = ds_info['num_train_examples'] // batch_size
   train_datasets = {}
+  dataset_steps_per_epoch = {}
+  total_steps_per_epoch = 0
   for dataset_name, dataset_builder in train_dataset_builders.items():
     train_datasets[dataset_name] = dataset_builder.build(split=base.Split.TRAIN)
+    dataset_steps_per_epoch[dataset_name] = (
+        dataset_builder.info['num_train_examples'] // batch_size)
+    total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
 
   test_datasets = {}
   steps_per_eval = {}
@@ -208,7 +211,7 @@ def main(argv):
 
     optimizer = utils.create_optimizer(
         FLAGS.base_learning_rate,
-        steps_per_epoch=steps_per_epoch,
+        steps_per_epoch=total_steps_per_epoch,
         epochs=FLAGS.train_epochs,
         warmup_proportion=FLAGS.warmup_proportion)
 
@@ -236,7 +239,7 @@ def main(argv):
       # slot variables are mirrored.
       checkpoint.restore(latest_checkpoint)
       logging.info('Loaded checkpoint %s', latest_checkpoint)
-      initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
+      initial_epoch = optimizer.iterations.numpy() // total_steps_per_epoch
     elif FLAGS.model_family.lower() == 'bert':
       # load BERT from initial checkpoint
       bert_checkpoint = tf.train.Checkpoint(model=bert_encoder)
@@ -302,7 +305,7 @@ def main(argv):
     return sample_weight
 
   @tf.function
-  def train_step(iterator, dataset_name='wikipedia_toxicity_subtypes'):
+  def train_step(iterator, dataset_name):
     """Training StepFn."""
 
     def step_fn(inputs):
@@ -314,9 +317,6 @@ def main(argv):
 
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
-
-        logging.info('labels shape %s', labels.shape)
-        logging.info('logits shape %s', logits.shape)
 
         loss_logits = tf.squeeze(logits, axis=1)
         if FLAGS.loss_type == 'cross_entropy':
@@ -541,25 +541,27 @@ def main(argv):
 
   else:
     # Execute train / eval loop.
-    train_iterator = iter(train_dataset)  # pytype: disable=wrong-arg-types
     start_time = time.time()
     for epoch in range(initial_epoch, FLAGS.train_epochs):
       logging.info('Starting to run epoch: %s', epoch)
+      current_step = epoch * total_steps_per_epoch
+      for dataset_name, train_dataset in train_datasets.items():
+        for step in range(dataset_steps_per_epoch[dataset_name]):
+          train_iterator = iter(train_dataset)
+          train_step(train_iterator, dataset_name)
 
-      for step in range(steps_per_epoch):
-        train_step(train_iterator)
-
-        current_step = epoch * steps_per_epoch + (step + 1)
-        max_steps = steps_per_epoch * FLAGS.train_epochs
-        time_elapsed = time.time() - start_time
-        steps_per_sec = float(current_step) / time_elapsed
-        eta_seconds = (max_steps - current_step) / steps_per_sec
-        message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                   'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                       current_step / max_steps, epoch + 1, FLAGS.train_epochs,
-                       steps_per_sec, eta_seconds / 60, time_elapsed / 60))
-        if step % 20 == 0:
-          logging.info(message)
+          current_step += 1
+          max_steps = total_steps_per_epoch * FLAGS.train_epochs
+          time_elapsed = time.time() - start_time
+          steps_per_sec = float(current_step) / time_elapsed
+          eta_seconds = (max_steps - current_step) / steps_per_sec
+          message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                     'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                         current_step / max_steps, epoch + 1,
+                         FLAGS.train_epochs, steps_per_sec, eta_seconds / 60,
+                         time_elapsed / 60))
+          if step % 20 == 0:
+            logging.info(message)
 
       if epoch % FLAGS.evaluation_interval == 0:
         for dataset_name, test_dataset in test_datasets.items():

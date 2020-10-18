@@ -34,6 +34,7 @@ from uncertainty_baselines.datasets.movielens import MovieLensDataset
 from uncertainty_baselines.datasets.places import Places365Dataset
 from uncertainty_baselines.datasets.random import RandomGaussianImageDataset
 from uncertainty_baselines.datasets.random import RandomRademacherImageDataset
+from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset
 from uncertainty_baselines.datasets.svhn import SvhnDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
@@ -54,6 +55,7 @@ _DATASETS = {
     'places365': Places365Dataset,
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,
+    'speech_commands': SpeechCommandsDataset,
     'svhn': SvhnDataset,
     'glue/cola': GlueDatasets['glue/cola'],
     'glue/sst2': GlueDatasets['glue/sst2'],

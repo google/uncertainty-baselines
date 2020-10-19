@@ -15,6 +15,8 @@
 
 """Uncertainty baseline training datasets."""
 
+import warnings
+
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
@@ -37,9 +39,13 @@ from uncertainty_baselines.datasets.movielens import MovieLensDataset
 from uncertainty_baselines.datasets.places import Places365Dataset
 from uncertainty_baselines.datasets.random import RandomGaussianImageDataset
 from uncertainty_baselines.datasets.random import RandomRademacherImageDataset
-from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset
 from uncertainty_baselines.datasets.svhn import SvhnDataset
 from uncertainty_baselines.datasets.test_utils import DatasetTest
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
+
+try:
+  from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
+except ImportError as e:
+  warnings.warn(f'Skipped due to ImportError: {e}')

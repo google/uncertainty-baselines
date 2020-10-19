@@ -33,6 +33,7 @@ class SvhnDataset(base.BaseDataset):
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
+      normalize_by_cifar: bool = False,
       **unused_kwargs: Dict[str, Any]):
     """Create a SVHN tf.data.Dataset builder.
 
@@ -45,7 +46,10 @@ class SvhnDataset(base.BaseDataset):
         preprocessing in tf.data.Dataset.map().
       data_dir: optional dir to save TFDS data to. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
+      normalize_by_cifar: whether or not to normalize each image by the CIFAR
+        dataset mean and stddev.
     """
+    self._normalize_by_cifar = normalize_by_cifar
     _, info = tfds.load('svhn_cropped', with_info=True)
     super(SvhnDataset, self).__init__(
         name='svhn_cropped',
@@ -91,6 +95,10 @@ class SvhnDataset(base.BaseDataset):
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)
       label = tf.cast(example['label'], tf.int32)
+      if self._normalize_by_cifar:
+        mean = tf.constant([0.4914, 0.4822, 0.4465])
+        std = tf.constant([0.2023, 0.1994, 0.2010])
+        image = (image - mean) / std
       parsed_example = {
           'features': image,
           'labels': label,

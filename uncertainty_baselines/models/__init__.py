@@ -31,6 +31,7 @@ from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
 from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
+from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
 from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
 from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
 from uncertainty_baselines.models.wide_resnet import wide_resnet

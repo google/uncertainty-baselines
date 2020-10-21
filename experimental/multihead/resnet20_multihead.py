@@ -64,6 +64,7 @@ def _resnet_layer(
 def create_model(
     batch_size: int,
     l2_weight: float = 0.0,
+    certainty_variant: str = 'total', # total, partial or normalized
     **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
   """Resnet-20 v1, takes (32, 32, 3) input and returns logits of shape (10,)."""
   # TODO(znado): support NCHW data format.
@@ -108,26 +109,42 @@ def create_model(
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
   x = tf.keras.layers.Flatten()(x)
   logits = tf.keras.layers.Dense(10, kernel_initializer='he_normal')(x)
-  logits = tf.identity(logits, name="logits")
+  #logits = tf.identity(logits, name="logits")
     
   probs = tf.math.sigmoid(logits)
   probs_comp = 1-probs
-  n = probs.shape[1]
-  uncerts = tf.ones(shape=probs.shape[0])
-  for i in range(n):
-
-    proj_vec = np.zeros(n)
+  K = probs.shape[1]
+  cert_list = []
+  for i in range(K):
+    proj_vec = np.zeros(K)
     proj_vec[i]=1
     proj_mat = np.outer(proj_vec,proj_vec)
-    proj_mat_comp = np.identity(n)-np.outer(proj_vec,proj_vec)
+    proj_mat_comp = np.identity(K)-np.outer(proj_vec,proj_vec)
     tproj_mat = tf.constant(proj_mat,dtype=tf.float32)
     tproj_mat_comp = tf.constant(proj_mat_comp,dtype=tf.float32)
-    #print(tproj_mat.shape,tproj_mat_comp.shape,probs.shape)
     out = tf.tensordot(probs,tproj_mat,axes=1) + tf.tensordot(probs_comp,tproj_mat_comp,axes=1)
-    uncerts -= tf.reduce_prod(out,axis=1)    
-  uncerts = tf.identity(uncerts, name="uncerts")
+    cert_list+=[tf.reduce_prod(out,axis=1)]
+    
+  if certainty_variant == 'partial':
+    certs = tf.stack(cert_list,axis=1)
+    
+  elif certainty_variant == 'total':
+    certs = tf.stack(cert_list,axis=1)
+    certs_argmax = tf.one_hot(tf.argmax(certs,axis=1),depth=K)
+    certs_reduce = tf.tile(tf.reduce_sum(certs,axis=1,keepdims=True),[1,K])
+    certs = tf.math.multiply(certs_argmax,certs_reduce)
+    
+  elif certainty_variant == 'normalized':
+    certs = tf.stack(cert_list,axis=1)
+    certs_norm = tf.tile(tf.reduce_sum(certs,axis=1,keepdims=True),[1,K])
+    certs = tf.math.divide(certs,certs_norm)
+    
+  else:
+    raise ValueError('unknown certainty_variant')
+
+  #certs = tf.identity(certs, name="certs")
 
   return tf.keras.models.Model(
       inputs=input_layer, 
-      outputs={'logits':logits,'uncerts':uncerts}, 
+      outputs={'logits':logits,'probs':probs,'certs':certs}, 
       name='resnet20-multihead')

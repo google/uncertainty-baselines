@@ -96,7 +96,7 @@ def main(argv):
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.experimental.TPUStrategy(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
 
   train_input_fn = utils.load_input_fn(
       split=tfds.Split.TRAIN,
@@ -110,11 +110,9 @@ def main(argv):
       batch_size=FLAGS.per_core_batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=FLAGS.data_dir)
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      train_input_fn)
+  train_dataset = strategy.distribute_datasets_from_function(train_input_fn)
   test_datasets = {
-      'clean': strategy.experimental_distribute_datasets_from_function(
-          clean_test_input_fn),
+      'clean': strategy.distribute_datasets_from_function(clean_test_input_fn),
   }
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar10':
@@ -132,7 +130,7 @@ def main(argv):
             batch_size=FLAGS.per_core_batch_size,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets['{0}_{1}'.format(corruption, intensity)] = (
-            strategy.experimental_distribute_datasets_from_function(input_fn))
+            strategy.distribute_datasets_from_function(input_fn))
 
   ds_info = tfds.builder(FLAGS.dataset).info
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores

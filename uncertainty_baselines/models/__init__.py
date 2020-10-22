@@ -28,7 +28,6 @@ from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchen
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
-from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
@@ -40,7 +39,6 @@ from uncertainty_baselines.models.wide_resnet_dropout import wide_resnet_dropout
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import e_factory as hyperbatchensemble_e_factory
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import LambdaConfig as HyperBatchEnsembleLambdaConfig
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import wide_resnet_hyperbatchensemble
-from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
 from uncertainty_baselines.models.wide_resnet_rank1 import wide_resnet_rank1
 from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be
@@ -48,9 +46,13 @@ from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_var
 
 # When adding a new model, also add to models.py for easier user access.
 
+# pylint: disable=g-import-not-at-top
 try:
-  from uncertainty_baselines.models.bert import create_model as BertBuilder  # pylint: disable=g-import-not-at-top
-  from uncertainty_baselines.models.bert_dropout import create_model as DropoutBertBuilder  # pylint: disable=g-import-not-at-top
-  from uncertainty_baselines.models.bert_sngp import create_model as SngpBertBuilder  # pylint: disable=g-import-not-at-top
+  from uncertainty_baselines.models.bert import create_model as BertBuilder
+  from uncertainty_baselines.models.bert_dropout import create_model as DropoutBertBuilder
+  from uncertainty_baselines.models.bert_sngp import create_model as SngpBertBuilder
+  from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
+  from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
+# pylint: enable=g-import-not-at-top

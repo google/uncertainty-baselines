@@ -66,10 +66,6 @@ flags.DEFINE_string(
     'Directory where the dataset is stored to be loaded via tfds.load. '
     'Optional, useful for loading datasets stored on GCS.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
-flags.DEFINE_bool(
-    'common_output_dir',
-    False,
-    'Whether the output directory has the work unit id appended to it or not.')
 flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
 
 # Accelerator flags.

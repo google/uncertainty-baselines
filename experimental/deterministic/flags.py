@@ -51,10 +51,6 @@ def define_flags() -> List[str]:
       'num_cores', None, 'How many TPU cores or GPUs the job is running on.')
   flags.DEFINE_bool('use_cpu', False, 'Whether to run on CPU.')
   flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or TPU.')
-  flags.DEFINE_bool(
-      'common_output_dir',
-      False,
-      'Whether the output dir has a trial-specific dir appended to it or not.')
 
   # Flags relating to the training/eval loop.
   flags.DEFINE_integer(

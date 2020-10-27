@@ -743,8 +743,8 @@ def main(argv):
       for metric in metrics.values():
         metric.reset_states()
 
-      if (FLAGS.checkpoint_interval > 0 and
-          (epoch + 1) % FLAGS.checkpoint_interval == 0):
+      checkpoint_interval = min(FLAGS.checkpoint_interval, FLAGS.train_epochs)
+      if checkpoint_interval > 0 and (epoch + 1) % checkpoint_interval == 0:
         checkpoint_name = checkpoint.save(
             os.path.join(FLAGS.output_dir, 'checkpoint'))
         logging.info('Saved checkpoint to %s', checkpoint_name)

@@ -27,6 +27,7 @@ from absl import flags
 from absl import logging
 import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
+from tensorflow_addons import metrics as tfa_metrics
 
 import uncertainty_baselines as ub
 import utils  # local file import
@@ -226,6 +227,11 @@ def main(argv):
         'train/auroc': tf.keras.metrics.AUC(),
         'train/loss': tf.keras.metrics.Mean(),
         'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/precision': tf.keras.metrics.Precision(),
+        'train/recall': tf.keras.metrics.Recall(),
+        'train/f1': tfa_metrics.F1Score(
+            num_classes=num_classes, average='micro',
+            threshold=FLAGS.ece_label_threshold),
     }
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -256,6 +262,11 @@ def main(argv):
         'test/acc': tf.keras.metrics.Accuracy(),
         'test/acc_weighted': tf.keras.metrics.Accuracy(),
         'test/eval_time': tf.keras.metrics.Mean(),
+        'test/precision': tf.keras.metrics.Precision(),
+        'test/recall': tf.keras.metrics.Recall(),
+        'test/f1': tfa_metrics.F1Score(
+            num_classes=num_classes, average='micro',
+            threshold=FLAGS.ece_label_threshold),
     })
     for fraction in FLAGS.fractions:
       metrics.update({
@@ -284,6 +295,14 @@ def main(argv):
                 tf.keras.metrics.Accuracy(),
             'test/eval_time_{}'.format(dataset_name):
                 tf.keras.metrics.Mean(),
+            'test/precision_{}'.format(dataset_name):
+                tf.keras.metrics.Precision(),
+            'test/recall_{}'.format(dataset_name):
+                tf.keras.metrics.Recall(),
+            'test/f1_{}'.format(dataset_name):
+                tfa_metrics.F1Score(
+                    num_classes=num_classes, average='micro',
+                    threshold=FLAGS.ece_label_threshold),
         })
         for fraction in FLAGS.fractions:
           metrics.update({
@@ -353,6 +372,8 @@ def main(argv):
       probs = tf.nn.sigmoid(logits)
       # Cast labels to discrete for ECE computation.
       ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
+      one_hot_labels = tf.one_hot(tf.cast(ece_labels, tf.int32),
+                                  depth=num_classes)
       ece_probs = tf.concat([1. - probs, probs], axis=1)
       auc_probs = tf.squeeze(probs, axis=1)
       pred_labels = tf.math.argmax(ece_probs, axis=-1)
@@ -368,6 +389,9 @@ def main(argv):
       metrics['train/auroc'].update_state(labels, auc_probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/ece'].update_state(ece_labels, ece_probs)
+      metrics['train/precision'].update_state(ece_labels, pred_labels)
+      metrics['train/recall'].update_state(ece_labels, pred_labels)
+      metrics['train/f1'].update_state(one_hot_labels, ece_probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -388,6 +412,8 @@ def main(argv):
       probs = tf.nn.sigmoid(logits)
       # Cast labels to discrete for ECE computation.
       ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
+      one_hot_labels = tf.one_hot(tf.cast(ece_labels, tf.int32),
+                                  depth=num_classes)
       ece_probs = tf.concat([1. - probs, probs], axis=1)
       pred_labels = tf.math.argmax(ece_probs, axis=-1)
       auc_probs = tf.squeeze(probs, axis=1)
@@ -412,6 +438,9 @@ def main(argv):
         metrics['test/acc_weighted'].update_state(
             ece_labels, pred_labels, sample_weight=sample_weight)
         metrics['test/eval_time'].update_state(eval_time)
+        metrics['test/precision'].update_state(ece_labels, pred_labels)
+        metrics['test/recall'].update_state(ece_labels, pred_labels)
+        metrics['test/f1'].update_state(one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)
@@ -434,6 +463,12 @@ def main(argv):
             ece_labels, pred_labels, sample_weight=sample_weight)
         metrics['test/eval_time_{}'.format(dataset_name)].update_state(
             eval_time)
+        metrics['test/precision_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels)
+        metrics['test/recall_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels)
+        metrics['test/f1_{}'.format(dataset_name)].update_state(
+            one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}_{}'.format(
               fraction, dataset_name)].update_state(ece_labels, ece_probs)

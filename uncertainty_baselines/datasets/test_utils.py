@@ -37,7 +37,7 @@ class DatasetTest(tf.test.TestCase):
         eval_batch_size=eval_batch_size,
         shuffle_buffer_size=20,
         **kwargs)
-    for split in base.Split:
+    for split in [base.Split.TRAIN, base.Split.VAL, base.Split.TEST]:
       dataset = dataset_builder.build(split).take(1)
       element = next(iter(dataset))
       features = element['features']

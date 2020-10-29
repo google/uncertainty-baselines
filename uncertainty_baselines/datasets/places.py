@@ -49,6 +49,10 @@ class Places365Dataset(base.BaseDataset):
       data_dir: optional dir to save TFDS data to. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
     """
+    if validation_percent < 0.0 or validation_percent >= 1.0:
+      raise ValueError(
+          'validation_percent must be in [0, 1), received {}.'.format(
+              validation_percent))
     num_train_examples = 1803460
     num_validation_examples = int(num_train_examples * validation_percent)
     num_train_examples -= num_validation_examples

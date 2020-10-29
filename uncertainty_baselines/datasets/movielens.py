@@ -54,6 +54,10 @@ class MovieLensDataset(base.BaseDataset):
     # https://www.tensorflow.org/datasets/catalog/movie_lens#movie_lens1m-ratings
     num_total_examples = 1000209
 
+    if validation_percent < 0.0 or validation_percent >= 1.0:
+      raise ValueError(
+          'validation_percent must be in [0, 1), received {}.'.format(
+              validation_percent))
     num_train_examples = int(
         num_total_examples * (1.0 - test_percent - validation_percent))
     num_validation_examples = int(num_total_examples * validation_percent)

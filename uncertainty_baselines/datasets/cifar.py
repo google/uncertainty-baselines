@@ -54,6 +54,10 @@ class _CifarDataset(base.BaseDataset):
       normalize: whether or not to normalize each image by the CIFAR dataset
         mean and stddev.
     """
+    if validation_percent < 0.0 or validation_percent >= 1.0:
+      raise ValueError(
+          'validation_percent must be in [0, 1), received {}.'.format(
+              validation_percent))
     self._normalize = normalize
     num_train_examples = 50000
     num_validation_examples = int(num_train_examples * validation_percent)

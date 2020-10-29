@@ -124,28 +124,28 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  dataset_input_fn = utils.load_input_fn(
+  dataset = utils.load_dataset(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
-      batch_size=FLAGS.per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  test_datasets = {'clean': dataset_input_fn()}
+  test_datasets = {'clean': dataset}
   corruption_types, max_intensity = utils.load_corrupted_test_info(
       FLAGS.dataset)
   for name in corruption_types:
     for intensity in range(1, max_intensity + 1):
       dataset_name = '{0}_{1}'.format(name, intensity)
       if FLAGS.dataset == 'cifar10':
-        load_c_dataset = utils.load_cifar10_c_input_fn
+        load_c_dataset = utils.load_cifar10_c
       else:
-        load_c_dataset = functools.partial(
-            utils.load_cifar100_c_input_fn, path=FLAGS.cifar100_c_path)
-      corrupted_input_fn = load_c_dataset(
+        load_c_dataset = functools.partial(utils.load_cifar100_c,
+                                           path=FLAGS.cifar100_c_path)
+      dataset = load_c_dataset(
           corruption_name=name,
           corruption_intensity=intensity,
-          batch_size=FLAGS.per_core_batch_size,
+          batch_size=batch_size,
           use_bfloat16=FLAGS.use_bfloat16)
-      test_datasets[dataset_name] = corrupted_input_fn()
+      test_datasets[dataset_name] = dataset
 
   model = ub.models.wide_resnet_sngp(
       input_shape=ds_info.features['image'].shape,

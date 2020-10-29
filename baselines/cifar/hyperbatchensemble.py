@@ -210,6 +210,7 @@ def main(argv):
     strategy = tf.distribute.experimental.TPUStrategy(resolver)
 
   per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
+  batch_size = per_core_batch_size * FLAGS.num_cores
   check_bool = FLAGS.train_proportion > 0 and FLAGS.train_proportion <= 1
   assert check_bool, 'Proportion of train set has to meet 0 < prop <= 1.'
 
@@ -219,55 +220,52 @@ def main(argv):
     # the validation set can't be determined by TPU compile.
     assert drop_remainder_validation, 'drop_remainder must be True in TPU mode.'
 
-  train_input_fn = utils.load_input_fn(
+  train_dataset = utils.load_dataset(
       split=tfds.Split.TRAIN,
       name=FLAGS.dataset,
-      batch_size=per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       repeat=True,
       proportion=FLAGS.train_proportion)
   validation_proportion = 1 - FLAGS.train_proportion
-  validation_input_fn = utils.load_input_fn(
+  validation_dataset = utils.load_dataset(
       split=tfds.Split.VALIDATION,
       name=FLAGS.dataset,
-      batch_size=per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       repeat=True,
       proportion=validation_proportion,
       drop_remainder=drop_remainder_validation)
-  clean_test_input_fn = utils.load_input_fn(
+  clean_test_dataset = utils.load_dataset(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
-      batch_size=per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      train_input_fn)
-  validation_dataset = strategy.experimental_distribute_datasets_from_function(
-      validation_input_fn)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  validation_dataset = strategy.experimental_distribute_dataset(
+      validation_dataset)
   test_datasets = {
-      'clean': strategy.experimental_distribute_datasets_from_function(
-          clean_test_input_fn),
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar10':
-      load_c_input_fn = utils.load_cifar10_c_input_fn
+      load_c_dataset = utils.load_cifar10_c
     else:
-      load_c_input_fn = functools.partial(utils.load_cifar100_c_input_fn,
-                                          path=FLAGS.cifar100_c_path)
+      load_c_dataset = functools.partial(utils.load_cifar100_c,
+                                         path=FLAGS.cifar100_c_path)
     corruption_types, max_intensity = utils.load_corrupted_test_info(
         FLAGS.dataset)
     for corruption in corruption_types:
       for intensity in range(1, max_intensity + 1):
-        input_fn = load_c_input_fn(
+        dataset = load_c_dataset(
             corruption_name=corruption,
             corruption_intensity=intensity,
-            batch_size=per_core_batch_size,
+            batch_size=batch_size,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets['{0}_{1}'.format(corruption, intensity)] = (
-            strategy.experimental_distribute_datasets_from_function(input_fn))
+            strategy.experimental_distribute_dataset(dataset))
 
   ds_info = tfds.builder(FLAGS.dataset).info
-  batch_size = per_core_batch_size * FLAGS.num_cores
   train_sample_size = ds_info.splits[
       'train'].num_examples * FLAGS.train_proportion
   steps_per_epoch = int(train_sample_size / batch_size)

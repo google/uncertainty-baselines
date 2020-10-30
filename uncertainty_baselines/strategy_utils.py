@@ -21,7 +21,7 @@ import tensorflow.compat.v2 as tf
 
 
 _Strategy = Union[
-    tf.distribute.MirroredStrategy, tf.distribute.experimental.TPUStrategy]
+    tf.distribute.MirroredStrategy, tf.distribute.TPUStrategy]
 
 
 def get_strategy(tpu: str, use_tpu: bool) -> _Strategy:
@@ -39,7 +39,7 @@ def get_strategy(tpu: str, use_tpu: bool) -> _Strategy:
         tpu=tpu)
     tf.config.experimental_connect_to_cluster(cluster_resolver)
     tf.tpu.experimental.initialize_tpu_system(cluster_resolver)
-    tpu_strategy = tf.distribute.experimental.TPUStrategy(cluster_resolver)
+    tpu_strategy = tf.distribute.TPUStrategy(cluster_resolver)
     return tpu_strategy
 
   return tf.distribute.MirroredStrategy()

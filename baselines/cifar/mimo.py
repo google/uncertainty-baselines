@@ -94,7 +94,7 @@ def main(argv):
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.experimental.TPUStrategy(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
 
   ds_info = tfds.builder(FLAGS.dataset).info
   train_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores // FLAGS.batch_repetitions

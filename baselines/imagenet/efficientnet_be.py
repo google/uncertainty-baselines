@@ -95,7 +95,7 @@ def main(argv):
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.experimental.TPUStrategy(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
 
   width_coefficient, depth_coefficient, input_image_size, dropout_rate = (
       efficientnet_be_model.efficientnet_params(FLAGS.model_name))

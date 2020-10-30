@@ -141,7 +141,8 @@ def run_train_loop(dataset_builder: ub.datasets.BaseDataset,
         checkpoint.restore(checkpoint_manager.latest_checkpoint)
         logging.info('Resuming training from step %d.', last_checkpoint_step)
 
-  train_dataset = ub.utils.build_dataset(dataset_builder, strategy, 'train')
+  train_dataset = dataset_builder.build('train')
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   train_iterator = iter(train_dataset)
 
   iterations_per_loop = min(eval_frequency, log_frequency)

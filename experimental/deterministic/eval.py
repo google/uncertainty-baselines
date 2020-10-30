@@ -112,7 +112,8 @@ def setup_eval(
     model: tf.keras.Model,
     metrics: Dict[str, tf.keras.metrics.Metric]) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
-  test_dataset = ub.utils.build_dataset(dataset_builder, strategy, 'test')
+  test_dataset = dataset_builder.build('test')
+  test_dataset = strategy.experimental_distribute_dataset(test_dataset)
   if trial_dir:
     test_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'test'))
@@ -137,8 +138,8 @@ def setup_eval(
     num_val_steps = (
         dataset_builder.info['num_validation_examples'] //
         dataset_builder.eval_batch_size)
-    val_dataset = ub.utils.build_dataset(
-        dataset_builder, strategy, 'validation')
+    val_dataset = dataset_builder.build('validation')
+    val_dataset = strategy.experimental_distribute_dataset(val_dataset)
     if trial_dir:
       val_summary_writer = tf.summary.create_file_writer(
           os.path.join(trial_dir, 'validation'))

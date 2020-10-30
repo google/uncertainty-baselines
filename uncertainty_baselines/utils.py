@@ -16,12 +16,11 @@
 # Lint as: python3
 """Collection of shared utility functions."""
 
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional
 from absl import logging
 import numpy as np
 
 import tensorflow.compat.v2 as tf
-from uncertainty_baselines.datasets import base
 
 
 def apply_label_smoothing(one_hot_targets, label_smoothing):
@@ -81,29 +80,6 @@ def assert_weights_loaded(model: tf.keras.Model, before_restore_vars):
               np.linalg.norm(before_var),
               np.linalg.norm(after_var))
       raise ValueError(error_message)
-
-
-def build_dataset(
-    dataset_builder: base.BaseDataset,
-    strategy,
-    split: Union[str, float, base.Split],
-    as_tuple: bool = False,
-    ood_dataset_builder: base.BaseDataset = None) -> tf.data.Dataset:
-  """Build a tf.data.Dataset iterator using a DistributionStrategy."""
-  if ood_dataset_builder:
-    dataset = dataset_builder.build(split, as_tuple=as_tuple, ood_split='in')
-    ood_dataset = ood_dataset_builder.build(split, as_tuple=as_tuple,
-                                            ood_split='ood')
-    dataset = dataset.concatenate(ood_dataset)
-  else:
-    dataset = dataset_builder.build(split, as_tuple=as_tuple)
-  # TOOD(znado): look into using experimental_distribute_datasets_from_function
-  # and a wrapped version of dataset_builder.build (see
-  # https://www.tensorflow.org/api_docs/python/tf/distribute/Strategy#experimental_distribute_datasets_from_function).
-  # Can experimental_distribute_dataset properly shard TFDS datasets?
-  if strategy.num_replicas_in_sync > 1:
-    dataset = strategy.experimental_distribute_dataset(dataset)
-  return dataset
 
 
 _TensorDict = Dict[str, tf.Tensor]

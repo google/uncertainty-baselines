@@ -47,8 +47,7 @@ dataset_builder = ub.datasets.Cifar10Dataset(
     batch_size=FLAGS.batch_size,
     eval_batch_size=FLAGS.eval_batch_size,
     validation_percent=0.1)  # Use 5000 validation images.
-train_dataset = ub.utils.build_dataset(
-    dataset_builder, strategy, 'train', as_tuple=True) # as_tuple for model.fit()
+train_dataset = dataset_builder.build('train', strategy, as_tuple=True) # as_tuple for model.fit()
 ```
 
 Alternatively, use the getter command:

@@ -24,6 +24,7 @@ from absl import flags
 from absl import logging
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
@@ -84,20 +85,14 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  imagenet_train = utils.ImageNetInput(
-      is_training=True,
-      data_dir=FLAGS.data_dir,
-      batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
-  imagenet_eval = utils.ImageNetInput(
-      is_training=False,
-      data_dir=FLAGS.data_dir,
-      batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      imagenet_train.input_fn)
-  test_dataset = strategy.experimental_distribute_datasets_from_function(
-      imagenet_eval.input_fn)
+  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
+                                     batch_size=batch_size)
+  test_dataset = builder.as_dataset(split=tfds.Split.TEST,
+                                    batch_size=batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  test_dataset = strategy.experimental_distribute_dataset(test_dataset)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')

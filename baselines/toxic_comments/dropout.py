@@ -612,12 +612,14 @@ def main(argv):
   else:
     # Execute train / eval loop.
     start_time = time.time()
+    train_iterators = {}
+    for dataset_name, train_dataset in train_datasets.items():
+      train_iterators[dataset_name] = iter(train_dataset)
     for epoch in range(initial_epoch, FLAGS.train_epochs):
       logging.info('Starting to run epoch: %s', epoch)
       current_step = epoch * total_steps_per_epoch
-      for dataset_name, train_dataset in train_datasets.items():
+      for dataset_name, train_iterator in train_iterators.items():
         for step in range(dataset_steps_per_epoch[dataset_name]):
-          train_iterator = iter(train_dataset)
           train_step(train_iterator, dataset_name)
 
           current_step += 1

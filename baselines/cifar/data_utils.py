@@ -17,6 +17,7 @@
 
 import functools
 
+from absl import logging
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
@@ -39,6 +40,7 @@ def load_dataset(split,
                  drop_remainder=True,
                  proportion=1.0,
                  validation_set=False,
+                 validation_proportion=0.05,
                  aug_params=None):
   """Loads CIFAR dataset for training or testing.
 
@@ -50,12 +52,18 @@ def load_dataset(split,
     normalize: Whether to apply mean-std normalization on features.
     drop_remainder: bool.
     proportion: float, the proportion of dataset to be used.
-    validation_set: bool, whehter to split a validation set from training data.
+    validation_set: bool, whether to split a validation set from training data.
+    validation_proportion: float, the proportion of training dataset to be used
+      as the validation split, if validation_set is set to True.
     aug_params: dict, data augmentation hyper parameters.
 
   Returns:
     Input function which returns a locally-sharded dataset batch.
   """
+  if proportion < 0. or proportion > 1.:
+    raise ValueError('proportion needs to lie in the range [0, 1]')
+  if validation_proportion < 0. or validation_proportion > 1.:
+    raise ValueError('validation_proportion needs to lie in the range [0, 1]')
   if use_bfloat16:
     dtype = tf.bfloat16
   else:
@@ -109,9 +117,14 @@ def load_dataset(split,
 
   if proportion == 1.0:
     if validation_set:
+      new_name = '{}:3.*.*'.format(name)
       if split == 'validation':
-        dataset = tfds.load(name, split='train[95%:]', as_supervised=True)
+        new_split = 'train[{}%:]'.format(
+            int(100 * (1. - validation_proportion)))
+        dataset = tfds.load(new_name, split=new_split, as_supervised=True)
       elif split == tfds.Split.TRAIN:
+        new_split = 'train[:{}%]'.format(
+            int(100 * (1. - validation_proportion)))
         dataset = tfds.load(name, split='train[:95%]', as_supervised=True)
       # split == tfds.Split.TEST case
       else:
@@ -119,6 +132,8 @@ def load_dataset(split,
     else:
       dataset = tfds.load(name, split=split, as_supervised=True)
   else:
+    logging.warning(
+        'Subset of training dataset is being used without a validation set.')
     new_name = '{}:3.*.*'.format(name)
     if split == tfds.Split.TRAIN:
       new_split = 'train[:{}%]'.format(int(100 * proportion))

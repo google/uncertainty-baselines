@@ -17,9 +17,9 @@
 """Collection of shared utility functions."""
 
 from typing import Any, Callable, Dict, Optional
+
 from absl import logging
 import numpy as np
-
 import tensorflow.compat.v2 as tf
 
 
@@ -86,22 +86,27 @@ _TensorDict = Dict[str, tf.Tensor]
 _StepFn = Callable[[_TensorDict], Optional[_TensorDict]]
 
 
-def call_step_fn(
-    strategy,
-    step_fn: _StepFn,
-    global_inputs: Any) -> Dict[str, float]:
+def call_step_fn(strategy,
+                 step_fn: _StepFn,
+                 global_inputs: Any,
+                 concatenate_outputs: bool = False) -> Dict[str, float]:
   """Call the step_fn on the iterator output using DistributionStrategy."""
+
   step_outputs = strategy.run(step_fn, args=(global_inputs,))
   if step_outputs is None:
     return step_outputs
   if strategy.num_replicas_in_sync > 1:
-    step_outputs = {
-        name: strategy.reduce(tf.distribute.ReduceOp.SUM, (output,), axis=0)
-        for name, output in step_outputs.items()
-    }
-    step_outputs = {
-        k: v / strategy.num_replicas_in_sync
-        for k, v in step_outputs.items()
-    }
+    if concatenate_outputs:
+      step_outputs = {
+          name: tf.concat(output.values, axis=0)
+          for name, output in step_outputs.items()
+      }
+    else:
+      step_outputs = {
+          name: strategy.reduce(tf.distribute.ReduceOp.SUM, (output,), axis=0)
+          for name, output in step_outputs.items()
+      }
+      step_outputs = {
+          k: v / strategy.num_replicas_in_sync for k, v in step_outputs.items()
+      }
   return step_outputs
-

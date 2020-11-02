@@ -81,13 +81,17 @@ def basic_block(inputs, filters, strides, l2, dropout_rate, residual_dropout,
   y = Conv2D(filters,
              strides=1,
              kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
+
+  if not residual_dropout:
+    y = apply_dropout(y, dropout_rate, filterwise_dropout)
+
   if not x.shape.is_compatible_with(y.shape):
     x = Conv2D(filters,
                kernel_size=1,
                strides=strides,
                kernel_regularizer=tf.keras.regularizers.l2(l2))(x)
     if not residual_dropout:
-      y = apply_dropout(y, dropout_rate, filterwise_dropout)
+      x = apply_dropout(x, dropout_rate, filterwise_dropout)
   x = tf.keras.layers.add([x, y])
   return x
 

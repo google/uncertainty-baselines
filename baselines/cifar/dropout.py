@@ -100,7 +100,7 @@ def main(argv):
                 // FLAGS.num_dropout_samples_training)
   test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
-  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
+  steps_per_eval = ds_info.splits['test'].num_examples // test_batch_size
   num_classes = ds_info.features['label'].num_classes
 
   train_dataset = utils.load_dataset(

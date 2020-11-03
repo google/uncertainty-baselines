@@ -328,7 +328,7 @@ def wide_resnet_hyperbatchensemble(input_shape,
       layer_name = block_name + '_conv_{}/'.format(layer_index)
       x = Conv2D(
           filters, kernel_size=1, strides=strides,
-          name=layer_name)([x, input_lambdas, block_e_list[layer_index]])
+          name=layer_name)([x, lambdas, block_e_list[layer_index]])
 
     x = tf.keras.layers.add([x, y])
     if version == 1:

@@ -105,7 +105,11 @@ flags.DEFINE_integer('tuning_every_x_step', 3,
 flags.DEFINE_bool('regularize_fast_weights', False,
                   'Whether to egularize fast weights in BatchEnsemble layers.')
 flags.DEFINE_bool('fast_weights_eq_contraint', True, 'If true, set u,v:=r,s')
-
+flags.DEFINE_integer(
+    'num_eval_samples', 0, 'Number of samples taken for each batch-ens. member.'
+    'If >=0, we take num_eval_samples + the mean of lambdas.'
+    '(by default, notice that when = 0, predictions are with the mean only)'
+    'If < 0, we take -num_eval_samples, without including the mean of lambdas.')
 # Accelerator flags
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
@@ -541,17 +545,35 @@ def main(argv):
     strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_name, num_eval_samples=0):
     """Evaluation StepFn."""
+
+    n_samples = num_eval_samples if num_eval_samples >= 0 else -num_eval_samples
+    if num_eval_samples >= 0:
+      # the +1 accounts for the fact that we add the mean of lambdas
+      ensemble_size = FLAGS.ensemble_size * (1 + n_samples)
+    else:
+      ensemble_size = FLAGS.ensemble_size * n_samples
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       # Note that we don't use tf.tile for labels here
       images, labels = inputs
-      images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
+      images = tf.tile(images, [ensemble_size, 1, 1, 1])
 
       # get lambdas
-      lambdas = log_uniform_mean(lambda_parameters)
-      rep_lambdas = tf.repeat(lambdas, per_core_batch_size, axis=0)
+      samples = log_uniform_sample(n_samples, lambda_parameters)
+      if num_eval_samples >= 0:
+        lambdas = log_uniform_mean(lambda_parameters)
+        lambdas = tf.expand_dims(lambdas, 1)
+        lambdas = tf.concat((lambdas, samples), 1)
+      else:
+        lambdas = samples
+
+      # lambdas with shape (ens size, samples, dim of lambdas)
+      rep_lambdas = tf.repeat(lambdas, per_core_batch_size, axis=1)
+      rep_lambdas = tf.reshape(rep_lambdas,
+                               (ensemble_size * per_core_batch_size, -1))
 
       # eval on testsets
       logits = model([images, rep_lambdas], training=False)
@@ -559,20 +581,22 @@ def main(argv):
         logits = tf.cast(logits, tf.float32)
       probs = tf.nn.softmax(logits)
       per_probs = tf.split(probs,
-                           num_or_size_splits=FLAGS.ensemble_size,
+                           num_or_size_splits=ensemble_size,
                            axis=0)
 
       # per member performance and gibbs performance (average per member perf)
       if dataset_name == 'clean':
         for i in range(FLAGS.ensemble_size):
-          member_probs = per_probs[i]
+          # we record the first sample of lambdas per batch-ens member
+          first_member_index = i * (ensemble_size // FLAGS.ensemble_size)
+          member_probs = per_probs[first_member_index]
           member_loss = tf.keras.losses.sparse_categorical_crossentropy(
               labels, member_probs)
           metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
           metrics['test/accuracy_member_{}'.format(i)].update_state(
               labels, member_probs)
 
-        labels_tile = tf.tile(labels, [FLAGS.ensemble_size])
+        labels_tile = tf.tile(labels, [ensemble_size])
         metrics['test/gibbs_nll'].update_state(tf.reduce_mean(
             tf.keras.losses.sparse_categorical_crossentropy(labels_tile,
                                                             logits,
@@ -581,7 +605,7 @@ def main(argv):
 
       # ensemble performance
       negative_log_likelihood = ensemble_crossentropy(labels, logits,
-                                                      FLAGS.ensemble_size)
+                                                      ensemble_size)
       probs = tf.reduce_mean(per_probs, axis=0)
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
@@ -599,7 +623,7 @@ def main(argv):
       if dataset_name == 'clean':
         per_probs_stacked = tf.stack(per_probs, axis=0)
         diversity_results = um.average_pairwise_diversity(
-            per_probs_stacked, FLAGS.ensemble_size)
+            per_probs_stacked, ensemble_size)
         for k, v in diversity_results.items():
           metrics['test/' + k].update_state(v)
 
@@ -648,7 +672,7 @@ def main(argv):
         if step % 20 == 0:
           logging.info('Starting to run eval step %s of epoch: %s', step,
                        epoch)
-        test_step(test_iterator, dataset_name)
+        test_step(test_iterator, dataset_name, FLAGS.num_eval_samples)
       logging.info('Done with testing on %s', dataset_name)
 
     corrupt_results = {}

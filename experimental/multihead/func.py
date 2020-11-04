@@ -6,20 +6,13 @@
 
 import numpy as np
 import tensorflow as tf
-#import uncertainty_baselines as ub
+import uncertainty_baselines as ub
 import uncertainty_metrics as um
+import tensorflow_datasets as tfds
 
-class BrierScore(tf.keras.metrics.Mean):
+import utils #from baselines/cifar
 
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        brier_score = um.brier_score(labels=y_true, probabilities=y_pred)
-        super(BrierScore, self).update_state(brier_score)
 
-# class summation(tf.keras.metrics.Mean):
-#     def update_state(self, y_true, y_pred, sample_weight=None): 
-#         #brier_score = um.brier_score(labels=y_true, probabilities=y_pred)
-#         super(summation, self).update_state(y_pred)
-     
 def one_vs_all_loss_fn(dm_alpha: float = 1., from_logits: bool = True):
     """Requires from_logits=True to calculate correctly."""
     if not from_logits:
@@ -66,3 +59,60 @@ def one_vs_all_loss_fn(dm_alpha: float = 1., from_logits: bool = True):
 
     return one_vs_all_loss
 
+def load_datasets_basic(FLAGS):
+    strategy = ub.strategy_utils.get_strategy(None, False)
+    
+    dataset_builder = ub.datasets.Cifar10Dataset(batch_size=FLAGS.batch_size,
+                                                 eval_batch_size=FLAGS.eval_batch_size,
+                                                 validation_percent=FLAGS.validation_percent)
+    
+    train_dataset = ub.utils.build_dataset(dataset_builder, 
+                                           strategy, 
+                                           'train', 
+                                           as_tuple=True)
+    val_dataset = ub.utils.build_dataset(dataset_builder, 
+                                         strategy, 
+                                         'validation', 
+                                         as_tuple=True)
+    test_dataset = ub.utils.build_dataset(dataset_builder, 
+                                          strategy, 
+                                          'test', 
+                                          as_tuple=True)    
+    
+    return dataset_builder,train_dataset,val_dataset,test_dataset
+
+def load_datasets_corrupted(FLAGS):
+    train_dataset = utils.load_input_fn(split=tfds.Split.TRAIN,
+                                         name=FLAGS.dataset,
+                                         batch_size=FLAGS.batch_size,
+                                         use_bfloat16=False)()
+    test_datasets = {'clean': utils.load_input_fn(split=tfds.Split.TEST,
+                                                  name=FLAGS.dataset,
+                                                  batch_size=FLAGS.batch_size,
+                                                  use_bfloat16=False)()
+                    }
+    
+    #load corrupted/modified cifar10 datasets
+    load_c_input_fn = utils.load_cifar10_c_input_fn
+    corruption_types, max_intensity = utils.load_corrupted_test_info(FLAGS.dataset)
+    for corruption in corruption_types:
+        for intensity in range(1, max_intensity + 1):
+            input_fn = load_c_input_fn(corruption_name=corruption,
+                                       corruption_intensity=intensity,
+                                       batch_size=FLAGS.batch_size,
+                                       use_bfloat16=False)
+            test_datasets['{0}_{1}'.format(corruption, intensity)] = input_fn()
+    return train_dataset, test_datasets
+
+def add_dataset_flags(dataset_builder,FLAGS):
+    FLAGS.steps_per_epoch = dataset_builder.info['num_train_examples'] // FLAGS.batch_size
+    FLAGS.validation_steps = dataset_builder.info['num_validation_examples'] // FLAGS.eval_batch_size
+    FLAGS.test_steps = dataset_builder.info['num_test_examples'] // FLAGS.eval_batch_size
+    FLAGS.no_classes = 10 # awful but no way to infer from dataset...
+    
+    return FLAGS
+
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self

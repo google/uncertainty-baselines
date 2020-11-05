@@ -45,7 +45,34 @@ flags.DEFINE_integer('lr_warmup_epochs', 1,
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
                   'Epochs to decay learning rate by.')
+flags.DEFINE_float(
+    'train_proportion', 1.,
+    'Only a fraction (between 0 and 1) of the train set is used for training. '
+    'The remainder can be used for validation.')
+flags.register_validator('train_proportion',
+                         lambda tp: tp > 0.0 and tp <= 1.0,
+                         message='--train_proportion must be in (0, 1].')
+
 flags.DEFINE_float('l2', 2e-4, 'L2 regularization coefficient.')
+flags.DEFINE_float('label_smoothing', 0., 'Label smoothing parameter in [0,1].')
+flags.register_validator('label_smoothing',
+                         lambda ls: ls >= 0.0 and ls <= 1.0,
+                         message='--label_smoothing must be in [0, 1].')
+
+# Fine-grained specification of the hyperparameters (used when FLAGS.l2 is None)
+flags.DEFINE_float('bn_l2', None, 'L2 reg. coefficient for batch-norm layers.')
+flags.DEFINE_float('input_conv_l2', None,
+                   'L2 reg. coefficient for the input conv layer.')
+flags.DEFINE_float('group_1_conv_l2', None,
+                   'L2 reg. coefficient for the 1st group of conv layers.')
+flags.DEFINE_float('group_2_conv_l2', None,
+                   'L2 reg. coefficient for the 2nd group of conv layers.')
+flags.DEFINE_float('group_3_conv_l2', None,
+                   'L2 reg. coefficient for the 3rd group of conv layers.')
+flags.DEFINE_float('dense_kernel_l2', None,
+                   'L2 reg. coefficient for the kernel of the dense layer.')
+flags.DEFINE_float('dense_bias_l2', None,
+                   'L2 reg. coefficient for the bias of the dense layer.')
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
@@ -77,8 +104,17 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 
+def _extract_hyperparameter_dictionary():
+  """Create the dictionary of hyperparameters from FLAGS."""
+  flags_as_dict = FLAGS.flag_values_dict()
+  hp_keys = ub.models.models.wide_resnet.HP_KEYS
+  hps = {k: flags_as_dict[k] for k in hp_keys}
+  return hps
+
+
 def main(argv):
   del argv  # unused arg
+
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
@@ -96,7 +132,9 @@ def main(argv):
 
   ds_info = tfds.builder(FLAGS.dataset).info
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
+  train_dataset_size = (
+      ds_info.splits['train'].num_examples * FLAGS.train_proportion)
+  steps_per_epoch = int(train_dataset_size / batch_size)
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
@@ -105,7 +143,8 @@ def main(argv):
       name=FLAGS.dataset,
       batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
-      data_dir=FLAGS.data_dir)
+      data_dir=FLAGS.data_dir,
+      proportion=FLAGS.train_proportion)
   clean_test_dataset = utils.load_dataset(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
@@ -149,6 +188,7 @@ def main(argv):
         width_multiplier=10,
         num_classes=num_classes,
         l2=FLAGS.l2,
+        hps=_extract_hyperparameter_dictionary(),
         version=2)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
@@ -214,10 +254,20 @@ def main(argv):
         logits = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
-        negative_log_likelihood = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                            logits,
-                                                            from_logits=True))
+
+        if FLAGS.label_smoothing == 0.:
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.sparse_categorical_crossentropy(labels,
+                                                              logits,
+                                                              from_logits=True))
+        else:
+          one_hot_labels = tf.one_hot(tf.cast(labels, tf.int32), num_classes)
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.categorical_crossentropy(
+                  one_hot_labels,
+                  logits,
+                  from_logits=True,
+                  label_smoothing=FLAGS.label_smoothing))
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
         # Scale the loss given the TPUStrategy will reduce sum all gradients.

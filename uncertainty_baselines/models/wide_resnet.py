@@ -21,6 +21,8 @@ from typing import Any, Dict, Iterable, Optional
 
 import tensorflow as tf
 
+HP_KEYS = ('bn_l2', 'input_conv_l2', 'group_1_conv_l2', 'group_2_conv_l2',
+           'group_3_conv_l2', 'dense_kernel_l2', 'dense_bias_l2')
 
 BatchNormalization = functools.partial(  # pylint: disable=invalid-name
     tf.keras.layers.BatchNormalization,
@@ -38,7 +40,8 @@ def basic_block(
     inputs: tf.Tensor,
     filters: int,
     strides: int,
-    l2: float,
+    conv_l2: float,
+    bn_l2: float,
     version: int) -> tf.Tensor:
   """Basic residual block of two 3x3 convs.
 
@@ -46,7 +49,8 @@ def basic_block(
     inputs: tf.Tensor.
     filters: Number of filters for Conv2D.
     strides: Stride dimensions for Conv2D.
-    l2: L2 regularization coefficient.
+    conv_l2: L2 regularization coefficient for the conv kernels.
+    bn_l2: L2 regularization coefficient for the batch norm layers.
     version: 1, indicating the original ordering from He et al. (2015); or 2,
       indicating the preactivation ordering from He et al. (2016).
 
@@ -56,39 +60,67 @@ def basic_block(
   x = inputs
   y = inputs
   if version == 2:
-    y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                           gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
+    y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(bn_l2),
+                           gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(y)
     y = tf.keras.layers.Activation('relu')(y)
   y = Conv2D(filters,
              strides=strides,
-             kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                         gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
+             kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(y)
+  y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(bn_l2),
+                         gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(y)
   y = tf.keras.layers.Activation('relu')(y)
   y = Conv2D(filters,
              strides=1,
-             kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
+             kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(y)
   if version == 1:
-    y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                           gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
+    y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(bn_l2),
+                           gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(y)
   if not x.shape.is_compatible_with(y.shape):
     x = Conv2D(filters,
                kernel_size=1,
                strides=strides,
-               kernel_regularizer=tf.keras.regularizers.l2(l2))(x)
+               kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(x)
   x = tf.keras.layers.add([x, y])
   if version == 1:
     x = tf.keras.layers.Activation('relu')(x)
   return x
 
 
-def group(inputs, filters, strides, num_blocks, l2, version):
+def group(inputs, filters, strides, num_blocks, conv_l2, bn_l2, version):
   """Group of residual blocks."""
-  x = basic_block(inputs, filters=filters, strides=strides, l2=l2,
-                  version=version)
+  x = basic_block(
+      inputs,
+      filters=filters,
+      strides=strides,
+      conv_l2=conv_l2,
+      bn_l2=bn_l2,
+      version=version)
   for _ in range(num_blocks - 1):
-    x = basic_block(x, filters=filters, strides=1, l2=l2, version=version)
+    x = basic_block(
+        x,
+        filters=filters,
+        strides=1,
+        conv_l2=conv_l2,
+        bn_l2=bn_l2,
+        version=version)
   return x
+
+
+def _parse_hyperparameters(l2: float, hps: Dict[str, float]):
+  """Extract the L2 parameters for the dense, conv and batch-norm layers."""
+
+  assert_msg = ('Ambiguous hyperparameter specifications: either l2 or hps '
+                'must be provided (received {} and {}).'.format(l2, hps))
+  is_specified = lambda h: bool(h) and all(v is not None for v in h.values())
+  only_l2_is_specified = l2 is not None and not is_specified(hps)
+  only_hps_is_specified = l2 is None and is_specified(hps)
+  assert only_l2_is_specified or only_hps_is_specified, assert_msg
+  if only_hps_is_specified:
+    assert_msg = 'hps must contain the keys {}!={}.'.format(HP_KEYS, hps.keys())
+    assert set(hps.keys()).issuperset(HP_KEYS), assert_msg
+    return hps
+  else:
+    return {k: l2 for k in HP_KEYS}
 
 
 def wide_resnet(
@@ -97,7 +129,8 @@ def wide_resnet(
     width_multiplier: int,
     num_classes: int,
     l2: float,
-    version: int) -> tf.keras.models.Model:
+    version: int,
+    hps: Dict[str, float] = None) -> tf.keras.models.Model:
   """Builds Wide ResNet.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the
@@ -115,50 +148,57 @@ def wide_resnet(
     l2: L2 regularization coefficient.
     version: 1, indicating the original ordering from He et al. (2015); or 2,
       indicating the preactivation ordering from He et al. (2016).
+    hps: Fine-grained specs of the hyperparameters, as a Dict[str, float].
 
   Returns:
     tf.keras.Model.
   """
+  l2_reg = tf.keras.regularizers.l2
+  hps = _parse_hyperparameters(l2, hps)
+
   if (depth - 4) % 6 != 0:
     raise ValueError('depth should be 6n+4 (e.g., 16, 22, 28, 40).')
   num_blocks = (depth - 4) // 6
   inputs = tf.keras.layers.Input(shape=input_shape)
   x = Conv2D(16,
              strides=1,
-             kernel_regularizer=tf.keras.regularizers.l2(l2))(inputs)
+             kernel_regularizer=l2_reg(hps['input_conv_l2']))(inputs)
   if version == 1:
-    x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                           gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
+    x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),
+                           gamma_regularizer=l2_reg(hps['bn_l2']))(x)
     x = tf.keras.layers.Activation('relu')(x)
   x = group(x,
             filters=16 * width_multiplier,
             strides=1,
             num_blocks=num_blocks,
-            l2=l2,
+            conv_l2=hps['group_1_conv_l2'],
+            bn_l2=hps['bn_l2'],
             version=version)
   x = group(x,
             filters=32 * width_multiplier,
             strides=2,
             num_blocks=num_blocks,
-            l2=l2,
+            conv_l2=hps['group_2_conv_l2'],
+            bn_l2=hps['bn_l2'],
             version=version)
   x = group(x,
             filters=64 * width_multiplier,
             strides=2,
             num_blocks=num_blocks,
-            l2=l2,
+            conv_l2=hps['group_3_conv_l2'],
+            bn_l2=hps['bn_l2'],
             version=version)
   if version == 2:
-    x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
-                           gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
+    x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),
+                           gamma_regularizer=l2_reg(hps['bn_l2']))(x)
     x = tf.keras.layers.Activation('relu')(x)
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
   x = tf.keras.layers.Flatten()(x)
   x = tf.keras.layers.Dense(
       num_classes,
       kernel_initializer='he_normal',
-      kernel_regularizer=tf.keras.regularizers.l2(l2),
-      bias_regularizer=tf.keras.regularizers.l2(l2))(x)
+      kernel_regularizer=l2_reg(hps['dense_kernel_l2']),
+      bias_regularizer=l2_reg(hps['dense_bias_l2']))(x)
   return tf.keras.Model(
       inputs=inputs,
       outputs=x,

@@ -19,6 +19,7 @@
 | Monte Carlo Dropout (size=30) | 1e-3 / 0.145 | 99.9% / 96.1% | 1.5e-3 / 0.019 | 1.27 / 70.0% / 0.167 | 1.2 (8 TPUv2 cores) | 19.1 / 2.457  (8 TPUv2 cores) | 36.5M |
 | Monte Carlo Dropout, improved (size=30)<sup>11</sup> | 0.004 / 0.116 | 99.9% / 96.2% | 0.003 / 0.005 | 0.69 / 79.6% / 0.068 | 4.8 (8 TPUv2 cores) | 19.6 / 2.387  (8 TPUv2 cores)  | 36.5M |
 | Ensemble (size=4) | 2e-3 / 0.114 | 99.9% / 96.6% | - / 0.010 | 0.81 / 77.9% / 0.087 | 1.2 (32 TPUv2 cores) | 20.7 / 0.317  (8 TPUv2 cores) | 146M |
+| Hyper-deep ensemble (size=4)<sup>12</sup> | - / 0.118 | - / 96.4% | - / 0.008 | 0.83 / 76.8% / 0.079 | 1.2 (32 TPUv2 cores) | 20.7 / 0.317  (8 TPUv2 cores) | 146M |
 | Variational inference (sample=1) | 1e-3 / 0.211 | 99.9% / 94.7% | 1e-3 / 0.029 | 1.46 / 71.3% / 0.181 | 5.5 (8 TPUv2 cores) | 4.5 / 0.220 (8 TPUv2 cores) | 73M |
 
 ## CIFAR-100
@@ -40,6 +41,7 @@
 | Monte Carlo Dropout (size=30) | 6e-3 / 0.785 | 99.9% / 80.7% | 5e-3 / 0.0487 | 2.73 / 46.2 / 0.207 | 1.1 (8 TPUv2 cores) | 19.5 / 2.457 (8 TPUv2 cores) | 36.5M |
 | Monte Carlo Dropout, improved (size=30)<sup>11</sup> | 0.056 / 0.637 | 98.9% / 82.1% | 0.025 / 0.028 | 1.93 / 57.2% / 0.098 | 5.17 (8 TPUv2 cores) | 19.6 / 2.393 (8 TPUv2 cores) |  36.5M |
 | Ensemble (size=4) | 0.003 / 0.666 | 99.9% / 82.7% | - / 0.021 | 2.27 / 54.1% / 0.138 | 1.1 (32 TPUv2 cores) | 20.1 / 0.317 (8 TPUv2 cores) |  146M |
+| Hyper-deep ensemble (size=4)<sup>12</sup> | - / 0.654 | - / 83.0% | - / 0.022 | 2.26 / 53.2% / 0.128 | 1.2 (32 TPUv2 cores) | 20.7 / 0.317  (8 TPUv2 cores) | 146M |
 | Variational inference (sample=1) | 3e-3 / 0.944 | 99.9% / 77.8% | 2e-3 / 0.097 | 3.18 / 48.2% / 0.271 | 5.5 (8 TPUv2 cores) | 4.69 / 0.210 (8 TPUv2 cores) | 73M |
 
 ## Metrics
@@ -121,5 +123,6 @@ We note results in the literature below. Note there are differences in the setup
 9. Uses ResNet-18. cSGHMC uses a total of 12 copies of the full size of weights for prediction. Ensembles use 4 times cSGHMC's number. The authors use a T=1/200 temperature scaling on the log-posterior (see the newly added appendix I at https://openreview.net/forum?id=rkeS1RVtPS).
 10. Results are slightly worse than open-source implementations such as the [original paper](https://github.com/szagoruyko/wide-residual-networks)'s 80.75%. Our experiments only tuned over l2, so there may be more work to be done.
 11. MC dropout can be significantly improved using three techniques. a, Using dropout after every layer instead of only in the residual connections. b, Using filterwise dropout in the convolutional layers instead of dropout for each individual value in the feature map. c, Repeating examples in the training batch, although this comes at an increased training cost.
+12. The results of hyper-deep ensemble are slightly worse than those reported in the [original paper](https://arxiv.org/pdf/2006.13570.pdf). This is due to a simplifcation of the implementation, namely the absence of the stratification phase (see appendix C.7.5 in the [original paper](https://arxiv.org/pdf/2006.13570.pdf) for a discussion about the impact of the stratification phase).
 
 TODO(trandustin): Add column for Checkpoints.

@@ -56,6 +56,20 @@ flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
 
 
+def parse_checkpoint_dir(checkpoint_dir):
+  """Parse directory of checkpoints."""
+  paths = []
+  subdirectories = tf.io.gfile.glob(os.path.join(checkpoint_dir, '*'))
+  is_checkpoint = lambda f: ('checkpoint' in f and '.index' in f)
+  for subdir in subdirectories:
+    for path, _, files in tf.io.gfile.walk(subdir):
+      if any(f for f in files if is_checkpoint(f)):
+        latest_checkpoint_without_suffix = tf.train.latest_checkpoint(path)
+        paths.append(os.path.join(path, latest_checkpoint_without_suffix))
+        break
+  return paths
+
+
 def main(argv):
   del argv  # unused arg
   if not FLAGS.use_gpu:
@@ -105,9 +119,7 @@ def main(argv):
   logging.info('Model number of weights: %s', model.count_params())
 
   # Search for checkpoints from their index file; then remove the index suffix.
-  ensemble_filenames = tf.io.gfile.glob(os.path.join(FLAGS.checkpoint_dir,
-                                                     '**/*.index'))
-  ensemble_filenames = [filename[:-6] for filename in ensemble_filenames]
+  ensemble_filenames = parse_checkpoint_dir(FLAGS.checkpoint_dir)
   ensemble_size = len(ensemble_filenames)
   logging.info('Ensemble size: %s', ensemble_size)
   logging.info('Ensemble number of weights: %s',

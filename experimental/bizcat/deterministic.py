@@ -25,8 +25,8 @@ from absl import logging
 
 import tensorflow as tf
 import uncertainty_baselines as ub
-import utils  # local file import
 from uncertainty_baselines.datasets import base
+import utils  # local file import
 import uncertainty_metrics as um
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
@@ -38,11 +38,13 @@ flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 90, 'Number of training epochs.')
+flags.DEFINE_integer('train_epochs', 400, 'Number of training epochs.')
 flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
+flags.DEFINE_string('lr_schedule', 'cosine',
+                    'learning rate schedule: either cosine and usual')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -110,10 +112,13 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               _LR_SCHEDULE)
+    if FLAGS.lr_schedule == 'cosine':
+      learning_rate = utils.CosineLearningRateSchedule(
+          base_lr, steps_per_epoch * FLAGS.train_epochs)
+    elif FLAGS.lr_schedule == 'default':
+      learning_rate = utils.LearningRateSchedule(steps_per_epoch, base_lr,
+                                                 FLAGS.train_epochs,
+                                                 _LR_SCHEDULE)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)

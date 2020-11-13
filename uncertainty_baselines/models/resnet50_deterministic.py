@@ -113,7 +113,7 @@ def group(inputs, filters, num_blocks, stage, strides):
   return x
 
 
-def resnet50_deterministic(input_shape, num_classes):
+def resnet50_deterministic(input_shape, num_classes, omit_last_layer=False):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -123,6 +123,7 @@ def resnet50_deterministic(input_shape, num_classes):
   Args:
     input_shape: Shape tuple of input excluding batch dimension.
     num_classes: Number of output classes.
+    omit_last_layer: Optional. Omits the last pooling layer if it is to True.
 
   Returns:
     tf.keras.Model.
@@ -147,6 +148,10 @@ def resnet50_deterministic(input_shape, num_classes):
   x = group(x, [128, 128, 512], stage=3, num_blocks=4, strides=2)
   x = group(x, [256, 256, 1024], stage=4, num_blocks=6, strides=2)
   x = group(x, [512, 512, 2048], stage=5, num_blocks=3, strides=2)
+
+  if omit_last_layer:
+    return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')
+
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
   x = tf.keras.layers.Dense(
       num_classes,

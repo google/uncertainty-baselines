@@ -39,6 +39,7 @@ flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
 flags.DEFINE_integer('train_epochs', 400, 'Number of training epochs.')
+flags.DEFINE_integer('checkin_epochs', 75, 'Number of epochs before checkin.')
 flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
@@ -54,9 +55,12 @@ flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
 FLAGS = flags.FLAGS
 
+IMAGENET_STEPS_PER_EPOCH = 312
 NUM_CLASSES = 20
 SHUFFLE_BUFFER_SIZE = 16384
 IMAGE_SIZE = 224
+
+IMAGENET_PRETRAINED_MODEL_CHECKPOINT = ''  # change this path
 
 _LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
     (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
@@ -105,16 +109,15 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')
-    model = ub.models.resnet50_deterministic(
-        input_shape=(IMAGE_SIZE, IMAGE_SIZE, 3), num_classes=NUM_CLASSES)
-    logging.info('Model input shape: %s', model.input_shape)
-    logging.info('Model output shape: %s', model.output_shape)
-    logging.info('Model number of weights: %s', model.count_params())
+    base_model = ub.models.resnet50_deterministic(
+        input_shape=(IMAGE_SIZE, IMAGE_SIZE, 3),
+        num_classes=NUM_CLASSES,
+        omit_last_layer=True)
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
     if FLAGS.lr_schedule == 'cosine':
       learning_rate = utils.CosineLearningRateSchedule(
-          base_lr, steps_per_epoch * FLAGS.train_epochs)
+          base_lr, steps_per_epoch, FLAGS.train_epochs - FLAGS.checkin_epochs)
     elif FLAGS.lr_schedule == 'default':
       learning_rate = utils.LearningRateSchedule(steps_per_epoch, base_lr,
                                                  FLAGS.train_epochs,
@@ -122,20 +125,45 @@ def main(argv):
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)
+    # Needs to be a resnet-50 checkpoint.
+    checkpoint = tf.train.Checkpoint(model=base_model, optimizer=optimizer)
+    try:
+      checkpoint.restore(IMAGENET_PRETRAINED_MODEL_CHECKPOINT
+                        ).assert_existing_objects_matched()
+    except AssertionError as e:
+      logging.warning(e)
+      logging.warning('Could not load checkpoint using object-based TF2 API.')
+      logging.warning('Attempting to load by matching variable names in the '
+                      'model with the checkpoint.')
+    inputs = tf.keras.Input(shape=(IMAGE_SIZE, IMAGE_SIZE, 3))
+    x = base_model(inputs)
+    x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
+    x = tf.keras.layers.Dense(
+        NUM_CLASSES,
+        activation=None,
+        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
+        name='fc20')(
+            x)
+    model = tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')
+    logging.info('Model input shape: %s', model.input_shape)
+    logging.info('Model output shape: %s', model.output_shape)
+    logging.info('Model number of weights: %s', model.count_params())
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
         'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/learning_rate': tf.keras.metrics.Mean(),
+        'train/epoch': tf.keras.metrics.Mean(),
+        'train/decay_factor': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
     logging.info('Finished building Keras ResNet-50 model')
 
-    checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
-    initial_epoch = 0
+    initial_epoch = optimizer.iterations.numpy() // IMAGENET_STEPS_PER_EPOCH
     if latest_checkpoint:
       # checkpoint.restore must be within a strategy.scope() so that optimizer
       # slot variables are mirrored.
@@ -187,6 +215,10 @@ def main(argv):
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
+      metrics['train/learning_rate'].update_state(learning_rate.get_lr())
+      metrics['train/epoch'].update_state(learning_rate.get_epoch())
+      metrics['train/decay_factor'].update_state(
+          learning_rate.get_decay_factor())
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -221,24 +253,21 @@ def main(argv):
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
-  for epoch in range(initial_epoch, FLAGS.train_epochs):
+  for epoch in range(0, FLAGS.train_epochs - initial_epoch):
     logging.info('Starting to run epoch: %s', epoch)
     for step in range(steps_per_epoch):
       train_step(train_iterator)
 
       current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
+      max_steps = steps_per_epoch * (FLAGS.train_epochs - initial_epoch)
       time_elapsed = time.time() - start_time
       steps_per_sec = float(current_step) / time_elapsed
       eta_seconds = (max_steps - current_step) / steps_per_sec
       message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
                  'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
+                     current_step / max_steps, epoch + 1,
+                     FLAGS.train_epochs - initial_epoch, steps_per_sec,
+                     eta_seconds / 60, time_elapsed / 60))
       if step % 20 == 0:
         logging.info(message)
 

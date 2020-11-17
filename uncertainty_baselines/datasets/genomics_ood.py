@@ -19,6 +19,7 @@ import os
 from typing import Any, Dict
 
 import tensorflow.compat.v2 as tf
+import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 # Training data contains 10 bacteria classes and 100,000 examples per class
@@ -27,7 +28,7 @@ _NUM_TRAIN = 100000 * 10
 _NUM_VAL = 10000 * 10
 _NUM_TEST = 10000 * 10
 
-# tfrecord data filenames
+# TFRecord data filenames.
 _TRAIN_FILEPATTERN = 'genomics_ood-train.tfrecord*'
 _VAL_FILEPATTERN = 'genomics_ood-validation.tfrecord*'
 _TEST_FILEPATTERN = 'genomics_ood-test.tfrecord*'
@@ -35,41 +36,110 @@ _VAL_OOD_FILEPATTERN = 'genomics_ood-validation_ood.tfrecord*'
 _TEST_OOD_FILEPATTERN = 'genomics_ood-test_ood.tfrecord*'
 
 
-def tfrecord_filepattern(split, data_mode):
+def _tfrecord_filepattern(split, data_mode):
   """Filenames of different subtypes of data."""
-  if split == 'train' and data_mode == 'ind':
+  if split == tfds.Split.TRAIN and data_mode == 'ind':
     return _TRAIN_FILEPATTERN
-  elif split == 'validation' and data_mode == 'ind':
+  elif split == tfds.Split.VALIDATION and data_mode == 'ind':
     return _VAL_FILEPATTERN
-  elif split == 'test' and data_mode == 'ind':
+  elif split == tfds.Split.TEST and data_mode == 'ind':
     return _TEST_FILEPATTERN
-  elif split == 'validation' and data_mode == 'ood':
+  elif split == tfds.Split.VALIDATION and data_mode == 'ood':
     return _VAL_OOD_FILEPATTERN
-  elif split == 'test' and data_mode == 'ood':
+  elif split == tfds.Split.TEST and data_mode == 'ood':
     return _TEST_OOD_FILEPATTERN
   else:
     raise ValueError(
-        'No such a combination of split:{} and data_mode:{}'.format(
+        'No such a combination of split={} and data_mode={}'.format(
             split, data_mode))
+
+
+class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
+  """Minimal TFDS DatasetBuilder for the Genomics OOD dataset."""
+  VERSION = tfds.core.Version('1.0.0')
+  RELEASE_NOTES = {
+      '1.0.0': 'Initial release.',
+  }
+
+  def __init__(self, data_dir, data_mode, **kwargs):
+    super(_GenomicsOodDatasetBuilder, self).__init__(
+        data_dir=data_dir, **kwargs)
+    # We have to override self._data_dir to prevent the parent class from
+    # appending the class name and version.
+    self._data_dir = data_dir
+    self._data_mode = data_mode
+
+  def _download_and_prepare(self, dl_manager, download_config=None):
+    """Downloads and prepares dataset for reading."""
+    raise NotImplementedError(
+        'Must provide a data_dir with the files already downloaded to.')
+
+  def _as_dataset(
+      self,
+      split: tfds.Split,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False) -> tf.data.Dataset:
+    """Constructs a `tf.data.Dataset`."""
+    del decoders
+    del read_config
+    del shuffle_files
+    # TODO(jjren) change to tfds.load once tfds dataset is available
+    file_pattern = _tfrecord_filepattern(split, self._data_mode)
+    file_list = tf.io.gfile.glob(os.path.join(self._data_dir, file_pattern))
+    dataset = tf.data.TFRecordDataset(file_list)
+    return dataset
+
+  def _info(self) -> tfds.core.DatasetInfo:
+    """Returns the `tfds.core.DatasetInfo` object."""
+    features = {
+        'seq': tfds.features.Tensor(shape=[], dtype=tf.string),
+        'label': tfds.features.ClassLabel(num_classes=10),
+        'seq_info': tfds.features.Tensor(shape=(None,), dtype=tf.string),
+        'domain': tfds.features.Tensor(shape=(None,), dtype=tf.string),
+    }
+    info = tfds.core.DatasetInfo(
+        builder=self,
+        description='Genomics OOD dataset.',
+        features=tfds.features.FeaturesDict(features),
+        # Note that while metadata seems to be the most appropriate way to store
+        # arbitrary info, it will not be printed when printing out the dataset
+        # info.
+        metadata=tfds.core.MetadataDict())
+    split_dict = tfds.core.SplitDict('genomics_ood')
+    # Instead of having a single element shard_lengths, we should really have a
+    # list of the number of elements in each file shard in each split.
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.TRAIN,
+        shard_lengths=[_NUM_TRAIN]))
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.VALIDATION,
+        shard_lengths=[_NUM_VAL]))
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.TEST,
+        shard_lengths=[_NUM_TEST]))
+    info.update_splits_if_different(split_dict)
+    return info
 
 
 class GenomicsOodDataset(base.BaseDataset):
   """Genomics OOD dataset builder class."""
 
-  def __init__(self,
-               batch_size: int,
-               eval_batch_size: int,
-               shuffle_buffer_size: int = None,
-               num_parallel_parser_calls: int = 64,
-               eval_filter_class_id: int = -1,
-               data_mode: str = 'ind',
-               data_dir: str = None,
-               **unused_kwargs: Dict[str, Any]):
+  def __init__(
+      self,
+      split: str,
+      shuffle_buffer_size: int = None,
+      num_parallel_parser_calls: int = 64,
+      eval_filter_class_id: int = -1,
+      data_mode: str = 'ind',
+      data_dir: str = None,
+      **unused_kwargs: Dict[str, Any]):
     """Create an Genomics OOD tf.data.Dataset builder.
 
     Args:
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
@@ -77,29 +147,22 @@ class GenomicsOodDataset(base.BaseDataset):
       eval_filter_class_id: evalulate inputs from a particular class only.
       data_mode: either 'ind' or 'ood' to decide whether to read in-distribution
         data or out-of-domain data.
-      data_dir: data directory.
+      data_dir: path to a directory containing the Genomics OOD dataset, with
+        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
     """
-    self._data_mode = data_mode
-
 
     super(GenomicsOodDataset, self).__init__(
         name='genomics_ood',
-        num_train_examples=_NUM_TRAIN,
-        num_validation_examples=_NUM_VAL,
-        num_test_examples=_NUM_TEST,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        dataset_builder=_GenomicsOodDatasetBuilder(data_dir, data_mode),
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        download_data=False)
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    """We use the original 'validation' set as test."""
-    # TODO(jjren) change to tfds.load once tfds dataset is available
-    file_pattern = tfrecord_filepattern(split.value, self._data_mode)
-    file_list = tf.io.gfile.glob(os.path.join(self._data_dir, file_pattern))
+  def _create_process_example_fn(self) -> base.PreProcessFn:
 
-    def parse_single_tfexample(_, serialized_example):
+    def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
+      """A pre-process function to return ACGT strings."""
       # Read data from serialized examples.
       # seq: the input DNA sequence composed by {A, C, G, T}.
       # label_id: the predictive target, i.e., the index of bacteria class.
@@ -108,44 +171,26 @@ class GenomicsOodDataset(base.BaseDataset):
       # NCBI accession number, and the position where it was sampled from.
       # domain: if the bacteria is in-distribution (in), or OOD (ood)
       features = tf.io.parse_single_example(
-          serialized_example,
+          example,
           features={
               'seq': tf.io.FixedLenFeature([], tf.string),
               'label': tf.io.FixedLenFeature([], tf.int64),
               'seq_info': tf.io.VarLenFeature(tf.string),
               'domain': tf.io.VarLenFeature(tf.string),
           })
-      return features
 
-    dataset = tf.data.TFRecordDataset(file_list).map(
-        lambda v: parse_single_tfexample(v, v))
-    return dataset
-
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
-    del split
-
-    def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
-      """A pre-process function to return images in [0, 1]."""
-
-      def encode_seq(seq):
-        """Encode DNA sequence into integers."""
-        # Convert a input DNA sequence of type string into a list of integers
-        # by replacing {A, C, G, T} with {0, 1, 2, 3}.
-        # eg, 'CAGTA' (input) --> '10230' --> [1,0,2,3,0] (output)
-        seq = tf.strings.regex_replace(seq, 'A', '0')
-        seq = tf.strings.regex_replace(seq, 'C', '1')
-        seq = tf.strings.regex_replace(seq, 'G', '2')
-        seq = tf.strings.regex_replace(seq, 'T', '3')
-        seq_list = tf.strings.bytes_split(seq)
-        seq = tf.strings.to_number(seq_list, out_type=tf.int32)
-        return seq
-
-      seq = encode_seq(example['seq'])
-      label = tf.cast(example['label'], tf.int32)
-      parsed_example = {
+      # Convert a input DNA sequence of type string into a list of integers
+      # by replacing {A, C, G, T} with {0, 1, 2, 3}.
+      # eg, 'CAGTA' (input) --> '10230' --> [1,0,2,3,0] (output)
+      seq = tf.strings.regex_replace(features['seq'], 'A', '0')
+      seq = tf.strings.regex_replace(seq, 'C', '1')
+      seq = tf.strings.regex_replace(seq, 'G', '2')
+      seq = tf.strings.regex_replace(seq, 'T', '3')
+      seq_list = tf.strings.bytes_split(seq)
+      seq = tf.strings.to_number(seq_list, out_type=tf.int32)
+      return {
           'features': seq,
-          'labels': label,
+          'labels': tf.cast(features['label'], tf.int32),
       }
-      return parsed_example
 
     return _example_parser

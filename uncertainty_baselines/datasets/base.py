@@ -16,34 +16,75 @@
 # Lint as: python3
 """Abstract base classes which defines interfaces for datasets."""
 
-import abc
-import enum
-from typing import Callable, Dict, Optional, Sequence, Union
-from absl import logging
-import six
+from typing import Callable, Optional, Sequence, Type, TypeVar, Union
+from robustness_metrics.common import ops
+from robustness_metrics.common import types
+from robustness_metrics.datasets import tfds as robustness_metrics_base
 import tensorflow.compat.v2 as tf
+import tensorflow_datasets as tfds
 
-
-class Split(enum.Enum):
-  TRAIN = 'train'
-  VAL = 'validation'
-  TEST = 'test'
-
-
-class OodSplit(enum.Enum):
-  IN = 'in'
-  OOD = 'ood'
 
 # For datasets like UCI, the tf.data.Dataset returned by _read_examples will
-# have elements that are Sequence[tf.Tensor], but for TFDS datasets they will be
-# Dict[str, tf.Tensor].
+# have elements that are Sequence[tf.Tensor], for TFDS datasets they will be
+# Dict[Text, tf.Tensor] (types.Features), for Criteo they are a tf.Tensor.
 PreProcessFn = Callable[
-    [Union[int, Sequence[tf.Tensor], Dict[str, tf.Tensor]]],
-    Dict[str, tf.Tensor]]
+    [Union[int, tf.Tensor, Sequence[tf.Tensor], types.Features]],
+    types.Features]
 
 
-@six.add_metaclass(abc.ABCMeta)
-class BaseDataset(object):
+def _absolute_split_len(absolute_split, dataset_splits):
+  if absolute_split.from_ is None:
+    start = 0
+  else:
+    start = absolute_split.from_
+  if absolute_split.to is None:
+    end = dataset_splits[absolute_split.splitname].num_examples
+  else:
+    end = absolute_split.to
+  return end - start
+
+
+def get_validation_percent_split(
+    dataset_builder,
+    validation_percent,
+    split,
+    test_split=tfds.Split.TEST):
+  """Calculate a validation set from a provided validation_percent in [0, 1]."""
+  if validation_percent < 0.0 or validation_percent >= 1.0:
+    raise ValueError(
+        'validation_percent must be in [0, 1), received {}.'.format(
+            validation_percent))
+  num_train_examples = dataset_builder.info.splits['train'].num_examples
+  num_validation_examples = int(num_train_examples * validation_percent)
+  if num_validation_examples == 0:
+    train_split = tfds.Split.TRAIN
+    # We cannot use None here because that will return all the splits if passed
+    # to builder.as_dataset().
+    validation_split = tfds.Split.VALIDATION
+  else:
+    train_split = tfds.core.ReadInstruction(
+        'train', to=-num_validation_examples, unit='abs')
+    validation_split = tfds.core.ReadInstruction(
+        'train', from_=-num_validation_examples, unit='abs')
+
+  if split in ['train', tfds.Split.TRAIN]:
+    new_split = train_split
+  elif split in ['validation', tfds.Split.VALIDATION]:
+    new_split = validation_split
+  elif split in ['test', tfds.Split.TEST]:
+    new_split = test_split
+  elif isinstance(split, str):
+    # For Python 3 this should be save to check for the Text type, see
+    # https://github.com/google/pytype/blob/a4d56ef763eb4a29b5db03a2013c3373f9f46146/pytype/pytd/builtins/2and3/typing.pytd#L31.
+    raise ValueError(
+        'Invalid string name for split, must be one of ["train", "validation"'
+        ', "test"], received {}.'.format(split))
+  else:
+    new_split = split
+  return new_split
+
+
+class BaseDataset(robustness_metrics_base.TFDSDataset):
   """Abstract base dataset class.
 
   Requires subclasses to override _read_examples, _create_process_example_fn.
@@ -52,80 +93,84 @@ class BaseDataset(object):
   def __init__(
       self,
       name: str,
-      batch_size: int,
-      eval_batch_size: int,
-      num_train_examples: int,
-      num_validation_examples: int,
-      num_test_examples: int,
+      dataset_builder: tfds.core.DatasetBuilder,
+      split: Union[float, str, tfds.Split],
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None):
+      drop_remainder: bool = True,
+      fingerprint_key: Optional[str] = None,
+      download_data: bool = False):
     """Create a tf.data.Dataset builder.
 
     Args:
       name: the name of this dataset.
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
-      num_train_examples: the number of training examples in this dataset.
-      num_validation_examples: the number of validation examples in this
-        dataset.
-      num_test_examples: the number of test examples in this dataset.
+      dataset_builder: the TFDS dataset builder used to read examples given a
+        split.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names. For Criteo it can also be a float to represent the level of data
+        augmentation. For speech commands it can be a tuple of a string and
+        float for shifted data splits.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
+      drop_remainder: whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size. This option
+        needs to be True for running on TPUs.
+      fingerprint_key: The name of the feature holding a string that will be
+        used to create an element id using a fingerprinting function. If None,
+        then `ds.enumerate()` is added before the `ds.map(preprocessing_fn)` is
+        called and an `id` field is added to the example Dict.
+      download_data: Whether or not to download data before loading.
     """
     self.name = name
+    self._split = split
+    self._num_parallel_parser_calls = num_parallel_parser_calls
+    self._drop_remainder = drop_remainder
+    self._download_data = download_data
 
-    self.batch_size = batch_size
-    self.eval_batch_size = eval_batch_size
-    self.info = {
-        'num_train_examples': num_train_examples,
-        'num_validation_examples': num_validation_examples,
-        'num_test_examples': num_test_examples,
-    }
-
+    self._is_training = split in ['train', tfds.Split.TRAIN]
+    num_train_examples = dataset_builder.info.splits['train'].num_examples
+    # TODO(znado): properly parse the number of train/validation/test examples
+    # from the provided split, see `make_file_instructions(...)` in
+    # tensorflow_datasets/core/tfrecords_reader.py.
     if shuffle_buffer_size is None:
       self._shuffle_buffer_size = num_train_examples
     else:
       self._shuffle_buffer_size = shuffle_buffer_size
+    super(BaseDataset, self).__init__(
+        dataset_builder=dataset_builder,
+        fingerprint_key=fingerprint_key,
+        split=self._split,
+        label_key='label')
+    self._add_enumerate = False
+    if self._fingerprint_key is None:
+      self._fingerprint_key = '_enumerate_added_id'
+      self._add_enumerate = True
 
-    self._num_parallel_parser_calls = num_parallel_parser_calls
-    self._data_dir = data_dir
-    self._tfds_kwargs = {}
-    if self._data_dir and self._data_dir.startswith('gs://'):
-      self._tfds_kwargs['try_gcs'] = True
-      self._tfds_kwargs['data_dir'] = self._data_dir
-
-  def _is_training(self, split: Split) -> bool:
-    return split == Split.TRAIN
-
-  def _is_in_distribution(self, split: OodSplit) -> bool:
-    return split == OodSplit.IN
+  # This method can be overridden to add custom info via info.metadata.
+  @property
+  def tfds_info(self) -> tfds.core.DatasetInfo:
+    return self._dataset_builder.info
 
   @property
-  def _num_train_examples(self) -> int:
-    return self.info['num_train_examples']
+  def split(self):
+    return self._split
 
   @property
-  def _num_validation_examples(self) -> int:
-    return self.info['num_validation_examples']
+  def num_examples(self):
+    if isinstance(self._split, tfds.core.ReadInstruction):
+      absolute_split = self._split.to_absolute(
+          {
+              name: self.tfds_info.splits[name].num_examples
+              for name in self.tfds_info.splits.keys()
+          })[0]
+      return _absolute_split_len(absolute_split, self.tfds_info.splits)
+    return self.tfds_info.splits[self._split].num_examples
 
-  @property
-  def _num_test_examples(self) -> int:
-    return self.info['num_test_examples']
-
-  def _read_examples(self, split: Split) -> tf.data.Dataset:
-    """Return a tf.data.Dataset to be used by _create_process_example_fn."""
-    raise NotImplementedError('Must override dataset _read_examples!')
-
-  def _create_process_example_fn(self, split: Split) -> Optional[PreProcessFn]:
+  def _create_process_example_fn(self) -> Optional[PreProcessFn]:
     """Create a function to perform dataset pre-processing, if needed.
-
-    Args:
-      split: A dataset split.
 
     Returns:
       None if no processing is necessary. Otherwise, a function which takes as
@@ -136,103 +181,79 @@ class BaseDataset(object):
     raise NotImplementedError(
         'Must override dataset _create_process_example_fn!')
 
-  def _batch(self, split: Split,
-             dataset: tf.data.Dataset,
-             drop_remainder: bool = True) -> tf.data.Dataset:
-    """Get the batched version of `dataset`."""
-    # `uneven_datasets` is a list of datasets with a number of validation and/or
-    # test examples that is not evenly divisible by commonly used batch sizes.
-    uneven_datasets = ['criteo', 'svhn']
-    if self._is_training(split):
-      batch_size = self.batch_size
-    elif split == Split.VAL:
-      batch_size = self.eval_batch_size
-      if (self._num_validation_examples % batch_size != 0 and
-          self.name not in uneven_datasets):
-        logging.warn(
-            'Batch size does not evenly divide the number of validation '
-            'examples , cannot ensure static shapes on TPU. Batch size: %d, '
-            'validation examples: %d',
-            batch_size,
-            self._num_validation_examples)
-    else:
-      batch_size = self.eval_batch_size
-      if (self._num_test_examples % batch_size != 0 and
-          self.name not in uneven_datasets):
-        logging.warn(
-            'Batch size does not evenly divide the number of test examples, '
-            'cannot ensure static shapes on TPU. Batch size: %d, test '
-            'examples: %d', batch_size, self._num_test_examples)
-    # Note that we always drop the last batch when the batch size does not
-    # evenly divide the number of examples.
-    return dataset.batch(batch_size, drop_remainder=drop_remainder)
+  def _create_element_id(self, features: types.Features) -> types.Features:
+    """Hash the element id to compute a unique id."""
+    if 'element_id' in features:
+      raise ValueError(
+          '`element_id` should not be already present in the feature set.')
+    fingerprint_feature = features[self._fingerprint_key]
+    features['element_id'] = ops.fingerprint_int64(fingerprint_feature)
+    return features
 
-  def build(
+  def _create_enumerate_preprocess_fn(
       self,
-      split: Union[str, Split],
-      as_tuple: bool = False,
-      drop_remainder: bool = True,
-      ood_split: Optional[Union[str, OodSplit]] = None) -> tf.data.Dataset:
-    """Transforms the dataset from self._read_examples() to batch, repeat, etc.
+      preprocess_fn: PreProcessFn):
+
+    def enumerated_preprocess_fn(example_id: int, x) -> types.Features:
+      features = preprocess_fn(x)
+      features[self._fingerprint_key] = example_id
+      return features
+    return enumerated_preprocess_fn
+
+  # TODO(znado): rename to as_dataset.
+  def load(self,
+           *,
+           preprocess_fn: PreProcessFn = None,
+           batch_size: int = -1) -> tf.data.Dataset:
+    """Transforms the dataset from builder.as_dataset() to batch, repeat, etc.
 
     Note that we do not handle replication/sharding here, because the
     DistributionStrategy experimental_distribute_dataset() will shard the input
     files for us.
 
     Args:
-      split: a dataset split, either one of the Split enum or their associated
-        strings.
-      as_tuple: whether or not to return a Dataset where each element is a Dict
-        with at least the keys ['features', 'labels'], or a tuple of
-        (feature, label). If there are keys besides 'features' and 'labels' in
-        the Dict then this ignore them.
-      drop_remainder: whether or not to drop the last batch of data if the
-        number of points is not exactly equal to the batch size. This option
-        needs to be True for running on TPUs.
-      ood_split: an optional OOD split, either one of the OodSplit enum or
-        their associated strings.
+      preprocess_fn: an optional preprocessing function, if not provided then a
+        subclass must define _create_process_example_fn() which will be used to
+        preprocess the data.
+      batch_size: the batch size to use.
 
     Returns:
       A tf.data.Dataset of elements that are a dict with keys 'features' and
       'labels' and their corresponding Tensor values.
     """
-    if isinstance(split, str):
-      split = Split(split)
+    if batch_size <= 0:
+      raise ValueError(
+          'Must provide a positive batch size, received {}.'.format(batch_size))
 
-    if isinstance(ood_split, str):
-      ood_split = OodSplit(ood_split)
-
-    dataset = self._read_examples(split)
+    if self._download_data:
+      self._dataset_builder.download_and_prepare(
+          download_dir=self._dataset_builder.data_dir)
+    dataset = self._dataset_builder.as_dataset(self._split)
 
     # Map the parser over the dataset.
-    if ood_split:
-      process_example_fn = self._create_ood_process_example_fn(split, ood_split)
-      if split == Split.TRAIN:
-        self.info['num_ood_examples'] = self._num_train_examples
-      if split == Split.VAL:
-        self.info['num_ood_examples'] = self._num_validation_examples
-      if split == Split.TEST:
-        self.info['num_ood_examples'] = self._num_test_examples
-    else:
-      process_example_fn = self._create_process_example_fn(split)
-    if process_example_fn:
-      dataset = dataset.map(
-          process_example_fn,
-          num_parallel_calls=self._num_parallel_parser_calls)
-    # pylint: disable=g-long-lambda
-    if as_tuple and ood_split:
-      dataset = dataset.map(lambda d: (d['features'], d['labels'],
-                                       d['is_in_distribution']))
-    # pylint: enable=line-too-long
-    elif as_tuple and not ood_split:
-      dataset = dataset.map(lambda d: (d['features'], d['labels']))
+    if preprocess_fn is None:
+      preprocess_fn = self._create_process_example_fn()
+    if self._add_enumerate:
+      # If necessary, enumerate the dataset to generate a unique per-example id,
+      # that is then added to the feature dict in
+      # `self._create_enumerate_preprocess_fn` with key `self._fingerprint_key`.
+      dataset = dataset.enumerate()
+      preprocess_fn = self._create_enumerate_preprocess_fn(preprocess_fn)
+    preprocess_fn = ops.compose(preprocess_fn, self._create_element_id)
+    dataset = dataset.map(
+        preprocess_fn,
+        num_parallel_calls=self._num_parallel_parser_calls)
 
     # Shuffle and repeat only for the training split.
-    if self._is_training(split):
+    if self._is_training:
       dataset = dataset.shuffle(self._shuffle_buffer_size)
       dataset = dataset.repeat()
 
-    dataset = self._batch(split, dataset, drop_remainder=drop_remainder)
+    # Note that unless the default value of `drop_remainder=True` is overriden
+    # in `__init__`, we always drop the last batch when the batch size does not
+    # evenly divide the number of examples.
+    # TODO(znado): add padding to last partial eval batch.
+    dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
 
     dataset = dataset.prefetch(-1)
 
@@ -240,34 +261,98 @@ class BaseDataset(object):
     options.experimental_distribute.auto_shard_policy = (
         tf.data.experimental.AutoShardPolicy.OFF)
     dataset = dataset.with_options(options)
-
     return dataset
 
-  def _create_ood_process_example_fn(self, split: Split,
-                                     ood_split: OodSplit) -> PreProcessFn:
-    """Add additional labels to a pre-existing dataset for OOD.
 
-    Args:
-      split: A dataset split.
-      ood_split: An OOD dataset split.
+_BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]
 
-    Returns:
-      A function which takes as inputs a single element of the dataset (passed
-      from dataset.map()), and returns a dict with keys 'features', 'labels',
-      and an additional key 'is_in_distribution', with 0s for and 'ood' split
-      and 1s for 'in' split.
-      and their corresponding Tensor values.
-    """
-    process_example_fn = self._create_process_example_fn(split)
 
-    def _add_ood_label_parser(
-        example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
-      processed = process_example_fn(example)
-      if self._is_in_distribution(ood_split):
-        in_dist_label = tf.ones_like(processed['labels'], tf.int32)
+def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
+  """Generate a BaseDataset with in/out distribution labels."""
+
+  class _OodBaseDataset(ood_dataset_cls):
+    """Combine two datasets to form one with in/out of distribution labels."""
+
+    def __init__(
+        self,
+        in_distribution_dataset: BaseDataset,
+        shuffle_datasets: bool = False,
+        **kwargs):
+      super(_OodBaseDataset, self).__init__(**kwargs)
+      # This should be the builder for whatever split will be considered
+      # in-distribution (usually the test split).
+      self._in_distribution_dataset = in_distribution_dataset
+      self._shuffle_datasets = shuffle_datasets
+
+    def load(self,
+             *,
+             preprocess_fn=None,
+             batch_size: int = -1) -> tf.data.Dataset:
+      # Set up the in-distribution dataset using the provided dataset builder.
+      if preprocess_fn:
+        dataset_preprocess_fn = preprocess_fn
       else:
-        in_dist_label = tf.zeros_like(processed['labels'], tf.int32)
-      processed['is_in_distribution'] = in_dist_label
-      return processed
+        dataset_preprocess_fn = (
+            self._in_distribution_dataset._create_process_example_fn())  # pylint: disable=protected-access
+      dataset_preprocess_fn = ops.compose(
+          dataset_preprocess_fn,
+          _create_ood_label_fn(True))
+      dataset = self._in_distribution_dataset.load(
+          preprocess_fn=dataset_preprocess_fn,
+          batch_size=batch_size)
+      dataset = dataset.map(
+          _remove_fingerprint_id_key(self._in_distribution_dataset))
 
-    return _add_ood_label_parser
+      # Set up the OOD dataset using this class.
+      if preprocess_fn:
+        ood_dataset_preprocess_fn = preprocess_fn
+      else:
+        ood_dataset_preprocess_fn = (
+            super(_OodBaseDataset, self)._create_process_example_fn())
+      ood_dataset_preprocess_fn = ops.compose(
+          ood_dataset_preprocess_fn,
+          _create_ood_label_fn(False))
+      ood_dataset = super(_OodBaseDataset, self).load(
+          preprocess_fn=ood_dataset_preprocess_fn,
+          batch_size=batch_size)
+      ood_dataset = ood_dataset.map(_remove_fingerprint_id_key(self))
+
+      # Combine the two datasets.
+      combined_dataset = dataset.concatenate(ood_dataset)
+      if self._shuffle_datasets:
+        combined_dataset = combined_dataset.shuffle(self._shuffle_buffer_size)
+      return combined_dataset
+
+    @property
+    def num_examples(self):
+      return (
+          self._in_distribution_dataset.num_examples +
+          super(_OodBaseDataset, self).num_examples)
+
+  return _OodBaseDataset
+
+
+# We may be able to refactor this to be part of preprocess_fn so we don't
+# need to do a second `ds.map()`, but the ordering of composed functions is
+# tricky.
+def _remove_fingerprint_id_key(dataset):
+
+  def f(example: types.Features) -> types.Features:
+    del example[dataset._fingerprint_key]  # pylint: disable=protected-access
+    return example
+
+  return f
+
+
+def _create_ood_label_fn(is_in_distribution: bool) -> PreProcessFn:
+  """Returns a function that adds an `is_in_distribution` key to examles."""
+
+  def _add_ood_label(example: types.Features) -> types.Features:
+    if is_in_distribution:
+      in_dist_label = tf.ones_like(example['labels'], tf.int32)
+    else:
+      in_dist_label = tf.zeros_like(example['labels'], tf.int32)
+    example['is_in_distribution'] = in_dist_label
+    return example
+
+  return _add_ood_label

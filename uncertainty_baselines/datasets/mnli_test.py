@@ -18,54 +18,38 @@
 from absl.testing import parameterized
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 
-from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import mnli
 
 
 class MnliTest(tf.test.TestCase, parameterized.TestCase):
 
-  @parameterized.named_parameters(('ind,train', 'matched', base.Split.TRAIN),
-                                  ('ind,valid', 'matched', base.Split.VAL),
-                                  ('ind,test', 'matched', base.Split.TEST),
-                                  ('ood,valid', 'mismatched', base.Split.VAL),
-                                  ('ood,test', 'mismatched', base.Split.TEST))
+  @parameterized.named_parameters(
+      ('ind,train', 'matched', tfds.Split.TRAIN),
+      ('ind,valid', 'matched', tfds.Split.VALIDATION),
+      ('ind,test', 'matched', tfds.Split.TEST),
+      ('ood,valid', 'mismatched', tfds.Split.VALIDATION),
+      ('ood,test', 'mismatched', tfds.Split.TEST))
   def testDatasetSize(self, mode, split):
-    batch_size = 9
-    eval_batch_size = 5
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
     dataset_builder = mnli.MnliDataset(
+        split=split,
         mode=mode,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
         shuffle_buffer_size=20)
-    dataset = dataset_builder.build(split).take(1)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
-    text_a = element['text_a']
-    text_b = element['text_b']
-    labels = element['labels']
-
-    expected_batch_size = (
-        batch_size if split == base.Split.TRAIN else eval_batch_size)
-    feature_a_shape = text_a.shape[0]
-    feature_b_shape = text_b.shape[0]
-    labels_shape = labels.shape[0]
-
-    self.assertEqual(feature_a_shape, expected_batch_size)
-    self.assertEqual(feature_b_shape, expected_batch_size)
-    self.assertEqual(labels_shape, expected_batch_size)
+    self.assertEqual(element['text_a'].shape[0], batch_size)
+    self.assertEqual(element['text_b'].shape[0], batch_size)
+    self.assertEqual(element['labels'].shape[0], batch_size)
 
   def testTrainSplitError(self):
     """Tests for ValueError when calling train split for mismatched data."""
-    batch_size = 9
-    eval_batch_size = 5
-    dataset_builder = mnli.MnliDataset(
-        mode='mismatched',
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
-        shuffle_buffer_size=20)
-
     with self.assertRaises(Exception):
-      dataset_builder.build(base.Split.TRAIN)
+      mnli.MnliDataset(
+          mode='mismatched',
+          split=tfds.Split.TRAIN,
+          shuffle_buffer_size=20)
 
 
 if __name__ == '__main__':

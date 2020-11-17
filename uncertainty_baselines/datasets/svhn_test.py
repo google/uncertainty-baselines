@@ -24,7 +24,7 @@ class SvhnDatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
     super(SvhnDatasetTest, self)._testDatasetSize(
-        ub.datasets.SvhnDataset, (32, 32, 3))
+        ub.datasets.SvhnDataset, (32, 32, 3), validation_percent=0.15)
 
 
 if __name__ == '__main__':

@@ -25,7 +25,7 @@ class DatasetsTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.parameters('mnist', 'glue/cola')
   def testGetDataset(self, name):
-    dataset = ub.datasets.get(name, batch_size=13, eval_batch_size=17)
+    dataset = ub.datasets.get(name, split='train')
     self.assertEqual(dataset.name, name)
 
 if __name__ == '__main__':

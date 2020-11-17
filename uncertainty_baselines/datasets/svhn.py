@@ -28,67 +28,46 @@ class SvhnDataset(base.BaseDataset):
 
   def __init__(
       self,
-      batch_size: int,
-      eval_batch_size: int,
-      shuffle_buffer_size: int = None,
+      split: str,
+      validation_percent: float = 0.0,
+      shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
+      try_gcs: bool = False,
+      download_data: bool = False,
       normalize_by_cifar: bool = False,
       **unused_kwargs: Dict[str, Any]):
-    """Create a SVHN tf.data.Dataset builder.
+    """Create an SVHN tf.data.Dataset builder.
 
     Args:
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
+      validation_percent: the percent of the training set to use as a validation
+        set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
+      try_gcs: Whether or not to try to use the GCS stored versions of dataset
+        files.
+      download_data: Whether or not to download data before loading.
       normalize_by_cifar: whether or not to normalize each image by the CIFAR
         dataset mean and stddev.
     """
     self._normalize_by_cifar = normalize_by_cifar
-    _, info = tfds.load('svhn_cropped', with_info=True)
+    name = 'svhn_cropped'
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    split = base.get_validation_percent_split(
+        dataset_builder, validation_percent, split)
     super(SvhnDataset, self).__init__(
-        name='svhn_cropped',
-        num_train_examples=50000,
-        num_validation_examples=info.splits['train'].num_examples - 50000,
-        num_test_examples=info.splits['test'].num_examples,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        name=name,
+        dataset_builder=dataset_builder,
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        download_data=download_data)
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    """We use the original 'validation' set as test."""
-    if split == base.Split.TRAIN:
-      train_split = tfds.core.ReadInstruction(
-          'train', to=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          'svhn_cropped',
-          split=train_split,
-          **self._tfds_kwargs)
-    elif split == base.Split.VAL:
-      val_split = tfds.core.ReadInstruction(
-          'train', from_=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          'svhn_cropped',
-          split=val_split,
-          **self._tfds_kwargs)
-    elif split == base.Split.TEST:
-      return tfds.load(
-          'svhn_cropped',
-          split='test',
-          **self._tfds_kwargs)
-    else:
-      raise ValueError(
-          'Invalid dataset split in _read_examples: {}'.format(split))
-
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
-    del split
+  def _create_process_example_fn(self) -> base.PreProcessFn:
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """A pre-process function to return images in [0, 1]."""

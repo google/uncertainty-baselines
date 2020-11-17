@@ -25,7 +25,7 @@ Reference:
   Recognition" https://arxiv.org/abs/1804.03209
 """
 
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 # TODO(znado): Add librosa as an extras_require in setup.py.
 import librosa
@@ -111,6 +111,64 @@ def add_room_reverb(audio, room_size):
       func=pra_add_room_reverb, inp=[audio, room_size], Tout=tf.float32)
 
 
+class _SpeechCommandsDatasetBuilder(tfds.core.DatasetBuilder):
+  """Minimal TFDS DatasetBuilder for the Speech Commands dataset."""
+  VERSION = tfds.core.Version('0.0.0')
+
+  def __init__(
+      self,
+      tfds_dataset_builder: tfds.core.DatasetBuilder,
+      label_filter_fn: Callable[[Dict[str, tf.Tensor]], bool],
+      **kwargs):
+    self._tfds_dataset_builder = tfds_dataset_builder
+    self._label_filter_fn = label_filter_fn
+    super(_SpeechCommandsDatasetBuilder, self).__init__(**kwargs)
+
+  def _download_and_prepare(self, dl_manager, download_config=None):
+    """Downloads and prepares dataset for reading."""
+    return self._tfds_dataset_builder._download_and_prepare(  # pylint: disable=protected-access
+        dl_manager, download_config)
+
+  def _as_dataset(
+      self,
+      split: tfds.Split,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False) -> tf.data.Dataset:
+    raise NotImplementedError
+
+  # Note that we override `as_dataset` instead of `_as_dataset` to avoid any
+  # `data_dir` reading logic.
+  def as_dataset(
+      self,
+      split: tfds.Split,
+      *,
+      batch_size=None,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False,
+      as_supervised=False) -> tf.data.Dataset:
+    """Constructs a `tf.data.Dataset`, see parent class for documentation."""
+    dataset = self._tfds_dataset_builder.as_dataset(
+        split=split,
+        batch_size=batch_size,
+        decoders=decoders,
+        read_config=read_config,
+        shuffle_files=shuffle_files,
+        as_supervised=as_supervised)
+    return dataset.filter(self._label_filter_fn)
+
+  def _info(self) -> tfds.core.DatasetInfo:
+    raise NotImplementedError
+
+  # Note that we are overriding info instead of _info() so that we properly
+  # generate the full DatasetInfo.
+  @property
+  def info(self) -> tfds.core.DatasetInfo:
+    """Returns the `tfds.core.DatasetInfo` object."""
+    return self._tfds_dataset_builder.info
+
+
 class SpeechCommandsDataset(base.BaseDataset):
   """A covariate/semantic shift benchmark dataset based on Speech Commmands.
 
@@ -139,63 +197,63 @@ class SpeechCommandsDataset(base.BaseDataset):
       `room_size` meters in size. The supported values of `room_size` are:
       6 and 12.
 
-  2. Semnatic shift, with novel labels (words), not seen in the train
+  2. Semantic shift, with novel labels (words), not seen in the train
      and validation splits. This can be invoked with
      split=('semantic_shift',) during `build()` calls.
   """
 
   AUDIO_LENGTH = 16000
 
-  def __init__(self,
-               batch_size: int,
-               eval_batch_size: int,
-               shuffle_buffer_size: int = None,
-               num_parallel_parser_calls: int = 64,
-               dataset_dir: str = None,
-               **unused_kwargs: Dict[str, Any]):
-
-    tfds_name = 'speech_commands'
-    dataset_info = tfds.builder(tfds_name).info
-
-    num_train_examples = dataset_info.splits['train'].num_examples
-    num_validation_examples = dataset_info.splits['validation'].num_examples
-    num_test_examples = dataset_info.splits['test'].num_examples
-
-    super(SpeechCommandsDataset, self).__init__(
-        name='speech_commands',
-        num_train_examples=num_train_examples,
-        num_validation_examples=num_validation_examples,
-        num_test_examples=num_test_examples,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
-        shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls)
-
-  def _read_examples(
-      self, split: Union[Tuple[str, float], base.Split]) -> tf.data.Dataset:
-    """Creates a dataset to be processed by _create_process_example_fn."""
-    if split == (SEMANTIC_SHIFT,):
-      # Semantic shift: Examples with a different set of labels from the labels
-      # available from the non-semantic-shifted splits.
-      dataset = tfds.load(self.name, split='test', **self._tfds_kwargs)
-      return dataset.filter(
-          lambda example: example['label'] == SEMANTIC_SHFIT_LABEL)
-
-    if split == base.Split.TRAIN:
-      dataset = tfds.load(self.name, split='train', **self._tfds_kwargs)
-    elif split == base.Split.VAL:
-      dataset = tfds.load(self.name, split='validation', **self._tfds_kwargs)
-    else:
-      # This includes the shift splits.
-      dataset = tfds.load(self.name, split='test', **self._tfds_kwargs)
-    dataset = dataset.filter(
-        lambda example: example['label'] <= IN_DISTRIBUTION_MAX_LABEL)
-    return dataset
-
-  def _create_process_example_fn(
-      # TODO(cais): Maybe tighter typing for (str, float).
+  def __init__(
       self,
-      split: Union[Tuple[str, float], base.Split]) -> base.PreProcessFn:
+      # TODO(cais): Maybe tighter typing for (str, float).
+      split: Union[Tuple[str, float], str],
+      shuffle_buffer_size: Optional[int] = None,
+      num_parallel_parser_calls: int = 64,
+      try_gcs: bool = False,
+      download_data: bool = False,
+      **unused_kwargs: Dict[str, Any]):
+    """Create a Speech commands tf.data.Dataset builder.
+
+    Args:
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
+      shuffle_buffer_size: the number of example to use in the shuffle buffer
+        for tf.data.Dataset.shuffle().
+      num_parallel_parser_calls: the number of parallel threads to use while
+        preprocessing in tf.data.Dataset.map().
+      try_gcs: Whether or not to try to use the GCS stored versions of dataset
+        files. Currently unsupported.
+      download_data: Whether or not to download data before loading. Currently
+        unsupported.
+    """
+    name = 'speech_commands'
+    tfds_dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    self._original_split = split
+    tfds_split = split
+    if split == (SEMANTIC_SHIFT,):
+      tfds_split = 'test'
+      label_filter_fn = lambda example: example['label'] == SEMANTIC_SHFIT_LABEL
+    else:
+      label_filter_fn = (
+          lambda example: example['label'] <= IN_DISTRIBUTION_MAX_LABEL)
+
+    if split not in [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]:
+      tfds_split = tfds.Split.TEST
+
+    dataset_builder = _SpeechCommandsDatasetBuilder(
+        tfds_dataset_builder=tfds_dataset_builder,
+        label_filter_fn=label_filter_fn)
+    super(SpeechCommandsDataset, self).__init__(
+        name=name,
+        dataset_builder=dataset_builder,
+        split=tfds_split,
+        shuffle_buffer_size=shuffle_buffer_size,
+        num_parallel_parser_calls=num_parallel_parser_calls,
+        download_data=download_data)
+
+  def _create_process_example_fn(self) -> base.PreProcessFn:
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       audio = tf.cast(example['audio'], dtype=tf.float32)
@@ -209,24 +267,25 @@ class SpeechCommandsDataset(base.BaseDataset):
       elif audio_length > self.AUDIO_LENGTH:
         audio = tf.slice(audio, [0], [self.AUDIO_LENGTH])
 
-      if isinstance(split, tuple):
-        split_name = split[0]
+      if isinstance(self._original_split, tuple):
+        split_name = self._original_split[0]
         if split_name == WHITE_NOISE:
-          noise_level_db = float(split[1])
+          noise_level_db = float(self._original_split[1])
           audio = mix_white_noise(audio, noise_level_db)
         elif split_name == PITCH_SHIFT:
-          semitones = float(split[1])
+          semitones = float(self._original_split[1])
           audio = pitch_shift(audio, semitones)
         elif split_name == LOW_PASS:
-          cutoff_frequency_khz = float(split[1])
+          cutoff_frequency_khz = float(self._original_split[1])
           audio = low_pass_filter(audio, cutoff_frequency_khz)
         elif split_name == ROOM_REVERB:
-          room_size = float(split[1])
+          room_size = float(self._original_split[1])
           audio = add_room_reverb(audio, room_size)
         elif split_name == SEMANTIC_SHIFT:
           pass
         else:
-          raise ValueError('Unrecognized shift split: %s' % split[0])
+          raise ValueError(
+              'Unrecognized shift split: {}'.format(self._original_split[0]))
 
       label = tf.cast(example['label'], tf.int32)
       parsed_example = {

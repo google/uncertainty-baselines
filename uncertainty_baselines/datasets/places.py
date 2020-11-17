@@ -28,76 +28,45 @@ class Places365Dataset(base.BaseDataset):
 
   def __init__(
       self,
-      batch_size: int,
-      eval_batch_size: int,
+      split: str,
       validation_percent: float = 0.0,
-      shuffle_buffer_size: int = None,
+      shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
+      try_gcs: bool = False,
+      download_data: bool = False,
       **unused_kwargs: Dict[str, Any]):
-    """Create a Places-365 tf.data.Dataset builder.
+    """Create an Places-365 tf.data.Dataset builder.
 
     Args:
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
       validation_percent: the percent of the training set to use as a validation
         set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
+      try_gcs: Whether or not to try to use the GCS stored versions of dataset
+        files.
+      download_data: Whether or not to download data before loading.
     """
-    if validation_percent < 0.0 or validation_percent >= 1.0:
-      raise ValueError(
-          'validation_percent must be in [0, 1), received {}.'.format(
-              validation_percent))
-    num_train_examples = 1803460
-    num_validation_examples = int(num_train_examples * validation_percent)
-    num_train_examples -= num_validation_examples
-    num_test_examples = 328500
+    name = 'places365_small'
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    split = base.get_validation_percent_split(
+        dataset_builder,
+        validation_percent,
+        split,
+        test_split=tfds.Split.VALIDATION)
     super(Places365Dataset, self).__init__(
-        name='places365_small',
-        num_train_examples=num_train_examples,
-        num_validation_examples=num_validation_examples,
-        num_test_examples=num_test_examples,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        name=name,
+        dataset_builder=dataset_builder,
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        download_data=download_data)
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    """We use the test set in TFDS as test."""
-    if split == base.Split.TRAIN:
-      if self._num_validation_examples == 0:
-        train_split = 'train'
-      else:
-        train_split = tfds.core.ReadInstruction(
-            'train', to=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          'places365_small',
-          split=train_split,
-          **self._tfds_kwargs)
-    elif split == base.Split.VAL:
-      if self._num_validation_examples == 0:
-        raise ValueError(
-            'No validation set provided. Set `validation_percent > 0.0` to '
-            'take a subset of the training set as validation.')
-      val_split = tfds.core.ReadInstruction(
-          'train', from_=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          'places365_small',
-          split=val_split,
-          **self._tfds_kwargs)
-    elif split == base.Split.TEST:
-      return tfds.load(
-          'places365_small',
-          split='validation',
-          **self._tfds_kwargs)
-
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
+  def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return images in [0, 1]."""
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
@@ -107,7 +76,7 @@ class Places365Dataset(base.BaseDataset):
           example['image'],
           height=224,
           width=224,
-          is_training=self._is_training(split))
+          is_training=self._is_training)
       # Rescale to [0, 1].
       image = (image + 1.0) / 2.0
 

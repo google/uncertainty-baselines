@@ -68,6 +68,10 @@ def _check_batch_replica_divisible(
             total_batch_size, strategy.num_replicas_in_sync))
 
 
+def _ds_as_tuple(ds):
+  return ds.map(lambda d: (d['features'], d['labels']))
+
+
 def run(trial_dir: str):
   """Run the experiment."""
   tf.random.set_seed(FLAGS.seed)
@@ -75,15 +79,22 @@ def run(trial_dir: str):
   strategy = ub.strategy_utils.get_strategy(FLAGS.tpu, FLAGS.use_tpu)
   with strategy.scope():
     # Setup CIFAR-10 tf.data.Dataset splits.
-    dataset_builder = ub.datasets.Cifar10Dataset(
-        batch_size=FLAGS.batch_size,
-        eval_batch_size=FLAGS.eval_batch_size,
-        validation_percent=0.1)  # Use 5000 validation images.
-    train_dataset = dataset_builder.build('train', as_tuple=True)
+    # Use 5000 validation images.
+    train_dataset_builder = ub.datasets.Cifar10Dataset(
+        split='train', validation_percent=0.1)
+    train_dataset = train_dataset_builder.load(batch_size=FLAGS.batch_size)
+    train_dataset = _ds_as_tuple(train_dataset)
     train_dataset = strategy.experimental_distribute_dataset(train_dataset)
-    val_dataset = dataset_builder.build('validation', as_tuple=True)
+
+    val_dataset_builder = ub.datasets.Cifar10Dataset(
+        split='validation', validation_percent=0.1)
+    val_dataset = val_dataset_builder.load(batch_size=FLAGS.eval_batch_size)
+    val_dataset = _ds_as_tuple(val_dataset)
     val_dataset = strategy.experimental_distribute_dataset(val_dataset)
-    test_dataset = dataset_builder.build('test', as_tuple=True)
+
+    test_dataset_builder = ub.datasets.Cifar10Dataset(split='test')
+    test_dataset = test_dataset_builder.load(batch_size=FLAGS.eval_batch_size)
+    test_dataset = _ds_as_tuple(test_dataset)
     test_dataset = strategy.experimental_distribute_dataset(test_dataset)
 
     # Setup optimizer.
@@ -104,11 +115,9 @@ def run(trial_dir: str):
         metrics=['sparse_categorical_accuracy'])
 
     # Train and eval.
-    steps_per_epoch = (
-        dataset_builder.info['num_train_examples'] // FLAGS.batch_size)
+    steps_per_epoch = train_dataset_builder.num_examples // FLAGS.batch_size
     validation_steps = (
-        dataset_builder.info['num_validation_examples'] //
-        FLAGS.eval_batch_size)
+        val_dataset_builder.num_examples // FLAGS.eval_batch_size)
     history = model.fit(
         x=train_dataset,
         batch_size=FLAGS.batch_size,
@@ -120,9 +129,7 @@ def run(trial_dir: str):
         shuffle=False)
     logging.info(history)
 
-    test_steps = (
-        dataset_builder.info['num_test_examples'] //
-        FLAGS.eval_batch_size)
+    test_steps = test_dataset_builder.num_examples // FLAGS.eval_batch_size
     test_result = model.evaluate(
         x=test_dataset,
         batch_size=FLAGS.eval_batch_size,

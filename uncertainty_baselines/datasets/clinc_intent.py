@@ -47,9 +47,10 @@ Note:
 import json
 import os.path
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 import tensorflow.compat.v2 as tf
+import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 # filenames for in-domain (IND), out-of-domain (OOD) and combined datasets
@@ -117,34 +118,34 @@ def _get_num_examples_and_filenames(
   if data_mode == 'ind':
     num_examples = {
         'train': _NUM_TRAIN_IND,
-        'val': _NUM_VAL_IND,
+        'validation': _NUM_VAL_IND,
         'test': _NUM_TEST_IND
     }
     file_names = {
         'train': _FILENAME_TRAIN_IND,
-        'val': _FILENAME_VAL_IND,
+        'validation': _FILENAME_VAL_IND,
         'test': _FILENAME_TEST_IND
     }
   elif data_mode == 'ood':
     num_examples = {
         'train': _NUM_TRAIN_OOD,
-        'val': _NUM_VAL_OOD,
+        'validation': _NUM_VAL_OOD,
         'test': _NUM_TEST_OOD
     }
     file_names = {
         'train': _FILENAME_TRAIN_OOD,
-        'val': _FILENAME_VAL_OOD,
+        'validation': _FILENAME_VAL_OOD,
         'test': _FILENAME_TEST_OOD
     }
   elif data_mode == 'all':
     num_examples = {
         'train': _NUM_TRAIN_ALL,
-        'val': _NUM_VAL_ALL,
+        'validation': _NUM_VAL_ALL,
         'test': _NUM_TEST_ALL
     }
     file_names = {
         'train': _FILENAME_TRAIN_ALL,
-        'val': _FILENAME_VAL_ALL,
+        'validation': _FILENAME_VAL_ALL,
         'test': _FILENAME_TEST_ALL
     }
   else:
@@ -154,72 +155,151 @@ def _get_num_examples_and_filenames(
   return num_examples, file_names
 
 
+_CITATION = """
+Tony Finch. An Evaluation Dataset for Intent Classification and
+Out-of-Scope Prediction.
+In _Empirical Methods in Natural Language Processing_, 2019.
+https://www.aclweb.org/anthology/D19-1131.pdf
+"""
+_DESCRIPTION = (
+    'Clinc Intent Detection dataset [1] is a text classification task for '
+    'intent detection in a task-oriented dialog system.')
+
+
+class _ClincIntentionDatasetBuilder(tfds.core.DatasetBuilder):
+  """Minimal TFDS DatasetBuilder for CLINC, does not support downloading."""
+  VERSION = tfds.core.Version('1.0.0')
+  RELEASE_NOTES = {
+      '1.0.0': 'Initial release.',
+  }
+
+  def __init__(self, data_dir, data_mode, **kwargs):
+    self._num_examples, self._file_names = _get_num_examples_and_filenames(
+        data_mode)
+    super(_ClincIntentionDatasetBuilder, self).__init__(
+        data_dir=data_dir, **kwargs)
+    # We have to override self._data_dir to prevent the parent class from
+    # appending the class name and version.
+    self._data_dir = data_dir
+
+  def _download_and_prepare(self, dl_manager, download_config=None):
+    """Downloads and prepares dataset for reading."""
+    raise NotImplementedError(
+        'Must provide a data_dir with the files already downloaded to.')
+
+  def _as_dataset(
+      self,
+      split: tfds.Split,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False) -> tf.data.Dataset:
+    """Constructs a `tf.data.Dataset`."""
+    del decoders
+    del read_config
+    del shuffle_files
+    if split == tfds.Split.TRAIN:
+      return _build_dataset(
+          glob_dir=os.path.join(self._data_dir, self._file_names['train']),
+          is_training=True)
+    elif split == tfds.Split.VALIDATION:
+      return _build_dataset(
+          glob_dir=os.path.join(self._data_dir, self._file_names['validation']),
+          is_training=False)
+    elif split == tfds.Split.TEST:
+      return _build_dataset(
+          glob_dir=os.path.join(self._data_dir, self._file_names['test']),
+          is_training=False)
+    raise ValueError('Unsupported split given: {}.'.format(split))
+
+  def _info(self) -> tfds.core.DatasetInfo:
+    """Returns the `tfds.core.DatasetInfo` object."""
+    features = {
+        _LABEL_NAME: tfds.features.ClassLabel(num_classes=150),
+        _FEATURE_NAME: tfds.features.Tensor(
+            shape=[_FEATURE_LENGTH], dtype=tf.int64),
+        _INTENT_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
+        _UTTERANCE_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
+        _NUM_TOKEN_NAME: tfds.features.Tensor(shape=[], dtype=tf.int64),
+    }
+    info = tfds.core.DatasetInfo(
+        builder=self,
+        description=_DESCRIPTION,
+        features=tfds.features.FeaturesDict(features),
+        homepage='https://github.com/clinc/oos-eval/blob/master/data/data_full.json',
+        citation=_CITATION,
+        # Note that while metadata seems to be the most appropriate way to store
+        # arbitrary info, it will not be printed when printing out the dataset
+        # info.
+        metadata=tfds.core.MetadataDict(feature_size=_FEATURE_LENGTH))
+    split_dict = tfds.core.SplitDict('clinc_intent')
+    # Instead of having a single element shard_lengths, we should really have a
+    # list of the number of elements in each file shard in each split.
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.TRAIN,
+        shard_lengths=[self._num_examples['train']]))
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.VALIDATION,
+        shard_lengths=[self._num_examples['validation']]))
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.TEST,
+        shard_lengths=[self._num_examples['test']]))
+    info.update_splits_if_different(split_dict)
+    return info
+
+
 class ClincIntentDetectionDataset(base.BaseDataset):
   """Clinc Intent Detection dataset builder class."""
 
-  def __init__(self,
-               batch_size: int,
-               eval_batch_size: int,
-               shuffle_buffer_size: int = None,
-               num_parallel_parser_calls: int = 64,
-               data_dir: Optional[str] = None,
-               data_mode: str = 'ind',
-               **unused_kwargs: Dict[str, Any]):
-    """Initializer.
+  def __init__(
+      self,
+      split: str,
+      shuffle_buffer_size: int = None,
+      num_parallel_parser_calls: int = 64,
+      data_mode: str = 'ind',
+      data_dir: str = None,
+      download_data: bool = False,
+      **unused_kwargs: Dict[str, Any]):
+    """Create a CLINC tf.data.Dataset builder.
 
     Args:
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: directory containing the TFRecord datasets and the tokenizer.
       data_mode: One of ['ind', 'ood', 'all'] to decide whether to read only
         in-domain data, or read only out-of-domain data, or read both.
+      data_dir: path to a directory containing the CLINC datasets, with
+        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
+      download_data: Whether or not to download data before loading. Currently
+        unsupported.
     """
-    num_examples, self._file_names = _get_num_examples_and_filenames(data_mode)
     self.tokenizer = _load_tokenizer(
         tokenizer_dir=os.path.join(data_dir, _FILENAME_TOKENZIER))
 
     super(ClincIntentDetectionDataset, self).__init__(
         name='clinc_intent',
-        num_train_examples=num_examples['train'],
-        num_validation_examples=num_examples['val'],
-        num_test_examples=num_examples['test'],
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        dataset_builder=_ClincIntentionDatasetBuilder(data_dir, data_mode),
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        download_data=False)
 
-    self.info['num_classes'] = 150
-    self.info['feature_size'] = _FEATURE_LENGTH
+  def _create_process_example_fn(self) -> base.PreProcessFn:
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    if split == base.Split.TRAIN:
-      return _build_dataset(
-          glob_dir=os.path.join(self._data_dir, self._file_names['train']),
-          is_training=True)
-    if split == base.Split.VAL:
-      return _build_dataset(
-          glob_dir=os.path.join(self._data_dir, self._file_names['val']),
-          is_training=False)
-    if split == base.Split.TEST:
-      return _build_dataset(
-          glob_dir=os.path.join(self._data_dir, self._file_names['test']),
-          is_training=False)
-
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
-
-    def _example_parser(example: tf.train.Example) -> Dict[str, tf.Tensor]:
+    def _example_parser(example: tf.Tensor) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
       features_spec = _make_features_spec()
       features = tf.io.parse_example(example, features_spec)
       labels = tf.cast(features.pop(_LABEL_NAME), tf.int32)
       utterance_indices = features[_FEATURE_NAME]
       num_tokens = features[_NUM_TOKEN_NAME]
-      return {'features': utterance_indices, 'labels': labels,
-              'num_tokens': num_tokens}
+      return {
+          'features': utterance_indices,
+          'labels': labels,
+          'num_tokens': num_tokens,
+      }
 
     return _example_parser

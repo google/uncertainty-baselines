@@ -63,144 +63,113 @@ _FEATURE_NAME = {
 }
 
 
-class _GLUEDataset(base.BaseDataset):
-  """CIFAR dataset builder abstract class."""
+class _GlueDataset(base.BaseDataset):
+  """GLUE dataset builder abstract class."""
 
-  def __init__(self,
-               name: str,
-               batch_size: int,
-               eval_batch_size: int,
-               shuffle_buffer_size: int = None,
-               num_parallel_parser_calls: int = 64,
-               data_dir: Optional[str] = None,
-               **unused_kwargs: Dict[str, Any]):
+  def __init__(
+      self,
+      name: str,
+      split: str,
+      shuffle_buffer_size: Optional[int] = None,
+      num_parallel_parser_calls: int = 64,
+      try_gcs: bool = False,
+      download_data: bool = False,
+      **unused_kwargs: Dict[str, Any]):
     """Create a GLUE tf.data.Dataset builder.
 
     Args:
-      name: the name of this dataset.
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      name: the name of this dataset, 'glue/' will be prepended to get the
+        dataset from TFDS.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
+      try_gcs: Whether or not to try to use the GCS stored versions of dataset
+        files.
+      download_data: Whether or not to download data before loading.
     """
     tfds_name = 'glue/' + name
-    dataset_info = tfds.builder(tfds_name).info
-
-    num_train_examples = dataset_info.splits['train'].num_examples
-    num_validation_examples = dataset_info.splits['validation'].num_examples
-    num_test_examples = dataset_info.splits['test'].num_examples
-
-    super(_GLUEDataset, self).__init__(
+    dataset_builder = tfds.builder(tfds_name, try_gcs=try_gcs)
+    super(_GlueDataset, self).__init__(
         name=tfds_name,
-        num_train_examples=num_train_examples,
-        num_validation_examples=num_validation_examples,
-        num_test_examples=num_test_examples,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        dataset_builder=dataset_builder,
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        fingerprint_key='idx',
+        download_data=download_data)
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    """Creates a dataset to be processed by _create_process_example_fn."""
-    if split == base.Split.TEST:
-      return tfds.load(
-          self.name,
-          split='test',
-          **self._tfds_kwargs)
-    elif split == base.Split.TRAIN:
-      return tfds.load(
-          self.name,
-          split='train',
-          **self._tfds_kwargs)
-    else:
-      return tfds.load(
-          self.name,
-          split='validation',
-          **self._tfds_kwargs)
-
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
+  def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
-      """Parse snetences and labels from a serialized tf.train.Example."""
-      idx = example['idx']
-      label = example['label']
-
-      # Read in sentences.
+      """Parse sentences and labels from a serialized tf.train.Example."""
       text_a_name, text_b_name = _FEATURE_NAME[self.name]
       text_a = example[text_a_name]
-
-      text_b = None
-      if text_b_name:
-        text_b = example[text_b_name]
-
-      parsed_example = {
+      text_b = example[text_b_name] if text_b_name else None
+      return {
           'text_a': text_a,
           'text_b': text_b,
-          'labels': label,
-          'idx': idx
+          'labels': example['label'],
+          'idx': example['idx'],
       }
-
-      return parsed_example
 
     return _example_parser
 
 
-class ColaDataset(_GLUEDataset):
+class ColaDataset(_GlueDataset):
   """COLA dataset builder class."""
 
   def __init__(self, **kwargs):
     super(ColaDataset, self).__init__(name='cola', **kwargs)
 
 
-class Sst2Dataset(_GLUEDataset):
+class Sst2Dataset(_GlueDataset):
   """SST2 dataset builder class."""
 
   def __init__(self, **kwargs):
     super(Sst2Dataset, self).__init__(name='sst2', **kwargs)
 
 
-class MrpcDataset(_GLUEDataset):
+class MrpcDataset(_GlueDataset):
   """MRPC dataset builder class."""
 
   def __init__(self, **kwargs):
     super(MrpcDataset, self).__init__(name='mrpc', **kwargs)
 
 
-class QqpDataset(_GLUEDataset):
+class QqpDataset(_GlueDataset):
   """QQP dataset builder class."""
 
   def __init__(self, **kwargs):
     super(QqpDataset, self).__init__(name='qqp', **kwargs)
 
 
-class StsbDataset(_GLUEDataset):
+class StsbDataset(_GlueDataset):
   """STSb dataset builder class."""
 
   def __init__(self, **kwargs):
     super(StsbDataset, self).__init__(name='stsb', **kwargs)
 
 
-class QnliDataset(_GLUEDataset):
+class QnliDataset(_GlueDataset):
   """QNLI dataset builder class."""
 
   def __init__(self, **kwargs):
     super(QnliDataset, self).__init__(name='qnli', **kwargs)
 
 
-class RteDataset(_GLUEDataset):
+class RteDataset(_GlueDataset):
   """RTE dataset builder class."""
 
   def __init__(self, **kwargs):
     super(RteDataset, self).__init__(name='rte', **kwargs)
 
 
-class WnliDataset(_GLUEDataset):
+class WnliDataset(_GlueDataset):
   """WNLI dataset builder class."""
 
   def __init__(self, **kwargs):

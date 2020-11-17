@@ -19,8 +19,8 @@
 from absl.testing import parameterized
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 
-from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import toxic_comments
 
 
@@ -32,34 +32,27 @@ WTDataClass = toxic_comments.WikipediaToxicityDataset
 class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.named_parameters(
-      ('civil_train', base.Split.TRAIN, CCDataClass),
-      ('civil_valid', base.Split.VAL, CCDataClass),
-      ('civil_test', base.Split.TEST, CCDataClass),
-      ('civil_identities_train', base.Split.TRAIN, CCIdentitiesDataClass),
-      ('civil_identities_valid', base.Split.VAL, CCIdentitiesDataClass),
-      ('civil_identities_test', base.Split.TEST, CCIdentitiesDataClass),
-      ('wiki_train', base.Split.TRAIN, WTDataClass),
-      ('wiki_valid', base.Split.VAL, WTDataClass),
-      ('wiki_test', base.Split.TEST, WTDataClass))
+      ('civil_train', tfds.Split.TRAIN, CCDataClass),
+      ('civil_valid', tfds.Split.VALIDATION, CCDataClass),
+      ('civil_test', tfds.Split.TEST, CCDataClass),
+      ('civil_identities_train', tfds.Split.TRAIN, CCIdentitiesDataClass),
+      ('civil_identities_valid', tfds.Split.VALIDATION, CCIdentitiesDataClass),
+      ('civil_identities_test', tfds.Split.TEST, CCIdentitiesDataClass),
+      ('wiki_train', tfds.Split.TRAIN, WTDataClass),
+      ('wiki_valid', tfds.Split.VALIDATION, WTDataClass),
+      ('wiki_test', tfds.Split.TEST, WTDataClass))
   def testDatasetSize(self, split, dataset_class):
-    batch_size = 9
-    eval_batch_size = 5
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
     dataset_builder = dataset_class(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        split=split,
         shuffle_buffer_size=20)
-    dataset = dataset_builder.build(split).take(1)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
     features = element['features']
     labels = element['labels']
 
-    expected_batch_size = (
-        batch_size if split == base.Split.TRAIN else eval_batch_size)
-    feature_shape = features.shape[0]
-    labels_shape = labels.shape[0]
-
-    self.assertEqual(feature_shape, expected_batch_size)
-    self.assertEqual(labels_shape, expected_batch_size)
+    self.assertEqual(features.shape[0], batch_size)
+    self.assertEqual(labels.shape[0], batch_size)
 
   @parameterized.named_parameters(
       ('civil_comments', CCDataClass),
@@ -68,12 +61,10 @@ class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
   def testSubType(self, dataset_class):
     """Test if toxicity subtype is available from the example."""
     batch_size = 9
-    eval_batch_size = 5
     dataset_builder = dataset_class(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        split=tfds.Split.TRAIN,
         shuffle_buffer_size=20)
-    dataset = dataset_builder.build(base.Split.TRAIN).take(1)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
 
     for subtype_name in dataset_builder.additional_labels:

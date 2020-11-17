@@ -134,21 +134,21 @@ def run_eval_epoch(
 
 
 def setup_eval(
-    dataset_builder: ub.datasets.BaseDataset,
+    validation_dataset_builder: Optional[ub.datasets.BaseDataset],
+    test_dataset_builder: ub.datasets.BaseDataset,
+    batch_size: int,
     strategy,
     trial_dir: str,
     model: tf.keras.Model,
     metrics: Dict[str, tf.keras.metrics.Metric],
-    ood_dataset_builder: ub.datasets.BaseDataset = None,
+    ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
     ood_metrics: Dict[str, tf.keras.metrics.Metric] = None) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
-  test_dataset = dataset_builder.build('test')
+  test_dataset = test_dataset_builder.load(batch_size=batch_size)
   test_dataset = strategy.experimental_distribute_dataset(test_dataset)
   test_summary_writer = tf.summary.create_file_writer(
       os.path.join(trial_dir, 'test'))
-  num_test_steps = (
-      dataset_builder.info['num_test_examples'] //
-      dataset_builder.eval_batch_size)
+  num_test_steps = test_dataset_builder.num_examples // batch_size
   test_fn = eval_step_fn(
       model,
       strategy,
@@ -163,24 +163,17 @@ def setup_eval(
     raise ValueError('Both ood_dataset_builder and ood_metrics must be'
                      ' specified.')
   if ood_dataset_builder:
-    ood_dataset_in = dataset_builder.build('test', ood_split='in')
-    ood_dataset_out = ood_dataset_builder.build('test', ood_split='ood')
-    ood_dataset = ood_dataset_in.concatenate(ood_dataset_out)
+    ood_dataset = ood_dataset_builder.load(batch_size=batch_size)
     ood_dataset = strategy.experimental_distribute_dataset(ood_dataset)
     ood_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'ood'))
-    num_test_steps = (
-        dataset_builder.info['num_test_examples'] //
-        dataset_builder.eval_batch_size)
-    num_ood_steps = (
-        ood_dataset_builder.info['num_ood_examples'] //
-        ood_dataset_builder.eval_batch_size)
+    num_ood_steps = ood_dataset_builder.num_examples // batch_size
 
     ood_fn = eval_step_fn(
         model,
         strategy,
         ood_metrics,
-        iterations_per_loop=num_test_steps + num_ood_steps,
+        iterations_per_loop=num_ood_steps,
         label_key='is_in_distribution')
 
   # Have to have separate val_fn and test_fn because otherwise tf.function
@@ -189,11 +182,9 @@ def setup_eval(
   val_fn = None
   val_dataset = None
   val_summary_writer = None
-  if dataset_builder.info['num_validation_examples'] > 0:
-    num_val_steps = (
-        dataset_builder.info['num_validation_examples'] //
-        dataset_builder.eval_batch_size)
-    val_dataset = dataset_builder.build('validation')
+  if validation_dataset_builder:
+    num_val_steps = validation_dataset_builder.num_examples // batch_size
+    val_dataset = validation_dataset_builder.load(batch_size=batch_size)
     val_dataset = strategy.experimental_distribute_dataset(val_dataset)
     val_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'validation'))
@@ -215,7 +206,9 @@ def setup_eval(
 
 
 def run_eval_loop(
-    dataset_builder: ub.datasets.BaseDataset,
+    validation_dataset_builder: Optional[ub.datasets.BaseDataset],
+    test_dataset_builder: ub.datasets.BaseDataset,
+    batch_size: int,
     model: tf.keras.Model,
     trial_dir: str,
     train_steps: int,
@@ -229,8 +222,15 @@ def run_eval_loop(
   (test_fn, test_dataset, test_summary_writer,
    val_fn, val_dataset, val_summary_writer,
    ood_fn, ood_dataset, ood_summary_writer) = setup_eval(
-       dataset_builder, strategy, trial_dir, model, metrics,
-       ood_dataset_builder, ood_metrics)
+       validation_dataset_builder,
+       test_dataset_builder,
+       batch_size,
+       strategy,
+       trial_dir,
+       model,
+       metrics,
+       ood_dataset_builder,
+       ood_metrics)
 
   checkpoint = tf.train.Checkpoint(model=model)
   last_eval_step = -1

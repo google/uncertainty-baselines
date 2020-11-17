@@ -145,24 +145,20 @@ def main(argv):
 
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   train_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
-      data_dir=FLAGS.data_dir,
+      split='train',
+      dataset_dir=FLAGS.dataset_dir,
       data_mode='ind')
   ind_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=batch_size,
-      eval_batch_size=FLAGS.eval_batch_size,
-      data_dir=FLAGS.data_dir,
+      split='test',
+      dataset_dir=FLAGS.dataset_dir,
       data_mode='ind')
   ood_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=batch_size,
-      eval_batch_size=FLAGS.eval_batch_size,
-      data_dir=FLAGS.data_dir,
+      split='test',
+      dataset_dir=FLAGS.dataset_dir,
       data_mode='ood')
   all_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=batch_size,
-      eval_batch_size=FLAGS.eval_batch_size,
-      data_dir=FLAGS.data_dir,
+      split='test',
+      dataset_dir=FLAGS.dataset_dir,
       data_mode='all')
 
   dataset_builders = {
@@ -171,23 +167,22 @@ def main(argv):
       'all': all_dataset_builder
   }
 
-  train_dataset = train_dataset_builder.build(
-      split=ub.datasets.base.Split.TRAIN)
+  train_dataset = train_dataset_builder.load(batch_size=batch_size)
 
-  ds_info = train_dataset_builder.info
-  feature_size = ds_info['feature_size']
+  ds_info = train_dataset_builder.tfds_info
+  feature_size = ds_info.metadata['feature_size']
   # num_classes is number of valid intents plus out-of-scope intent
-  num_classes = ds_info['num_classes'] + 1
+  num_classes = ds_info.features['intent_label'].num_classes + 1
 
-  steps_per_epoch = ds_info['num_train_examples'] // batch_size
+  steps_per_epoch = train_dataset_builder.num_examples // batch_size
 
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.build(
-        split=ub.datasets.base.Split.TEST)
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=FLAGS.eval_batch_size)
     steps_per_eval[dataset_name] = (
-        dataset_builder.info['num_test_examples'] // FLAGS.eval_batch_size)
+        dataset_builder.num_examples // FLAGS.eval_batch_size)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')

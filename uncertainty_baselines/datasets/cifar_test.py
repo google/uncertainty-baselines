@@ -16,19 +16,30 @@
 # Lint as: python3
 """Tests for CIFAR{10,100}."""
 
+from absl.testing import parameterized
 import tensorflow as tf
 import uncertainty_baselines as ub
 
 
-class CifarDatasetTest(ub.datasets.DatasetTest):
+class CifarDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
 
-  def testCifar10DatasetSize(self):
+  def testCifar10DatasetShape(self):
     super(CifarDatasetTest, self)._testDatasetSize(
         ub.datasets.Cifar10Dataset, (32, 32, 3), validation_percent=0.1)
 
-  def testCifar100DatasetSize(self):
+  def testCifar100DatasetShape(self):
     super(CifarDatasetTest, self)._testDatasetSize(
         ub.datasets.Cifar100Dataset, (32, 32, 3), validation_percent=0.1)
+
+  @parameterized.named_parameters(('Train', 'train', 45000),
+                                  ('Validation', 'validation', 5000),
+                                  ('Test', 'test', 10000))
+  def testDatasetSize(self, split, expected_size):
+    dataset_builder = ub.datasets.Cifar10Dataset(
+        split=split,
+        shuffle_buffer_size=20,
+        validation_percent=0.1)
+    self.assertEqual(dataset_builder.num_examples, expected_size)
 
 
 if __name__ == '__main__':

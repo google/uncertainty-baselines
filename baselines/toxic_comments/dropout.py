@@ -167,23 +167,19 @@ def main(argv):
   data_buffer_size = batch_size * 10
 
   train_dataset_builder = ds.WikipediaToxicityDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
+      split='train',
       data_dir=FLAGS.in_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ind_dataset_builder = ds.WikipediaToxicityDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
+      split='test',
       data_dir=FLAGS.in_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_dataset_builder = ds.CivilCommentsDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
+      split='test',
       data_dir=FLAGS.ood_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
+      split='test',
       data_dir=FLAGS.identity_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
 
@@ -200,24 +196,26 @@ def main(argv):
       train_dataset_builders, test_dataset_builders)
   logging.info('class_weight: %s', str(class_weight))
 
-  ds_info = train_dataset_builder.info
-  num_classes = ds_info['num_classes']  # Positive and negative classes.
+  ds_info = train_dataset_builder.tfds_info
+  # Positive and negative classes.
+  num_classes = ds_info.metadata['num_classes']
 
   train_datasets = {}
   dataset_steps_per_epoch = {}
   total_steps_per_epoch = 0
   for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = dataset_builder.build(split=base.Split.TRAIN)
+    train_datasets[dataset_name] = dataset_builder.load(batch_size=batch_size)
     dataset_steps_per_epoch[dataset_name] = (
-        dataset_builder.info['num_train_examples'] // batch_size)
+        dataset_builder.num_examples // batch_size)
     total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
 
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.build(split=base.Split.TEST)
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=test_batch_size)
     steps_per_eval[dataset_name] = (
-        dataset_builder.info['num_test_examples'] // test_batch_size)
+        dataset_builder.num_examples // test_batch_size)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')

@@ -52,15 +52,13 @@ Below we outline modules in Uncertainty Baselines.
 ### Datasets
 
 The [`ub.datasets`](https://github.com/google/uncertainty-baselines/tree/master/uncertainty_baselines/datasets) module consists of
-datasets following the `tf.data.Dataset` API. Typically, they add minimal logic
+datasets following the `tf.data.Dataset` and TFDS APIs. Typically, they add minimal logic
 on top of TensorFlow Datasets such as default data preprocessing. Access it as:
 
 ```python
 dataset_builder = ub.datasets.Cifar10Dataset(
-    batch_size=FLAGS.batch_size,
-    eval_batch_size=FLAGS.eval_batch_size,
-    validation_percent=0.1)  # Use 5000 validation images.
-train_dataset = dataset_builder.build('train', strategy, as_tuple=True) # as_tuple for model.fit()
+    split='train', validation_percent=0.1)  # Use 5000 validation images.
+train_dataset = dataset_builder.build(batch_size=FLAGS.batch_size)
 ```
 
 Alternatively, use the getter command:
@@ -68,8 +66,7 @@ Alternatively, use the getter command:
 ```python
 dataset_builder = ub.datasets.get(
     dataset_name,
-    batch_size=batch_size,
-    eval_batch_size=eval_batch_size,
+    split=split,
     **dataset_kwargs)
 ```
 
@@ -89,7 +86,7 @@ Supported datasets include:
 __Adding a new dataset.__
 
 1. Add the bibtex reference to the `References` section below.
-2. Add the dataset definition to the datasets/ dir. Every file should have a subclass of `datasets.base.BaseDataset`, which at a minimum requires implementing a constructor, `_read_examples`, and `_create_process_example_fn`.
+2. Add the dataset definition to the datasets/ dir. Every file should have a subclass of `datasets.base.BaseDataset`, which at a minimum requires implementing a constructor, a `tfds.core.DatasetBuilder`, and `_create_process_example_fn`.
 3. Add a test that at a minimum constructs the dataset and checks the shapes of elements.
 4. Add the dataset to `datasets/datasets.py` for easy access.
 5. Add the dataset class to `datasets/__init__.py`.

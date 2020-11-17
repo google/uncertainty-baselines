@@ -19,7 +19,11 @@
 from typing import Any, Dict, Sequence, Type, TypeVar
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
+
+
+_SPLITS = [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]
 
 
 class DatasetTest(tf.test.TestCase):
@@ -32,26 +36,21 @@ class DatasetTest(tf.test.TestCase):
       **kwargs: Dict[str, Any]):
     batch_size = 9
     eval_batch_size = 5
-    dataset_builder = dataset_class(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
-        shuffle_buffer_size=20,
-        **kwargs)
-    for split in base.Split:
-      dataset = dataset_builder.build(split).take(1)
+    for bs, split in zip(
+        [batch_size, eval_batch_size, eval_batch_size], _SPLITS):
+      dataset_builder = dataset_class(
+          split=split,
+          shuffle_buffer_size=20,
+          **kwargs)
+      dataset = dataset_builder.load(batch_size=bs).take(1)
       element = next(iter(dataset))
       features = element['features']
       labels = element['labels']
 
       features_shape = features.shape
       labels_shape = labels.shape
-      if split == base.Split.TRAIN:
-        expected_bs = batch_size
-      else:
-        expected_bs = eval_batch_size
-      self.assertEqual(
-          features_shape, tuple([expected_bs] + list(image_size)))
-      self.assertEqual(labels_shape, (expected_bs,))
+      self.assertEqual(features_shape, tuple([bs] + list(image_size)))
+      self.assertEqual(labels_shape, (bs,))
 
 
 if __name__ == '__main__':

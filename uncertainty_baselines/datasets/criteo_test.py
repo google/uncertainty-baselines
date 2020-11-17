@@ -18,36 +18,32 @@
 
 from absl.testing import parameterized
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-from uncertainty_baselines.datasets import base
 
 
 class CriteoDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.named_parameters(
-      ('Train', base.Split.TRAIN),
-      ('Validation', base.Split.VAL),
-      ('Test', base.Split.TEST))
+      ('Train', tfds.Split.TRAIN),
+      ('Validation', tfds.Split.VALIDATION),
+      ('Test', tfds.Split.TEST))
   def testDatasetSize(self, split):
-    batch_size = 9
-    eval_batch_size = 5
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
     dataset_builder = ub.datasets.CriteoDataset(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        split=split,
         shuffle_buffer_size=20)
-    dataset = dataset_builder.build(split).take(1)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
     features = element['features']
     labels = element['labels']
 
-    expected_batch_size = (
-        batch_size if split == base.Split.TRAIN else eval_batch_size)
     features_length = len(features)
     feature_shape = features[list(features)[0]].shape
     labels_shape = labels.shape
-    self.assertEqual(feature_shape, (expected_batch_size,))
+    self.assertEqual(feature_shape, (batch_size,))
     self.assertEqual(features_length, 39)
-    self.assertEqual(labels_shape, (expected_batch_size,))
+    self.assertEqual(labels_shape, (batch_size,))
 
 
 if __name__ == '__main__':

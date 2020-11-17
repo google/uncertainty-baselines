@@ -57,19 +57,16 @@ def main(argv):
   tf.io.gfile.makedirs(FLAGS.output_dir)
 
   ind_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
-      data_dir=FLAGS.data_dir,
+      split='test',
+      dataset_dir=FLAGS.dataset_dir,
       data_mode='ind')
   ood_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
-      data_dir=FLAGS.data_dir,
+      split='test',
+      dataset_dir=FLAGS.dataset_dir,
       data_mode='ood')
   all_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-      batch_size=FLAGS.per_core_batch_size,
-      eval_batch_size=FLAGS.per_core_batch_size,
-      data_dir=FLAGS.data_dir,
+      split='test',
+      dataset_dir=FLAGS.dataset_dir,
       data_mode='all')
 
   dataset_builders = {
@@ -78,10 +75,10 @@ def main(argv):
       'all': all_dataset_builder
   }
 
-  ds_info = ind_dataset_builder.info
-  feature_size = ds_info['feature_size']
+  ds_info = ind_dataset_builder.tfds_info
+  feature_size = ds_info.metadata['feature_size']
   # num_classes is number of valid intents plus out-of-scope intent
-  num_classes = ds_info['num_classes'] + 1
+  num_classes = ds_info.features['intent_label'].num_classes + 1
   # vocab_size is total number of valid tokens plus the out-of-vocabulary token.
   vocab_size = ind_dataset_builder.tokenizer.num_words + 1
 
@@ -90,10 +87,9 @@ def main(argv):
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.build(
-        split=ub.datasets.base.Split.TEST)
-    steps_per_eval[dataset_name] = (
-        dataset_builder.info['num_test_examples'] // batch_size)
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=batch_size)
+    steps_per_eval[dataset_name] = dataset_builder.num_examples // batch_size
 
   if FLAGS.model_family.lower() == 'textcnn':
     model = cnn_model.textcnn(

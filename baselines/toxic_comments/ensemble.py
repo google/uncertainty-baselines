@@ -74,18 +74,15 @@ def main(argv):
   data_buffer_size = batch_size * 10
 
   ind_dataset_builder = ds.WikipediaToxicityDataset(
-      batch_size=batch_size,
-      eval_batch_size=test_batch_size,
+      split='test',
       data_dir=FLAGS.in_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_dataset_builder = ds.CivilCommentsDataset(
-      batch_size=batch_size,
-      eval_batch_size=test_batch_size,
+      split='test',
       data_dir=FLAGS.ood_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
-      batch_size=batch_size,
-      eval_batch_size=test_batch_size,
+      split='test',
       data_dir=FLAGS.identity_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
 
@@ -106,10 +103,10 @@ def main(argv):
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.build(
-        split=base.Split.TEST)
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=test_batch_size)
     steps_per_eval[dataset_name] = (
-        dataset_builder.info['num_test_examples'] // test_batch_size)
+        dataset_builder.num_examples // test_batch_size)
 
   logging.info('Building %s model', FLAGS.model_family)
 

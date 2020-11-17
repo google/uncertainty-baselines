@@ -38,8 +38,8 @@ _IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
                     'intellectual_or_learning_disability',
                     'psychiatric_or_mental_illness', 'other_disability')
 
-_DATA_SPLIT_NAMES = (base.Split.TRAIN.value, base.Split.TEST.value,
-                     base.Split.VAL.value)
+_DATA_SPLIT_NAMES = map(
+    str, [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST])
 
 _TF_RECORD_NAME_PATTERNS = {
     name: name + '_*.tfrecord' for name in _DATA_SPLIT_NAMES
@@ -63,7 +63,7 @@ def _make_features_spec(
       'input_mask': tf.io.FixedLenFeature([max_seq_length], tf.int64),
       'segment_ids': tf.io.FixedLenFeature([max_seq_length], tf.int64),
       'features': tf.io.FixedLenFeature([], tf.string),
-      'labels': tf.io.FixedLenFeature([], tf.float32)
+      'labels': tf.io.FixedLenFeature([], tf.float32),
   }
 
   for subtype in additional_labels:
@@ -72,120 +72,164 @@ def _make_features_spec(
   return features_spec_dict
 
 
+class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
+  """Minimal TFDS DatasetBuilder for the Jigsaw toxicity dataset."""
+  VERSION = tfds.core.Version('0.0.0')
+
+  def __init__(
+      self,
+      tfds_dataset_builder: tfds.core.DatasetBuilder,
+      max_seq_length: int,
+      data_dir: Optional[str],
+      **kwargs):
+    self._tfds_dataset_builder = tfds_dataset_builder
+    self._max_seq_length = max_seq_length
+    super(_JigsawToxicityDatasetBuilder, self).__init__(
+        data_dir=data_dir, **kwargs)
+    # We have to override self._data_dir to prevent the parent class from
+    # appending the class name and version.
+    self._data_dir = data_dir
+
+  def _download_and_prepare(self, dl_manager, download_config=None):
+    """Downloads and prepares dataset for reading."""
+    return self._tfds_dataset_builder._download_and_prepare(  # pylint: disable=protected-access
+        dl_manager, download_config)
+
+  def _as_dataset(
+      self,
+      split: tfds.Split,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False) -> tf.data.Dataset:
+    raise NotImplementedError
+
+  # Note that we override `as_dataset` instead of `_as_dataset` to avoid any
+  # `data_dir` reading logic.
+  def as_dataset(
+      self,
+      split: tfds.Split,
+      *,
+      batch_size=None,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False,
+      as_supervised=False) -> tf.data.Dataset:
+    """Constructs a `tf.data.Dataset`, see parent class for documentation."""
+    if self._data_dir:
+      # Reading locally.
+      logging.info('Reading from local TFRecords with BERT features %s',
+                   self._data_dir)
+      is_training = split == tfds.Split.TRAIN
+      return _build_dataset(
+          glob_dir=os.path.join(
+              self._data_dir, _TF_RECORD_NAME_PATTERNS[split]),
+          is_training=is_training)
+    else:
+      logging.info('Reading from TFDS.')
+      return self._tfds_dataset_builder.as_dataset(
+          split=split,
+          decoders=decoders,
+          read_config=read_config,
+          shuffle_files=shuffle_files,
+          batch_size=batch_size,
+          as_supervised=as_supervised)
+
+  def _info(self) -> tfds.core.DatasetInfo:
+    raise NotImplementedError
+
+  # Note that we are overriding info instead of _info() so that we properly
+  # generate the full DatasetInfo.
+  @property
+  def info(self) -> tfds.core.DatasetInfo:
+    """Returns the `tfds.core.DatasetInfo` object."""
+    info = self._tfds_dataset_builder.info
+    if info.metadata is None:
+      info._metadata = tfds.core.MetadataDict()  # pylint: disable=protected-access
+    info.metadata['num_classes'] = 1
+    info.metadata['max_seq_length'] = self._max_seq_length
+    return info
+
+
 class _JigsawToxicityDataset(base.BaseDataset):
   """Dataset builder abstract class."""
 
   def __init__(
       self,
       name: str,
-      batch_size: int,
-      eval_batch_size: int,
+      split: str,
       additional_labels: Tuple[str] = _TOXICITY_SUBTYPE_NAMES,
-      validation_fraction: float = 0.0,
+      validation_percent: float = 0.0,
       shuffle_buffer_size: Optional[int] = None,
       max_seq_length: Optional[int] = 512,
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
+      try_gcs: bool = False,
+      download_data: bool = False,
       **unused_kwargs: Dict[str, Any]):
     """Create a tf.data.Dataset builder.
 
     Args:
       name: name of the dataset.
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
       additional_labels: names of additional labels (e.g. toxicity subtypes),
         as well as identity labels for the case of CivilCommentsIdentities.
-      validation_fraction: the percent of the training set to use as a
+      validation_percent: the percent of the training set to use as a
         validation set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       max_seq_length: maximum sequence length of the tokenized sentences.
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
+      data_dir: optional dir to read data from. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
+      try_gcs: Whether or not to try to use the GCS stored versions of dataset
+        files. Currently unsupported.
+      download_data: Whether or not to download data before loading. Currently
+        unsupported.
     """
-    dataset_info = tfds.builder(name).info
-    self.validation_fraction = validation_fraction
+    dataset_builder = _JigsawToxicityDatasetBuilder(
+        tfds.builder(name, try_gcs=try_gcs), max_seq_length, data_dir)
     self.additional_labels = additional_labels
 
     self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
     self.split_names = _DATA_SPLIT_NAMES
-    self._file_name_patterns = _TF_RECORD_NAME_PATTERNS
+    self._data_dir = data_dir
 
-    num_train_examples = dataset_info.splits['train'].num_examples
-    num_test_examples = dataset_info.splits['test'].num_examples
-
-    if self.validation_fraction > 0:
+    if validation_percent == 0:
+      # This value will never be used.
       num_validation_examples = (
-          int(num_train_examples * self.validation_fraction))
-      num_train_examples -= num_validation_examples
+          dataset_builder.info.splits['validation'].num_examples)
     else:
-      num_validation_examples = dataset_info.splits['validation'].num_examples
+      num_train_examples = dataset_builder.info.splits['train'].num_examples
+      num_validation_examples = (
+          int(num_train_examples * validation_percent))
+
+    # Reading locally does not support tfds.core.ReadInstruction (yet), so we
+    # also default to split = {'train', 'validation'} if data_dir is provided.
+    if split == tfds.Split.TRAIN:
+      if validation_percent == 0 or data_dir:
+        split = 'train'
+      else:
+        split = tfds.core.ReadInstruction(
+            'train', to=-num_validation_examples, unit='abs')
+    elif split == tfds.Split.VALIDATION:
+      if validation_percent == 0 or data_dir:
+        split = 'validation'
+      else:
+        split = tfds.core.ReadInstruction(
+            'train', from_=-num_validation_examples, unit='abs')
 
     super(_JigsawToxicityDataset, self).__init__(
         name=name,
-        num_train_examples=num_train_examples,
-        num_validation_examples=num_validation_examples,
-        num_test_examples=num_test_examples,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        dataset_builder=dataset_builder,
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
-    self.info['num_classes'] = 1
-    self.info['max_seq_length'] = max_seq_length
+        download_data=download_data)
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    """Creates a dataset to be processed by _create_process_example_fn."""
-    if self._data_dir:
-      logging.info('Reading from local TFRecords with BERT features %s',
-                   self._data_dir)
-      return self._read_examples_local(split)
-    else:
-      logging.info('Reading from TFDS.')
-      return self._read_examples_tfds(split)
-
-  def _read_examples_local(self, split: base.Split) -> tf.data.Dataset:
-    """Creates a dataset from local TFRecords."""
-    is_training = split == base.Split.TRAIN
-    return _build_dataset(
-        glob_dir=os.path.join(self._data_dir,
-                              self._file_name_patterns[split.value]),
-        is_training=is_training)
-
-  def _read_examples_tfds(self, split: base.Split) -> tf.data.Dataset:
-    """Creates a dataset from TFDS API."""
-    if split == base.Split.TRAIN:
-      if self.validation_fraction == 0:
-        train_split = 'train'
-      else:
-        train_split = tfds.core.ReadInstruction(
-            'train', to=-self._num_validation_examples, unit='abs')
-      return tfds.load(
-          self.name,
-          split=train_split,
-          **self._tfds_kwargs)
-    elif split == base.Split.VAL:
-      if self.validation_fraction == 0:
-        return tfds.load(
-            self.name,
-            split='validation',
-            **self._tfds_kwargs)
-      else:
-        val_split = tfds.core.ReadInstruction(
-            'train', from_=-self._num_validation_examples, unit='abs')
-        return tfds.load(
-            self.name,
-            split=val_split,
-            **self._tfds_kwargs)
-    else:
-      return tfds.load(
-          self.name,
-          split='test',
-          **self._tfds_kwargs)
-
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
+  def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
@@ -213,11 +257,11 @@ class _JigsawToxicityDataset(base.BaseDataset):
 class WikipediaToxicityDataset(_JigsawToxicityDataset):
   """Data loader for Wikipedia Toxicity Subtype datasets."""
 
-  def __init__(self, validation_fraction: float = 0.1, **kwargs):
-    # Requires validation_fraction > 0 since this dataset doesn't have
+  def __init__(self, *, validation_percent: float = 0.1, **kwargs):
+    # Requires validation_percent > 0 since this dataset doesn't have
     # its own validation set.
-    if validation_fraction <= 0:
-      raise ValueError('Validation_fraction must be positive.')
+    if validation_percent <= 0:
+      raise ValueError('validation_percent must be positive.')
 
     additional_labels = tuple(
         toxicity_name for toxicity_name in _TOXICITY_SUBTYPE_NAMES
@@ -225,7 +269,7 @@ class WikipediaToxicityDataset(_JigsawToxicityDataset):
 
     super(WikipediaToxicityDataset, self).__init__(
         name='wikipedia_toxicity_subtypes',
-        validation_fraction=validation_fraction,
+        validation_percent=validation_percent,
         additional_labels=additional_labels,
         **kwargs)
 

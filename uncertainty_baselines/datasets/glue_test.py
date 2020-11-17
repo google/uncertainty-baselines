@@ -18,49 +18,43 @@
 from absl.testing import parameterized
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 
-from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import glue
 
 
 class GlueTest(tf.test.TestCase, parameterized.TestCase):
 
-  @parameterized.named_parameters(('Train', base.Split.TRAIN),
-                                  ('Validation', base.Split.VAL),
-                                  ('Test', base.Split.TEST))
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Validation', tfds.Split.VALIDATION),
+                                  ('Test', tfds.Split.TEST))
   def testDatasetSize(self, split):
-    batch_size = 9
-    eval_batch_size = 5
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
     for _, dataset_class in glue.GlueDatasets.items():
       dataset_builder = dataset_class(
-          batch_size=batch_size,
-          eval_batch_size=eval_batch_size,
+          split=split,
           shuffle_buffer_size=20)
-      dataset = dataset_builder.build(split).take(1)
+      dataset = dataset_builder.load(batch_size=batch_size).take(1)
       element = next(iter(dataset))
       text_a = element['text_a']
       labels = element['labels']
 
-      expected_batch_size = (
-          batch_size if split == base.Split.TRAIN else eval_batch_size)
       feature_shape = text_a.shape[0]
       labels_shape = labels.shape[0]
 
-      self.assertEqual(feature_shape, expected_batch_size)
-      self.assertEqual(labels_shape, expected_batch_size)
+      self.assertEqual(feature_shape, batch_size)
+      self.assertEqual(labels_shape, batch_size)
 
-  @parameterized.named_parameters(('Train', base.Split.TRAIN),
-                                  ('Validation', base.Split.VAL),
-                                  ('Test', base.Split.TEST))
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Validation', tfds.Split.VALIDATION),
+                                  ('Test', tfds.Split.TEST))
   def testTextbIsNone(self, split):
-    batch_size = 9
-    eval_batch_size = 5
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
     for dataset_name, dataset_class in glue.GlueDatasets.items():
       dataset_builder = dataset_class(
-          batch_size=batch_size,
-          eval_batch_size=eval_batch_size,
+          split=split,
           shuffle_buffer_size=20)
-      dataset = dataset_builder.build(split).take(1)
+      dataset = dataset_builder.load(batch_size=batch_size).take(1)
       element = next(iter(dataset))
       text_b = element['text_b']
 

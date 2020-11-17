@@ -87,12 +87,12 @@ def create_class_weight(train_dataset_builders=None,
     for dataset_name, dataset_builder in train_dataset_builders.items():
       class_weight['train/{}'.format(dataset_name)] = generate_weight(
           NUM_POS_EXAMPLES[dataset_name]['train'],
-          dataset_builder.info['num_train_examples'])
+          dataset_builder.num_examples)
   if test_dataset_builders:
     for dataset_name, dataset_builder in test_dataset_builders.items():
       class_weight['test/{}'.format(dataset_name)] = generate_weight(
           NUM_POS_EXAMPLES[dataset_name]['test'],
-          dataset_builder.info['num_test_examples'])
+          dataset_builder.num_examples)
 
   return class_weight
 

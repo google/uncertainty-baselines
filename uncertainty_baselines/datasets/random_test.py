@@ -24,11 +24,15 @@ class RandomImageDatasetTest(ub.datasets.DatasetTest):
 
   def testRandomGaussianDatasetSize(self):
     super(RandomImageDatasetTest, self)._testDatasetSize(
-        ub.datasets.RandomGaussianImageDataset, (32, 32, 3))
+        ub.datasets.RandomGaussianImageDataset,
+        (32, 32, 3),
+        validation_percent=0.1)
 
   def testRandomRademacherDatasetSize(self):
     super(RandomImageDatasetTest, self)._testDatasetSize(
-        ub.datasets.RandomRademacherImageDataset, (32, 32, 3))
+        ub.datasets.RandomRademacherImageDataset,
+        (32, 32, 3),
+        validation_percent=0.1)
 
 
 if __name__ == "__main__":

@@ -18,27 +18,25 @@
 from absl.testing import parameterized
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 
-from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import movielens
 
 
 class MovieLensDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
-  @parameterized.named_parameters(('Train', base.Split.TRAIN),
-                                  ('Validation', base.Split.VAL),
-                                  ('Test', base.Split.TEST))
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Validation', tfds.Split.VALIDATION),
+                                  ('Test', tfds.Split.TEST))
   def testDatasetSize(self, split):
-    batch_size = 9
-    eval_batch_size = 5
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
 
     dataset_builder = movielens.MovieLensDataset(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        split=split,
         validation_percent=0.1,
         test_percent=0.2,
         shuffle_buffer_size=20)
-    dataset = dataset_builder.build(split).take(1)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
 
     feature_name_arr = ['timestamp', 'movie_id', 'movie_title',
@@ -48,29 +46,27 @@ class MovieLensDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
     for name in feature_name_arr:
       feature = element[name]
-      expected_batch_size = (
-          batch_size if split == base.Split.TRAIN else eval_batch_size)
-      self.assertEqual(feature.shape[0], expected_batch_size)
+      self.assertEqual(feature.shape[0], batch_size)
 
-  @parameterized.named_parameters(('Train', base.Split.TRAIN),
-                                  ('Validation', base.Split.VAL),
-                                  ('Test', base.Split.TEST))
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Validation', tfds.Split.VALIDATION),
+                                  ('Test', tfds.Split.TEST))
   def testDatasetSizeNoneValidation(self, split):
-    batch_size = 9
-    eval_batch_size = 5
-
-    dataset_builder = movielens.MovieLensDataset(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
-        validation_percent=0,
-        test_percent=0.2,
-        shuffle_buffer_size=20)
-
-    if split == base.Split.VAL:
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
+    if split == tfds.Split.VALIDATION:
       with self.assertRaises(ValueError):
-        dataset = dataset_builder.build(split).take(1)
+        dataset_builder = movielens.MovieLensDataset(
+            split,
+            validation_percent=0,
+            test_percent=0.2,
+            shuffle_buffer_size=20)
     else:
-      dataset = dataset_builder.build(split).take(1)
+      dataset_builder = movielens.MovieLensDataset(
+          split,
+          validation_percent=0,
+          test_percent=0.2,
+          shuffle_buffer_size=20)
+      dataset = dataset_builder.load(batch_size=batch_size).take(1)
       element = next(iter(dataset))
 
       feature_name_arr = ['timestamp', 'movie_id', 'movie_title',
@@ -80,9 +76,7 @@ class MovieLensDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
       for name in feature_name_arr:
         feature = element[name]
-        expected_batch_size = (
-            batch_size if split == base.Split.TRAIN else eval_batch_size)
-        self.assertEqual(feature.shape[0], expected_batch_size)
+        self.assertEqual(feature.shape[0], batch_size)
 
 
 if __name__ == '__main__':

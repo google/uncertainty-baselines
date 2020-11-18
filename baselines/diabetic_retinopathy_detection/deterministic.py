@@ -61,7 +61,7 @@ flags.DEFINE_integer(
 )
 flags.DEFINE_bool(
     name='use_bfloat16',
-    default=True,
+    default=False,
     help='Whether to use mixed precision.',
 )
 flags.DEFINE_integer(
@@ -125,8 +125,17 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')
+
+    # Shape tuple access depends on number of distributed devices
+    try:
+        shape_tuple = dataset_train.element_spec["features"].shape
+    except AttributeError:  # Multiple TensorSpec in a (nested) PerReplicaSpec
+        tensor_spec_list = dataset_train.element_spec[
+            "features"]._flat_tensor_specs
+        shape_tuple = tensor_spec_list[0].shape
+
     model = ub.models.resnet50_deterministic(
-        input_shape=dataset_train.element_spec["features"].shape.as_list()[1:],
+        input_shape=shape_tuple.as_list()[1:],
         num_classes=1,  # binary classification task
     )
     logging.info('Model input shape: %s', model.input_shape)

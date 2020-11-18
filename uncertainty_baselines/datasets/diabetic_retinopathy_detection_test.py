@@ -21,7 +21,6 @@ import uncertainty_baselines as ub
 
 
 class DiabeticRetinopathyDetectionDatasetTest(ub.datasets.DatasetTest):
-
   def testDatasetSize(self):
     super(DiabeticRetinopathyDetectionDatasetTest, self)._testDatasetSize(
         ub.datasets.DiabeticRetinopathyDetectionDataset,

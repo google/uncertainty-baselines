@@ -72,10 +72,10 @@ def get_dataset_names() -> List[str]:
 
 
 def get(dataset_name: str,
-        batch_size: int,
-        eval_batch_size: int,
-        data_dir: Optional[str] = None,
-        **hyperparameters: Dict[str, Any]) -> BaseDataset:
+    batch_size: int,
+    eval_batch_size: int,
+    data_dir: Optional[str] = None,
+    **hyperparameters: Dict[str, Any]) -> BaseDataset:
   """Gets a dataset builder by name.
 
   Args:
@@ -98,13 +98,12 @@ def get(dataset_name: str,
   logging.info(
       'Building dataset %s with additional kwargs:\n%s',
       dataset_name,
-      json.dumps(hyperparameters, indent=2, sort_keys=True),
-  )
+      json.dumps(hyperparameters, indent=2, sort_keys=True))
   if dataset_name not in _DATASETS:
     raise ValueError('Unrecognized dataset name: {!r}'.format(dataset_name))
 
   dataset_class = _DATASETS[dataset_name]
   return dataset_class(batch_size=batch_size,
-                       eval_batch_size=eval_batch_size,
-                       data_dir=data_dir,
-                       **hyperparameters)
+      eval_batch_size=eval_batch_size,
+      data_dir=data_dir,
+      **hyperparameters)

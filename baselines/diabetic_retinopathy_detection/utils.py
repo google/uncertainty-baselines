@@ -32,12 +32,10 @@ def load_diabetic_retinopathy_detection(
       "diabetic_retinopathy_detection",
       batch_size=batch_size,
       eval_batch_size=eval_batch_size,
-      data_dir=data_dir,
-  )
+      data_dir=data_dir)
   dataset = ub.utils.build_dataset(
       builder,
       strategy=strategy or tf.distribute.MirroredStrategy(),
-      split=split,
-  )
+      split=split)
 
   return dataset

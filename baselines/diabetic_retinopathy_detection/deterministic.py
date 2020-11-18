@@ -18,62 +18,53 @@ maximum likelihood and gradient descent."""
 import os
 import time
 
+import tensorflow as tf
+import utils
 from absl import app
 from absl import flags
 from absl import logging
 
-import tensorflow as tf
 import uncertainty_baselines as ub
-import utils  # local file import
 
 flags.DEFINE_integer(
     name='seed',
     default=0,
-    help='Random seed.',
-)
+    help='Random seed.')
 flags.DEFINE_string(
     name='output_dir',
     default='/tmp/diabetic_retinopathy_detection',
     help='The directory where the model weights and '
-    'training/evaluation summaries are stored.',
-)
+    'training/evaluation summaries are stored.')
 flags.DEFINE_float(
     name='l2',
     default=1e-4,
-    help='L2 coefficient.',
-)
+    help='L2 coefficient.')
 flags.DEFINE_string(
     name='data_dir',
     default=None,
-    help='Path to training and testing data.',
-)
+    help='Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')
 flags.DEFINE_integer(
     name='train_epochs',
     default=90,
-    help='Number of training epochs.',
-)
+    help='Number of training epochs.')
 flags.DEFINE_integer(
     name='checkpoint_interval',
     default=25,
     help='Number of epochs between saving checkpoints. Use -1 to '
-    'never save checkpoints.',
-)
+    'never save checkpoints.')
 flags.DEFINE_bool(
     name='use_bfloat16',
     default=False,
-    help='Whether to use mixed precision.',
-)
+    help='Whether to use mixed precision.')
 flags.DEFINE_integer(
     name='batch_size',
     default=16,
-    help='The training batch size.',
-)
+    help='The training batch size.')
 flags.DEFINE_integer(
     name='eval_batch_size',
     default=32,
-    help='The validation/test batch size.',
-)
+    help='The validation/test batch size.')
 FLAGS = flags.FLAGS
 
 
@@ -113,15 +104,13 @@ def main(argv):
       batch_size=batch_size,
       eval_batch_size=eval_batch_size,
       strategy=strategy,
-      data_dir=data_dir,
-  )
+      data_dir=data_dir)
   dataset_test = utils.load_diabetic_retinopathy_detection(
       split=ub.datasets.base.Split.TEST,
       batch_size=batch_size,
       eval_batch_size=eval_batch_size,
       strategy=strategy,
-      data_dir=data_dir,
-  )
+      data_dir=data_dir)
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')
@@ -136,8 +125,7 @@ def main(argv):
 
     model = ub.models.resnet50_deterministic(
         input_shape=shape_tuple.as_list()[1:],
-        num_classes=1,  # binary classification task
-    )
+        num_classes=1)  # binary classification task
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -151,9 +139,7 @@ def main(argv):
         'train/loss': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'test/auc': tf.keras.metrics.AUC(),
-    }
-
+        'test/auc': tf.keras.metrics.AUC()}
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(output_dir)
     initial_epoch = 0
@@ -179,8 +165,7 @@ def main(argv):
             tf.keras.losses.binary_crossentropy(
                 y_true=tf.expand_dims(labels, axis=-1),
                 y_pred=logits,
-                from_logits=True,
-            ))
+                from_logits=True))
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
 
@@ -206,13 +191,12 @@ def main(argv):
       logits = model(images, training=True)
       if use_bfloat16:
         logits = tf.cast(logits, tf.float32)
+
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.binary_crossentropy(
               y_true=tf.expand_dims(labels, axis=-1),
               y_pred=logits,
-              from_logits=True,
-          ))
-
+              from_logits=True))
       probs = tf.squeeze(tf.nn.sigmoid(logits))
       metrics['test/negative_log_likelihood'].update_state(
           negative_log_likelihood)
@@ -234,10 +218,11 @@ def main(argv):
       time_elapsed = time.time() - start_time
       steps_per_sec = float(current_step) / time_elapsed
       eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps, epoch + 1, train_epochs,
-                     steps_per_sec, eta_seconds / 60, time_elapsed / 60))
+      message = (
+          '{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+          'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+              current_step / max_steps, epoch + 1, train_epochs,
+              steps_per_sec, eta_seconds / 60, time_elapsed / 60))
       if step % 20 == 0:
         logging.info(message)
 
@@ -250,16 +235,12 @@ def main(argv):
         'Train Loss (NLL+L2): %.4f, Accuracy: %.2f%%, AUC: %.2f%%',
         metrics['train/loss'].result(),
         metrics['train/accuracy'].result() * 100,
-        metrics['train/auc'].result() * 100,
-    )
-
+        metrics['train/auc'].result() * 100)
     logging.info(
         'Test NLL: %.4f, Accuracy: %.2f%%, AUC: %.2f%%',
         metrics['test/negative_log_likelihood'].result(),
         metrics['test/accuracy'].result() * 100,
-        metrics['test/auc'].result() * 100,
-    )
-
+        metrics['test/auc'].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     with summary_writer.as_default():
       for name, result in total_results.items():
@@ -268,7 +249,7 @@ def main(argv):
     for metric in metrics.values():
       metric.reset_states()
 
-    if (checkpoint_interval > 0 and (epoch + 1) % checkpoint_interval == 0):
+    if checkpoint_interval > 0 and (epoch + 1) % checkpoint_interval == 0:
       checkpoint_name = checkpoint.save(os.path.join(output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
 

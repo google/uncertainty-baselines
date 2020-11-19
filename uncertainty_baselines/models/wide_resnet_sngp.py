@@ -28,6 +28,17 @@ BatchNormalization = functools.partial(
     momentum=0.9)
 
 
+def make_random_feature_initializer(random_feature_type):
+  # Use stddev=0.05 to replicate the default behavior of
+  # tf.keras.initializer.RandomNormal.
+  if random_feature_type == 'orf':
+    return ed.initializers.OrthogonalRandomFeatures(stddev=0.05)
+  elif random_feature_type == 'rff':
+    return tf.keras.initializers.RandomNormal(stddev=0.05)
+  else:
+    return random_feature_type
+
+
 def make_conv2d_layer(use_spec_norm,
                       spec_norm_iteration,
                       spec_norm_bound):
@@ -133,25 +144,12 @@ def group(inputs, filters, strides, num_blocks, **kwargs):
   return x
 
 
-def wide_resnet_sngp(input_shape,
-                     batch_size,
-                     depth,
-                     width_multiplier,
-                     num_classes,
-                     l2,
-                     use_mc_dropout,
-                     use_filterwise_dropout,
-                     dropout_rate,
-                     use_gp_layer,
-                     gp_input_dim,
-                     gp_hidden_dim,
-                     gp_scale,
-                     gp_bias,
-                     gp_input_normalization,
-                     gp_cov_discount_factor,
-                     gp_cov_ridge_penalty,
-                     use_spec_norm,
-                     spec_norm_iteration,
+def wide_resnet_sngp(input_shape, batch_size, depth, width_multiplier,
+                     num_classes, l2, use_mc_dropout, use_filterwise_dropout,
+                     dropout_rate, use_gp_layer, gp_input_dim, gp_hidden_dim,
+                     gp_scale, gp_bias, gp_input_normalization,
+                     gp_random_feature_type, gp_cov_discount_factor,
+                     gp_cov_ridge_penalty, use_spec_norm, spec_norm_iteration,
                      spec_norm_bound):
   """Builds Wide ResNet.
 
@@ -182,6 +180,8 @@ def wide_resnet_sngp(input_shape,
     gp_input_normalization: Whether to normalize the input using LayerNorm for
       GP layer. This is similar to automatic relevance determination (ARD) in
       the classic GP learning.
+    gp_random_feature_type: The type of random feature to use for
+      `RandomFeatureGaussianProcess`.
     gp_cov_discount_factor: The discount factor to compute the moving average of
       precision matrix.
     gp_cov_ridge_penalty: Ridge penalty parameter for GP posterior covariance.
@@ -203,7 +203,11 @@ def wide_resnet_sngp(input_shape,
       gp_output_bias=gp_bias,
       normalize_input=gp_input_normalization,
       gp_cov_momentum=gp_cov_discount_factor,
-      gp_cov_ridge_penalty=gp_cov_ridge_penalty)
+      gp_cov_ridge_penalty=gp_cov_ridge_penalty,
+      use_custom_random_features=True,
+      custom_random_features_initializer=make_random_feature_initializer(
+          gp_random_feature_type)
+      )
 
   if (depth - 4) % 6 != 0:
     raise ValueError('depth should be 6n+4 (e.g., 16, 22, 28, 40).')

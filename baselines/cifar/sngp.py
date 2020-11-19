@@ -20,6 +20,11 @@ a deterministic neural network's uncertainty by applying spectral
 normalization to the hidden layers, and then replace the dense output layer
 with a Gaussian process layer.
 
+## Reproducibility Instruction for CIFAR-100:
+
+When running this script on CIFAR-100, set base_learning_rate=0.08 and
+gp_mean_field_factor=12.5 to reproduce the benchmark result.
+
 ## Combining with MC Dropout:
 
 As a single-model method, SNGP can be combined with other classic
@@ -71,7 +76,7 @@ import uncertainty_metrics as um
 
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
-flags.DEFINE_float('base_learning_rate', 0.04,
+flags.DEFINE_float('base_learning_rate', 0.05,
                    'Base learning rate when total batch size is 128. It is '
                    'scaled by the ratio of the total batch size to 128.')
 flags.DEFINE_integer('lr_warmup_epochs', 1,
@@ -82,10 +87,9 @@ flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
                   'Epochs to decay learning rate by.')
 flags.DEFINE_float('l2', 3e-4, 'L2 regularization coefficient.')
 
-flags.DEFINE_float(
-    'train_proportion', 0.95,
-    'Only a fraction (between 0 and 1) of the train set is used for training. '
-    'The remainder can be used for validation.')
+flags.DEFINE_float('train_proportion', 1.,
+                   'Only a fraction (between 0 and 1) of the train set is used '
+                   'for training. The remainder can be used for validation.')
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
@@ -95,9 +99,10 @@ flags.DEFINE_string('cifar100_c_path', None,
 flags.DEFINE_integer('corruptions_interval', -1,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
-flags.DEFINE_integer('checkpoint_interval', 250,
-                     'Number of epochs between saving checkpoints. Use -1 to '
-                     'never save checkpoints.')
+flags.DEFINE_integer(
+    'checkpoint_interval', -1,
+    'Number of epochs between saving checkpoints. Use -1 to '
+    'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
@@ -162,13 +167,19 @@ flags.DEFINE_bool(
     'Whether to normalize the input using LayerNorm for GP layer.'
     'This is similar to automatic relevance determination (ARD) in the classic '
     'GP learning.')
-flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
+flags.DEFINE_string(
+    'gp_random_feature_type', 'orf',
+    'The type of random feature to use. One of "rff" (random fourier feature), '
+    '"orf" (orthogonal random feature).')
+flags.DEFINE_float('gp_cov_ridge_penalty', 1.,
                    'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
-    'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of precision matrix.')
+    'gp_cov_discount_factor', -1.,
+    'The discount factor to compute the moving average of precision matrix'
+    'across epochs. If -1 then compute the exact precision matrix within the '
+    'latest epoch.')
 flags.DEFINE_float(
-    'gp_mean_field_factor', 0.001,
+    'gp_mean_field_factor', 25.,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
@@ -303,6 +314,7 @@ def main(argv):
         gp_scale=FLAGS.gp_scale,
         gp_bias=FLAGS.gp_bias,
         gp_input_normalization=FLAGS.gp_input_normalization,
+        gp_random_feature_type=FLAGS.gp_random_feature_type,
         gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
         gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
         use_spec_norm=FLAGS.use_spec_norm,
@@ -366,11 +378,17 @@ def main(argv):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
 
   @tf.function
-  def train_step(iterator):
+  def train_step(iterator, step):
     """Training StepFn."""
-    def step_fn(inputs):
+
+    def step_fn(inputs, step):
       """Per-Replica StepFn."""
       images, labels = inputs
+
+      if tf.equal(step, 0) and FLAGS.gp_cov_discount_factor < 0:
+        # Resetting covaraince estimator at the begining of a new epoch.
+        model.layers[-1].reset_covariance_matrix()
+
       if FLAGS.augmix and FLAGS.aug_count >= 1:
         # Index 0 at augmix preprocessing is the unperturbed image.
         images = images[:, 1, ...]
@@ -418,7 +436,7 @@ def main(argv):
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    strategy.run(step_fn, args=(next(iterator), step))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -487,12 +505,17 @@ def main(argv):
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
+  step_variable = tf.Variable(0, dtype=tf.int32)
   train_iterator = iter(train_dataset)
   start_time = time.time()
+
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
     for step in range(steps_per_epoch):
-      train_step(train_iterator)
+      step_variable.assign(step)
+      # Pass `step` as a tf.Variable to train_step to prevent the tf.function
+      # train_step() re-compiling itself at each function call.
+      train_step(train_iterator, step_variable)
 
       current_step = epoch * steps_per_epoch + (step + 1)
       max_steps = steps_per_epoch * FLAGS.train_epochs

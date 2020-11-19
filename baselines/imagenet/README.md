@@ -5,6 +5,7 @@
 | Method | ImageNet | ImageNet-C | ImageNet-A | ImageNetV2 | ImageNet-Vid-Robust | YTBB-Robust | ObjectNet | Train Runtime (hours) | Wall-clock/Compute Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- | ----------- | ----------- | ----------- |
 | Deterministic | 0.939 / 76.2% / 0.032 | 3.21 / 40.5% / 0.103 (75.4%) | 8.09 / 0.7% / 0.425 | 1.58 / 64.4% / 0.074 | 29.9% | 21.7% | 25.9% | 5 (32 TPUv2 cores) | 1.60 / 0.020 (32 TPUv2 cores) | 25.6M |
+| Mixup<sup>6</sup> | 0.916 / 76.6% / 0.020 | - | - | - | - | - | - | 5 (32 TPUv2 cores) | 1.60 / 0.020 (32 TPUv2 cores) | 25.6M |
 | BatchEnsemble | 0.922 / 76.8% / 0.037 | 3.09 / 41.9% / 0.089 (73.5%) | - | - | - | - | - | 17.5 (32 TPUv2 cores) | 8.33 / 0.081 (32 TPUv2 cores) | 25.8M |
 | MIMO | 0.887 / 77.5% / 0.037 | 3.03 / 43.3% / 0.106 (71.7%) | 7.76 / 1.4% / 0.432 | 1.51 / 65.7% / 0.084 | 31.8% | 22.2% | 28.1% | - | - | 27.7M |
 | Rank-1 BNN (Gaussian, size=4) | 0.886 / 77.3% / 0.0166 | 2.95 / 42.9% / 0.054 (72.12%) | - | - | - | - | - | 21.1 (32 TPUv2 cores) | - | 26.0M |
@@ -64,5 +65,6 @@ We note results in the literature below. Note there are differences in the setup
 3. Uses ResNet-152. Training uses pre-trained SGD solutions. SWAG uses rank 20 which requires 20 + 2 copies of the model parameters, and 30 samples at test time.
 4. Uses ResNet-18. Scales KL by an additional factor of 5.
 5. cSGHMC uses a total of 9 copies of the full size of weights for prediction. The authors use a T=1/200 temperature scaling on the log-posterior (see the newly added appendix I at https://openreview.net/forum?id=rkeS1RVtPS)
+6. Uses [standard mixup](https://arxiv.org/abs/1710.09412) combined with the rescaling of the logits proposed in [Carratino et al., 2020](https://arxiv.org/abs/2006.06049), which consistently improves all metrics. The reported results is for a training of 90 epochs on `deterministic.py`. When run until 200 epochs (with the same hyperparameters), the results keep on improving, e.g., (top-1 acc, nll, ece) = (77.7%, 0.876, 0.027).
 
 TODO(trandustin): Add column for Checkpoints.

@@ -14,6 +14,19 @@
 # limitations under the License.
 
 """ResNet-50 on ImageNet trained with maximum likelihood and gradient descent.
+
+This script supports using mixup [1], possibly combined with the rescaling of
+the predictions proposed in [2] (see the metrics ending with `+rescaling`).
+Mixup is enabled by setting ``mixup_alpha > 0`.
+
+## References:
+
+[1]: Hongyi Zhang et al. mixup: Beyond Empirical Risk Minimization.
+     _arXiv preprint arXiv:1710.09412_, 2017.
+     https://arxiv.org/abs/1710.09412
+[2]: Luigi Carratino et al. On Mixup Regularization.
+     _arXiv preprint arXiv:2006.06049_, 2020.
+     https://arxiv.org/abs/2006.06049
 """
 
 import os
@@ -22,7 +35,8 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import numpy as np
+import scipy
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -45,6 +59,18 @@ flags.DEFINE_integer('checkpoint_interval', 25,
                      'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
 
+# Mixup-related flags.
+flags.DEFINE_float('mixup_alpha', 0., 'Coefficient of mixup distribution.')
+flags.DEFINE_bool('same_mix_weight_per_batch', False,
+                  'Whether to use a single mix weight across the batch.')
+flags.DEFINE_bool('use_random_shuffling', False,
+                  'Whether to use random shuffling to pair the points of mixup'
+                  'within a batch.')
+flags.DEFINE_bool('use_truncated_beta', True,
+                  'Whether to sample the mixup weights from '
+                  'Beta[0,1](alpha,alpha) or from the truncated distribution '
+                  'Beta[1/2,1](alpha,alpha).')
+
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', True, 'Whether to use mixed precision.')
@@ -63,8 +89,16 @@ _LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
     (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
 ]
 
+IMAGE_SHAPE = (224, 224, 3)
+
+
+def mean_truncated_beta_distribution(alpha):
+  """Expectation of a truncated beta(alpha, alpha) distribution in [1/2, 1]."""
+  return 1. - scipy.special.betainc(alpha + 1, alpha, .5)
+
 
 def main(argv):
+
   del argv  # unused arg
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
@@ -85,22 +119,55 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                     batch_size=batch_size)
-  test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                    batch_size=batch_size)
+  enable_mixup = (FLAGS.mixup_alpha > 0.0)
+  mixup_params = {
+      'mixup_alpha': FLAGS.mixup_alpha,
+      'adaptive_mixup': False,
+      'same_mix_weight_per_batch': FLAGS.same_mix_weight_per_batch,
+      'use_random_shuffling': FLAGS.use_random_shuffling,
+      'use_truncated_beta': FLAGS.use_truncated_beta
+  }
+
+  train_builder = utils.ImageNetInput(
+      data_dir=FLAGS.data_dir,
+      use_bfloat16=FLAGS.use_bfloat16,
+      one_hot=True,
+      mixup_params=mixup_params)
+  test_builder = utils.ImageNetInput(
+      data_dir=FLAGS.data_dir, use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.as_dataset(
+      split=tfds.Split.TRAIN, batch_size=batch_size)
+  test_dataset = test_builder.as_dataset(
+      split=tfds.Split.TEST, batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_dataset = strategy.experimental_distribute_dataset(test_dataset)
+
+  if enable_mixup:
+
+    mean_theta = mean_truncated_beta_distribution(FLAGS.mixup_alpha)
+
+    # Train set to compute the means of the images and of the (one-hot) labels
+    imagenet_train_no_mixup = utils.ImageNetInput(
+        data_dir=FLAGS.data_dir, use_bfloat16=FLAGS.use_bfloat16, one_hot=True)
+    imagenet_train_no_mixup = imagenet_train_no_mixup.as_dataset(
+        split=tfds.Split.TRAIN, batch_size=batch_size)
+    tr_data_no_mixup = strategy.experimental_distribute_dataset(
+        imagenet_train_no_mixup)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
     tf.keras.mixed_precision.experimental.set_policy(policy)
 
   with strategy.scope():
+
+    if enable_mixup:
+      # Variables used to track the means of the images and the (one-hot) labels
+      count = tf.Variable(tf.zeros((1,), dtype=tf.float32))
+      mean_images = tf.Variable(tf.zeros(IMAGE_SHAPE, dtype=tf.float32))
+      mean_labels = tf.Variable(tf.zeros((NUM_CLASSES,), dtype=tf.float32))
+
     logging.info('Building Keras ResNet-50 model')
-    model = ub.models.resnet50_deterministic(input_shape=(224, 224, 3),
+    model = ub.models.resnet50_deterministic(input_shape=IMAGE_SHAPE,
                                              num_classes=NUM_CLASSES)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
@@ -125,6 +192,15 @@ def main(argv):
     }
     logging.info('Finished building Keras ResNet-50 model')
 
+    if enable_mixup:
+      # With mixup enabled, we log the predictions with the rescaling from [2]
+      metrics['test/negative_log_likelihood+rescaling'] = (tf.keras.metrics
+                                                           .Mean())
+      metrics['test/accuracy+rescaling'] = (tf.keras.metrics
+                                            .SparseCategoricalAccuracy())
+      metrics['test/ece+rescaling'] = um.ExpectedCalibrationError(
+          num_bins=FLAGS.num_bins)
+
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
@@ -139,20 +215,45 @@ def main(argv):
       os.path.join(FLAGS.output_dir, 'summaries'))
 
   @tf.function
+  def moving_average_step(iterator):
+    """Training StepFn to compute the means of the images and labels."""
+
+    def step_fn_labels(labels):
+      return tf.reduce_mean(labels, axis=0)
+
+    def step_fn_images(images):
+      return tf.reduce_mean(tf.cast(images, tf.float32), axis=0)
+
+    new_count = count + 1.
+    count.assign(new_count)
+
+    images, labels = next(iterator)
+
+    per_replica_means = strategy.run(step_fn_labels, args=(labels,))
+    cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
+    mean_labels.assign(cr_replica_means/count + (count-1.)/count * mean_labels)
+
+    per_replica_means = strategy.run(step_fn_images, args=(images,))
+    cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
+    mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)
+
+  @tf.function
   def train_step(iterator):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images, labels = inputs
+
       with tf.GradientTape() as tape:
+
         logits = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
         negative_log_likelihood = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                            logits,
-                                                            from_logits=True))
+            tf.keras.losses.categorical_crossentropy(
+                labels, logits, from_logits=True))
+
         filtered_variables = []
         for var in model.trainable_variables:
           # Apply l2 on the weights. This excludes BN parameters and biases, but
@@ -170,6 +271,10 @@ def main(argv):
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
       probs = tf.nn.softmax(logits)
+
+      # We go back from one-hot labels to integers
+      labels = tf.argmax(labels, axis=-1)
+
       metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
@@ -179,28 +284,62 @@ def main(argv):
     strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
+  def update_test_metrics(labels, logits, metric_suffix=''):
+    negative_log_likelihood = tf.reduce_mean(
+        tf.keras.losses.sparse_categorical_crossentropy(
+            labels, logits, from_logits=True))
+    probs = tf.nn.softmax(logits)
+    metrics['test/negative_log_likelihood' + metric_suffix].update_state(
+        negative_log_likelihood)
+    metrics['test/accuracy' + metric_suffix].update_state(labels, probs)
+    metrics['test/ece' + metric_suffix].update_state(labels, probs)
+
+  @tf.function
   def test_step(iterator):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images, labels = inputs
+
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
 
-      negative_log_likelihood = tf.reduce_mean(
-          tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                          logits,
-                                                          from_logits=True))
-      probs = tf.nn.softmax(logits)
-      metrics['test/negative_log_likelihood'].update_state(
-          negative_log_likelihood)
-      metrics['test/accuracy'].update_state(labels, probs)
-      metrics['test/ece'].update_state(labels, probs)
+      update_test_metrics(labels, logits)
+
+      # Rescaling logic in Eq.(15) from [2]
+      if enable_mixup:
+        images *= mean_theta
+        images += (1.-mean_theta) * tf.cast(mean_images, images.dtype)
+
+        scaled_logits = model(images, training=False)
+        if FLAGS.use_bfloat16:
+          scaled_logits = tf.cast(scaled_logits, tf.float32)
+
+        scaled_logits *= 1./mean_theta
+        scaled_logits += (1.-1./mean_theta) * tf.cast(mean_labels, logits.dtype)
+
+        update_test_metrics(labels, scaled_logits, '+rescaling')
 
     strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
+
+  if enable_mixup:
+    logging.info('Starting to compute the means of labels and images')
+    tr_iterator_no_mixup = iter(tr_data_no_mixup)
+    for step in range(steps_per_epoch):
+      moving_average_step(tr_iterator_no_mixup)
+    # Save stats required by the mixup rescaling [2] for subsequent predictions
+    mixup_rescaling_stats = {
+        'mean_labels': mean_labels.numpy(),
+        'mean_images': mean_images.numpy(),
+        'mean_theta': mean_theta
+    }
+    output_dir = os.path.join(FLAGS.output_dir, 'mixup_rescaling_stats.npz')
+    with tf.io.gfile.GFile(output_dir, 'wb') as f:
+      np.save(f, list(mixup_rescaling_stats.items()))
+    logging.info('Finished to compute the means of labels and images')
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
@@ -240,6 +379,12 @@ def main(argv):
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)
+    if enable_mixup:
+      logging.info(
+          'Test NLL (+ rescaling): %.4f, Accuracy (+ rescaling): %.2f%%',
+          metrics['test/negative_log_likelihood+rescaling'].result(),
+          metrics['test/accuracy+rescaling'].result() * 100)
+
     total_results = {name: metric.result() for name, metric in metrics.items()}
     with summary_writer.as_default():
       for name, result in total_results.items():

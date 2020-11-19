@@ -345,6 +345,13 @@ class ImageNetInput(object):
         0.0 to disable.
     mixup_params: `Dict` to store the hparams of mixup.
     ensemble_size: `int` for number of ensemble members. Used in Mixup.
+    validation: `Bool`, if True, return a training set without augmentation.
+    same_mix_weight_per_batch: `Bool`, whether to use the same mixing weight
+        across the batch (default False). Used in Mixup.
+    use_truncated_beta: whether to sample from Beta_[0,1](alpha, alpha) or from
+       the truncated distribution Beta_[1/2, 1](alpha, alpha). Used in Mixup.
+    use_random_shuffling: `Bool`, whether to use random shuffling to pair points
+        within the batch while applying mixup (default False). Used in Mixup.
   """
 
   def __init__(self,
@@ -362,12 +369,26 @@ class ImageNetInput(object):
     self.normalize_input = normalize_input
     self.one_hot = one_hot
     self.resize_method = resize_method
-    self.mixup_params = mixup_params
-    if mixup_params is not None:
-      self.mixup_alpha = mixup_params.get('mixup_alpha', 0.)
-    else:
-      self.mixup_alpha = 0.
     self.ensemble_size = ensemble_size
+    self.mixup_params = mixup_params
+
+    default_mixup_alpha = 0.0
+    default_same_mix_weight_per_batch = False
+    default_use_truncated_beta = True
+    default_use_random_shuffling = False
+    if mixup_params is not None:
+      self.mixup_alpha = mixup_params.get('mixup_alpha', default_mixup_alpha)
+      self.same_mix_weight_per_batch = mixup_params.get(
+          'same_mix_weight_per_batch', default_same_mix_weight_per_batch)
+      self.use_truncated_beta = mixup_params.get(
+          'use_truncated_beta', default_use_truncated_beta)
+      self.use_random_shuffling = mixup_params.get(
+          'use_random_shuffling', default_use_random_shuffling)
+    else:
+      self.mixup_alpha = default_mixup_alpha
+      self.same_mix_weight_per_batch = default_same_mix_weight_per_batch
+      self.use_truncated_beta = default_use_truncated_beta
+      self.use_random_shuffling = default_use_random_shuffling
 
   def dataset_parser(self, value, split):
     """Parse an ImageNet record from a serialized string Tensor."""
@@ -473,7 +494,10 @@ class ImageNetInput(object):
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
       else:
         dataset = dataset.map(
-            functools.partial(mixup, batch_size, self.mixup_alpha),
+            functools.partial(mixup, batch_size, self.mixup_alpha,
+                              self.same_mix_weight_per_batch,
+                              self.use_truncated_beta,
+                              self.use_random_shuffling),
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
@@ -490,7 +514,8 @@ class ImageNetInput(object):
     return dataset
 
 
-def mixup(batch_size, alpha, images, labels):
+def mixup(batch_size, alpha, same_mix_weight_per_batch, use_truncated_beta,
+          use_random_shuffling, images, labels):
   """Applies Mixup regularization to a batch of images and labels.
 
   [1] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, David Lopez-Paz
@@ -500,6 +525,11 @@ def mixup(batch_size, alpha, images, labels):
   Arguments:
     batch_size: The input batch size for images and labels.
     alpha: Float that controls the strength of Mixup regularization.
+    same_mix_weight_per_batch: whether to use the same mix coef over the batch.
+    use_truncated_beta: whether to sample from Beta_[0,1](alpha, alpha) or from
+       the truncated distribution Beta_[1/2, 1](alpha, alpha).
+    use_random_shuffling: Whether to pair images by random shuffling
+      (default is a deterministic pairing by reversing the batch).
     images: A batch of images of shape [batch_size, ...]
     labels: A batch of labels of shape [batch_size, num_classes]
 
@@ -507,16 +537,31 @@ def mixup(batch_size, alpha, images, labels):
     A tuple of (images, labels) with the same dimensions as the input with
     Mixup regularization applied.
   """
-  mix_weight = ed.Beta(alpha, alpha, sample_shape=[batch_size, 1])
-  mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
+  if same_mix_weight_per_batch:
+    mix_weight = ed.Beta(alpha, alpha, sample_shape=[1, 1])
+    mix_weight = tf.tile(mix_weight, [batch_size, 1])
+  else:
+    mix_weight = ed.Beta(alpha, alpha, sample_shape=[batch_size, 1])
+
+  if use_truncated_beta:
+    mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
+
   images_mix_weight = tf.reshape(mix_weight, [batch_size, 1, 1, 1])
   images_mix_weight = tf.cast(images_mix_weight, images.dtype)
+
+  if not use_random_shuffling:
   # Mixup on a single batch is implemented by taking a weighted sum with the
   # same batch in reverse.
+    mixup_index = tf.reverse(tf.range(batch_size), axis=[0])
+  else:
+    mixup_index = tf.random.shuffle(tf.range(batch_size))
+
   images_mix = (
-      images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
+      images * images_mix_weight + tf.gather(images, mixup_index) *
+      (1. - images_mix_weight))
   mix_weight = tf.cast(mix_weight, labels.dtype)
-  labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
+  labels_mix = labels * mix_weight + tf.gather(labels,
+                                               mixup_index) * (1. - mix_weight)
   return images_mix, labels_mix
 
 

@@ -84,11 +84,16 @@ flags.DEFINE_bool(
     'Whether to normalize the input for GP layer using LayerNorm. This is '
     'similar to applying automatic relevance determination (ARD) in the '
     'classic GP literature.')
-flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
+flags.DEFINE_string(
+    'gp_random_feature_type', 'orf',
+    'The type of random feature to use. One of "rff" (random Fourier feature), '
+    '"orf" (orthogonal random feature).')
+flags.DEFINE_float('gp_cov_ridge_penalty', 1.,
                    'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
-    'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of precision matrix.')
+    'gp_cov_discount_factor', -1,
+    'The discount factor to compute the moving average of precision matrix.'
+    'If -1 then instead compute the exact covariance at the lastest epoch.')
 flags.DEFINE_bool(
     'gp_output_imagenet_initializer', True,
     'Whether to initialize GP output layer using Gaussian with small '
@@ -145,6 +150,7 @@ def main(argv):
       gp_scale=FLAGS.gp_scale,
       gp_bias=FLAGS.gp_bias,
       gp_input_normalization=FLAGS.gp_input_normalization,
+      gp_random_feature_type=FLAGS.gp_random_feature_type,
       gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
       gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
       gp_output_imagenet_initializer=FLAGS.gp_output_imagenet_initializer,

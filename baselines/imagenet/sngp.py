@@ -28,6 +28,9 @@ a Gaussian process.
 [2]: Zhiyun Lu, Eugene Ie, Fei Sha. Uncertainty Estimation with Infinitesimal
      Jackknife.  _arXiv preprint arXiv:2006.07584_, 2020.
      https://arxiv.org/abs/2006.07584
+[3]: Felix Xinnan Yu et al. Orthogonal Random Features. In _Neural Information
+     Processing Systems_, 2016.
+     https://papers.nips.cc/paper/6246-orthogonal-random-features.pdf
 """
 
 import os
@@ -102,13 +105,18 @@ flags.DEFINE_bool(
     'Whether to normalize the input for GP layer using LayerNorm. This is '
     'similar to applying automatic relevance determination (ARD) in the '
     'classic GP literature.')
-flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
+flags.DEFINE_string(
+    'gp_random_feature_type', 'orf',
+    'The type of random feature to use. One of "rff" (random Fourier feature), '
+    '"orf" (orthogonal random feature) [3].')
+flags.DEFINE_float('gp_cov_ridge_penalty', 1.,
                    'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
-    'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of precision matrix.')
+    'gp_cov_discount_factor', -1.,
+    'The discount factor to compute the moving average of precision matrix.'
+    'If -1 then instead compute the exact covariance at the lastest epoch.')
 flags.DEFINE_float(
-    'gp_mean_field_factor', 1e-6,
+    'gp_mean_field_factor', 1.,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
@@ -203,6 +211,7 @@ def main(argv):
         gp_scale=FLAGS.gp_scale,
         gp_bias=FLAGS.gp_bias,
         gp_input_normalization=FLAGS.gp_input_normalization,
+        gp_random_feature_type=FLAGS.gp_random_feature_type,
         gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
         gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
         gp_output_imagenet_initializer=FLAGS.gp_output_imagenet_initializer,
@@ -261,11 +270,16 @@ def main(argv):
       os.path.join(FLAGS.output_dir, 'summaries'))
 
   @tf.function
-  def train_step(iterator):
+  def train_step(iterator, step):
     """Training StepFn."""
-    def step_fn(inputs):
+    def step_fn(inputs, step):
       """Per-Replica StepFn."""
       images, labels = inputs
+
+      if tf.equal(step, 0) and FLAGS.gp_cov_discount_factor < 0:
+        # Reset covaraince estimator at the begining of a new epoch.
+        model.layers[-1].reset_covariance_matrix()
+
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
 
@@ -302,7 +316,7 @@ def main(argv):
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    strategy.run(step_fn, args=(next(iterator), step,))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -368,12 +382,15 @@ def main(argv):
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
+  step_variable = tf.Variable(0, dtype=tf.int32)
   train_iterator = iter(train_dataset)
   start_time = time.time()
+
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
     for step in range(steps_per_epoch):
-      train_step(train_iterator)
+      step_variable.assign(step)
+      train_step(train_iterator, step_variable)
 
       current_step = epoch * steps_per_epoch + (step + 1)
       max_steps = steps_per_epoch * FLAGS.train_epochs

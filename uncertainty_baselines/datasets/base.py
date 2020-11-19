@@ -38,8 +38,8 @@ class OodSplit(enum.Enum):
 # have elements that are Sequence[tf.Tensor], but for TFDS datasets they will be
 # Dict[str, tf.Tensor].
 PreProcessFn = Callable[
-    [Union[int, Sequence[tf.Tensor], Dict[str, tf.Tensor]]],
-    Dict[str, tf.Tensor]]
+  [Union[int, Sequence[tf.Tensor], Dict[str, tf.Tensor]]],
+  Dict[str, tf.Tensor]]
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -49,8 +49,7 @@ class BaseDataset(object):
   Requires subclasses to override _read_examples, _create_process_example_fn.
   """
 
-  def __init__(
-      self,
+  def __init__(self,
       name: str,
       batch_size: int,
       eval_batch_size: int,
@@ -95,9 +94,10 @@ class BaseDataset(object):
     self._num_parallel_parser_calls = num_parallel_parser_calls
     self._data_dir = data_dir
     self._tfds_kwargs = {}
-    if self._data_dir and self._data_dir.startswith('gs://'):
-      self._tfds_kwargs['try_gcs'] = True
+    if self._data_dir:
       self._tfds_kwargs['data_dir'] = self._data_dir
+      if self._data_dir.startswith('gs://'):
+        self._tfds_kwargs['try_gcs'] = True
 
   def _is_training(self, split: Split) -> bool:
     return split == Split.TRAIN

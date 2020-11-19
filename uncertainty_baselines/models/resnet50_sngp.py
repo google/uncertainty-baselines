@@ -46,6 +46,17 @@ def MonteCarloDropout(  # pylint:disable=invalid-name
           inputs, training=training)
 
 
+def make_random_feature_initializer(random_feature_type):
+  # Use stddev=0.05 to replicate the default behavior of
+  # tf.keras.initializer.RandomNormal.
+  if random_feature_type == 'orf':
+    return ed.initializers.OrthogonalRandomFeatures(stddev=0.05)
+  elif random_feature_type == 'rff':
+    return tf.keras.initializers.RandomNormal(stddev=0.05)
+  else:
+    return random_feature_type
+
+
 def make_conv2d_layer(use_spec_norm,
                       spec_norm_iteration,
                       spec_norm_bound):
@@ -182,6 +193,7 @@ def resnet50_sngp(input_shape,
                   gp_scale,
                   gp_bias,
                   gp_input_normalization,
+                  gp_random_feature_type,
                   gp_cov_discount_factor,
                   gp_cov_ridge_penalty,
                   gp_output_imagenet_initializer,
@@ -211,6 +223,8 @@ def resnet50_sngp(input_shape,
     gp_input_normalization: Whether to normalize the input using LayerNorm for
       GP layer. This is similar to automatic relevance determination (ARD) in
       the classic GP learning.
+    gp_random_feature_type: The type of random feature to use for
+      `RandomFeatureGaussianProcess`.
     gp_cov_discount_factor: The discount factor to compute the moving average of
       precision matrix.
     gp_cov_ridge_penalty: Ridge penalty parameter for GP posterior covariance.
@@ -297,6 +311,8 @@ def resnet50_sngp(input_shape,
         gp_cov_ridge_penalty=gp_cov_ridge_penalty,
         scale_random_features=False,
         use_custom_random_features=True,
+        custom_random_features_initializer=make_random_feature_initializer(
+            gp_random_feature_type),
         kernel_initializer=gp_output_initializer)
   else:
     output_layer = functools.partial(

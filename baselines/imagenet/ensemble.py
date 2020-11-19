@@ -28,6 +28,7 @@ from absl import logging
 
 import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
@@ -69,20 +70,19 @@ def main(argv):
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
-  dataset_test = utils.ImageNetInput(
-      is_training=False,
-      data_dir=FLAGS.data_dir,
-      batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=False).input_fn()
-  test_datasets = {'clean': dataset_test}
+  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                use_bfloat16=False)
+  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
+                                          batch_size=batch_size)
+  test_datasets = {'clean': clean_test_dataset}
   corruption_types, max_intensity = utils.load_corrupted_test_info()
   for name in corruption_types:
     for intensity in range(1, max_intensity + 1):
       dataset_name = '{0}_{1}'.format(name, intensity)
       test_datasets[dataset_name] = utils.load_corrupted_test_dataset(
-          name=name,
-          intensity=intensity,
-          batch_size=FLAGS.per_core_batch_size,
+          corruption_name=name,
+          corruption_intensity=intensity,
+          batch_size=batch_size,
           drop_remainder=True,
           use_bfloat16=False)
 

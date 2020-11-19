@@ -56,6 +56,20 @@ flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
 
 
+def parse_checkpoint_dir(checkpoint_dir):
+  """Parse directory of checkpoints."""
+  paths = []
+  subdirectories = tf.io.gfile.glob(os.path.join(checkpoint_dir, '*'))
+  is_checkpoint = lambda f: ('checkpoint' in f and '.index' in f)
+  for subdir in subdirectories:
+    for path, _, files in tf.io.gfile.walk(subdir):
+      if any(f for f in files if is_checkpoint(f)):
+        latest_checkpoint_without_suffix = tf.train.latest_checkpoint(path)
+        paths.append(os.path.join(path, latest_checkpoint_without_suffix))
+        break
+  return paths
+
+
 def main(argv):
   del argv  # unused arg
   if not FLAGS.use_gpu:
@@ -70,28 +84,28 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  dataset_input_fn = utils.load_input_fn(
+  dataset = utils.load_dataset(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
-      batch_size=FLAGS.per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  test_datasets = {'clean': dataset_input_fn()}
+  test_datasets = {'clean': dataset}
   corruption_types, max_intensity = utils.load_corrupted_test_info(
       FLAGS.dataset)
   for name in corruption_types:
     for intensity in range(1, max_intensity + 1):
       dataset_name = '{0}_{1}'.format(name, intensity)
       if FLAGS.dataset == 'cifar10':
-        load_c_dataset = utils.load_cifar10_c_input_fn
+        load_c_dataset = utils.load_cifar10_c
       else:
-        load_c_dataset = functools.partial(
-            utils.load_cifar100_c_input_fn, path=FLAGS.cifar100_c_path)
-      corrupted_input_fn = load_c_dataset(
+        load_c_dataset = functools.partial(utils.load_cifar100_c,
+                                           path=FLAGS.cifar100_c_path)
+      dataset = load_c_dataset(
           corruption_name=name,
           corruption_intensity=intensity,
-          batch_size=FLAGS.per_core_batch_size,
+          batch_size=batch_size,
           use_bfloat16=FLAGS.use_bfloat16)
-      test_datasets[dataset_name] = corrupted_input_fn()
+      test_datasets[dataset_name] = dataset
 
   model = ub.models.wide_resnet(
       input_shape=ds_info.features['image'].shape,
@@ -105,9 +119,7 @@ def main(argv):
   logging.info('Model number of weights: %s', model.count_params())
 
   # Search for checkpoints from their index file; then remove the index suffix.
-  ensemble_filenames = tf.io.gfile.glob(os.path.join(FLAGS.checkpoint_dir,
-                                                     '**/*.index'))
-  ensemble_filenames = [filename[:-6] for filename in ensemble_filenames]
+  ensemble_filenames = parse_checkpoint_dir(FLAGS.checkpoint_dir)
   ensemble_size = len(ensemble_filenames)
   logging.info('Ensemble size: %s', ensemble_size)
   logging.info('Ensemble number of weights: %s',

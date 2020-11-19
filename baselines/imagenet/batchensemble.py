@@ -23,6 +23,7 @@ from absl import flags
 from absl import logging
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
@@ -108,50 +109,39 @@ def main(argv):
       'adaptive_mixup': FLAGS.adaptive_mixup,
       'num_classes': NUM_CLASSES,
   }
-  imagenet_train = utils.ImageNetInput(
-      is_training=True,
-      data_dir=FLAGS.data_dir,
-      batch_size=per_core_batch_size,
-      one_hot=(FLAGS.mixup_alpha > 0),
-      use_bfloat16=FLAGS.use_bfloat16,
-      mixup_params=mixup_params,
-      ensemble_size=FLAGS.ensemble_size)
-  imagenet_eval = utils.ImageNetInput(
-      is_training=False,
-      data_dir=FLAGS.data_dir,
-      batch_size=per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+  train_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                      one_hot=(FLAGS.mixup_alpha > 0),
+                                      use_bfloat16=FLAGS.use_bfloat16,
+                                      mixup_params=mixup_params,
+                                      ensemble_size=FLAGS.ensemble_size)
+  test_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                     use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.as_dataset(split=tfds.Split.TRAIN,
+                                           batch_size=batch_size)
+  clean_test_dataset = test_builder.as_dataset(split=tfds.Split.TEST,
+                                               batch_size=batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
-      'clean':
-          strategy.experimental_distribute_datasets_from_function(
-              imagenet_eval.input_fn),
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
   }
   if FLAGS.adaptive_mixup:
-    imagenet_confidence_eval = utils.ImageNetInput(
-        is_training=True,
-        data_dir=FLAGS.data_dir,
-        batch_size=per_core_batch_size * FLAGS.ensemble_size,
-        use_bfloat16=FLAGS.use_bfloat16,
-        validation=True)
+    imagenet_confidence_dataset = test_builder.as_dataset(
+        split=tfds.Split.VALIDATION,
+        batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores)
     imagenet_confidence_dataset = (
-        strategy.experimental_distribute_datasets_from_function(
-            imagenet_confidence_eval.input_fn))
+        strategy.experimental_distribute_dataset(imagenet_confidence_dataset))
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
     for name in corruption_types:
       for intensity in range(1, max_intensity + 1):
         dataset_name = '{0}_{1}'.format(name, intensity)
-        corrupt_input_fn = utils.corrupt_test_input_fn(
-            batch_size=per_core_batch_size,
+        dataset = utils.load_corrupted_test_dataset(
+            batch_size=batch_size,
             corruption_name=name,
             corruption_intensity=intensity,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets[dataset_name] = (
-            strategy.experimental_distribute_datasets_from_function(
-                corrupt_input_fn))
-
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      imagenet_train.input_fn)
+            strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -446,15 +436,14 @@ def main(argv):
       logging.info('mixup coeff')
       logging.info(mixup_coeff)
       mixup_params['mixup_coeff'] = mixup_coeff
-      imagenet_train = utils.ImageNetInput(
-          is_training=True,
+      builder = utils.ImageNetInput(
           data_dir=FLAGS.data_dir,
-          batch_size=per_core_batch_size,
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
           mixup_params=mixup_params)
-      train_dataset = strategy.experimental_distribute_datasets_from_function(
-          imagenet_train.input_fn)
+      train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
+                                         batch_size=batch_size)
+      train_dataset = strategy.experimental_distribute_dataset(train_dataset)
       train_iterator = iter(train_dataset)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}

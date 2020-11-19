@@ -132,7 +132,8 @@ def run_train_loop(
         checkpoint.restore(checkpoint_manager.latest_checkpoint)
         logging.info('Resuming training from step %d.', last_checkpoint_step)
 
-  train_dataset = ub.utils.build_dataset(dataset_builder, strategy, 'train')
+  train_dataset = dataset_builder.build('train')
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   train_iterator = iter(train_dataset)
 
   iterations_per_loop = min(eval_frequency, log_frequency)
@@ -168,7 +169,8 @@ def run_train_loop(
   for train_fn_step in range(start_train_fn_step, num_train_fn_steps):
     current_step = train_fn_step * iterations_per_loop
     # Checkpoint at the start of the step, before the training op is run.
-    if checkpoint_manager and current_step % eval_frequency == 0:
+    if (checkpoint_manager and current_step % eval_frequency == 0 and
+        current_step != last_checkpoint_step):
       checkpoint_manager.save(checkpoint_number=current_step)
     if mode == 'train_and_eval' and current_step % eval_frequency == 0:
       eval_lib.run_eval_epoch(

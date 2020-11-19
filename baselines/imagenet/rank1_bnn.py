@@ -35,6 +35,7 @@ from absl import flags
 from absl import logging
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
@@ -129,39 +130,30 @@ def main(argv):
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.experimental.TPUStrategy(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
 
-  imagenet_train = utils.ImageNetInput(
-      is_training=True,
-      data_dir=FLAGS.data_dir,
-      batch_size=per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
-  imagenet_eval = utils.ImageNetInput(
-      is_training=False,
-      data_dir=FLAGS.data_dir,
-      batch_size=per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
+                                     batch_size=batch_size)
+  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
+                                          batch_size=batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
-      'clean':
-          strategy.experimental_distribute_datasets_from_function(
-              imagenet_eval.input_fn),
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
   }
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
     for name in corruption_types:
       for intensity in range(1, max_intensity + 1):
         dataset_name = '{0}_{1}'.format(name, intensity)
-        corrupt_input_fn = utils.corrupt_test_input_fn(
-            batch_size=per_core_batch_size,
+        dataset = utils.load_corrupted_test_dataset(
+            batch_size=batch_size,
             corruption_name=name,
             corruption_intensity=intensity,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets[dataset_name] = (
-            strategy.experimental_distribute_datasets_from_function(
-                corrupt_input_fn))
-
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      imagenet_train.input_fn)
+            strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')

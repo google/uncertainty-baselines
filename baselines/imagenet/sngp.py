@@ -28,6 +28,9 @@ a Gaussian process.
 [2]: Zhiyun Lu, Eugene Ie, Fei Sha. Uncertainty Estimation with Infinitesimal
      Jackknife.  _arXiv preprint arXiv:2006.07584_, 2020.
      https://arxiv.org/abs/2006.07584
+[3]: Felix Xinnan Yu et al. Orthogonal Random Features. In _Neural Information
+     Processing Systems_, 2016.
+     https://papers.nips.cc/paper/6246-orthogonal-random-features.pdf
 """
 
 import os
@@ -39,6 +42,7 @@ from absl import logging
 
 import edward2 as ed
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
@@ -101,13 +105,18 @@ flags.DEFINE_bool(
     'Whether to normalize the input for GP layer using LayerNorm. This is '
     'similar to applying automatic relevance determination (ARD) in the '
     'classic GP literature.')
-flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
+flags.DEFINE_string(
+    'gp_random_feature_type', 'orf',
+    'The type of random feature to use. One of "rff" (random Fourier feature), '
+    '"orf" (orthogonal random feature) [3].')
+flags.DEFINE_float('gp_cov_ridge_penalty', 1.,
                    'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
-    'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of precision matrix.')
+    'gp_cov_discount_factor', -1.,
+    'The discount factor to compute the moving average of precision matrix.'
+    'If -1 then instead compute the exact covariance at the lastest epoch.')
 flags.DEFINE_float(
-    'gp_mean_field_factor', 1e-6,
+    'gp_mean_field_factor', 1.,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
@@ -159,39 +168,30 @@ def main(argv):
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.experimental.TPUStrategy(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
 
-  imagenet_train = utils.ImageNetInput(
-      is_training=True,
-      data_dir=FLAGS.data_dir,
-      batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
-  imagenet_eval = utils.ImageNetInput(
-      is_training=False,
-      data_dir=FLAGS.data_dir,
-      batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
+                                     batch_size=batch_size)
+  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
+                                          batch_size=batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
-      'clean':
-          strategy.experimental_distribute_datasets_from_function(
-              imagenet_eval.input_fn)
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
   }
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
     for name in corruption_types:
       for intensity in range(1, max_intensity + 1):
         dataset_name = '{0}_{1}'.format(name, intensity)
-        corrupt_input_fn = utils.corrupt_test_input_fn(
-            batch_size=FLAGS.per_core_batch_size,
+        dataset = utils.load_corrupted_test_dataset(
+            batch_size=batch_size,
             corruption_name=name,
             corruption_intensity=intensity,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets[dataset_name] = (
-            strategy.experimental_distribute_datasets_from_function(
-                corrupt_input_fn))
-
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      imagenet_train.input_fn)
+            strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -211,6 +211,7 @@ def main(argv):
         gp_scale=FLAGS.gp_scale,
         gp_bias=FLAGS.gp_bias,
         gp_input_normalization=FLAGS.gp_input_normalization,
+        gp_random_feature_type=FLAGS.gp_random_feature_type,
         gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
         gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
         gp_output_imagenet_initializer=FLAGS.gp_output_imagenet_initializer,
@@ -269,11 +270,16 @@ def main(argv):
       os.path.join(FLAGS.output_dir, 'summaries'))
 
   @tf.function
-  def train_step(iterator):
+  def train_step(iterator, step):
     """Training StepFn."""
-    def step_fn(inputs):
+    def step_fn(inputs, step):
       """Per-Replica StepFn."""
       images, labels = inputs
+
+      if tf.equal(step, 0) and FLAGS.gp_cov_discount_factor < 0:
+        # Reset covaraince estimator at the begining of a new epoch.
+        model.layers[-1].reset_covariance_matrix()
+
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
 
@@ -310,7 +316,7 @@ def main(argv):
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    strategy.run(step_fn, args=(next(iterator), step,))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -376,12 +382,15 @@ def main(argv):
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
+  step_variable = tf.Variable(0, dtype=tf.int32)
   train_iterator = iter(train_dataset)
   start_time = time.time()
+
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
     for step in range(steps_per_epoch):
-      train_step(train_iterator)
+      step_variable.assign(step)
+      train_step(train_iterator, step_variable)
 
       current_step = epoch * steps_per_epoch + (step + 1)
       max_steps = steps_per_epoch * FLAGS.train_epochs

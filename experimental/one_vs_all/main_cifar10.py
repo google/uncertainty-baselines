@@ -107,12 +107,12 @@ def run(trial_dir: str):
         batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.eval_batch_size,
         validation_percent=0.1)  # Use 5000 validation images.
-    train_dataset = ub.utils.build_dataset(
-        dataset_builder, strategy, 'train', as_tuple=True)
-    val_dataset = ub.utils.build_dataset(
-        dataset_builder, strategy, 'validation', as_tuple=True)
-    test_dataset = ub.utils.build_dataset(
-        dataset_builder, strategy, 'test', as_tuple=True)
+    train_dataset = dataset_builder.build('train', as_tuple=True)
+    train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+    val_dataset = dataset_builder.build('validation', as_tuple=True)
+    val_dataset = strategy.experimental_distribute_dataset(val_dataset)
+    test_dataset = dataset_builder.build('test', as_tuple=True)
+    test_dataset = strategy.experimental_distribute_dataset(test_dataset)
 
     # Setup optimizer.
     _check_batch_replica_divisible(FLAGS.batch_size, strategy)

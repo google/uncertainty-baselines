@@ -24,6 +24,7 @@ from absl import logging
 import edward2 as ed
 import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
@@ -83,11 +84,16 @@ flags.DEFINE_bool(
     'Whether to normalize the input for GP layer using LayerNorm. This is '
     'similar to applying automatic relevance determination (ARD) in the '
     'classic GP literature.')
-flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
+flags.DEFINE_string(
+    'gp_random_feature_type', 'orf',
+    'The type of random feature to use. One of "rff" (random Fourier feature), '
+    '"orf" (orthogonal random feature).')
+flags.DEFINE_float('gp_cov_ridge_penalty', 1.,
                    'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
-    'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of precision matrix.')
+    'gp_cov_discount_factor', -1,
+    'The discount factor to compute the moving average of precision matrix.'
+    'If -1 then instead compute the exact covariance at the lastest epoch.')
 flags.DEFINE_bool(
     'gp_output_imagenet_initializer', True,
     'Whether to initialize GP output layer using Gaussian with small '
@@ -116,20 +122,19 @@ def main(argv):
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
-  dataset_test = utils.ImageNetInput(
-      is_training=False,
-      data_dir=FLAGS.data_dir,
-      batch_size=FLAGS.per_core_batch_size,
-      use_bfloat16=False).input_fn()
-  test_datasets = {'clean': dataset_test}
+  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                use_bfloat16=False)
+  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
+                                          batch_size=batch_size)
+  test_datasets = {'clean': clean_test_dataset}
   corruption_types, max_intensity = utils.load_corrupted_test_info()
   for name in corruption_types:
     for intensity in range(1, max_intensity + 1):
       dataset_name = '{0}_{1}'.format(name, intensity)
       test_datasets[dataset_name] = utils.load_corrupted_test_dataset(
-          name=name,
-          intensity=intensity,
-          batch_size=FLAGS.per_core_batch_size,
+          corruption_name=name,
+          corruption_intensity=intensity,
+          batch_size=batch_size,
           drop_remainder=True,
           use_bfloat16=False)
 
@@ -145,6 +150,7 @@ def main(argv):
       gp_scale=FLAGS.gp_scale,
       gp_bias=FLAGS.gp_bias,
       gp_input_normalization=FLAGS.gp_input_normalization,
+      gp_random_feature_type=FLAGS.gp_random_feature_type,
       gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
       gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
       gp_output_imagenet_initializer=FLAGS.gp_output_imagenet_initializer,

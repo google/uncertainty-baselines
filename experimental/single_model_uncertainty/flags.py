@@ -104,6 +104,9 @@ def define_flags() -> List[str]:
   flags.DEFINE_float('optimizer_hparams_epsilon', 1e-7, 'Adam epsilon.')
   flags.DEFINE_float('weight_decay', 0.0, 'Weight decay for optimizer.')
   flags.DEFINE_float('l2_regularization', 1e-4, 'L2 regularization for models.')
+  flags.DEFINE_float(
+      'focal_loss_gamma', 0.0, 'The gamma parameter in the focal loss. '
+      'If gamma=0.0, the focal loss is equivalent to cross entropy loss.')
   flags.DEFINE_integer('seed', 42, 'Random seed.')
   flags.DEFINE_float(
       'validation_percent',
@@ -117,6 +120,7 @@ def define_flags() -> List[str]:
                        'Depth of wide resnet model.')
   flags.DEFINE_integer('wide_resnet_width_multiplier', 10,
                        'Width multiplier for wide resnet model.')
+  flags.DEFINE_integer('num_classes', 10, 'Number of label classes.')
 
   # Flags relating to genomics_cnn model
   flags.DEFINE_integer('len_seqs', 250,

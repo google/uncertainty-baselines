@@ -39,7 +39,6 @@ greater than 1.
 
 import functools
 from typing import Any, Dict, Iterable, Optional
-import edward2 as ed
 import tensorflow as tf
 
 import util as models_util  # local file import
@@ -215,32 +214,20 @@ def wide_resnet(
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
   x = tf.keras.layers.Flatten()(x)
 
-  if gp_layer_hparams:
-    # add random projection layer to reduce dimension
-    gp_output_layer = functools.partial(
-        ed.layers.RandomFeatureGaussianProcess,
-        num_inducing=gp_layer_hparams['gp_hidden_dim'],
-        gp_kernel_scale=gp_layer_hparams['gp_scale'],
-        gp_output_bias=gp_layer_hparams['gp_bias'],
-        normalize_input=gp_layer_hparams['gp_input_normalization'],
-        gp_cov_momentum=gp_layer_hparams['gp_cov_discount_factor'],
-        gp_cov_ridge_penalty=gp_layer_hparams['gp_cov_ridge_penalty'])
-    if gp_layer_hparams['gp_input_dim'] > 0:
-      x = tf.keras.layers.Dense(
-          gp_layer_hparams['gp_input_dim'],
-          kernel_initializer='random_normal',
-          use_bias=False,
-          trainable=False)(x)
-    logits, covmat = gp_output_layer(num_classes)(x)
-  else:
-    logits = tf.keras.layers.Dense(
-        num_classes,
-        kernel_initializer='he_normal',
-        kernel_regularizer=tf.keras.regularizers.l2(l2),
-        bias_regularizer=tf.keras.regularizers.l2(l2))(x)
-    covmat = tf.eye(batch_size)
+  output_layer = models_util.make_output_layer(
+      gp_layer_hparams=gp_layer_hparams)
+  if gp_layer_hparams and gp_layer_hparams['gp_input_dim'] > 0:
+    # Uses random projection to reduce the input dimension of the GP layer.
+    x = tf.keras.layers.Dense(
+        gp_layer_hparams['gp_input_dim'],
+        kernel_initializer='random_normal',
+        use_bias=False,
+        trainable=False,
+        name='gp_random_projection')(
+            x)
+  outputs = output_layer(num_classes, name='logits')(x)
 
-  return tf.keras.Model(inputs=inputs, outputs=[logits, covmat])
+  return tf.keras.Model(inputs=inputs, outputs=outputs)
 
 
 def create_model(

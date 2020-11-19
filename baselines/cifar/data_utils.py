@@ -17,6 +17,7 @@
 
 import functools
 
+from absl import logging
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
@@ -31,15 +32,16 @@ def normalize_convert_image(input_image, dtype):
   return (input_image - mean) / std
 
 
-def load_input_fn(split,
-                  batch_size,
-                  name,
-                  use_bfloat16,
-                  normalize=True,
-                  drop_remainder=True,
-                  proportion=1.0,
-                  validation_set=False,
-                  aug_params=None):
+def load_dataset(split,
+                 batch_size,
+                 name,
+                 use_bfloat16,
+                 normalize=True,
+                 drop_remainder=True,
+                 proportion=1.0,
+                 validation_set=False,
+                 validation_proportion=0.05,
+                 aug_params=None):
   """Loads CIFAR dataset for training or testing.
 
   Args:
@@ -50,12 +52,18 @@ def load_input_fn(split,
     normalize: Whether to apply mean-std normalization on features.
     drop_remainder: bool.
     proportion: float, the proportion of dataset to be used.
-    validation_set: bool, whehter to split a validation set from training data.
+    validation_set: bool, whether to split a validation set from training data.
+    validation_proportion: float, the proportion of training dataset to be used
+      as the validation split, if validation_set is set to True.
     aug_params: dict, data augmentation hyper parameters.
 
   Returns:
     Input function which returns a locally-sharded dataset batch.
   """
+  if proportion < 0. or proportion > 1.:
+    raise ValueError('proportion needs to lie in the range [0, 1]')
+  if validation_proportion < 0. or validation_proportion > 1.:
+    raise ValueError('validation_proportion needs to lie in the range [0, 1]')
   if use_bfloat16:
     dtype = tf.bfloat16
   else:
@@ -107,47 +115,49 @@ def load_input_fn(split,
       label = tf.cast(label, dtype)
     return image, label
 
-  def input_fn(ctx=None):
-    """Returns a locally sharded (i.e., per-core) dataset batch."""
-    if proportion == 1.0:
-      if validation_set:
-        if split == 'validation':
-          dataset = tfds.load(name, split='train[95%:]', as_supervised=True)
-        elif split == tfds.Split.TRAIN:
-          dataset = tfds.load(name, split='train[:95%]', as_supervised=True)
-        # split == tfds.Split.TEST case
-        else:
-          dataset = tfds.load(name, split=split, as_supervised=True)
+  if proportion == 1.0:
+    if validation_set:
+      new_name = '{}:3.*.*'.format(name)
+      if split == 'validation':
+        new_split = 'train[{}%:]'.format(
+            int(100 * (1. - validation_proportion)))
+        dataset = tfds.load(new_name, split=new_split, as_supervised=True)
+      elif split == tfds.Split.TRAIN:
+        new_split = 'train[:{}%]'.format(
+            int(100 * (1. - validation_proportion)))
+        dataset = tfds.load(name, split='train[:95%]', as_supervised=True)
+      # split == tfds.Split.TEST case
       else:
         dataset = tfds.load(name, split=split, as_supervised=True)
     else:
-      new_name = '{}:3.*.*'.format(name)
-      if split == tfds.Split.TRAIN:
-        new_split = 'train[:{}%]'.format(int(100 * proportion))
-      else:
-        new_split = 'test[:{}%]'.format(int(100 * proportion))
-      dataset = tfds.load(new_name, split=new_split, as_supervised=True)
+      dataset = tfds.load(name, split=split, as_supervised=True)
+  else:
+    logging.warning(
+        'Subset of training dataset is being used without a validation set.')
+    new_name = '{}:3.*.*'.format(name)
     if split == tfds.Split.TRAIN:
-      dataset = dataset.shuffle(buffer_size=dataset_size).repeat()
+      new_split = 'train[:{}%]'.format(int(100 * proportion))
+    else:
+      new_split = 'test[:{}%]'.format(int(100 * proportion))
+    dataset = tfds.load(new_name, split=new_split, as_supervised=True)
+  if split == tfds.Split.TRAIN:
+    dataset = dataset.shuffle(buffer_size=dataset_size).repeat()
 
-    dataset = dataset.map(preprocess,
-                          num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
+  dataset = dataset.map(preprocess,
+                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+  dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
 
-    if mixup_alpha > 0 and split == tfds.Split.TRAIN:
-      if adaptive_mixup:
-        dataset = dataset.map(
-            functools.partial(adaptive_mixup_aug, batch_size, aug_params),
-            num_parallel_calls=8)
-      else:
-        dataset = dataset.map(
-            functools.partial(mixup, batch_size, aug_params),
-            num_parallel_calls=8)
-    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
-    if ctx and ctx.num_input_pipelines > 1:
-      dataset = dataset.shard(ctx.num_input_pipelines, ctx.input_pipeline_id)
-    return dataset
-  return input_fn
+  if mixup_alpha > 0 and split == tfds.Split.TRAIN:
+    if adaptive_mixup:
+      dataset = dataset.map(
+          functools.partial(adaptive_mixup_aug, batch_size, aug_params),
+          num_parallel_calls=8)
+    else:
+      dataset = dataset.map(
+          functools.partial(mixup, batch_size, aug_params),
+          num_parallel_calls=8)
+  dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+  return dataset
 
 
 def augment_and_mix(image, depth, width, prob_coeff, augmenter, dtype):

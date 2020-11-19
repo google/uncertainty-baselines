@@ -64,6 +64,11 @@ def define_flags() -> List[str]:
       'eval_frequency',
       None,
       'How many steps between evaluating on the (validation and) test set.')
+  flags.DEFINE_string(
+      'data_dir',
+      None,
+      'Directory where the dataset is stored to be loaded via tfds.load. '
+      'Optional, useful for loading datasets stored on GCS.')
   flags.DEFINE_string('output_dir', None, 'Base output directory.')
   flags.DEFINE_enum(
       'model_name',

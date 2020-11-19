@@ -320,7 +320,7 @@ def preprocess_image(image_bytes,
 
 
 class ImageNetInput(object):
-  """Generates ImageNet input_fn for training or evaluation.
+  """Generates ImageNet for training or evaluation.
 
   The training data is assumed to be in TFRecord format with keys as specified
   in the dataset_parser below, sharded across 1024 files, named sequentially:
@@ -335,42 +335,29 @@ class ImageNetInput(object):
       https://github.com/tensorflow/tpu/blob/master/tools/datasets/imagenet_to_gcs.py
 
   Attributes:
-    is_training: `bool` for whether the input is for training.
     data_dir: `str` for the directory of the training and validation data.
     use_bfloat16: If True, use bfloat16 precision; else use float32.
     image_size: `int` for image size (both width and height).
     normalize_input: `bool` for normalizing the input. Enable in Efficientnet.
     one_hot: `bool` for using one-hot label. Enable in Efficientnet.
-    drop_remainder: `bool` for dropping the remainder when batching.
-    batch_size: The global batch size to use.
-    image_preprocessing_fn: Image preprocessing function.
     resize_method: If None, use bicubic in default.
     mixup_alpha: `float` to control the strength of Mixup regularization, set to
         0.0 to disable.
     mixup_params: `Dict` to store the hparams of mixup.
-    ensemble_size: `int` for number of ensemble members.
-    validation: `Bool`, if True, return a training set without augmentation.
+    ensemble_size: `int` for number of ensemble members. Used in Mixup.
   """
 
   def __init__(self,
-               is_training,
                data_dir,
-               batch_size,
                image_size=224,
                normalize_input=False,
                one_hot=False,
-               drop_remainder=True,
                use_bfloat16=False,
                resize_method=None,
                mixup_params=None,
-               ensemble_size=1,
-               validation=False):
-    self.image_preprocessing_fn = preprocess_image
-    self.is_training = is_training
+               ensemble_size=1):
     self.use_bfloat16 = use_bfloat16
-    self.drop_remainder = drop_remainder
     self.data_dir = data_dir
-    self.batch_size = batch_size
     self.image_size = image_size
     self.normalize_input = normalize_input
     self.one_hot = one_hot
@@ -381,81 +368,8 @@ class ImageNetInput(object):
     else:
       self.mixup_alpha = 0.
     self.ensemble_size = ensemble_size
-    self.validation = validation
 
-  def mixup(self, batch_size, alpha, images, labels):
-    """Applies Mixup regularization to a batch of images and labels.
-
-    [1] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, David Lopez-Paz
-      Mixup: Beyond Empirical Risk Minimization.
-      ICLR'18, https://arxiv.org/abs/1710.09412
-
-    Arguments:
-      batch_size: The input batch size for images and labels.
-      alpha: Float that controls the strength of Mixup regularization.
-      images: A batch of images of shape [batch_size, ...]
-      labels: A batch of labels of shape [batch_size, num_classes]
-
-    Returns:
-      A tuple of (images, labels) with the same dimensions as the input with
-      Mixup regularization applied.
-    """
-    mix_weight = ed.Beta(alpha, alpha, sample_shape=[batch_size, 1])
-    mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
-    images_mix_weight = tf.reshape(mix_weight, [batch_size, 1, 1, 1])
-    images_mix_weight = tf.cast(images_mix_weight, images.dtype)
-    # Mixup on a single batch is implemented by taking a weighted sum with the
-    # same batch in reverse.
-    images_mix = (
-        images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
-    mix_weight = tf.cast(mix_weight, labels.dtype)
-    labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
-    return images_mix, labels_mix
-
-  def adaptive_mixup(self, batch_size, images, labels):
-    """Applies CAMixup regularization to a batch of images and labels.
-
-    Arguments:
-      batch_size: The input batch size for images and labels.
-      images: A batch of images of shape [batch_size, ...]
-      labels: A batch of labels of shape [batch_size, num_classes]
-
-    Returns:
-      A tuple of (images, labels) with the same dimensions as the input with
-      Mixup regularization applied.
-    """
-    ensemble_size = self.mixup_params.get('ensemble_size', 1)
-    mixup_coeff = self.mixup_params['mixup_coeff']
-    scalar_labels = tf.argmax(labels, axis=1)
-    alpha = tf.gather(mixup_coeff, scalar_labels, axis=-1)
-
-    # Need to filter out elements in alpha which equal to 0.
-    greater_zero_indicator = tf.cast(alpha > 0, alpha.dtype)
-    less_one_indicator = tf.cast(alpha < 1, alpha.dtype)
-    valid_alpha_indicator = tf.cast(
-        greater_zero_indicator * less_one_indicator, tf.bool)
-
-    dummy_alpha = 0.1 * tf.ones_like(alpha)
-    sampled_alpha = tf.where(valid_alpha_indicator, alpha, dummy_alpha)
-    mix_weight = tfd.Beta(sampled_alpha, sampled_alpha).sample()
-    mix_weight = tf.where(valid_alpha_indicator, mix_weight, alpha)
-    mix_weight = tf.reshape(mix_weight, [ensemble_size * batch_size, 1])
-    mix_weight = tf.clip_by_value(mix_weight, 0, 1)
-    mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
-    images_mix_weight = tf.reshape(mix_weight,
-                                   [ensemble_size * batch_size, 1, 1, 1])
-
-    # Mixup on a single batch is implemented by taking a weighted sum with the
-    # same batch in reverse.
-    images = tf.tile(images, [ensemble_size, 1, 1, 1])
-    labels = tf.tile(labels, [ensemble_size, 1])
-    images_mix_weight = tf.cast(images_mix_weight, images.dtype)
-    images_mix = (
-        images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
-    labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
-    return images_mix, labels_mix
-
-  def dataset_parser(self, value):
+  def dataset_parser(self, value, split):
     """Parse an ImageNet record from a serialized string Tensor."""
     keys_to_features = {
         'image/encoded':
@@ -481,9 +395,9 @@ class ImageNetInput(object):
     parsed = tf.parse_single_example(value, keys_to_features)
     image_bytes = tf.reshape(parsed['image/encoded'], shape=[])
 
-    image = self.image_preprocessing_fn(
+    image = preprocess_image(
         image_bytes=image_bytes,
-        is_training=(self.is_training and not self.validation),
+        is_training=split == tfds.Split.TRAIN,
         use_bfloat16=self.use_bfloat16,
         image_size=self.image_size,
         resize_method=self.resize_method)
@@ -506,22 +420,26 @@ class ImageNetInput(object):
         image = tf.cast(image, tf.bfloat16)
     return image, label
 
-  def input_fn(self, ctx=None):
-    """Input function which provides a single batch for train or eval.
+  def as_dataset(self,
+                 split,
+                 batch_size,
+                 drop_remainder=True):
+    """Builds a `tf.data.Dataset` object.
 
     Args:
-      ctx: Input context.
+      split: tfds.Split.
+      batch_size: The global batch size.
+      drop_remainder: `bool` for dropping the remainder when batching.
 
     Returns:
-      A `tf.data.Dataset` object.
+      tf.data.Dataset.
     """
     # Shuffle the filenames to ensure better randomization.
+    # If validation split is specified, we use a partition of the training data.
+    is_training = split in (tfds.Split.TRAIN, tfds.Split.VALIDATION)
     file_pattern = os.path.join(
-        self.data_dir, 'train-*' if self.is_training else 'validation-*')
-    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=self.is_training)
-
-    if ctx and ctx.num_input_pipelines > 1:
-      dataset = dataset.shard(ctx.num_input_pipelines, ctx.input_pipeline_id)
+        self.data_dir, 'train-*' if is_training else 'validation-*')
+    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)
 
     # Evaluation dataset can also be repeat as long as steps_per_eval is set.
     dataset = dataset.repeat()
@@ -536,25 +454,26 @@ class ImageNetInput(object):
         fetch_dataset, cycle_length=16,
         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    if self.is_training:
+    if is_training:
       dataset = dataset.shuffle(1024)
 
-    dataset = dataset.map(self.dataset_parser, tf.data.experimental.AUTOTUNE)
+    preprocess = functools.partial(self.dataset_parser, split=split)
+    dataset = dataset.map(preprocess, tf.data.experimental.AUTOTUNE)
     dataset = dataset.batch(
-        batch_size=self.batch_size, drop_remainder=self.drop_remainder)
+        batch_size=batch_size, drop_remainder=drop_remainder)
 
-    if self.is_training and self.mixup_alpha > 0.0:
+    if is_training and self.mixup_alpha > 0.0:
       if self.mixup_params['adaptive_mixup']:
         if 'mixup_coeff' not in self.mixup_params:
           # Hard target in the first epoch!
           self.mixup_params['mixup_coeff'] = tf.ones(
               [self.ensemble_size, self.mixup_params['num_classes']])
         dataset = dataset.map(
-            functools.partial(self.adaptive_mixup, self.batch_size),
+            functools.partial(adaptive_mixup, batch_size, self.mixup_params),
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
       else:
         dataset = dataset.map(
-            functools.partial(self.mixup, self.batch_size, self.mixup_alpha),
+            functools.partial(mixup, batch_size, self.mixup_alpha),
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
@@ -571,13 +490,88 @@ class ImageNetInput(object):
     return dataset
 
 
-def load_corrupted_test_dataset(batch_size,
-                                name,
-                                intensity,
+def mixup(batch_size, alpha, images, labels):
+  """Applies Mixup regularization to a batch of images and labels.
+
+  [1] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, David Lopez-Paz
+    Mixup: Beyond Empirical Risk Minimization.
+    ICLR'18, https://arxiv.org/abs/1710.09412
+
+  Arguments:
+    batch_size: The input batch size for images and labels.
+    alpha: Float that controls the strength of Mixup regularization.
+    images: A batch of images of shape [batch_size, ...]
+    labels: A batch of labels of shape [batch_size, num_classes]
+
+  Returns:
+    A tuple of (images, labels) with the same dimensions as the input with
+    Mixup regularization applied.
+  """
+  mix_weight = ed.Beta(alpha, alpha, sample_shape=[batch_size, 1])
+  mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
+  images_mix_weight = tf.reshape(mix_weight, [batch_size, 1, 1, 1])
+  images_mix_weight = tf.cast(images_mix_weight, images.dtype)
+  # Mixup on a single batch is implemented by taking a weighted sum with the
+  # same batch in reverse.
+  images_mix = (
+      images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
+  mix_weight = tf.cast(mix_weight, labels.dtype)
+  labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
+  return images_mix, labels_mix
+
+
+def adaptive_mixup(batch_size, mixup_params, images, labels):
+  """Applies CAMixup regularization to a batch of images and labels.
+
+  Arguments:
+    batch_size: The input batch size for images and labels.
+    mixup_params: `Dict` to store the hparams of mixup.
+    images: A batch of images of shape [batch_size, ...]
+    labels: A batch of labels of shape [batch_size, num_classes]
+
+  Returns:
+    A tuple of (images, labels) with the same dimensions as the input with
+    Mixup regularization applied.
+  """
+  ensemble_size = mixup_params.get('ensemble_size', 1)
+  mixup_coeff = mixup_params['mixup_coeff']
+  scalar_labels = tf.argmax(labels, axis=1)
+  alpha = tf.gather(mixup_coeff, scalar_labels, axis=-1)
+
+  # Need to filter out elements in alpha which equal to 0.
+  greater_zero_indicator = tf.cast(alpha > 0, alpha.dtype)
+  less_one_indicator = tf.cast(alpha < 1, alpha.dtype)
+  valid_alpha_indicator = tf.cast(
+      greater_zero_indicator * less_one_indicator, tf.bool)
+
+  dummy_alpha = 0.1 * tf.ones_like(alpha)
+  sampled_alpha = tf.where(valid_alpha_indicator, alpha, dummy_alpha)
+  mix_weight = tfd.Beta(sampled_alpha, sampled_alpha).sample()
+  mix_weight = tf.where(valid_alpha_indicator, mix_weight, alpha)
+  mix_weight = tf.reshape(mix_weight, [ensemble_size * batch_size, 1])
+  mix_weight = tf.clip_by_value(mix_weight, 0, 1)
+  mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
+  images_mix_weight = tf.reshape(mix_weight,
+                                 [ensemble_size * batch_size, 1, 1, 1])
+
+  # Mixup on a single batch is implemented by taking a weighted sum with the
+  # same batch in reverse.
+  images = tf.tile(images, [ensemble_size, 1, 1, 1])
+  labels = tf.tile(labels, [ensemble_size, 1])
+  images_mix_weight = tf.cast(images_mix_weight, images.dtype)
+  images_mix = (
+      images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
+  labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
+  return images_mix, labels_mix
+
+
+def load_corrupted_test_dataset(corruption_name,
+                                corruption_intensity,
+                                batch_size,
                                 drop_remainder=True,
                                 use_bfloat16=False):
   """Loads an ImageNet-C dataset."""
-  corruption = name + '_' + str(intensity)
+  corruption = corruption_name + '_' + str(corruption_intensity)
 
   dataset = tfds.load(
       name='imagenet2012_corrupted/{}'.format(corruption),
@@ -599,27 +593,6 @@ def load_corrupted_test_dataset(batch_size,
   dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
   dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
   return dataset
-
-
-def corrupt_test_input_fn(corruption_name,
-                          corruption_intensity,
-                          batch_size,
-                          drop_remainder=True,
-                          use_bfloat16=False):
-  """Generates a distributed input_fn for ImageNet-C datasets."""
-  def test_input_fn(ctx):
-    """Sets up local (per-core) corrupted dataset batching."""
-    dataset = load_corrupted_test_dataset(
-        batch_size=batch_size,
-        name=corruption_name,
-        intensity=corruption_intensity,
-        drop_remainder=drop_remainder,
-        use_bfloat16=use_bfloat16)
-    if ctx and ctx.num_input_pipelines > 1:
-      dataset = dataset.shard(ctx.num_input_pipelines, ctx.input_pipeline_id)
-    return dataset
-
-  return test_input_fn
 
 
 # TODO(ghassen,trandustin): Push this metadata upstream to TFDS.

@@ -32,8 +32,7 @@ from uncertainty_baselines.models import HyperBatchEnsembleLambdaConfig as Lambd
 from uncertainty_baselines.models import wide_resnet_hyperbatchensemble
 import uncertainty_metrics as um
 
-
-# flags model training
+# General model, training, and evaluation flags
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float('base_learning_rate', 0.1,
@@ -44,44 +43,34 @@ flags.DEFINE_integer('lr_warmup_epochs', 1,
                      'learning rate. Use 0 to do no warmup.')
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 # this correpsonds to [80, 160, 180] stretched by 250/200 epochs
-flags.DEFINE_string('lr_decay_epochs', '100_200_225',
-                    'Epochs to decay learning rate by.')
+flags.DEFINE_list('lr_decay_epochs', ['100', '200', '225'],
+                  'Epochs to decay learning rate by.')
 flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
-
-# data
-flags.DEFINE_enum(
-    'dataset', 'cifar10', enum_values=['cifar10', 'cifar100'], help='Dataset.')
-flags.DEFINE_string(
-    'cifar100_c_path', None,
-    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', 250,
-                     'Number of epochs between evaluating on the corrupted '
-                     'test data. Use -1 to never evaluate.')
-flags.DEFINE_float(
-    'train_proportion', 0.95,
-    'Only a fraction (between 0 and 1) of the train set is used for training. '
-    'The remainder can be used for validation.')
-
-# model eval and saving
 flags.DEFINE_integer(
     'checkpoint_interval', 25,
     'Number of epochs between saving checkpoints. Use -1 to '
     'never save checkpoints.')
 flags.DEFINE_boolean('restore_checkpoint', False,
                      'Start training from latest checkpoint.')
-
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_string('output_dir', '/tmp/wide_resnet', 'Output directory.')
 
-# accelerator flags
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
+# Data flags
+flags.DEFINE_enum(
+    'dataset', 'cifar10', enum_values=['cifar10', 'cifar100'], help='Dataset.')
+flags.DEFINE_float(
+    'train_proportion', 0.95,
+    'Only a fraction (between 0 and 1) of the train set is used for training. '
+    'The remainder can be used for validation.')
+flags.DEFINE_string(
+    'cifar100_c_path', None,
+    'Path to the TFRecords files for CIFAR-100-C. Only valid '
+    '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_integer('corruptions_interval', -1,
+                     'Number of epochs between evaluating on the corrupted '
+                     'test data. Use -1 to never evaluate.')
 
-# hyperbatchensemble flags
+# Hyper-batchensemble flags
 flags.DEFINE_bool('e_model_use_bias', False, 'Whether to use bias in e models.')
 flags.DEFINE_float('min_l2_range', 1e-1, 'Min value of l2 range.')
 flags.DEFINE_float('max_l2_range', 1e2, 'Max value of l2 range.')
@@ -91,11 +80,14 @@ flags.DEFINE_float(
 flags.DEFINE_float(
     'l2_batchnorm', 15,
     'L2 reg. parameter for batchnorm layers (not tuned, constant).')
+flags.DEFINE_float('ens_init_delta_bounds', 0.2,
+                   'If ensemble is initialized with lambdas, this values'
+                   'determines the spread of the log-uniform distribution'
+                   'around it (used by ens_init: random, default).')
+flags.DEFINE_float('init_emodels_stddev', 1e-4, 'Init e_models weights.')
 
 flags.DEFINE_integer('ensemble_size', 4, 'Size of the ensemble.')
 flags.DEFINE_float('lr_tuning', 1e-3, 'Learning rate for hparam tuning.')
-
-
 flags.DEFINE_float('tau', 1e-3,
                    'Regularization of the entropy of the lambda distribution.')
 flags.DEFINE_bool('use_gibbs_ce', True, 'Use Gibbs cross entropy for training.')
@@ -110,13 +102,20 @@ flags.DEFINE_integer('tuning_warmup_epochs', 0,
                      'Number of epochs before starting tuning of lambdas')
 flags.DEFINE_integer('tuning_every_x_step', 3,
                      'Do tunning step after x training steps.')
-
 flags.DEFINE_bool('regularize_fast_weights', False,
                   'Whether to egularize fast weights in BatchEnsemble layers.')
 flags.DEFINE_bool('fast_weights_eq_contraint', True, 'If true, set u,v:=r,s')
-
-flags.DEFINE_float('init_emodels_stddev', 1e-4, 'Init e_models weights.')
-
+flags.DEFINE_integer(
+    'num_eval_samples', 0, 'Number of samples taken for each batch-ens. member.'
+    'If >=0, we take num_eval_samples + the mean of lambdas.'
+    '(by default, notice that when = 0, predictions are with the mean only)'
+    'If < 0, we take -num_eval_samples, without including the mean of lambdas.')
+# Accelerator flags
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+flags.DEFINE_string('tpu', None,
+                    'Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
 
@@ -212,9 +211,10 @@ def main(argv):
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.experimental.TPUStrategy(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
 
   per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
+  batch_size = per_core_batch_size * FLAGS.num_cores
   check_bool = FLAGS.train_proportion > 0 and FLAGS.train_proportion <= 1
   assert check_bool, 'Proportion of train set has to meet 0 < prop <= 1.'
 
@@ -224,55 +224,52 @@ def main(argv):
     # the validation set can't be determined by TPU compile.
     assert drop_remainder_validation, 'drop_remainder must be True in TPU mode.'
 
-  train_input_fn = utils.load_input_fn(
+  train_dataset = utils.load_dataset(
       split=tfds.Split.TRAIN,
       name=FLAGS.dataset,
-      batch_size=per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       repeat=True,
       proportion=FLAGS.train_proportion)
   validation_proportion = 1 - FLAGS.train_proportion
-  validation_input_fn = utils.load_input_fn(
+  validation_dataset = utils.load_dataset(
       split=tfds.Split.VALIDATION,
       name=FLAGS.dataset,
-      batch_size=per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       repeat=True,
       proportion=validation_proportion,
       drop_remainder=drop_remainder_validation)
-  clean_test_input_fn = utils.load_input_fn(
+  clean_test_dataset = utils.load_dataset(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
-      batch_size=per_core_batch_size,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      train_input_fn)
-  validation_dataset = strategy.experimental_distribute_datasets_from_function(
-      validation_input_fn)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  validation_dataset = strategy.experimental_distribute_dataset(
+      validation_dataset)
   test_datasets = {
-      'clean': strategy.experimental_distribute_datasets_from_function(
-          clean_test_input_fn),
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar10':
-      load_c_input_fn = utils.load_cifar10_c_input_fn
+      load_c_dataset = utils.load_cifar10_c
     else:
-      load_c_input_fn = functools.partial(utils.load_cifar100_c_input_fn,
-                                          path=FLAGS.cifar100_c_path)
+      load_c_dataset = functools.partial(utils.load_cifar100_c,
+                                         path=FLAGS.cifar100_c_path)
     corruption_types, max_intensity = utils.load_corrupted_test_info(
         FLAGS.dataset)
     for corruption in corruption_types:
       for intensity in range(1, max_intensity + 1):
-        input_fn = load_c_input_fn(
+        dataset = load_c_dataset(
             corruption_name=corruption,
             corruption_intensity=intensity,
-            batch_size=per_core_batch_size,
+            batch_size=batch_size,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets['{0}_{1}'.format(corruption, intensity)] = (
-            strategy.experimental_distribute_datasets_from_function(input_fn))
+            strategy.experimental_distribute_dataset(dataset))
 
   ds_info = tfds.builder(FLAGS.dataset).info
-  batch_size = per_core_batch_size * FLAGS.num_cores
   train_sample_size = ds_info.splits[
       'train'].num_examples * FLAGS.train_proportion
   steps_per_epoch = int(train_sample_size / batch_size)
@@ -352,16 +349,15 @@ def main(argv):
     # build hyper-batchensemble complete -------------------------
 
     # Initialize Lambda distributions for tuning
-    ens_init_delta_bounds = 0.2
     lambdas_mean = tf.reduce_mean(
         log_uniform_mean(
             [lambdas_config.log_min, lambdas_config.log_max]))
     lambdas0 = tf.random.normal((FLAGS.ensemble_size, lambdas_config.dim),
                                 lambdas_mean,
-                                0.1 * ens_init_delta_bounds)
-    lower0 = lambdas0 - tf.constant(ens_init_delta_bounds)
+                                0.1 * FLAGS.ens_init_delta_bounds)
+    lower0 = lambdas0 - tf.constant(FLAGS.ens_init_delta_bounds)
     lower0 = tf.maximum(lower0, 1e-8)
-    upper0 = lambdas0 + tf.constant(ens_init_delta_bounds)
+    upper0 = lambdas0 + tf.constant(FLAGS.ens_init_delta_bounds)
 
     log_lower = tf.Variable(tf.math.log(lower0))
     log_upper = tf.Variable(tf.math.log(upper0))
@@ -373,7 +369,7 @@ def main(argv):
     # Note: Here, we don't divide the epochs by 200 as for the other uncertainty
     # baselines.
     base_lr = FLAGS.base_learning_rate * batch_size / 128
-    lr_decay_epochs = [int(l) for l in FLAGS.lr_decay_epochs.split('_')]
+    lr_decay_epochs = [int(l) for l in FLAGS.lr_decay_epochs]
 
     lr_schedule = utils.LearningRateSchedule(
         steps_per_epoch,
@@ -549,17 +545,35 @@ def main(argv):
     strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_name, num_eval_samples=0):
     """Evaluation StepFn."""
+
+    n_samples = num_eval_samples if num_eval_samples >= 0 else -num_eval_samples
+    if num_eval_samples >= 0:
+      # the +1 accounts for the fact that we add the mean of lambdas
+      ensemble_size = FLAGS.ensemble_size * (1 + n_samples)
+    else:
+      ensemble_size = FLAGS.ensemble_size * n_samples
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       # Note that we don't use tf.tile for labels here
       images, labels = inputs
-      images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
+      images = tf.tile(images, [ensemble_size, 1, 1, 1])
 
       # get lambdas
-      lambdas = log_uniform_mean(lambda_parameters)
-      rep_lambdas = tf.repeat(lambdas, per_core_batch_size, axis=0)
+      samples = log_uniform_sample(n_samples, lambda_parameters)
+      if num_eval_samples >= 0:
+        lambdas = log_uniform_mean(lambda_parameters)
+        lambdas = tf.expand_dims(lambdas, 1)
+        lambdas = tf.concat((lambdas, samples), 1)
+      else:
+        lambdas = samples
+
+      # lambdas with shape (ens size, samples, dim of lambdas)
+      rep_lambdas = tf.repeat(lambdas, per_core_batch_size, axis=1)
+      rep_lambdas = tf.reshape(rep_lambdas,
+                               (ensemble_size * per_core_batch_size, -1))
 
       # eval on testsets
       logits = model([images, rep_lambdas], training=False)
@@ -567,20 +581,22 @@ def main(argv):
         logits = tf.cast(logits, tf.float32)
       probs = tf.nn.softmax(logits)
       per_probs = tf.split(probs,
-                           num_or_size_splits=FLAGS.ensemble_size,
+                           num_or_size_splits=ensemble_size,
                            axis=0)
 
       # per member performance and gibbs performance (average per member perf)
       if dataset_name == 'clean':
         for i in range(FLAGS.ensemble_size):
-          member_probs = per_probs[i]
+          # we record the first sample of lambdas per batch-ens member
+          first_member_index = i * (ensemble_size // FLAGS.ensemble_size)
+          member_probs = per_probs[first_member_index]
           member_loss = tf.keras.losses.sparse_categorical_crossentropy(
               labels, member_probs)
           metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
           metrics['test/accuracy_member_{}'.format(i)].update_state(
               labels, member_probs)
 
-        labels_tile = tf.tile(labels, [FLAGS.ensemble_size])
+        labels_tile = tf.tile(labels, [ensemble_size])
         metrics['test/gibbs_nll'].update_state(tf.reduce_mean(
             tf.keras.losses.sparse_categorical_crossentropy(labels_tile,
                                                             logits,
@@ -589,7 +605,7 @@ def main(argv):
 
       # ensemble performance
       negative_log_likelihood = ensemble_crossentropy(labels, logits,
-                                                      FLAGS.ensemble_size)
+                                                      ensemble_size)
       probs = tf.reduce_mean(per_probs, axis=0)
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
@@ -607,7 +623,7 @@ def main(argv):
       if dataset_name == 'clean':
         per_probs_stacked = tf.stack(per_probs, axis=0)
         diversity_results = um.average_pairwise_diversity(
-            per_probs_stacked, FLAGS.ensemble_size)
+            per_probs_stacked, ensemble_size)
         for k, v in diversity_results.items():
           metrics['test/' + k].update_state(v)
 
@@ -656,7 +672,7 @@ def main(argv):
         if step % 20 == 0:
           logging.info('Starting to run eval step %s of epoch: %s', step,
                        epoch)
-        test_step(test_iterator, dataset_name)
+        test_step(test_iterator, dataset_name, FLAGS.num_eval_samples)
       logging.info('Done with testing on %s', dataset_name)
 
     corrupt_results = {}

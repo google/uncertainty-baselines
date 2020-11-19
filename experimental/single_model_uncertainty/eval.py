@@ -142,7 +142,8 @@ def setup_eval(
     ood_dataset_builder: ub.datasets.BaseDataset = None,
     ood_metrics: Dict[str, tf.keras.metrics.Metric] = None) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
-  test_dataset = ub.utils.build_dataset(dataset_builder, strategy, 'test')
+  test_dataset = dataset_builder.build('test')
+  test_dataset = strategy.experimental_distribute_dataset(test_dataset)
   test_summary_writer = tf.summary.create_file_writer(
       os.path.join(trial_dir, 'test'))
   num_test_steps = (
@@ -162,9 +163,10 @@ def setup_eval(
     raise ValueError('Both ood_dataset_builder and ood_metrics must be'
                      ' specified.')
   if ood_dataset_builder:
-    ood_dataset = ub.utils.build_dataset(
-        dataset_builder, strategy, 'test',
-        ood_dataset_builder=ood_dataset_builder)
+    ood_dataset_in = dataset_builder.build('test', ood_split='in')
+    ood_dataset_out = ood_dataset_builder.build('test', ood_split='ood')
+    ood_dataset = ood_dataset_in.concatenate(ood_dataset_out)
+    ood_dataset = strategy.experimental_distribute_dataset(ood_dataset)
     ood_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'ood'))
     num_test_steps = (
@@ -191,8 +193,8 @@ def setup_eval(
     num_val_steps = (
         dataset_builder.info['num_validation_examples'] //
         dataset_builder.eval_batch_size)
-    val_dataset = ub.utils.build_dataset(
-        dataset_builder, strategy, 'validation')
+    val_dataset = dataset_builder.build('validation')
+    val_dataset = strategy.experimental_distribute_dataset(val_dataset)
     val_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'validation'))
     if num_val_steps == num_test_steps:

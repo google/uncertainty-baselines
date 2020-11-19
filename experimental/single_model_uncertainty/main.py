@@ -160,6 +160,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
 
     model = ub_smu_models.get(
         FLAGS.model_name,
+        num_classes=FLAGS.num_classes,
         batch_size=FLAGS.batch_size,
         len_seqs=FLAGS.len_seqs,
         num_motifs=FLAGS.num_motifs,
@@ -188,11 +189,16 @@ def run(trial_dir: str, flag_string: Optional[str]):
     ood_dataset_builder = None
     ood_metrics = None
     if FLAGS.run_ood:
+      if 'cifar' in FLAGS.dataset_name and FLAGS.ood_dataset_name == 'svhn':
+        svhn_normalize_by_cifar = True
+      else:
+        svhn_normalize_by_cifar = False
       ood_dataset_builder = ub.datasets.get(
           FLAGS.ood_dataset_name,
           batch_size=FLAGS.batch_size,
           eval_batch_size=FLAGS.eval_batch_size,
           validation_percent=FLAGS.validation_percent,
+          normalize_by_cifar=svhn_normalize_by_cifar,
           data_mode='ood')
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
 
@@ -270,7 +276,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         metrics=metrics,
         hparams=hparams,
         ood_dataset_builder=ood_dataset_builder,
-        ood_metrics=ood_metrics)
+        ood_metrics=ood_metrics,
+        focal_loss_gamma=FLAGS.focal_loss_gamma)
 
 
 

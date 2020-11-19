@@ -23,18 +23,19 @@ from absl import logging
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 import eval as eval_lib  # local file import
+import loss_util as loss_lib  # local file import
 from tensorboard.plugins.hparams import api as hp
 
 _TensorDict = Dict[str, tf.Tensor]
 _TrainStepFn = Callable[[Iterator[_TensorDict]], _TensorDict]
 
 
-def _train_step_fn(
-    model: tf.keras.Model,
-    optimizer: tf.keras.optimizers.Optimizer,
-    strategy: tf.distribute.Strategy,
-    metrics: Dict[str, tf.keras.metrics.Metric],
-    iterations_per_loop: int) -> _TrainStepFn:
+def _train_step_fn(model: tf.keras.Model,
+                   optimizer: tf.keras.optimizers.Optimizer,
+                   strategy: tf.distribute.Strategy,
+                   metrics: Dict[str, tf.keras.metrics.Metric],
+                   iterations_per_loop: int,
+                   focal_loss_gamma: float) -> _TrainStepFn:
   """Return a function to run `iterations_per_loop` train steps."""
 
   # Note that train_iterator should return batches with the global batch size
@@ -51,9 +52,14 @@ def _train_step_fn(
         if isinstance(logits, (tuple, list)):
           # If model returns a tuple of (logits, covmat), extract logits
           logits, _ = logits
-        loss = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(
-                y_true=labels, y_pred=logits, from_logits=True))
+        if focal_loss_gamma > 0.0:
+          loss = loss_lib.compute_focal_loss(
+              labels, logits, gamma=focal_loss_gamma)
+        else:
+          loss = tf.reduce_mean(
+              tf.keras.losses.sparse_categorical_crossentropy(
+                  y_true=labels, y_pred=logits, from_logits=True))
+
         regularization_losses = model.get_losses_for(inputs=None)
         if regularization_losses:
           loss += tf.reduce_sum(regularization_losses)
@@ -98,20 +104,20 @@ def _write_summaries(
       tf.summary.scalar(name, result, step=current_step)
 
 
-def run_train_loop(
-    dataset_builder: ub.datasets.BaseDataset,
-    model: tf.keras.Model,
-    optimizer: tf.keras.optimizers.Optimizer,
-    eval_frequency: int,
-    log_frequency: int,
-    trial_dir: str,
-    train_steps: int,
-    mode: str,
-    strategy: tf.distribute.Strategy,
-    metrics: Dict[str, tf.keras.metrics.Metric],
-    hparams: Dict[str, Any],
-    ood_dataset_builder: ub.datasets.BaseDataset = None,
-    ood_metrics: Dict[str, tf.keras.metrics.Metric] = None):
+def run_train_loop(dataset_builder: ub.datasets.BaseDataset,
+                   model: tf.keras.Model,
+                   optimizer: tf.keras.optimizers.Optimizer,
+                   eval_frequency: int,
+                   log_frequency: int,
+                   trial_dir: str,
+                   train_steps: int,
+                   mode: str,
+                   strategy: tf.distribute.Strategy,
+                   metrics: Dict[str, tf.keras.metrics.Metric],
+                   hparams: Dict[str, Any],
+                   ood_dataset_builder: ub.datasets.BaseDataset = None,
+                   ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
+                   focal_loss_gamma=0.0):
   """Train, possibly evaluate the model, and record metrics."""
 
   checkpoint_manager = None
@@ -135,7 +141,8 @@ def run_train_loop(
         checkpoint.restore(checkpoint_manager.latest_checkpoint)
         logging.info('Resuming training from step %d.', last_checkpoint_step)
 
-  train_dataset = ub.utils.build_dataset(dataset_builder, strategy, 'train')
+  train_dataset = dataset_builder.build('train')
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   train_iterator = iter(train_dataset)
 
   iterations_per_loop = min(eval_frequency, log_frequency)
@@ -146,7 +153,8 @@ def run_train_loop(
       optimizer,
       strategy,
       metrics,
-      iterations_per_loop=iterations_per_loop)
+      iterations_per_loop=iterations_per_loop,
+      focal_loss_gamma=focal_loss_gamma)
   train_summary_writer = tf.summary.create_file_writer(
       os.path.join(trial_dir, 'train'))
 
@@ -201,7 +209,8 @@ def run_train_loop(
         optimizer,
         strategy,
         metrics,
-        iterations_per_loop=train_steps % iterations_per_loop)
+        iterations_per_loop=train_steps % iterations_per_loop,
+        focal_loss_gamma=focal_loss_gamma)
     train_step_outputs = remainder_train_step_fn(train_iterator)
 
   # Always evaluate and record metrics at the end of training.

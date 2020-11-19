@@ -25,6 +25,7 @@ import tensorflow as tf
 
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import genomics_cnn
+from uncertainty_baselines.models import movielens
 from uncertainty_baselines.models import resnet20
 from uncertainty_baselines.models import resnet50
 from uncertainty_baselines.models import textcnn
@@ -41,6 +42,7 @@ def get_model_names() -> List[str]:
       'bert',
       'criteo_mlp',
       'genomics_cnn',
+      'movielens',
       'resnet20',
       'resnet50',
       'textcnn',
@@ -79,6 +81,8 @@ def get(
 
   if model_name == 'criteo_mlp':
     return criteo_mlp.create_model(batch_size, **hyperparameters)
+  if model_name == 'movielens':
+    return movielens.create_model(batch_size, **hyperparameters)
   if model_name == 'resnet20':
     return resnet20.create_model(batch_size, **hyperparameters)
   if model_name == 'resnet50':

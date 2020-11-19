@@ -81,13 +81,18 @@ flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
                   'Epochs to decay learning rate by.')
 flags.DEFINE_float('l2', 3e-4, 'L2 regularization coefficient.')
+
+flags.DEFINE_float(
+    'train_proportion', 0.95,
+    'Only a fraction (between 0 and 1) of the train set is used for training. '
+    'The remainder can be used for validation.')
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
 flags.DEFINE_string('cifar100_c_path', None,
                     'Path to the TFRecords files for CIFAR-100-C. Only valid '
                     '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', 250,
+flags.DEFINE_integer('corruptions_interval', -1,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
 flags.DEFINE_integer('checkpoint_interval', 250,
@@ -118,6 +123,8 @@ flags.DEFINE_float('mixup_alpha', 0., 'Mixup hyperparameter, 0. to diable.')
 # Dropout flags
 flags.DEFINE_bool('use_mc_dropout', False,
                   'Whether to use Monte Carlo dropout for the hidden layers.')
+flags.DEFINE_bool('use_filterwise_dropout', True,
+                  'Whether to use filterwise dropout for the hidden layers.')
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
 flags.DEFINE_integer('num_dropout_samples', 1,
                      'Number of dropout samples to use for prediction.')
@@ -190,7 +197,13 @@ def main(argv):
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.experimental.TPUStrategy(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
+
+  ds_info = tfds.builder(FLAGS.dataset).info
+  batch_size = (FLAGS.per_core_batch_size * FLAGS.num_cores
+                // FLAGS.num_dropout_samples_training)
+  test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
+  num_classes = ds_info.features['label'].num_classes
 
   aug_params = {
       'augmix': FLAGS.augmix,
@@ -201,48 +214,63 @@ def main(argv):
       'ensemble_size': 1,
       'mixup_alpha': FLAGS.mixup_alpha,
   }
-  train_input_fn = data_utils.load_input_fn(
+  validation_proportion = 1. - FLAGS.train_proportion
+  use_validation_set = validation_proportion > 0.
+  train_dataset = data_utils.load_dataset(
       split=tfds.Split.TRAIN,
       name=FLAGS.dataset,
-      batch_size=FLAGS.per_core_batch_size //
-      FLAGS.num_dropout_samples_training,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
-      aug_params=aug_params)
-  clean_test_input_fn = utils.load_input_fn(
+      aug_params=aug_params,
+      validation_set=use_validation_set,
+      validation_proportion=validation_proportion)
+  train_sample_size = ds_info.splits[
+      'train'].num_examples * FLAGS.train_proportion
+  val_sample_size = ds_info.splits['train'].num_examples - train_sample_size
+  if use_validation_set:
+    validation_dataset = data_utils.load_dataset(
+        split=tfds.Split.VALIDATION,
+        name=FLAGS.dataset,
+        batch_size=batch_size,
+        use_bfloat16=FLAGS.use_bfloat16,
+        aug_params=aug_params,
+        validation_set=use_validation_set,
+        validation_proportion=validation_proportion)
+    validation_dataset = strategy.experimental_distribute_dataset(
+        validation_dataset)
+    steps_per_val = steps_per_epoch = int(val_sample_size / batch_size)
+  clean_test_dataset = utils.load_dataset(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
-      batch_size=FLAGS.per_core_batch_size,
+      batch_size=test_batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = strategy.experimental_distribute_datasets_from_function(
-      train_input_fn)
+
+  train_sample_size = ds_info.splits[
+      'train'].num_examples * FLAGS.train_proportion
+  steps_per_epoch = int(train_sample_size / batch_size)
+  steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
+  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
-      'clean': strategy.experimental_distribute_datasets_from_function(
-          clean_test_input_fn),
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar10':
-      load_c_input_fn = utils.load_cifar10_c_input_fn
+      load_c_dataset = utils.load_cifar10_c
     else:
-      load_c_input_fn = functools.partial(utils.load_cifar100_c_input_fn,
-                                          path=FLAGS.cifar100_c_path)
+      load_c_dataset = functools.partial(utils.load_cifar100_c,
+                                         path=FLAGS.cifar100_c_path)
     corruption_types, max_intensity = utils.load_corrupted_test_info(
         FLAGS.dataset)
     for corruption in corruption_types:
       for intensity in range(1, max_intensity + 1):
-        input_fn = load_c_input_fn(
+        dataset = load_c_dataset(
             corruption_name=corruption,
             corruption_intensity=intensity,
-            batch_size=FLAGS.per_core_batch_size,
+            batch_size=test_batch_size,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets['{0}_{1}'.format(corruption, intensity)] = (
-            strategy.experimental_distribute_datasets_from_function(input_fn))
-
-  ds_info = tfds.builder(FLAGS.dataset).info
-  batch_size = (FLAGS.per_core_batch_size * FLAGS.num_cores
-                // FLAGS.num_dropout_samples_training)
-  steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
-  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
-  num_classes = ds_info.features['label'].num_classes
+            strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -267,6 +295,7 @@ def main(argv):
         num_classes=num_classes,
         l2=FLAGS.l2,
         use_mc_dropout=FLAGS.use_mc_dropout,
+        use_filterwise_dropout=FLAGS.use_filterwise_dropout,
         dropout_rate=FLAGS.dropout_rate,
         use_gp_layer=FLAGS.use_gp_layer,
         gp_input_dim=FLAGS.gp_input_dim,
@@ -305,6 +334,13 @@ def main(argv):
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/stddev': tf.keras.metrics.Mean(),
     }
+    if use_validation_set:
+      metrics.update({
+          'val/negative_log_likelihood': tf.keras.metrics.Mean(),
+          'val/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+          'val/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+          'val/stddev': tf.keras.metrics.Mean(),
+      })
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, max_intensity + 1):
@@ -431,6 +467,12 @@ def main(argv):
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].update_state(labels, probs)
         metrics['test/stddev'].update_state(stddev)
+      elif dataset_name == 'val':
+        metrics['val/negative_log_likelihood'].update_state(
+            negative_log_likelihood)
+        metrics['val/accuracy'].update_state(labels, probs)
+        metrics['val/ece'].update_state(labels, probs)
+        metrics['val/stddev'].update_state(stddev)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -469,12 +511,15 @@ def main(argv):
         logging.info(message)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
+    if use_validation_set:
+      datasets_to_evaluate['val'] = validation_dataset
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       datasets_to_evaluate = test_datasets
     for dataset_name, test_dataset in datasets_to_evaluate.items():
       test_iterator = iter(test_dataset)
       logging.info('Testing on dataset %s', dataset_name)
+      steps_per_eval = steps_per_val if dataset_name == 'val' else steps_per_eval
       for step in range(steps_per_eval):
         if step % 20 == 0:
           logging.info('Starting to run eval step %s of epoch: %s', step,
@@ -496,6 +541,10 @@ def main(argv):
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),
                  metrics['train/accuracy'].result() * 100)
+    if use_validation_set:
+      logging.info('Val NLL: %.4f, Accuracy: %.2f%%',
+                   metrics['val/negative_log_likelihood'].result(),
+                   metrics['val/accuracy'].result() * 100)
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)

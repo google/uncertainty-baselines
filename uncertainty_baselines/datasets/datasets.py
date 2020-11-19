@@ -26,7 +26,6 @@ from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
-from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
@@ -41,14 +40,12 @@ from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
 
-
 try:
   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
   SpeechCommandsDataset = None
 
-  
 _DATASETS = {
     'cifar100': Cifar100Dataset,
     'cifar10': Cifar10Dataset,
@@ -56,7 +53,6 @@ _DATASETS = {
     'civil_comments_identities': CivilCommentsIdentitiesDataset,
     'clinic_intent': ClincIntentDetectionDataset,
     'criteo': CriteoDataset,
-    'diabetic_retinopathy_detection': DiabeticRetinopathyDetectionDataset,
     'imagenet': ImageNetDataset,
     'mnist': MnistDataset,
     'mnli': MnliDataset,
@@ -83,7 +79,8 @@ def get_dataset_names() -> List[str]:
   return list(_DATASETS.keys())
 
 
-def get(dataset_name: str,
+def get(
+    dataset_name: str,
     batch_size: int,
     eval_batch_size: int,
     data_dir: Optional[str] = None,
@@ -115,7 +112,8 @@ def get(dataset_name: str,
     raise ValueError('Unrecognized dataset name: {!r}'.format(dataset_name))
 
   dataset_class = _DATASETS[dataset_name]
-  return dataset_class(batch_size=batch_size,
+  return dataset_class(
+      batch_size=batch_size,
       eval_batch_size=eval_batch_size,
       data_dir=data_dir,
       **hyperparameters)

@@ -10,6 +10,19 @@ The goal of Uncertainty Baselines is to provide a template for researchers to bu
 
 __Motivation.__ There are many uncertainty implementations across GitHub. However, they are typically one-off experiments for a specific paper (many papers don't even have code). This raises three problems. First, there are no clear examples that uncertainty researchers can build on to quickly prototype their work. Everyone must implement their own baseline. Second, even on standard tasks such as CIFAR-10, projects differ slightly in their experiment setup, whether it be architectures, hyperparameters, or data preprocessing. This makes it difficult to compare properly across methods. Third, there is no clear guidance on which ideas and tricks necessarily contribute to getting best performance and/or are generally robust to hyperparameters.
 
+All of our baselines are (so far) in TF2 Keras Models with tf.data pipelines. We welcome Jax and PyTorch users to use our datasets, for example via Python for loops:
+
+```
+for batch in tfds.as_numpy(ds):
+  train_step(batch)
+```
+Although note that `tfds.as_numpy` calls `tensor.numpy()` which invokes an unnecessary copy compared to `tensor._numpy()`:
+
+```
+for batch in iter(ds):
+  train_step(jax.tree_map(lambda y: y._numpy(), batch))
+```
+
 ## Installation
 
 To install the latest development version, run

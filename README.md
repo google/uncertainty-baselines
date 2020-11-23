@@ -94,6 +94,8 @@ __Adding a new dataset.__
 4. Add the dataset to `datasets/datasets.py` for easy access.
 5. Add the dataset class to `datasets/__init__.py`.
 
+For an example of adding a dataset, see [this pull request](https://github.com/google/uncertainty-baselines/pull/175).
+
 ### Models
 
 The

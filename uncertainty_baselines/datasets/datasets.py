@@ -26,6 +26,7 @@ from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
+from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
@@ -53,6 +54,7 @@ _DATASETS = {
     'civil_comments_identities': CivilCommentsIdentitiesDataset,
     'clinic_intent': ClincIntentDetectionDataset,
     'criteo': CriteoDataset,
+    'diabetic_retinopathy_detection': DiabeticRetinopathyDetectionDataset,
     'imagenet': ImageNetDataset,
     'mnist': MnistDataset,
     'mnli': MnliDataset,

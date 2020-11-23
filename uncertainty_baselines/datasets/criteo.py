@@ -20,6 +20,7 @@ import os.path
 from typing import Any, Dict, Union
 
 import tensorflow.compat.v2 as tf
+import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 
@@ -56,7 +57,6 @@ def _make_features_spec() -> Dict[str, tf.io.FixedLenFeature]:
 
 def apply_randomization(features, label, randomize_prob):
   """Randomize each categorical feature with some probability."""
-
   for idx in range(NUM_INT_FEATURES + 1, NUM_TOTAL_FEATURES + 1):
     key = feature_name(idx)
 
@@ -71,69 +71,153 @@ def apply_randomization(features, label, randomize_prob):
   return features, label
 
 
+_CITATION = """
+@article{criteo,
+  title = {Display Advertising Challenge},
+  url = {https://www.kaggle.com/c/criteo-display-ad-challenge.},
+}
+"""
+
+
+class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
+  """Minimal TFDS DatasetBuilder for Criteo, does not support downloading."""
+  VERSION = tfds.core.Version('0.0.0')
+
+  def __init__(self, data_dir, **kwargs):
+    super(_CriteoDatasetBuilder, self).__init__(data_dir=data_dir, **kwargs)
+    # We have to override self._data_dir to prevent the parent class from
+    # appending the class name and version.
+    self._data_dir = data_dir
+
+  def _download_and_prepare(self, dl_manager, download_config=None):
+    """Downloads and prepares dataset for reading."""
+    raise NotImplementedError(
+        'Must provide a data_dir with the files already downloaded to.')
+
+  def _as_dataset(
+      self,
+      split: tfds.Split,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False) -> tf.data.Dataset:
+    """Constructs a `tf.data.Dataset`.
+
+    Args:
+      split: `tfds.Split` which subset of the data to read.
+      decoders: Unused.
+      read_config: Unused.
+      shuffle_files: Unused.
+
+    Returns:
+      `tf.data.Dataset`
+    """
+    del decoders
+    del read_config
+    del shuffle_files
+    is_training = False
+    if split == tfds.Split.TRAIN:
+      file_pattern = 'train-*-of-*'
+      is_training = True
+    elif split == tfds.Split.VALIDATION:
+      file_pattern = 'validation-*-of-*'
+    elif split == tfds.Split.TEST:
+      file_pattern = 'test-*-of-*'
+    else:
+      raise ValueError('Unsupported split given: {}.'.format(split))
+    return _build_dataset(
+        glob_dir=os.path.join(self._data_dir, file_pattern),
+        is_training=is_training)
+
+  def _info(self) -> tfds.core.DatasetInfo:
+    """Returns the `tfds.core.DatasetInfo` object."""
+    features = {'clicked': tfds.features.ClassLabel(num_classes=2)}
+    for idx in range(1, NUM_INT_FEATURES + 1):
+      features[feature_name(idx)] = tfds.features.Tensor(
+          shape=(1,), dtype=tf.float32)
+    for idx in range(NUM_INT_FEATURES + 1, NUM_TOTAL_FEATURES + 1):
+      features[feature_name(idx)] = tfds.features.Tensor(
+          shape=(1,), dtype=tf.string)
+    info = tfds.core.DatasetInfo(
+        builder=self,
+        description='Criteo Display Advertising Challenge',
+        features=tfds.features.FeaturesDict(features),
+        homepage='https://www.kaggle.com/c/criteo-display-ad-challenge/data',
+        citation=_CITATION,
+        metadata=None)
+    split_dict = tfds.core.SplitDict('criteo')
+    # Instead of having a single element shard_lengths, we should really have a
+    # list of the number of elements in each file shard in each split.
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.TRAIN,
+        shard_lengths=[int(37e6)]))
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.VALIDATION,
+        shard_lengths=[4420308]))
+    split_dict.add(tfds.core.SplitInfo(
+        name=tfds.Split.TEST,
+        shard_lengths=[4420309]))
+    info.update_splits_if_different(split_dict)
+    return info
+
+
 class CriteoDataset(base.BaseDataset):
   """Criteo dataset builder class."""
 
   def __init__(
       self,
-      batch_size: int,
-      eval_batch_size: int,
+      split: Union[float, str],
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
-      dataset_dir: str = None,
+      data_dir: str = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a Criteo tf.data.Dataset builder.
 
     Args:
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names. For Criteo it can also be a float to represent the level of data
+        augmentation.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      dataset_dir: path to a directory containing the Criteo datasets, with
+      data_dir: path to a directory containing the Criteo datasets, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
     """
-    self._dataset_dir = dataset_dir
+    # If receive a corruption level as a split, load the test set and save the
+    # corruption level for use in preprocessing.
+    if isinstance(split, float):
+      self._corruption_level = split
+      split = 'test'
+    else:
+      self._corruption_level = None
     super(CriteoDataset, self).__init__(
         name='criteo',
-        num_train_examples=int(37e6),
-        num_validation_examples=4420308,
-        num_test_examples=4420309,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        dataset_builder=_CriteoDatasetBuilder(data_dir=data_dir),
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
-        num_parallel_parser_calls=num_parallel_parser_calls)
+        num_parallel_parser_calls=num_parallel_parser_calls,
+        download_data=False)
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    if split == base.Split.TRAIN:
-      return _build_dataset(
-          glob_dir=os.path.join(self._dataset_dir, 'train-*-of-*'),
-          is_training=True)
-    if split == base.Split.VAL:
-      return _build_dataset(
-          glob_dir=os.path.join(self._dataset_dir, 'validation-*-of-*'),
-          is_training=False)
-    return _build_dataset(
-        glob_dir=os.path.join(self._dataset_dir, 'test-*-of-*'),
-        is_training=False)
+  def _create_process_example_fn(self) -> base.PreProcessFn:
 
-  def _create_process_example_fn(
-      self,
-      split: Union[float, base.Split]) -> base.PreProcessFn:
-
-    def _example_parser(example: tf.train.Example) -> Dict[str, tf.Tensor]:
+    def _example_parser(example: tf.Tensor) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
       features_spec = _make_features_spec()
       features = tf.io.parse_example(example, features_spec)
       features = {k: tf.squeeze(v, axis=0) for k, v in features.items()}
       labels = tf.cast(features.pop('clicked'), tf.int32)
 
-      if isinstance(split, float):
-        if split < 0.0 or split > 1.0:
-          raise ValueError('shift_level not in [0, 1]: {}'.format(split))
-        features, labels = apply_randomization(features, labels, split)
+      if self._corruption_level is not None:
+        if self._corruption_level < 0.0 or self._corruption_level > 1.0:
+          raise ValueError('shift_level not in [0, 1]: {}'.format(
+              self._corruption_level))
+        features, labels = apply_randomization(
+            features, labels, self._corruption_level)
 
-      return {'features': features, 'labels': labels}
+      return {
+          'features': features,
+          'labels': labels,
+      }
 
     return _example_parser

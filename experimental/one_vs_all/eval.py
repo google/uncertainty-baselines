@@ -111,20 +111,20 @@ _EvalSetupResult = Tuple[
 
 
 def setup_eval(
-    dataset_builder: ub.datasets.BaseDataset,
+    validation_dataset_builder: Optional[ub.datasets.BaseDataset],
+    test_dataset_builder: ub.datasets.BaseDataset,
+    batch_size: int,
     strategy,
     trial_dir: str,
     model: tf.keras.Model,
     loss_fn,
     metric_names: List[str]) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
-  test_dataset = dataset_builder.build('test')
+  test_dataset = test_dataset_builder.load(batch_size=batch_size)
   test_dataset = strategy.experimental_distribute_dataset(test_dataset)
   test_summary_writer = tf.summary.create_file_writer(
       os.path.join(trial_dir, 'summaries/test'))
-  num_test_steps = (
-      dataset_builder.info['num_test_examples'] //
-      dataset_builder.eval_batch_size)
+  num_test_steps = test_dataset_builder.num_examples // batch_size
   test_metrics = {
       name: tf.keras.metrics.Mean(name, dtype=tf.float32)
       for name in metric_names
@@ -142,11 +142,9 @@ def setup_eval(
   val_fn = None
   val_dataset = None
   val_summary_writer = None
-  if dataset_builder.info['num_validation_examples'] > 0:
-    num_val_steps = (
-        dataset_builder.info['num_validation_examples'] //
-        dataset_builder.eval_batch_size)
-    val_dataset = dataset_builder.build('validation')
+  if validation_dataset_builder:
+    num_val_steps = validation_dataset_builder.num_examples // batch_size
+    val_dataset = validation_dataset_builder.load(batch_size=batch_size)
     val_dataset = strategy.experimental_distribute_dataset(val_dataset)
     val_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'summaries/val'))
@@ -167,7 +165,9 @@ def setup_eval(
 
 
 def run_eval_loop(
-    dataset_builder: ub.datasets.BaseDataset,
+    validation_dataset_builder: Optional[ub.datasets.BaseDataset],
+    test_dataset_builder: ub.datasets.BaseDataset,
+    batch_size: int,
     model: tf.keras.Model,
     loss_fn,
     trial_dir: str,
@@ -182,7 +182,14 @@ def run_eval_loop(
    test_fn,
    test_dataset,
    test_summary_writer) = setup_eval(
-       dataset_builder, strategy, trial_dir, model, loss_fn, metric_names)
+       validation_dataset_builder,
+       test_dataset_builder,
+       batch_size,
+       strategy,
+       trial_dir,
+       model,
+       loss_fn,
+       metric_names)
 
   checkpoint = tf.train.Checkpoint(model=model)
   last_eval_step = -1

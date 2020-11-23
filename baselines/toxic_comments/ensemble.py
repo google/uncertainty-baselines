@@ -35,7 +35,6 @@ import uncertainty_baselines as ub
 # import toxic_comments.deterministic to inherit its flags
 import deterministic  # pylint:disable=unused-import  # local file import
 import utils  # local file import
-from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
 
@@ -74,18 +73,15 @@ def main(argv):
   data_buffer_size = batch_size * 10
 
   ind_dataset_builder = ds.WikipediaToxicityDataset(
-      batch_size=batch_size,
-      eval_batch_size=test_batch_size,
+      split='test',
       data_dir=FLAGS.in_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_dataset_builder = ds.CivilCommentsDataset(
-      batch_size=batch_size,
-      eval_batch_size=test_batch_size,
+      split='test',
       data_dir=FLAGS.ood_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
-      batch_size=batch_size,
-      eval_batch_size=test_batch_size,
+      split='test',
       data_dir=FLAGS.identity_dataset_dir,
       shuffle_buffer_size=data_buffer_size)
 
@@ -99,17 +95,18 @@ def main(argv):
       test_dataset_builders=test_dataset_builders)
   logging.info('class_weight: %s', str(class_weight))
 
-  ds_info = ind_dataset_builder.info
+  ds_info = ind_dataset_builder.tfds_info
   feature_size = _MAX_SEQ_LENGTH
-  num_classes = ds_info['num_classes']  # Positive and negative classes.
+  # Positive and negative classes.
+  num_classes = ds_info.metadata['num_classes']
 
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.build(
-        split=base.Split.TEST)
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=test_batch_size)
     steps_per_eval[dataset_name] = (
-        dataset_builder.info['num_test_examples'] // test_batch_size)
+        dataset_builder.num_examples // test_batch_size)
 
   logging.info('Building %s model', FLAGS.model_family)
 

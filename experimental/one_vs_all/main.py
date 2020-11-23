@@ -104,11 +104,21 @@ def run(trial_dir: str, flag_string: Optional[str]):
     _maybe_setup_trial_dir(strategy, trial_dir, flag_string)
 
     # TODO(znado): pass all dataset and model kwargs.
-    dataset_builder = ub.datasets.get(
-        FLAGS.dataset_name,
-        batch_size=FLAGS.batch_size,
-        eval_batch_size=FLAGS.eval_batch_size,
-        validation_percent=FLAGS.validation_percent)
+    train_dataset_builder = ub.datasets.get(
+        dataset_name=FLAGS.dataset_name,
+        split='train',
+        validation_percent=FLAGS.validation_percent,
+        shuffle_buffer_size=FLAGS.shuffle_buffer_size)
+    if FLAGS.validation_percent > 0:
+      validation_dataset_builder = ub.datasets.get(
+          dataset_name=FLAGS.dataset_name,
+          split='validation',
+          validation_percent=FLAGS.validation_percent)
+    else:
+      validation_dataset_builder = None
+    test_dataset_builder = ub.datasets.get(
+        dataset_name=FLAGS.dataset_name,
+        split='test')
     model = models_lib.create_model(
         batch_size=FLAGS.batch_size,
         num_classes=10,
@@ -119,7 +129,9 @@ def run(trial_dir: str, flag_string: Optional[str]):
     if FLAGS.mode == 'eval':
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
       eval_lib.run_eval_loop(
-          dataset_builder=dataset_builder,
+          validation_dataset_builder=validation_dataset_builder,
+          test_dataset_builder=test_dataset_builder,
+          batch_size=FLAGS.eval_batch_size,
           model=model,
           loss_fn=loss_fn,
           trial_dir=trial_dir,
@@ -133,8 +145,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
     if FLAGS.mode == 'train_and_eval':
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
 
-    steps_per_epoch = (
-        dataset_builder.info['num_train_examples'] // FLAGS.batch_size)
+    steps_per_epoch = train_dataset_builder.num_examples // FLAGS.batch_size
     optimizer_kwargs = {
         k[len('optimizer_hparams_'):]: FLAGS[k].value for k in FLAGS
         if k.startswith('optimizer_hparams_')
@@ -148,7 +159,11 @@ def run(trial_dir: str, flag_string: Optional[str]):
         **optimizer_kwargs)
 
     train_lib.run_train_loop(
-        dataset_builder=dataset_builder,
+        train_dataset_builder=train_dataset_builder,
+        validation_dataset_builder=validation_dataset_builder,
+        test_dataset_builder=test_dataset_builder,
+        batch_size=FLAGS.batch_size,
+        eval_batch_size=FLAGS.eval_batch_size,
         model=model,
         optimizer=optimizer,
         loss_fn=loss_fn,

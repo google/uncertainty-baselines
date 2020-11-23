@@ -38,7 +38,7 @@ See https://cims.nyu.edu/~sbowman/multinli/ and corpus paper for further detail.
     https://www.aclweb.org/anthology/N18-1101/
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -51,76 +51,53 @@ class MnliDataset(base.BaseDataset):
 
   def __init__(
       self,
-      batch_size: int,
-      eval_batch_size: int,
+      split: str,
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
       mode: str = 'matched',
+      try_gcs: bool = False,
+      download_data: bool = False,
       **unused_kwargs: Dict[str, Any]):
-    """Create a GLUE tf.data.Dataset builder.
+    """Create an Genomics OOD tf.data.Dataset builder.
 
     Args:
-      batch_size: the training batch size.
-      eval_batch_size: the validation and test batch size.
+      split: a dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: optional dir to save TFDS data to. If none then the local
-        filesystem is used. Required for using TPUs on Cloud.
       mode: Type of data to import. If mode = "matched", import the in-domain
         data (glue/mnli_matched). If mode = "mismatched", import the
         out-of-domain data (glue/mnli_mismatched).
+      try_gcs: Whether or not to try to use the GCS stored versions of dataset
+        files. Currently unsupported.
+      download_data: Whether or not to download data before loading. Currently
+        unsupported.
     """
     if mode not in ('matched', 'mismatched'):
       raise ValueError('"mode" must be either "matched" or "mismatched".'
                        'Got {}'.format(mode))
-    self.mode = mode
-    self.validation_split_name = 'validation_' + mode
-    self.test_split_name = 'test_' + mode
+    if mode == 'mismatched' and split == tfds.Split.TRAIN:
+      raise ValueError('No training data for mismatched domains.')
+    if split == tfds.Split.VALIDATION:
+      split = 'validation_' + mode
+    if split == tfds.Split.TEST:
+      split = 'test_' + mode
 
-    tfds_name = 'glue/mnli'
-    dataset_info = tfds.builder(tfds_name).info
-
-    num_train_examples = dataset_info.splits[
-        'train'].num_examples if mode == 'matched' else 0
-    num_validation_examples = dataset_info.splits[
-        self.validation_split_name].num_examples
-    num_test_examples = dataset_info.splits[self.test_split_name].num_examples
-
+    name = 'glue/mnli'
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
     super(MnliDataset, self).__init__(
-        name=tfds_name,
-        num_train_examples=num_train_examples,
-        num_validation_examples=num_validation_examples,
-        num_test_examples=num_test_examples,
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        name=name,
+        dataset_builder=dataset_builder,
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        data_dir=data_dir)
+        fingerprint_key='idx',
+        download_data=download_data)
 
-  def _read_examples(self, split: base.Split) -> tf.data.Dataset:
-    """Creates a dataset to be processed by _create_process_example_fn."""
-    if split == base.Split.TEST:
-      return tfds.load(
-          self.name,
-          split=self.test_split_name,
-          **self._tfds_kwargs)
-    elif split == base.Split.TRAIN:
-      if self.mode == 'mismatched':
-        raise ValueError('No training data for mismatched domains.')
-      return tfds.load(
-          self.name,
-          split='train',
-          **self._tfds_kwargs)
-    else:
-      return tfds.load(
-          self.name,
-          split=self.validation_split_name,
-          **self._tfds_kwargs)
-
-  def _create_process_example_fn(self, split: base.Split) -> base.PreProcessFn:
+  def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
@@ -130,13 +107,11 @@ class MnliDataset(base.BaseDataset):
       text_a = example['premise']
       text_b = example['hypothesis']
 
-      parsed_example = {
+      return {
           'text_a': text_a,
           'text_b': text_b,
           'labels': label,
           'idx': idx
       }
-
-      return parsed_example
 
     return _example_parser

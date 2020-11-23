@@ -98,7 +98,11 @@ def _write_summaries(
 
 
 def run_train_loop(
-    dataset_builder: ub.datasets.BaseDataset,
+    train_dataset_builder: ub.datasets.BaseDataset,
+    validation_dataset_builder: Optional[ub.datasets.BaseDataset],
+    test_dataset_builder: ub.datasets.BaseDataset,
+    batch_size: int,
+    eval_batch_size: int,
     model: tf.keras.Model,
     optimizer: tf.keras.optimizers.Optimizer,
     eval_frequency: int,
@@ -132,7 +136,7 @@ def run_train_loop(
         checkpoint.restore(checkpoint_manager.latest_checkpoint)
         logging.info('Resuming training from step %d.', last_checkpoint_step)
 
-  train_dataset = dataset_builder.build('train')
+  train_dataset = train_dataset_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   train_iterator = iter(train_dataset)
 
@@ -160,7 +164,13 @@ def run_train_loop(
      test_fn,
      test_dataset,
      test_summary_writer) = eval_lib.setup_eval(
-         dataset_builder, strategy, trial_dir, model, metrics)
+         validation_dataset_builder=validation_dataset_builder,
+         test_dataset_builder=test_dataset_builder,
+         batch_size=eval_batch_size,
+         strategy=strategy,
+         trial_dir=trial_dir,
+         model=model,
+         metrics=metrics)
   # Each call to train_step_fn will run iterations_per_loop steps.
   num_train_fn_steps = train_steps // iterations_per_loop
   # We are guaranteed that `last_checkpoint_step` will be divisible by

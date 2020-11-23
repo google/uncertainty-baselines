@@ -19,52 +19,54 @@
 from absl.testing import parameterized
 import numpy as np
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import clinc_intent
 
 
 class ClincIntentDetectionDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
-  @parameterized.named_parameters(('Train', base.Split.TRAIN),
-                                  ('Validation', base.Split.VAL),
-                                  ('Test', base.Split.TEST))
-  def testDatasetSize(self, split):
-    batch_size = 9
-    eval_batch_size = 5
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN, 15000),
+                                  ('Validation', tfds.Split.VALIDATION, 3000),
+                                  ('Test', tfds.Split.TEST, 4500))
+  def testDatasetSize(self, split, expected_size):
     dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        split=split,
         shuffle_buffer_size=20)
-    dataset = dataset_builder.build(split).take(1)
+    self.assertEqual(dataset_builder.num_examples, expected_size)
+
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Validation', tfds.Split.VALIDATION),
+                                  ('Test', tfds.Split.TEST))
+  def testDatasetShape(self, split):
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
+    dataset_builder = ub.datasets.ClincIntentDetectionDataset(
+        split=split,
+        shuffle_buffer_size=20)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
     features = element['features']
     labels = element['labels']
 
-    expected_batch_size = (
-        batch_size if split == base.Split.TRAIN else eval_batch_size)
     feature_shape, _ = features.shape
     labels_shape = labels.shape
-    self.assertEqual(feature_shape, expected_batch_size)
-    self.assertEqual(labels_shape, (expected_batch_size,))
+    self.assertEqual(feature_shape, batch_size)
+    self.assertEqual(labels_shape, (batch_size,))
 
   @parameterized.named_parameters(('IND', 'ind', clinc_intent._NUM_TRAIN_IND),
                                   ('OOD', 'ood', clinc_intent._NUM_TRAIN_OOD),
                                   ('All', 'all', clinc_intent._NUM_TRAIN_ALL))
   def testDataMode(self, data_mode, num_train_examples_expected):
     """Tests if all data modes can be loaded correctly."""
-    batch_size = 9
-    eval_batch_size = 5
-    split = base.Split.TRAIN
 
     dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
+        split=tfds.Split.TRAIN,
         shuffle_buffer_size=20,
         data_mode=data_mode)
 
-    num_train_examples = dataset_builder.info['num_train_examples']
-    dataset = dataset_builder.build(split).take(1)
+    num_train_examples = (
+        dataset_builder.tfds_info.splits['train'].num_examples)
+    dataset = dataset_builder.load(batch_size=7).take(1)
     element = next(iter(dataset))
     features = element['features']
 
@@ -76,10 +78,8 @@ class ClincIntentDetectionDatasetTest(tf.test.TestCase, parameterized.TestCase):
   def testTokenizer(self):
     """Tests if tokenizer is loaded correctly."""
     dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-        batch_size=9,
-        eval_batch_size=5,
-        shuffle_buffer_size=20,
-    )
+        split=tfds.Split.TRAIN,
+        shuffle_buffer_size=20)
 
     # The number of valid tokens.
     vocab_size = dataset_builder.tokenizer.num_words
@@ -88,16 +88,12 @@ class ClincIntentDetectionDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
   def testNumTokens(self):
     """Tests if num_tokens field is loaded correctly."""
-    batch_size = 9
-    eval_batch_size = 5
-    split = base.Split.TRAIN
 
     dataset_builder = ub.datasets.ClincIntentDetectionDataset(
-        batch_size=batch_size,
-        eval_batch_size=eval_batch_size,
-        shuffle_buffer_size=20,)
+        split=tfds.Split.TRAIN,
+        shuffle_buffer_size=20)
 
-    dataset = dataset_builder.build(split).take(1)
+    dataset = dataset_builder.load(batch_size=7).take(1)
     element = next(iter(dataset))
     features = element['features']
     num_tokens = element['num_tokens']

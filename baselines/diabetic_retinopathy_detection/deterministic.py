@@ -97,18 +97,16 @@ def main(argv):
   summary_writer = tf.summary.create_file_writer(
       os.path.join(output_dir, 'summaries'))
 
-  dataset_train = utils.load_diabetic_retinopathy_detection(
-      split=ub.datasets.base.Split.TRAIN,
-      batch_size=batch_size,
-      eval_batch_size=eval_batch_size,
-      strategy=strategy,
+  dataset_train_builder = utils.load_diabetic_retinopathy_detection(
+      split='train',
       data_dir=data_dir)
-  dataset_test = utils.load_diabetic_retinopathy_detection(
-      split=ub.datasets.base.Split.TEST,
-      batch_size=batch_size,
-      eval_batch_size=eval_batch_size,
-      strategy=strategy,
+  dataset_train = dataset_train_builder.load(batch_size=batch_size)
+  dataset_train = strategy.experimental_distribute_dataset(dataset_train)
+  dataset_test_builder = utils.load_diabetic_retinopathy_detection(
+      split='test',
       data_dir=data_dir)
+  dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
+  dataset_test = strategy.experimental_distribute_dataset(dataset_test)
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 model')

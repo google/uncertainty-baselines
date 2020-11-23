@@ -128,10 +128,22 @@ def run(trial_dir: str, flag_string: Optional[str]):
     _maybe_setup_trial_dir(strategy, trial_dir, flag_string)
 
     # TODO(znado): pass all dataset and model kwargs.
-    dataset_builder = ub.datasets.get(
-        FLAGS.dataset_name,
-        batch_size=FLAGS.batch_size,
-        eval_batch_size=FLAGS.eval_batch_size,
+    train_dataset_builder = ub.datasets.get(
+        dataset_name=FLAGS.dataset_name,
+        split='train',
+        validation_percent=FLAGS.validation_percent,
+        shuffle_buffer_size=FLAGS.shuffle_buffer_size)
+    if FLAGS.validation_percent > 0:
+      validation_dataset_builder = ub.datasets.get(
+          dataset_name=FLAGS.dataset_name,
+          split='validation',
+          validation_percent=FLAGS.validation_percent,
+          shuffle_buffer_size=FLAGS.shuffle_buffer_size)
+    else:
+      validation_dataset_builder = None
+    test_dataset_builder = ub.datasets.get(
+        dataset_name=FLAGS.dataset_name,
+        split='test',
         validation_percent=FLAGS.validation_percent,
         shuffle_buffer_size=FLAGS.shuffle_buffer_size)
 
@@ -193,10 +205,14 @@ def run(trial_dir: str, flag_string: Optional[str]):
         svhn_normalize_by_cifar = True
       else:
         svhn_normalize_by_cifar = False
-      ood_dataset_builder = ub.datasets.get(
-          FLAGS.ood_dataset_name,
-          batch_size=FLAGS.batch_size,
-          eval_batch_size=FLAGS.eval_batch_size,
+
+      ood_dataset_builder_cls = ub.datasets.DATASETS[FLAGS.ood_dataset_name]
+      ood_dataset_builder_cls = ub.datasets.make_ood_dataset(
+          ood_dataset_builder_cls)
+      ood_dataset_builder = ood_dataset_builder_cls(
+          in_distribution_dataset=test_dataset_builder,
+          name=FLAGS.ood_dataset_name,
+          split='test',
           validation_percent=FLAGS.validation_percent,
           normalize_by_cifar=svhn_normalize_by_cifar,
           data_mode='ood')
@@ -206,21 +222,23 @@ def run(trial_dir: str, flag_string: Optional[str]):
           'auroc': tf.keras.metrics.AUC(
               curve='ROC', summation_method='interpolation'),
           'auprc': tf.keras.metrics.AUC(
-              curve='PR', summation_method='interpolation')}
+              curve='PR', summation_method='interpolation')
+      }
 
-      aux_metrics = [('spec_at_sen', tf.keras.metrics.SpecificityAtSensitivity,
-                      FLAGS.sensitivity_thresholds),
-                     ('sen_at_spec', tf.keras.metrics.SensitivityAtSpecificity,
-                      FLAGS.specificity_thresholds),
-                     ('prec_at_rec', tf.keras.metrics.PrecisionAtRecall,
-                      FLAGS.recall_thresholds),
-                     ('rec_at_prec', tf.keras.metrics.RecallAtPrecision,
-                      FLAGS.precision_thresholds)]
+      aux_metrics = [
+          ('spec_at_sen', tf.keras.metrics.SpecificityAtSensitivity,
+           FLAGS.sensitivity_thresholds),
+          ('sen_at_spec', tf.keras.metrics.SensitivityAtSpecificity,
+           FLAGS.specificity_thresholds),
+          ('prec_at_rec', tf.keras.metrics.PrecisionAtRecall,
+           FLAGS.recall_thresholds),
+          ('rec_at_prec', tf.keras.metrics.RecallAtPrecision,
+           FLAGS.precision_thresholds)
+      ]
 
       for metric_name, metric_fn, threshold_vals in aux_metrics:
         vals = [float(x) for x in threshold_vals]
         thresholds = np.linspace(vals[0], vals[1], int(vals[2]))
-
         for thresh in thresholds:
           name = f'{metric_name}_{thresh:.2f}'
           ood_metrics[name] = metric_fn(thresh)
@@ -228,7 +246,9 @@ def run(trial_dir: str, flag_string: Optional[str]):
     if FLAGS.mode == 'eval':
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
       eval_lib.run_eval_loop(
-          dataset_builder=dataset_builder,
+          validation_dataset_builder=validation_dataset_builder,
+          test_dataset_builder=test_dataset_builder,
+          batch_size=FLAGS.eval_batch_size,
           model=model,
           trial_dir=trial_dir,
           train_steps=FLAGS.train_steps,
@@ -243,8 +263,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
     if FLAGS.mode == 'train_and_eval':
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
 
-    steps_per_epoch = (
-        dataset_builder.info['num_train_examples'] // FLAGS.batch_size)
+    steps_per_epoch = train_dataset_builder.num_examples // FLAGS.batch_size
     optimizer_kwargs = {
         k[len('optimizer_hparams_'):]: FLAGS[k].value for k in FLAGS
         if k.startswith('optimizer_hparams_')
@@ -264,7 +283,11 @@ def run(trial_dir: str, flag_string: Optional[str]):
         **optimizer_kwargs)
 
     train_lib.run_train_loop(
-        dataset_builder=dataset_builder,
+        train_dataset_builder=train_dataset_builder,
+        validation_dataset_builder=validation_dataset_builder,
+        test_dataset_builder=test_dataset_builder,
+        batch_size=FLAGS.batch_size,
+        eval_batch_size=FLAGS.eval_batch_size,
         model=model,
         optimizer=optimizer,
         eval_frequency=FLAGS.eval_frequency,

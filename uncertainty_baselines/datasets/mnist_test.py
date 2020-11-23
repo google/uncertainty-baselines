@@ -24,7 +24,7 @@ class MnistDatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
     super(MnistDatasetTest, self)._testDatasetSize(
-        ub.datasets.MnistDataset, (28, 28, 1))
+        ub.datasets.MnistDataset, (28, 28, 1), validation_percent=0.1)
 
 
 if __name__ == '__main__':

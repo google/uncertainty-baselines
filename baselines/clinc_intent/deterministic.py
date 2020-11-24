@@ -140,19 +140,19 @@ def main(argv):
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   train_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       split='train',
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ind')
   ind_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       split='test',
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ind')
   ood_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       split='test',
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='ood')
   all_dataset_builder = ub.datasets.ClincIntentDetectionDataset(
       split='test',
-      dataset_dir=FLAGS.dataset_dir,
+      data_dir=FLAGS.data_dir,
       data_mode='all')
 
   dataset_builders = {

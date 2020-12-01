@@ -89,19 +89,29 @@ class _RandomDatasetBuilder(tfds.core.DatasetBuilder):
         description='Random noise dataset.',
         features=tfds.features.FeaturesDict(features),
         metadata=None)
-    split_dict = tfds.core.SplitDict('criteo')
+
     # Instead of having a single element shard_lengths, we should really have a
     # list of the number of elements in each file shard in each split.
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TRAIN,
-        shard_lengths=[self._num_train_examples]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.VALIDATION,
-        shard_lengths=[self._num_validation_examples]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TEST,
-        shard_lengths=[self._num_test_examples]))
-    info.update_splits_if_different(split_dict)
+    split_infos = [
+        tfds.core.SplitInfo(
+            name=tfds.Split.VALIDATION,
+            shard_lengths=[self._num_validation_examples],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TEST,
+            shard_lengths=[self._num_test_examples],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TRAIN,
+            shard_lengths=[self._num_train_examples],
+            num_bytes=0,
+        ),
+    ]
+    split_dict = tfds.core.SplitDict(
+        split_infos, dataset_name='__random_dataset_builder')
+    info.set_splits(split_dict)
     return info
 
 

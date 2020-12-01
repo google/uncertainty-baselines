@@ -231,19 +231,29 @@ class _ClincIntentionDatasetBuilder(tfds.core.DatasetBuilder):
         # arbitrary info, it will not be printed when printing out the dataset
         # info.
         metadata=tfds.core.MetadataDict(feature_size=_FEATURE_LENGTH))
-    split_dict = tfds.core.SplitDict('clinc_intent')
+
     # Instead of having a single element shard_lengths, we should really have a
     # list of the number of elements in each file shard in each split.
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TRAIN,
-        shard_lengths=[self._num_examples['train']]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.VALIDATION,
-        shard_lengths=[self._num_examples['validation']]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TEST,
-        shard_lengths=[self._num_examples['test']]))
-    info.update_splits_if_different(split_dict)
+    split_infos = [
+        tfds.core.SplitInfo(
+            name=tfds.Split.VALIDATION,
+            shard_lengths=[self._num_examples['validation']],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TEST,
+            shard_lengths=[self._num_examples['test']],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TRAIN,
+            shard_lengths=[self._num_examples['train']],
+            num_bytes=0,
+        ),
+    ]
+    split_dict = tfds.core.SplitDict(
+        split_infos, dataset_name='__clinc_intention_dataset_builder')
+    info.set_splits(split_dict)
     return info
 
 

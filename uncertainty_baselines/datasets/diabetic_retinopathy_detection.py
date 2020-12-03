@@ -31,7 +31,6 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       split: str,
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
-      try_gcs: bool = False,
       data_dir: Optional[str] = None,
       download_data: bool = False,
       **unused_kwargs: Dict[str, Any]):
@@ -45,8 +44,6 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      try_gcs: Whether or not to try to use the GCS stored versions of dataset
-        files.
       data_dir: optional dir to save TFDS data to. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
       download_data: Whether or not to download data before loading.
@@ -64,8 +61,7 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
           unit='abs')
     dataset_builder = tfds.builder(
         'diabetic_retinopathy_detection/btgraham-300',
-        data_dir=data_dir,
-        try_gcs=try_gcs)
+        data_dir=data_dir)
     super(DiabeticRetinopathyDetectionDataset, self).__init__(
         name='diabetic_retinopathy_detection',
         dataset_builder=dataset_builder,

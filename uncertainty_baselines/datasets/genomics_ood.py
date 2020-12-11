@@ -84,7 +84,6 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
     del decoders
     del read_config
     del shuffle_files
-    # TODO(jjren) change to tfds.load once tfds dataset is available
     file_pattern = _tfrecord_filepattern(split, self._data_mode)
     file_list = tf.io.gfile.glob(os.path.join(self._data_dir, file_pattern))
     dataset = tf.data.TFRecordDataset(file_list)
@@ -159,6 +158,9 @@ class GenomicsOodDataset(base.BaseDataset):
       data_dir: path to a directory containing the Genomics OOD dataset, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
     """
+    if data_dir is None:
+      builder = tfds.builder('genomics_ood')
+      data_dir = builder.data_dir
 
     super(GenomicsOodDataset, self).__init__(
         name='genomics_ood',

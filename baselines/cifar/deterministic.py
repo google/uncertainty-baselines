@@ -86,6 +86,13 @@ flags.DEFINE_integer('corruptions_interval', -1,
 flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
+flags.DEFINE_bool('bootstrap', False, 'Whether to use bootstrap.')
+flags.DEFINE_bool('resample', False, 'Use bootstrap scheme that samples'
+                  'until a data fraction isreached. If False, sample a subset'
+                  'of datapoints given by the datafraction.')
+flags.DEFINE_float('data_frac', 0.631,
+                   'Fracton of training data after resample from bootstrap.'
+                   '1.0 turns supersampling off.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_string(
     'data_dir',
@@ -142,12 +149,18 @@ def main(argv):
       split=tfds.Split.TRAIN,
       name=FLAGS.dataset,
       batch_size=batch_size,
+      data_frac=FLAGS.data_frac,
+      bootstrap=FLAGS.bootstrap,
+      resample=FLAGS.resample,
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=FLAGS.data_dir,
       proportion=FLAGS.train_proportion)
   clean_test_dataset = utils.load_dataset(
       split=tfds.Split.TEST,
       name=FLAGS.dataset,
+      data_frac=FLAGS.data_frac,
+      bootstrap=FLAGS.bootstrap,
+      resample=FLAGS.resample,
       batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=FLAGS.data_dir)

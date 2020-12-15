@@ -147,6 +147,9 @@ def load_dataset(split,
                  name,
                  use_bfloat16,
                  normalize=True,
+                 data_frac=1.0,
+                 bootstrap=False,
+                 resample=False,
                  drop_remainder=True,
                  repeat=False,
                  proportion=1.0,
@@ -159,6 +162,10 @@ def load_dataset(split,
     name: A string indicates whether it is cifar10 or cifar100.
     use_bfloat16: data type, bfloat16 precision or float32.
     normalize: Whether to apply mean-std normalization on features.
+    data_frac: float. Fracton of training data after resample from bootstrap.
+    bootstrap: bool. Whether to use bootstrap.
+    resample: bool. Use bootstrap scheme that samples until a data fraction is
+    reached
     drop_remainder: bool.
     repeat: bool.
     proportion: float, the proportion of dataset to be used.
@@ -192,22 +199,77 @@ def load_dataset(split,
     label = tf.cast(label, dtype)
     return image, label
 
-  if proportion == 1.0:
-    dataset = tfds.load(
-        name, split=split, data_dir=data_dir, as_supervised=True)
+  def bootstrap_sample_count(data_frac, num_datapoints):
+    """Compute the number of datapoints to sample."""
+    if data_frac == 'baseline':
+      return
+    if data_frac < 0 or data_frac > 1:
+      raise ValueError('data_frac must be between 0 and 1')
+    fraction = 0
+    samplings = 0
+    while fraction < data_frac:
+      fraction = 1-(1 - 1/num_datapoints) ** samplings
+      samplings += 1
+    return samplings
+
+  def get_bootstrap_dataset(name, split):
+    train_ds = tfds.load(name=name, split=split)
+
+    numpy_train = tfds.as_numpy(train_ds)
+    x_train = []
+    y_train = []
+    for datapoint in numpy_train:
+      x_train.append(datapoint['image'])
+      y_train.append(datapoint['label'])
+    x_train = np.array(x_train)
+    y_train = np.array(y_train)
+
+    x_train = x_train / 255.0
+    y_train = y_train.reshape(len(y_train),)
+
+    x_train = np.array(x_train)
+    x_train = np.reshape(x_train, [len(x_train), 32, 32, 3])
+
+    x_train = np.float32(x_train)
+    y_train = np.int32(y_train)
+
+    if data_frac != 1.0:
+      if resample:
+        datapoints_to_draw = bootstrap_sample_count(
+            data_frac, x_train.shape[0])
+        indices = np.random.choice(x_train.shape[0], datapoints_to_draw)
+      else:
+        indices = np.random.choice(x_train.shape[0],
+                                   int(x_train.shape[0] * data_frac),
+                                   replace=False)
+      x_train = x_train[indices]
+      y_train = y_train[indices]
+
+      # Add a channels dimension
+    train_ds = tf.data.Dataset.from_tensor_slices(
+        (x_train, y_train))
+    return train_ds
+
+  if bootstrap:
+    dataset = get_bootstrap_dataset(name, split)
   else:
-    new_name = '{}:3.*.*'.format(name)
-    if split == tfds.Split.TRAIN:
-      # use round instead of floor to resolve bug when e.g. using
-      # proportion = 1 - 0.8 = 0.19999999
-      new_split = 'train[:{}%]'.format(round(100 * proportion))
-    elif split == tfds.Split.VALIDATION:
-      new_split = 'train[-{}%:]'.format(round(100 * proportion))
-    elif split == tfds.Split.TEST:
-      new_split = 'test[:{}%]'.format(round(100 * proportion))
+    if proportion == 1.0:
+      dataset = tfds.load(
+          name, split=split, data_dir=data_dir, as_supervised=True)
     else:
-      raise ValueError('Provide valid split.')
-    dataset = tfds.load(new_name, split=new_split, as_supervised=True)
+      new_name = '{}:3.*.*'.format(name)
+      if split == tfds.Split.TRAIN:
+        # use round instead of floor to resolve bug when e.g. using
+        # proportion = 1 - 0.8 = 0.19999999
+        new_split = 'train[:{}%]'.format(round(100 * proportion))
+      elif split == tfds.Split.VALIDATION:
+        new_split = 'train[-{}%:]'.format(round(100 * proportion))
+      elif split == tfds.Split.TEST:
+        new_split = 'test[:{}%]'.format(round(100 * proportion))
+      else:
+        raise ValueError('Provide valid split.')
+      dataset = tfds.load(new_name, split=new_split, as_supervised=True)
+
   if split == tfds.Split.TRAIN or repeat:
     dataset = dataset.shuffle(buffer_size=dataset_size).repeat()
 

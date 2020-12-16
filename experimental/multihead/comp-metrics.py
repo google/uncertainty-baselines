@@ -1,4 +1,4 @@
-import os.path
+import os
 
 from absl import app
 from absl import flags
@@ -23,9 +23,6 @@ from func import load_datasets_OOD
 
 from func import AttrDict, load_flags, save_flags
 
-from metrics import BrierScore
-from metrics import MMC
-from metrics import nll
 
 def prepare(FLAGS):
 
@@ -225,4 +222,6 @@ for certainty_variant in cvs:
 
                 
     df['metric'] = df['metric'].apply(lambda x: certainty_variant+'_'+ x if 'certs' in x else x)
+    if not os.path.exists('summary'):
+        os.mkdir('summary')
     df.to_csv('summary/cifar10c_results_cert_'+certainty_variant+'.csv')

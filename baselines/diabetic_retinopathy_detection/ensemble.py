@@ -32,14 +32,13 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+import uncertainty_metrics.tensorflow as um
 
 # Data load / output flags.
 flags.DEFINE_string(
   'checkpoint_dir', '/tmp/diabetic_retinopathy_detection/deterministic',
   'The directory from which the trained deterministic '
   'model weights are retrieved.')
-flags.mark_flag_as_required('checkpoint_dir')
 flags.DEFINE_string(
   'output_dir', '/tmp/diabetic_retinopathy_detection/ensemble',
   'The directory where the ensemble model weights '
@@ -56,56 +55,51 @@ flags.DEFINE_integer('eval_batch_size', 32,
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 
 # Accelerator flags.
-flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
+flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
+flags.DEFINE_integer(
+  'num_cores', 1,
+  'Number of TPU cores or number of GPUs - only support 1 GPU for now.')
 FLAGS = flags.FLAGS
 
 
 def parse_checkpoint_dir(checkpoint_dir):
   """Parse directory of checkpoints."""
   paths = []
-  subdirectories = tf.io.gfile.glob(os.path.join(checkpoint_dir, '*'))
+  subdirectories = tf.io.gfile.glob(checkpoint_dir)
   is_checkpoint = lambda f: ('checkpoint' in f and '.index' in f)
   for subdir in subdirectories:
     for path, _, files in tf.io.gfile.walk(subdir):
       if any(f for f in files if is_checkpoint(f)):
         latest_checkpoint_without_suffix = tf.train.latest_checkpoint(path)
         paths.append(os.path.join(path, latest_checkpoint_without_suffix))
-        break
   return paths
 
 
 def main(argv):
   del argv  # unused arg
-  tf.io.gfile.makedirs(FLAGS.output_dir)
-  logging.info('Saving checkpoints at %s', FLAGS.output_dir)
+  if not FLAGS.use_gpu:
+    raise ValueError('Only GPU is currently supported.')
+  if FLAGS.num_cores > 1:
+    raise ValueError('Only a single accelerator is currently supported.')
   tf.random.set_seed(FLAGS.seed)
+  tf.io.gfile.makedirs(FLAGS.output_dir)
 
-  if FLAGS.use_gpu:
+  if FLAGS.force_use_cpu:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+  elif FLAGS.use_gpu:
     logging.info('Use GPU')
-    strategy = tf.distribute.MirroredStrategy()
-  else:
-    logging.info('Use TPU at %s',
-                 FLAGS.tpu if FLAGS.tpu is not None else 'local')
-    resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
-    tf.config.experimental_connect_to_cluster(resolver)
-    tf.tpu.experimental.initialize_tpu_system(resolver)
-    strategy = tf.distribute.TPUStrategy(resolver)
 
-  batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
   ds_info = tfds.builder('diabetic_retinopathy_detection').info
-
+  batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
 
   dataset_test_builder = ub.datasets.get(
     "diabetic_retinopathy_detection",
     split='test',
     data_dir=FLAGS.data_dir)
-  dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
-  dataset_test = strategy.experimental_distribute_dataset(dataset_test)
+  dataset_test = dataset_test_builder.load(batch_size=FLAGS.eval_batch_size)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -114,16 +108,19 @@ def main(argv):
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))
 
-  with strategy.scope():
-    logging.info('Building Keras ResNet-50 model')
+  logging.info('Building Keras ResNet-50 model')
 
-  model = ub.models.wide_resnet(
-      input_shape=ds_info.features['image'].shape,
-      depth=28,
-      width_multiplier=10,
-      num_classes=num_classes,
-      l2=0.,
-      version=2)
+  # Shape tuple access depends on number of distributed devices
+  try:
+    shape_tuple = dataset_test.element_spec['features'].shape
+  except AttributeError:  # Multiple TensorSpec in a (nested) PerReplicaSpec.
+    tensor_spec_list = dataset_test.element_spec[  # pylint: disable=protected-access
+      'features']._flat_tensor_specs
+    shape_tuple = tensor_spec_list[0].shape
+
+  model = ub.models.resnet50_deterministic(
+    input_shape=shape_tuple.as_list()[1:],
+    num_classes=1)  # binary classification task
 
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)
@@ -146,9 +143,14 @@ def main(argv):
     if not tf.io.gfile.exists(filename):
       logits = []
       test_iterator = iter(dataset_test)
-      for _ in range(steps_per_eval):
-        features, _ = next(test_iterator)  # pytype: disable=attribute-error
-        logits.append(model(features, training=False))
+      for i in range(steps_per_eval):
+        inputs = next(test_iterator)  # pytype: disable=attribute-error
+        images = inputs['features']
+        logits.append(model(images, training=False))
+        if i % 100 == 0:
+          logging.info(
+            f'Ensemble member {member + 1}/{ensemble_size}: '
+            f'Completed {i + 1} of {steps_per_eval} eval steps.')
 
       logits = tf.concat(logits, axis=0)
       with tf.io.gfile.GFile(filename, 'w') as f:
@@ -162,7 +164,7 @@ def main(argv):
   metrics = {
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
-      'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+      'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
       'test/auc': tf.keras.metrics.AUC(),
   }
@@ -170,7 +172,7 @@ def main(argv):
   for i in range(ensemble_size):
     metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
     metrics['test/accuracy_member_{}'.format(i)] = (
-        tf.keras.metrics.SparseCategoricalAccuracy())
+        tf.keras.metrics.BinaryAccuracy())
   test_diversity = {
       'test/disagreement': tf.keras.metrics.Mean(),
       'test/average_kl': tf.keras.metrics.Mean(),
@@ -179,32 +181,38 @@ def main(argv):
   metrics.update(test_diversity)
 
   # Evaluate model predictions.
-  logits = []
+  logits_dataset = []
   for member in range(ensemble_size):
     filename = f'{member}.npy'
     filename = os.path.join(FLAGS.output_dir, filename)
     with tf.io.gfile.GFile(filename, 'rb') as f:
-      logits.append(np.load(f))
+      logits_dataset.append(np.load(f))
 
-  logits = tf.convert_to_tensor(logits_dataset)
-  test_iterator = iter(test_dataset)
+  logits_dataset = tf.convert_to_tensor(logits_dataset)
+  test_iterator = iter(dataset_test)
+
   for step in range(steps_per_eval):
-    _, labels = next(test_iterator)  # pytype: disable=attribute-error
+    inputs = next(test_iterator)  # pytype: disable=attribute-error
+    labels = inputs['labels']
     logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
-    labels = tf.cast(labels, tf.int32)
-    negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
-    per_probs = tf.nn.softmax(logits)
+    labels = tf.cast(labels, tf.float32)
+    logits = tf.cast(logits, tf.float32)
+    negative_log_likelihood = um.ensemble_cross_entropy(
+      tf.expand_dims(labels, axis=-1), logits, binary=True)
+    per_probs = tf.nn.sigmoid(logits)
     probs = tf.reduce_mean(per_probs, axis=0)
-    gibbs_ce = um.gibbs_cross_entropy(labels, logits)
+    gibbs_ce = um.gibbs_cross_entropy(
+      tf.expand_dims(labels, axis=-1), logits, binary=True)
     metrics['test/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
     metrics['test/accuracy'].update_state(labels, probs)
     metrics['test/ece'].update_state(labels, probs)
+    metrics['test/auc'].update_state(labels, probs)
 
     for i in range(ensemble_size):
       member_probs = per_probs[i]
-      member_loss = tf.keras.losses.sparse_categorical_crossentropy(
+      member_loss = tf.keras.losses.binary_crossentropy(
           labels, member_probs)
       metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
       metrics['test/accuracy_member_{}'.format(i)].update_state(

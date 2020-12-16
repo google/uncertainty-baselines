@@ -57,8 +57,6 @@ flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate, between [0.0, 1.0).')
 flags.DEFINE_integer('num_dropout_samples_eval', 10,
                      'Number of dropout samples to use for prediction.')
-flags.DEFINE_integer('num_dropout_samples_training', 1,
-                     'Number of dropout samples for training.')
 flags.DEFINE_bool('filterwise_dropout', False, 'Dropout whole convolutional'
                   'filters instead of individual values in the feature map.')
 flags.DEFINE_bool('residual_dropout', True,
@@ -77,6 +75,7 @@ flags.DEFINE_integer('checkpoint_interval', 25,
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 
 # Accelerator flags.
+flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
 flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
@@ -91,8 +90,13 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
-  if FLAGS.use_gpu:
+  if FLAGS.force_use_cpu:
+    logging.info('Use CPU')
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+  elif FLAGS.use_gpu:
     logging.info('Use GPU')
+
+  if FLAGS.use_gpu:
     strategy = tf.distribute.MirroredStrategy()
   else:
     logging.info('Use TPU at %s',
@@ -102,7 +106,7 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  batch_size = (FLAGS.batch_size * FLAGS.num_cores) // FLAGS.num_dropout_samples_training
+  batch_size = (FLAGS.batch_size * FLAGS.num_cores)
   eval_batch_size = (FLAGS.eval_batch_size * FLAGS.num_cores) // FLAGS.num_dropout_samples_eval
   ds_info = tfds.builder('diabetic_retinopathy_detection').info
 
@@ -172,12 +176,10 @@ def main(argv):
     metrics = {
       'train/negative_log_likelihood': tf.keras.metrics.Mean(),
       'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
-      'train/auc': tf.keras.metrics.AUC(),
       'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
       'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-      'test/auc': tf.keras.metrics.AUC(),
       'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
     }
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -190,6 +192,12 @@ def main(argv):
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
 
+  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
+  metrics.update({
+      'train/auc': tf.keras.metrics.AUC(),
+      'test/auc': tf.keras.metrics.AUC()
+  })
+
   @tf.function
   def train_step(iterator):
     """Training step function."""
@@ -198,8 +206,6 @@ def main(argv):
       """Per-replica step function."""
       images = inputs['features']
       labels = inputs['labels']
-      images = tf.tile(images, [FLAGS.num_dropout_samples_training, 1, 1, 1])
-      labels = tf.tile(labels, [FLAGS.num_dropout_samples_training])
 
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
@@ -235,23 +241,24 @@ def main(argv):
     def step_fn(inputs):
       """Per-replica step function."""
       images = inputs['features']
-      labels = inputs['labels']
+      labels = tf.convert_to_tensor(inputs['labels'])
 
       logits_list = []
       for _ in range(FLAGS.num_dropout_samples_eval):
         logits = model(images, training=False)
+        logits = tf.squeeze(logits)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         logits_list.append(logits)
 
-      # Logits dimension is (num_samples, batch_size, num_classes).
+      # Logits dimension is (num_samples, batch_size).
       logits_list = tf.stack(logits_list, axis=0)
       probs_list = tf.nn.sigmoid(logits_list)
       probs = tf.reduce_mean(probs_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
-        tf.expand_dims(labels, axis=-1),
-        [FLAGS.num_dropout_samples_eval, labels.shape[0], 1])
+        labels,
+        [FLAGS.num_dropout_samples_eval, labels.shape[0]])
       log_likelihoods = -tf.keras.losses.binary_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(

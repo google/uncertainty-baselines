@@ -41,6 +41,16 @@ flags.DEFINE_string(
   'Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')
 
+# Learning Rate / SGD flags.
+flags.DEFINE_float('base_learning_rate', 0.1,
+                   'Base learning rate when total batch size is 16. It is '
+                   'scaled by the ratio of the total batch size to 16.')
+flags.DEFINE_integer('lr_warmup_epochs', 1,
+                     'Number of epochs for a linear warmup to the initial '
+                     'learning rate. Use 0 to do no warmup.')
+flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
+flags.DEFINE_list('lr_decay_epochs', ['30', '60'], 'Epochs to decay learning rate by.')
+
 # General model flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
@@ -57,6 +67,7 @@ flags.DEFINE_integer('checkpoint_interval', 25,
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 
 # Accelerator flags.
+flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
 flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
@@ -71,8 +82,13 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
-  if FLAGS.use_gpu:
+  if FLAGS.force_use_cpu:
+    logging.info('Use CPU')
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+  elif FLAGS.use_gpu:
     logging.info('Use GPU')
+
+  if FLAGS.use_gpu:
     strategy = tf.distribute.MirroredStrategy()
   else:
     logging.info('Use TPU at %s',
@@ -148,12 +164,10 @@ def main(argv):
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'train/auc': tf.keras.metrics.AUC(),
         'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
         'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'test/auc': tf.keras.metrics.AUC(),
         'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
     }
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -165,6 +179,12 @@ def main(argv):
       checkpoint.restore(latest_checkpoint)
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
+
+  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
+  metrics.update({
+      'train/auc': tf.keras.metrics.AUC(),
+      'test/auc': tf.keras.metrics.AUC()
+  })
 
   @tf.function
   def train_step(iterator):
@@ -197,20 +217,6 @@ def main(argv):
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, probs)
-
-      tf.print(labels)
-      print(labels.shape)
-      print(labels.dtype)
-      tf.print(probs)
-      print(probs.shape)
-      print(probs.dtype)
-        print(dir(tf.reduce_min(probs).eval()))
-        print(tf.reduce_min(probs).eval().numpy())
-
-      print(tf.reduce_max(probs).numpy())
-
-      print(tf.keras.metrics.AUC()(labels, probs).numpy())
-
       metrics['train/auc'].update_state(labels, probs)
 
     strategy.run(step_fn, args=(next(iterator),))
@@ -264,14 +270,10 @@ def main(argv):
       if step % 20 == 0:
         logging.info(message)
 
-      break
-
     for step in range(steps_per_eval):
       if step % 20 == 0:
         logging.info('Starting to run eval step %s of epoch: %s', step, epoch + 1)
       test_step(test_iterator)
-
-      break
 
     logging.info(
         'Train Loss (NLL+L2): %.4f, Accuracy: %.2f%%, AUC: %.2f%%, ECE: %.2f%%',

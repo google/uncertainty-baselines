@@ -10,66 +10,90 @@ import uncertainty_baselines as ub
 import uncertainty_metrics as um
 import tensorflow_datasets as tfds
 
+import json
+import os.path
+
 import utils #from baselines/cifar
 
 
-def one_vs_all_loss_fn(dm_alpha: float = 1., from_logits: bool = True):
-    """Requires from_logits=True to calculate correctly."""
-    if not from_logits:
-        raise ValueError('One-vs-all loss requires inputs to the '
-                         'loss function to be logits, not probabilities.')
-
-    def one_vs_all_loss(labels: tf.Tensor, logits: tf.Tensor):
-        r"""Implements the one-vs-all loss function.
-
-        As implemented in https://arxiv.org/abs/1709.08716, multiplies the output
-        logits by dm_alpha (if using a distance-based formulation) before taking K
-        independent sigmoid operations of each class logit, and then calculating the
-        sum of the log-loss across classes. The loss function is calculated from the
-        K sigmoided logits as follows -
-
-        \mathcal{L} = \sum_{i=1}^{K} -\mathbb{I}(y = i) \log p(\hat{y}^{(i)} | x)
-        -\mathbb{I} (y \neq i) \log (1 - p(\hat{y}^{(i)} | x))
-
-        Args:
-          labels: Integer Tensor of dense labels, shape [batch_size].
-          logits: Tensor of shape [batch_size, num_classes].
-
-        Returns:
-          A scalar containing the mean over the batch for one-vs-all loss.
-        """
-        eps = 1e-6
-        logits = logits * dm_alpha
-        n_classes = tf.cast(logits.shape[1], tf.float32)
-
-        one_vs_all_probs = tf.math.sigmoid(logits)
-        labels = tf.cast(tf.squeeze(labels), tf.int32)
-        row_ids = tf.range(tf.shape(one_vs_all_probs)[0], dtype=tf.int32)
-        idx = tf.stack([row_ids, labels], axis=1)
-
-        # Shape of class_probs is [batch_size,].
-        class_probs = tf.gather_nd(one_vs_all_probs, idx)
-
-        loss = (
-            tf.reduce_mean(tf.math.log(class_probs + eps)) +
-            n_classes * tf.reduce_mean(tf.math.log(1. - one_vs_all_probs + eps)) -
-            tf.reduce_mean(tf.math.log(1. - class_probs + eps)))
-
-        return -loss
-
-    return one_vs_all_loss
+def augment_dataset(FLAGS,dataset):
+    
+    datagen = tf.keras.preprocessing.image.ImageDataGenerator(
+    # set input mean to 0 over the dataset
+    featurewise_center=False,
+    # set each sample mean to 0
+    samplewise_center=False,
+    # divide inputs by std of dataset
+    featurewise_std_normalization=False,
+    # divide each input by its std
+    samplewise_std_normalization=False,
+    # apply ZCA whitening
+    zca_whitening=False,
+    # epsilon for ZCA whitening
+    zca_epsilon=1e-06,
+    # randomly rotate images in the range (deg 0 to 180)
+    rotation_range=0,
+    # randomly shift images horizontally
+    width_shift_range=0.1,
+    # randomly shift images vertically
+    height_shift_range=0.1,
+    # set range for random shear
+    shear_range=0.,
+    # set range for random zoom
+    zoom_range=0.,
+    # set range for random channel shifts
+    channel_shift_range=0.,
+    # set mode for filling points outside the input boundaries
+    fill_mode='nearest',
+    # value used for fill_mode = "constant"
+    cval=0.,
+    # randomly flip images
+    horizontal_flip=True,
+    # randomly flip images
+    vertical_flip=False,
+    # set rescaling factor (applied before any other transformation)
+    rescale=None,
+    # set function that will be applied on each input
+    preprocessing_function=None,
+    # image data format, either "channels_first" or "channels_last"
+    data_format=None,
+    # fraction of images reserved for validation (strictly between 0 and 1)
+    validation_split=0.0)
+    
+    #del xs,ys
+    for i,ds in enumerate(dataset):
+        x,y = ds
+        if i>FLAGS.steps_per_epoch: break
+        if 'xs' not in locals() and 'ys' not in locals():
+            xs = x
+            ys = y
+        else:
+            xs = tf.concat([xs,x],axis=0)
+            ys = tf.concat([ys,y],axis=0)
+    
+    datagen.fit(xs)
+    return datagen.flow(x=xs,y=ys,batch_size=FLAGS.batch_size)
 
 def load_datasets_basic(FLAGS):
+    
     strategy = ub.strategy_utils.get_strategy(None, False)
+    #strategy = tf.distribute.OneDeviceStrategy(device="/gpu:0")
     
     dataset_builder = ub.datasets.Cifar10Dataset(batch_size=FLAGS.batch_size,
                                                  eval_batch_size=FLAGS.eval_batch_size,
                                                  validation_percent=FLAGS.validation_percent)
     
+    
     train_dataset = ub.utils.build_dataset(dataset_builder, 
                                            strategy, 
                                            'train', 
                                            as_tuple=True)
+    
+    
+    if FLAGS.augment_train:
+        FLAGS = add_dataset_flags(dataset_builder,FLAGS)
+        train_dataset = augment_dataset(FLAGS,train_dataset)
+        
     val_dataset = ub.utils.build_dataset(dataset_builder, 
                                          strategy, 
                                          'validation', 
@@ -104,6 +128,21 @@ def load_datasets_corrupted(FLAGS):
             test_datasets['{0}_{1}'.format(corruption, intensity)] = input_fn()
     return train_dataset, test_datasets
 
+# load cifar100 and svhn datasets
+def load_datasets_OOD(FLAGS):
+    ood_datasets = {}
+    strategy = ub.strategy_utils.get_strategy(None, False)
+    dataset_builder = ub.datasets.SvhnDataset(batch_size=FLAGS.batch_size,eval_batch_size=FLAGS.eval_batch_size)
+    train_dset = ub.utils.build_dataset(dataset_builder,strategy,'train',as_tuple=True)
+    ood_datasets['svhn'] = train_dset
+    dataset_builder = ub.datasets.Cifar100Dataset(batch_size=FLAGS.batch_size,eval_batch_size=FLAGS.eval_batch_size)
+    train_dset = ub.utils.build_dataset(dataset_builder,strategy,'train',as_tuple=True)
+    ood_datasets['cifar100'] = train_dset
+
+    return ood_datasets
+
+
+
 def add_dataset_flags(dataset_builder,FLAGS):
     FLAGS.steps_per_epoch = dataset_builder.info['num_train_examples'] // FLAGS.batch_size
     FLAGS.validation_steps = dataset_builder.info['num_validation_examples'] // FLAGS.eval_batch_size
@@ -112,7 +151,22 @@ def add_dataset_flags(dataset_builder,FLAGS):
     
     return FLAGS
 
+
+def save_flags(path,FLAGS):
+    with open(path,'w') as fp:
+        json.dump(FLAGS,fp,indent=4)
+        
+def load_flags(path):
+    assert os.path.exists(path), f'file {path} does not exist'
+    with open(path,'r') as fp:
+        FLAGS = json.load(fp)
+        
+    return AttrDict(FLAGS)
+
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
         super(AttrDict, self).__init__(*args, **kwargs)
         self.__dict__ = self
+        
+    def __copy__(self):
+        return AttrDict(self.__dict__.copy())

@@ -1,0 +1,33 @@
+{
+    "seed": 1337,
+    "dataset": "cifar10",
+    "validation_percent": 0.1,
+    
+    "output_dir": "outdir",
+    "model_file": "outdir/model.ckpt-250",
+
+    "optimizer": "sgd",
+    "learning_rate": 0.1,
+    "weight_decay": 0.0001,
+    "epochs": 250,
+    "augment_train": true,
+    
+    "activation": "relu",
+    "certainty_variant": "partial",
+    "model_variant": "1vsall",
+    "logit_variant": "affine",
+    
+    "batch_size": 128,
+    "eval_batch_size": 100,
+    "eval_frequency": 100,
+    
+    "num_bins": 15,
+    
+    "calibration_variant": "nonlin",
+    "which_output": "certs",
+    "which_dataset": "val",
+    "cal_dict": {"epochs": 10000,
+                  "bins": 1000,
+                  "basis_type": "uniform",
+                  "basis_params": [-20, 20, 100]}
+}

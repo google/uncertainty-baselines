@@ -21,7 +21,7 @@ from absl import logging
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
-import augment_utils  # local file import
+from uncertainty_baselines.datasets import augment_utils
 tfd = tfp.distributions
 
 

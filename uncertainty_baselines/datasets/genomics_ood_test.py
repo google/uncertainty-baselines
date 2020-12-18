@@ -26,20 +26,22 @@ class GenomicsOodDatasetTest(tf.test.TestCase):
 
   def testDatasetSize(self):
     seq_size = 250
-    for split in [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]:
-      dataset_builder = ub.datasets.GenomicsOodDataset(
-          split=split,
-          shuffle_buffer_size=20)
-      batch_size = 9 if split == tfds.Split.TRAIN else 5
-      dataset = dataset_builder.load(batch_size=batch_size).take(1)
-      element = next(iter(dataset))
-      features = element['features']
-      labels = element['labels']
+    for data_mode in ['ind', 'ood']:
+      for split in [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]:
+        if data_mode == 'ood' and split == tfds.Split.TRAIN:
+          continue
+        dataset_builder = ub.datasets.GenomicsOodDataset(
+            split=split, data_mode=data_mode, shuffle_buffer_size=20)
+        batch_size = 9 if split == tfds.Split.TRAIN else 5
+        dataset = dataset_builder.load(batch_size=batch_size).take(1)
+        element = next(iter(dataset))
+        features = element['features']
+        labels = element['labels']
 
-      features_shape = features.shape
-      labels_shape = labels.shape
-      self.assertEqual(features_shape, (batch_size, seq_size))
-      self.assertEqual(labels_shape, (batch_size,))
+        features_shape = features.shape
+        labels_shape = labels.shape
+        self.assertEqual(features_shape, (batch_size, seq_size))
+        self.assertEqual(labels_shape, (batch_size,))
 
 
 if __name__ == '__main__':

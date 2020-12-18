@@ -182,6 +182,71 @@ def group(inputs, filters, num_blocks, stage, strides, conv_layer,
   return x
 
 
+def resnet50_sngp_add_last_layer(inputs, x, num_classes, use_gp_layer,
+                                 gp_hidden_dim, gp_scale, gp_bias,
+                                 gp_input_normalization, gp_random_feature_type,
+                                 gp_cov_discount_factor, gp_cov_ridge_penalty,
+                                 gp_output_imagenet_initializer):
+  """Builds ResNet50.
+
+  Using strided conv, pooling, four groups of residual blocks, and pooling, the
+  network maps spatial features of size 224x224 -> 112x112 -> 56x56 -> 28x28 ->
+  14x14 -> 7x7 (Table 1 of He et al. (2015)).
+
+  Args:
+    inputs: inputs
+    x: x
+    num_classes: Number of output classes.
+    use_gp_layer: Whether to use Gaussian process layer as the output layer.
+    gp_hidden_dim: The hidden dimension of the GP layer, which corresponds to
+      the number of random features used for the approximation.
+    gp_scale: The length-scale parameter for the RBF kernel of the GP layer.
+    gp_bias: The bias term for GP layer.
+    gp_input_normalization: Whether to normalize the input using LayerNorm for
+      GP layer. This is similar to automatic relevance determination (ARD) in
+      the classic GP learning.
+    gp_random_feature_type: The type of random feature to use for
+      `RandomFeatureGaussianProcess`.
+    gp_cov_discount_factor: The discount factor to compute the moving average of
+      precision matrix.
+    gp_cov_ridge_penalty: Ridge penalty parameter for GP posterior covariance.
+    gp_output_imagenet_initializer: Whether to initialize GP output layer using
+      Gaussian with small standard deviation (sd=0.01).
+
+  Returns:
+    tf.keras.Model.
+  """
+  x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
+
+  if use_gp_layer:
+    gp_output_initializer = None
+    if gp_output_imagenet_initializer:
+      # Use the same initializer as dense
+      gp_output_initializer = tf.keras.initializers.RandomNormal(stddev=0.01)
+    output_layer = functools.partial(
+        ed.layers.RandomFeatureGaussianProcess,
+        num_inducing=gp_hidden_dim,
+        gp_kernel_scale=gp_scale,
+        gp_output_bias=gp_bias,
+        normalize_input=gp_input_normalization,
+        gp_cov_momentum=gp_cov_discount_factor,
+        gp_cov_ridge_penalty=gp_cov_ridge_penalty,
+        scale_random_features=False,
+        use_custom_random_features=True,
+        custom_random_features_initializer=make_random_feature_initializer(
+            gp_random_feature_type),
+        kernel_initializer=gp_output_initializer)
+  else:
+    output_layer = functools.partial(
+        tf.keras.layers.Dense,
+        activation=None,
+        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
+        name='fc1000')
+
+  outputs = output_layer(num_classes)(x)
+  return tf.keras.Model(inputs=inputs, outputs=outputs, name='resnet50')
+
+
 def resnet50_sngp(input_shape,
                   batch_size,
                   num_classes,
@@ -199,7 +264,8 @@ def resnet50_sngp(input_shape,
                   gp_output_imagenet_initializer,
                   use_spec_norm,
                   spec_norm_iteration,
-                  spec_norm_bound):
+                  spec_norm_bound,
+                  omit_last_layer=False):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -234,6 +300,8 @@ def resnet50_sngp(input_shape,
     spec_norm_iteration: Number of power iterations to perform for estimating
       the spectral norm of weight matrices.
     spec_norm_bound: Upper bound to spectral norm of weight matrices.
+    omit_last_layer: Optional. Omits the last pooling layer if it is set to
+      True.
 
   Returns:
     tf.keras.Model.
@@ -294,32 +362,11 @@ def resnet50_sngp(input_shape,
       strides=2,
       conv_layer=conv_layer,
       dropout_layer=dropout_layer)
-  x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
 
-  if use_gp_layer:
-    gp_output_initializer = None
-    if gp_output_imagenet_initializer:
-      # Use the same initializer as dense
-      gp_output_initializer = tf.keras.initializers.RandomNormal(stddev=0.01)
-    output_layer = functools.partial(
-        ed.layers.RandomFeatureGaussianProcess,
-        num_inducing=gp_hidden_dim,
-        gp_kernel_scale=gp_scale,
-        gp_output_bias=gp_bias,
-        normalize_input=gp_input_normalization,
-        gp_cov_momentum=gp_cov_discount_factor,
-        gp_cov_ridge_penalty=gp_cov_ridge_penalty,
-        scale_random_features=False,
-        use_custom_random_features=True,
-        custom_random_features_initializer=make_random_feature_initializer(
-            gp_random_feature_type),
-        kernel_initializer=gp_output_initializer)
-  else:
-    output_layer = functools.partial(
-        tf.keras.layers.Dense,
-        activation=None,
-        kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
-        name='fc1000')
+  if omit_last_layer:
+    return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')
 
-  outputs = output_layer(num_classes)(x)
-  return tf.keras.Model(inputs=inputs, outputs=outputs, name='resnet50')
+  return resnet50_sngp_add_last_layer(
+      inputs, x, num_classes, use_gp_layer, gp_hidden_dim, gp_scale, gp_bias,
+      gp_input_normalization, gp_random_feature_type, gp_cov_discount_factor,
+      gp_cov_ridge_penalty, gp_output_imagenet_initializer)

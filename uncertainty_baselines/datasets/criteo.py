@@ -144,19 +144,28 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
         homepage='https://www.kaggle.com/c/criteo-display-ad-challenge/data',
         citation=_CITATION,
         metadata=None)
-    split_dict = tfds.core.SplitDict('criteo')
     # Instead of having a single element shard_lengths, we should really have a
     # list of the number of elements in each file shard in each split.
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TRAIN,
-        shard_lengths=[int(37e6)]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.VALIDATION,
-        shard_lengths=[4420308]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TEST,
-        shard_lengths=[4420309]))
-    info.update_splits_if_different(split_dict)
+    split_infos = [
+        tfds.core.SplitInfo(
+            name=tfds.Split.VALIDATION,
+            shard_lengths=[4420308],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TEST,
+            shard_lengths=[4420309],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TRAIN,
+            shard_lengths=[int(37e6)],
+            num_bytes=0,
+        ),
+    ]
+    split_dict = tfds.core.SplitDict(
+        split_infos, dataset_name='__criteo_dataset_builder')
+    info.set_splits(split_dict)
     return info
 
 

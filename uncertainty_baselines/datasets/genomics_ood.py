@@ -84,7 +84,6 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
     del decoders
     del read_config
     del shuffle_files
-    # TODO(jjren) change to tfds.load once tfds dataset is available
     file_pattern = _tfrecord_filepattern(split, self._data_mode)
     file_list = tf.io.gfile.glob(os.path.join(self._data_dir, file_pattern))
     dataset = tf.data.TFRecordDataset(file_list)
@@ -106,19 +105,28 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
         # arbitrary info, it will not be printed when printing out the dataset
         # info.
         metadata=tfds.core.MetadataDict())
-    split_dict = tfds.core.SplitDict('genomics_ood')
     # Instead of having a single element shard_lengths, we should really have a
     # list of the number of elements in each file shard in each split.
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TRAIN,
-        shard_lengths=[_NUM_TRAIN]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.VALIDATION,
-        shard_lengths=[_NUM_VAL]))
-    split_dict.add(tfds.core.SplitInfo(
-        name=tfds.Split.TEST,
-        shard_lengths=[_NUM_TEST]))
-    info.update_splits_if_different(split_dict)
+    split_infos = [
+        tfds.core.SplitInfo(
+            name=tfds.Split.VALIDATION,
+            shard_lengths=[_NUM_VAL],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TEST,
+            shard_lengths=[_NUM_TEST],
+            num_bytes=0,
+        ),
+        tfds.core.SplitInfo(
+            name=tfds.Split.TRAIN,
+            shard_lengths=[_NUM_TRAIN],
+            num_bytes=0,
+        ),
+    ]
+    split_dict = tfds.core.SplitDict(
+        split_infos, dataset_name='__genomics_ood_dataset_builder')
+    info.set_splits(split_dict)
     return info
 
 
@@ -150,6 +158,9 @@ class GenomicsOodDataset(base.BaseDataset):
       data_dir: path to a directory containing the Genomics OOD dataset, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
     """
+    if data_dir is None:
+      builder = tfds.builder('genomics_ood')
+      data_dir = builder.data_dir
 
     super(GenomicsOodDataset, self).__init__(
         name='genomics_ood',

@@ -27,10 +27,8 @@ def normalize_convert_image(input_image,
                             dtype,
                             mean=CIFAR10_MEAN,
                             std=CIFAR10_STD):
-  if dtype != tf.uint8:
-    raise ValueError(
-        'Images need to be type uint8 to use tf.image.convert_image_dtype.')
-  input_image = tf.image.convert_image_dtype(input_image, dtype)
+  if input_image.dtype == tf.uint8:
+    input_image = tf.image.convert_image_dtype(input_image, dtype)
   return (input_image - mean) / std
 
 

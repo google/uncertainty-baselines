@@ -32,6 +32,7 @@ setup(
     ],
     extras_require={
         'experimental': [
+            'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
             'uncertainty_metrics @ git+https://github.com/google/uncertainty-metrics.git#egg=uncertainty_metrics[tensorflow]',
         ],
         'models': [

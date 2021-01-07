@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Baselines Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
-flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
+flags.DEFINE_integer('ensemble_size', 3, 'Size of ensemble.')
 flags.DEFINE_float('input_repetition_probability', 0.0,
                    'The probability that the inputs are identical for the'
                    'ensemble members.')

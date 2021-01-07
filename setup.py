@@ -25,17 +25,19 @@ setup(
     license='Apache 2.0',
     packages=find_packages(),
     install_requires=[
-        'absl-py==0.8.1',
+        'absl-py>=0.8.1',
         'numpy>=1.7',
         'tf-nightly',
         'tensorflow-datasets>=1.3.0',
     ],
     extras_require={
         'experimental': [
+            'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
             'uncertainty_metrics @ git+https://github.com/google/uncertainty-metrics.git#egg=uncertainty_metrics[tensorflow]',
         ],
         'models': [
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
+            'tensorflow-probability',
             'edward2 @ git+https://github.com/google/edward2.git#egg=edward2[tf-nightly]',
         ],
         'tests': ['pylint>=1.9.0'],

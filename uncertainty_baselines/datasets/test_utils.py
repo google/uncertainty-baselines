@@ -16,14 +16,14 @@
 # Lint as: python3
 """Utils for testing datasets."""
 
-from typing import Any, Dict, Sequence, Type, TypeVar
+from typing import Any, Dict, Sequence, Type, TypeVar, Union
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 
-_SPLITS = [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]
+_SPLITS = (tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST)
 
 
 class DatasetTest(tf.test.TestCase):
@@ -33,11 +33,15 @@ class DatasetTest(tf.test.TestCase):
       self,
       dataset_class: Type[TypeVar('B', bound=base.BaseDataset)],
       image_size: Sequence[int],
+      splits: Sequence[Union[float, str, tfds.Split]] = _SPLITS,
       **kwargs: Dict[str, Any]):
-    batch_size = 9
-    eval_batch_size = 5
-    for bs, split in zip(
-        [batch_size, eval_batch_size, eval_batch_size], _SPLITS):
+    batch_size_splits = {}
+    for split in splits:
+      if split in ['train', tfds.Split.TRAIN]:
+        batch_size_splits[split] = 9
+      else:
+        batch_size_splits[split] = 5
+    for split, bs in batch_size_splits.items():
       dataset_builder = dataset_class(
           split=split,
           shuffle_buffer_size=20,

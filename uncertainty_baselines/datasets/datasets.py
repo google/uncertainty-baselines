@@ -18,13 +18,15 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, List, Tuple, Union
 import warnings
 
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
+from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
+from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedDataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
@@ -51,6 +53,8 @@ except ImportError as e:
 DATASETS = {
     'cifar100': Cifar100Dataset,
     'cifar10': Cifar10Dataset,
+    'cifar10_corrupted': Cifar10CorruptedDataset,
+    'cifar100_corrupted': Cifar100CorruptedDataset,
     'civil_comments': CivilCommentsDataset,
     'civil_comments_identities': CivilCommentsIdentitiesDataset,
     'clinic_intent': ClincIntentDetectionDataset,
@@ -85,8 +89,7 @@ def get_dataset_names() -> List[str]:
 def get(
     dataset_name: str,
     split: Union[Tuple[str, float], str, tfds.Split],
-    data_dir: Optional[str] = None,
-    **hyperparameters: Dict[str, Any]) -> BaseDataset:
+    **hyperparameters: Any) -> BaseDataset:
   """Gets a dataset builder by name.
 
   Note that the user still needs to call
@@ -98,8 +101,6 @@ def get(
     split: a dataset split, either a custom tfds.Split or one of the
       tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
       names.
-    data_dir: optional dir to read TFDS data from. If none then the local
-      filesystem is used. Required for using TPUs on Cloud.
     **hyperparameters: dict of possible kwargs to be passed to the dataset
       constructor.
 
@@ -121,5 +122,4 @@ def get(
   dataset_class = DATASETS[dataset_name]
   return dataset_class(
       split=split,
-      data_dir=data_dir,
       **hyperparameters)

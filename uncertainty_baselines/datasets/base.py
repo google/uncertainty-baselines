@@ -54,14 +54,14 @@ def get_validation_percent_split(
     raise ValueError(
         'validation_percent must be in [0, 1), received {}.'.format(
             validation_percent))
-  num_train_examples = dataset_builder.info.splits['train'].num_examples
-  num_validation_examples = int(num_train_examples * validation_percent)
-  if num_validation_examples == 0:
+  if validation_percent == 0.:
     train_split = tfds.Split.TRAIN
     # We cannot use None here because that will return all the splits if passed
     # to builder.as_dataset().
     validation_split = tfds.Split.VALIDATION
   else:
+    num_train_examples = dataset_builder.info.splits['train'].num_examples
+    num_validation_examples = int(num_train_examples * validation_percent)
     train_split = tfds.core.ReadInstruction(
         'train', to=-num_validation_examples, unit='abs')
     validation_split = tfds.core.ReadInstruction(
@@ -131,11 +131,11 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     self._download_data = download_data
 
     self._is_training = split in ['train', tfds.Split.TRAIN]
-    num_train_examples = dataset_builder.info.splits['train'].num_examples
     # TODO(znado): properly parse the number of train/validation/test examples
     # from the provided split, see `make_file_instructions(...)` in
     # tensorflow_datasets/core/tfrecords_reader.py.
-    if shuffle_buffer_size is None:
+    if 'train' in dataset_builder.info.splits and shuffle_buffer_size is None:
+      num_train_examples = dataset_builder.info.splits['train'].num_examples
       self._shuffle_buffer_size = num_train_examples
     else:
       self._shuffle_buffer_size = shuffle_buffer_size

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Tests for CIFAR{10,100}."""
+"""Tests for CIFAR."""
 
 from absl.testing import parameterized
 import tensorflow as tf
@@ -30,6 +30,14 @@ class CifarDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
   def testCifar100DatasetShape(self):
     super(CifarDatasetTest, self)._testDatasetSize(
         ub.datasets.Cifar100Dataset, (32, 32, 3), validation_percent=0.1)
+
+  def testCifar10CorruptedDatasetShape(self):
+    super(CifarDatasetTest, self)._testDatasetSize(
+        ub.datasets.Cifar10CorruptedDataset,
+        (32, 32, 3),
+        splits=['test'],
+        corruption_type='brightness',
+        severity=1)
 
   @parameterized.named_parameters(('Train', 'train', 45000),
                                   ('Validation', 'validation', 5000),

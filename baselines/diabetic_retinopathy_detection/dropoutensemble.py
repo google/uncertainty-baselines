@@ -14,11 +14,13 @@
 # limitations under the License.
 
 """
-Ensemble of ResNet50 models on Kaggle's Diabetic Retinopathy Detection dataset.
+Ensembles of ResNet50 MC Dropout models
+(Gal and Ghahramani 2016, Smith and Gal 2018)
+on Kaggle's Diabetic Retinopathy Detection dataset.
 
 This script only performs evaluation, not training. We recommend training
-ensembles by launching independent runs of `deterministic.py`
-over different seeds.
+ensembles by launching independent runs of `dropout.py` over different
+seeds.
 """
 
 import os
@@ -36,12 +38,12 @@ import utils  # local file import
 
 # Data load / output flags.
 flags.DEFINE_string(
-  'checkpoint_dir', '/tmp/diabetic_retinopathy_detection/deterministic',
-  'The directory from which the trained deterministic '
+  'checkpoint_dir', '/tmp/diabetic_retinopathy_detection/dropout',
+  'The directory from which the trained dropout '
   'model weights are retrieved.')
 flags.DEFINE_string(
-  'output_dir', '/tmp/diabetic_retinopathy_detection/ensemble',
-  'The directory where the ensemble model weights '
+  'output_dir', '/tmp/diabetic_retinopathy_detection/dropoutensemble',
+  'The directory where the dropout ensemble model weights '
   'and training/evaluation summaries are stored.')
 flags.DEFINE_string(
   'data_dir', None, 'Path to training and testing data.')
@@ -56,19 +58,28 @@ flags.DEFINE_integer(
 # Metric flags.
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 
+# Dropout-related flags -- should be consistent with the trained
+# dropout models in the checkpoint dir above.
+flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate, between [0.0, 1.0).')
+flags.DEFINE_bool(
+  'filterwise_dropout', False,
+  'Dropout whole convolutional filters instead of individual '
+  'values in the feature map.')
+
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU, otherwise CPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer(
   'num_cores', 1,
-  'Number of TPU cores or number of GPUs; only support 1 GPU for now.')
+  'Number of TPU cores or number of GPUs - only support 1 GPU for now.')
 FLAGS = flags.FLAGS
 
 
 def main(argv):
   del argv  # unused arg
   tf.io.gfile.makedirs(FLAGS.output_dir)
-  logging.info('Saving Deep Ensemble predictions to %s', FLAGS.output_dir)
+  logging.info(
+    'Saving Ensemble MC Dropout predictions to %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
   if FLAGS.num_cores > 1:
@@ -96,10 +107,12 @@ def main(argv):
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
     tf.keras.mixed_precision.experimental.set_policy(policy)
 
-  logging.info('Building Keras ResNet-50 Deep Ensemble model.')
-  model = ub.models.resnet50_deterministic(
+  logging.info('Building Keras ResNet-50 Ensemble MC Dropout model')
+  model = ub.models.resnet50_dropout(
     input_shape=utils.load_input_shape(dataset_test),
-    num_classes=1)  # binary classification task
+    num_classes=1,  # binary classification task
+    dropout_rate=FLAGS.dropout_rate,
+    filterwise_dropout=FLAGS.filterwise_dropout)
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)
   logging.info('Model number of weights: %s', model.count_params())
@@ -125,7 +138,6 @@ def main(argv):
         inputs = next(test_iterator)  # pytype: disable=attribute-error
         images = inputs['features']
         logits.append(model(images, training=False))
-
         if i % 100 == 0:
           logging.info(
             f'Ensemble member {member + 1}/{ensemble_size}: '
@@ -134,7 +146,6 @@ def main(argv):
       logits = tf.concat(logits, axis=0)
       with tf.io.gfile.GFile(filename, 'w') as f:
         np.save(f, logits.numpy())
-
     percent = (member + 1) / ensemble_size
     message = (
       '{:.1%} completion for prediction: ensemble member {:d}/{:d}.'.format(
@@ -183,7 +194,7 @@ def main(argv):
     gibbs_ce = um.gibbs_cross_entropy(
       tf.expand_dims(labels, axis=-1), logits, binary=True)
     metrics['test/negative_log_likelihood'].update_state(
-      negative_log_likelihood)
+        negative_log_likelihood)
     metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
     metrics['test/accuracy'].update_state(labels, probs)
     metrics['test/ece'].update_state(labels, probs)

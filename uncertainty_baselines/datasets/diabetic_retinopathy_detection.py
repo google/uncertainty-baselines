@@ -48,16 +48,13 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
         filesystem is used. Required for using TPUs on Cloud.
       download_data: Whether or not to download data before loading.
     """
-    num_validation_examples = 10_906
     if split == 'train':
       split = tfds.core.ReadInstruction(
           'train',
-          to=-num_validation_examples,
           unit='abs')
     elif split == 'validation':
       split = tfds.core.ReadInstruction(
-          'train',
-          from_=-num_validation_examples,
+          'validation',
           unit='abs')
     dataset_builder = tfds.builder(
         'diabetic_retinopathy_detection/btgraham-300',

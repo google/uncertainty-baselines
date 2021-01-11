@@ -15,8 +15,10 @@
 
 """Utilities for models for Diabetic Retinopathy Detection."""
 
+import logging
+import os
+
 import tensorflow.compat.v1 as tf
-import tensorflow_probability as tfp
 
 
 class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -54,3 +56,62 @@ class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
           self.initial_learning_rate * self.decay_ratio**index,
           learning_rate)
     return learning_rate
+
+
+def init_distribution_strategy(force_use_cpu, use_gpu, tpu):
+  """Initialize distribution/parallelization of training or inference.
+  :param force_use_cpu: bool, if True, force usage of CPU.
+  :param use_gpu: bool, whether to run on GPU or otherwise TPU.
+  :param tpu: str, name of the TPU. Only used if use_gpu is False.
+  :return: tf.distribute.Strategy
+  """
+  if force_use_cpu:
+    logging.info('Use CPU')
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+  elif use_gpu:
+    logging.info('Use GPU')
+
+  if force_use_cpu or use_gpu:
+    strategy = tf.distribute.MirroredStrategy()
+  else:
+    logging.info('Use TPU at %s', tpu if tpu is not None else 'local')
+    resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu)
+    tf.config.experimental_connect_to_cluster(resolver)
+    tf.tpu.experimental.initialize_tpu_system(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
+
+  return strategy
+
+
+def load_input_shape(dataset_train: tf.data.Dataset):
+  """
+  Retrieve size of input to model using
+  Shape tuple access depends on the number of distributed devices.
+
+  :return: list, input shape of model
+  """
+  try:
+    shape_tuple = dataset_train.element_spec['features'].shape
+  except AttributeError:  # Multiple TensorSpec in a (nested) PerReplicaSpec.
+    tensor_spec_list = dataset_train.element_spec[  # pylint: disable=protected-access
+      'features']._flat_tensor_specs
+    shape_tuple = tensor_spec_list[0].shape
+
+  return shape_tuple.as_list()[1:]
+
+
+def parse_checkpoint_dir(checkpoint_dir):
+  """
+  Parse directory of checkpoints; used for Deep Ensembles and
+  ensembles of MC Dropout models.
+  """
+  paths = []
+  subdirectories = tf.io.gfile.glob(checkpoint_dir)
+  is_checkpoint = lambda f: ('checkpoint' in f and '.index' in f)
+  for subdir in subdirectories:
+    for path, _, files in tf.io.gfile.walk(subdir):
+      if any(f for f in files if is_checkpoint(f)):
+        latest_checkpoint_without_suffix = tf.train.latest_checkpoint(path)
+        paths.append(os.path.join(path, latest_checkpoint_without_suffix))
+        break
+  return paths

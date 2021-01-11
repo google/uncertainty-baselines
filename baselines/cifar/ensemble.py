@@ -20,7 +20,6 @@ ensembles by launching independent runs of `deterministic.py` over different
 seeds.
 """
 
-import functools
 import os
 
 from absl import app
@@ -42,7 +41,6 @@ flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
-# TODO(ghassen): consider adding CIFAR-100-C to TFDS.
 flags.DEFINE_string('cifar100_c_path', None,
                     'Path to the TFRecords files for CIFAR-100-C. Only valid '
                     '(and required) if dataset is cifar100 and corruptions.')
@@ -51,7 +49,6 @@ flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
 
@@ -84,28 +81,23 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  dataset = utils.load_dataset(
-      split=tfds.Split.TEST,
-      name=FLAGS.dataset,
-      batch_size=batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+  dataset = ub.datasets.get(
+      FLAGS.dataset,
+      split=tfds.Split.TEST).load(batch_size=batch_size)
   test_datasets = {'clean': dataset}
-  corruption_types, max_intensity = utils.load_corrupted_test_info(
-      FLAGS.dataset)
-  for name in corruption_types:
-    for intensity in range(1, max_intensity + 1):
-      dataset_name = '{0}_{1}'.format(name, intensity)
-      if FLAGS.dataset == 'cifar10':
-        load_c_dataset = utils.load_cifar10_c
-      else:
-        load_c_dataset = functools.partial(utils.load_cifar100_c,
-                                           path=FLAGS.cifar100_c_path)
-      dataset = load_c_dataset(
-          corruption_name=name,
-          corruption_intensity=intensity,
-          batch_size=batch_size,
-          use_bfloat16=FLAGS.use_bfloat16)
-      test_datasets[dataset_name] = dataset
+  extra_kwargs = {}
+  if FLAGS.dataset == 'cifar100':
+    extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
+  corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
+  for corruption_type in corruption_types:
+    for severity in range(1, 6):
+      dataset = ub.datasets.get(
+          f'{FLAGS.dataset}_corrupted',
+          corruption_type=corruption_type,
+          severity=severity,
+          split=tfds.Split.TEST,
+          **extra_kwargs).load(batch_size=batch_size)
+      test_datasets[f'{corruption_type}_{severity}'] = dataset
 
   model = ub.models.wide_resnet(
       input_shape=ds_info.features['image'].shape,
@@ -138,7 +130,7 @@ def main(argv):
         logits = []
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval):
-          features, _ = next(test_iterator)  # pytype: disable=attribute-error
+          features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
           logits.append(model(features, training=False))
 
         logits = tf.concat(logits, axis=0)
@@ -189,7 +181,7 @@ def main(argv):
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
     for step in range(steps_per_eval):
-      _, labels = next(test_iterator)  # pytype: disable=attribute-error
+      labels = next(test_iterator)['labels']  # pytype: disable=unsupported-operands
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
       negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
@@ -227,8 +219,7 @@ def main(argv):
     logging.info(message)
 
   corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
-                                                    corruption_types,
-                                                    max_intensity)
+                                                    corruption_types)
   total_results = {name: metric.result() for name, metric in metrics.items()}
   total_results.update(corrupt_results)
   logging.info('Metrics: %s', total_results)

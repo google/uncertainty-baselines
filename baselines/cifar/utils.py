@@ -264,7 +264,7 @@ class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 # TODO(baselines): Remove reliance on hard-coded metric names.
 def aggregate_corrupt_metrics(metrics,
                               corruption_types,
-                              max_intensity,
+                              max_intensity=5,
                               log_fine_metrics=False,
                               corrupt_diversity=None,
                               output_dir=None,

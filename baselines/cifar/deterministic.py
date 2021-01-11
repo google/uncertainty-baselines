@@ -21,7 +21,6 @@ example, l2 instead of weight decay, and a different parameterization for SGD's
 momentum.
 """
 
-import functools
 import os
 import time
 from absl import app
@@ -76,7 +75,6 @@ flags.DEFINE_float('dense_bias_l2', None,
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
-# TODO(ghassen): consider adding CIFAR-100-C to TFDS.
 flags.DEFINE_string('cifar100_c_path', None,
                     'Path to the TFRecords files for CIFAR-100-C. Only valid '
                     '(and required) if dataset is cifar100 and corruptions.')
@@ -87,17 +85,11 @@ flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string(
-    'data_dir',
-    None,
-    'Directory where the dataset is stored to be loaded via tfds.load. '
-    'Optional, useful for loading datasets stored on GCS.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
@@ -138,44 +130,33 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  train_dataset = utils.load_dataset(
+  train_dataset = ub.datasets.get(
+      FLAGS.dataset,
       split=tfds.Split.TRAIN,
-      name=FLAGS.dataset,
-      batch_size=batch_size,
-      use_bfloat16=FLAGS.use_bfloat16,
-      data_dir=FLAGS.data_dir,
-      proportion=FLAGS.train_proportion)
-  clean_test_dataset = utils.load_dataset(
-      split=tfds.Split.TEST,
-      name=FLAGS.dataset,
-      batch_size=batch_size,
-      use_bfloat16=FLAGS.use_bfloat16,
-      data_dir=FLAGS.data_dir)
+      validation_percent=1. - FLAGS.train_proportion).load(
+          batch_size=batch_size)
+  clean_test_dataset = ub.datasets.get(
+      FLAGS.dataset,
+      split=tfds.Split.TEST).load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
-    if FLAGS.dataset == 'cifar10':
-      load_c_dataset = utils.load_cifar10_c
-    else:
-      load_c_dataset = functools.partial(utils.load_cifar100_c,
-                                         path=FLAGS.cifar100_c_path)
-    corruption_types, max_intensity = utils.load_corrupted_test_info(
-        FLAGS.dataset)
-    for corruption in corruption_types:
-      for intensity in range(1, max_intensity + 1):
-        dataset = load_c_dataset(
-            corruption_name=corruption,
-            corruption_intensity=intensity,
-            batch_size=batch_size,
-            use_bfloat16=FLAGS.use_bfloat16)
-        test_datasets['{0}_{1}'.format(corruption, intensity)] = (
+    extra_kwargs = {}
+    if FLAGS.dataset == 'cifar100':
+      extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
+    corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
+    for corruption_type in corruption_types:
+      for severity in range(1, 6):
+        dataset = ub.datasets.get(
+            f'{FLAGS.dataset}_corrupted',
+            corruption_type=corruption_type,
+            severity=severity,
+            split=tfds.Split.TEST,
+            **extra_kwargs).load(batch_size=batch_size)
+        test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
-
-  if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))
@@ -224,7 +205,7 @@ def main(argv):
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
-      for intensity in range(1, max_intensity + 1):
+      for intensity in range(1, 6):
         for corruption in corruption_types:
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
@@ -249,12 +230,10 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
-        if FLAGS.use_bfloat16:
-          logits = tf.cast(logits, tf.float32)
-
         if FLAGS.label_smoothing == 0.:
           negative_log_likelihood = tf.reduce_mean(
               tf.keras.losses.sparse_categorical_crossentropy(labels,
@@ -290,10 +269,9 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       logits = model(images, training=False)
-      if FLAGS.use_bfloat16:
-        logits = tf.cast(logits, tf.float32)
       probs = tf.nn.softmax(logits)
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
@@ -360,8 +338,7 @@ def main(argv):
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
-                                                        corruption_types,
-                                                        max_intensity)
+                                                        corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),

@@ -130,7 +130,10 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     self._drop_remainder = drop_remainder
     self._download_data = download_data
 
-    self._is_training = split in ['train', tfds.Split.TRAIN]
+    self._is_training = split in [
+        'train', tfds.Split.TRAIN
+    ] or (isinstance(split, tfds.core.ReadInstruction) and
+          split._relative_instructions[0].splitname == 'train')
     # TODO(znado): properly parse the number of train/validation/test examples
     # from the provided split, see `make_file_instructions(...)` in
     # tensorflow_datasets/core/tfrecords_reader.py.

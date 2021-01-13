@@ -179,9 +179,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         len_motifs=FLAGS.len_motifs,
         num_denses=FLAGS.num_denses,
         depth=FLAGS.wide_resnet_depth,
-        width=FLAGS.wide_resnet_depth,
+        width_multiplier=FLAGS.wide_resnet_width_multiplier,
         l2_weight=FLAGS.l2_regularization,
-        depth_multiplier=FLAGS.wide_resnet_width_multiplier,
         dropout_rate=FLAGS.dropout_rate,
         before_conv_dropout=FLAGS.before_conv_dropout,
         use_mc_dropout=FLAGS.use_mc_dropout,
@@ -211,7 +210,6 @@ def run(trial_dir: str, flag_string: Optional[str]):
           ood_dataset_builder_cls)
       ood_dataset_builder = ood_dataset_builder_cls(
           in_distribution_dataset=test_dataset_builder,
-          name=FLAGS.ood_dataset_name,
           split='test',
           validation_percent=FLAGS.validation_percent,
           normalize_by_cifar=svhn_normalize_by_cifar,

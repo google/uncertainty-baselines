@@ -123,7 +123,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         '({}).'.format(FLAGS.log_frequency, FLAGS.eval_frequency))
 
   strategy = ub.strategy_utils.get_strategy(
-      FLAGS.tpu, use_tpu=not FLAGS.use_cpu and not FLAGS.use_gpu)
+      FLAGS.platform, use_tpu=not FLAGS.use_cpu and not FLAGS.use_gpu)
   with strategy.scope():
     _maybe_setup_trial_dir(strategy, trial_dir, flag_string)
 
@@ -255,7 +255,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
           checkpoint_step=FLAGS.checkpoint_step,
           hparams=hparams,
           ood_dataset_builder=ood_dataset_builder,
-          ood_metrics=ood_metrics)
+          ood_metrics=ood_metrics,
+          mean_field_factor=FLAGS.mean_field_factor)
       return
 
     if FLAGS.mode == 'train_and_eval':

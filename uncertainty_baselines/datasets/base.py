@@ -330,7 +330,11 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
 
         def clean_keys(example):
           # only keep features and labels, remove the rest
-          return {'features': example['features'], 'labels': example['labels']}
+          return {
+              'features': example['features'],
+              'labels': example['labels'],
+              'is_in_distribution': example['is_in_distribution']
+          }
 
         combined_dataset = dataset.map(clean_keys).concatenate(
             ood_dataset.map(clean_keys))

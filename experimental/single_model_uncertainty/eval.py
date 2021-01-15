@@ -174,7 +174,8 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
         strategy,
         ood_metrics,
         iterations_per_loop=num_ood_steps,
-        label_key='is_in_distribution')
+        label_key='is_in_distribution',
+        mean_field_factor=mean_field_factor)
 
   # Have to have separate val_fn and test_fn because otherwise tf.function
   # retraces the function each time, which is very slow, because we are passing
@@ -197,7 +198,8 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
           model,
           strategy,
           metrics,
-          iterations_per_loop=num_val_steps)
+          iterations_per_loop=num_val_steps,
+          mean_field_factor=mean_field_factor)
 
   return (
       test_fn, test_dataset, test_summary_writer,

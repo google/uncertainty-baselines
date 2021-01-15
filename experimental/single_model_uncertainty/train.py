@@ -122,7 +122,8 @@ def run_train_loop(
     hparams: Dict[str, Any],
     ood_dataset_builder: ub.datasets.BaseDataset = None,
     ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
-    focal_loss_gamma=0.0):
+    focal_loss_gamma: float = 0.0,
+    mean_field_factor: float = -1):
   """Train, possibly evaluate the model, and record metrics."""
 
   checkpoint_manager = None
@@ -163,14 +164,8 @@ def run_train_loop(
   train_summary_writer = tf.summary.create_file_writer(
       os.path.join(trial_dir, 'train'))
 
-  (test_fn,
-   test_dataset,
-   test_summary_writer,
-   val_fn,
-   val_dataset,
-   val_summary_writer,
-   ood_fn,
-   ood_dataset,
+  (test_fn, test_dataset, test_summary_writer, val_fn, val_dataset,
+   val_summary_writer, ood_fn, ood_dataset,
    ood_summary_writer) = eval_lib.setup_eval(
        validation_dataset_builder=validation_dataset_builder,
        test_dataset_builder=test_dataset_builder,
@@ -180,7 +175,8 @@ def run_train_loop(
        model=model,
        metrics=metrics,
        ood_dataset_builder=ood_dataset_builder,
-       ood_metrics=ood_metrics)
+       ood_metrics=ood_metrics,
+       mean_field_factor=mean_field_factor)
 
   # Each call to train_step_fn will run iterations_per_loop steps.
   num_train_fn_steps = train_steps // iterations_per_loop

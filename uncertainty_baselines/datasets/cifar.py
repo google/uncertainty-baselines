@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Baselines Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,10 +30,12 @@ class _CifarDataset(base.BaseDataset):
   def __init__(
       self,
       name: str,
+      fingerprint_key: str,
       split: str,
       validation_percent: float = 0.0,
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
+      drop_remainder: bool = True,
       normalize: bool = True,
       try_gcs: bool = False,
       download_data: bool = False,
@@ -42,6 +44,10 @@ class _CifarDataset(base.BaseDataset):
 
     Args:
       name: the name of this dataset, either 'cifar10' or 'cifar100'.
+      fingerprint_key: The name of the feature holding a string that will be
+        used to create an element id using a fingerprinting function. If None,
+        then `ds.enumerate()` is added before the `ds.map(preprocessing_fn)` is
+        called and an `id` field is added to the example Dict.
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
@@ -51,6 +57,9 @@ class _CifarDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      drop_remainder: whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size. This option
+        needs to be True for running on TPUs.
       normalize: whether or not to normalize each image by the CIFAR dataset
         mean and stddev.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
@@ -67,7 +76,8 @@ class _CifarDataset(base.BaseDataset):
         split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        fingerprint_key='id',
+        drop_remainder=drop_remainder,
+        fingerprint_key=fingerprint_key,
         download_data=download_data)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
@@ -93,11 +103,12 @@ class _CifarDataset(base.BaseDataset):
         mean = tf.constant([0.4914, 0.4822, 0.4465])
         std = tf.constant([0.2023, 0.1994, 0.2010])
         image = (image - mean) / std
-      return {
-          'features': image,
-          'labels': tf.cast(label, tf.int32),
-          'id': example['id'],
-      }
+      parsed_example = example.copy()
+      parsed_example['features'] = image
+      parsed_example['labels'] = tf.cast(label, tf.int32)
+      del parsed_example['image']
+      del parsed_example['label']
+      return parsed_example
 
     return _example_parser
 
@@ -106,11 +117,38 @@ class Cifar10Dataset(_CifarDataset):
   """CIFAR10 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(Cifar10Dataset, self).__init__(name='cifar10', **kwargs)
+    super(Cifar10Dataset, self).__init__(
+        name='cifar10',
+        fingerprint_key='id',
+        **kwargs)
 
 
 class Cifar100Dataset(_CifarDataset):
   """CIFAR100 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(Cifar100Dataset, self).__init__(name='cifar100', **kwargs)
+    super(Cifar100Dataset, self).__init__(
+        name='cifar100',
+        fingerprint_key='id',
+        **kwargs)
+
+
+class Cifar10CorruptedDataset(_CifarDataset):
+  """CIFAR10-C dataset builder class."""
+
+  def __init__(
+      self,
+      corruption_type: str,
+      severity: int,
+      **kwargs):
+    """Create a CIFAR10-C tf.data.Dataset builder.
+
+    Args:
+      corruption_type: Corruption name.
+      severity: Corruption severity, an integer between 1 and 5.
+      **kwargs: Additional keyword arguments.
+    """
+    super(Cifar10CorruptedDataset, self).__init__(
+        name=f'cifar10_corrupted/{corruption_type}_{severity}',
+        fingerprint_key=None,
+        **kwargs)

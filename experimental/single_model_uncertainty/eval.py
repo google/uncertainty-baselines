@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Baselines Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,12 +43,12 @@ _EvalSetupResult = Tuple[
     Optional[tf.summary.SummaryWriter]]
 
 
-def eval_step_fn(
-    model: tf.keras.Model,
-    strategy: tf.distribute.Strategy,
-    metrics: Dict[str, tf.keras.metrics.Metric],
-    iterations_per_loop: int,
-    label_key: str = 'labels') -> EvalStepFn:
+def eval_step_fn(model: tf.keras.Model,
+                 strategy: tf.distribute.Strategy,
+                 metrics: Dict[str, tf.keras.metrics.Metric],
+                 iterations_per_loop: int,
+                 label_key: str = 'labels',
+                 mean_field_factor: float = -1) -> EvalStepFn:
   """Generator for a function to run iters_per_loop validation/test steps."""
 
   @tf.function
@@ -64,9 +64,8 @@ def eval_step_fn(
         per_core_batch_size, _ = logits.get_shape().as_list()
         covmat = tf.eye(per_core_batch_size)
 
-      # TODO(jjren) set mean_field_factor as an argument
       logits = ed.layers.utils.mean_field_logits(
-          logits, covmat, mean_field_factor=0.001)
+          logits, covmat, mean_field_factor=mean_field_factor)
 
       predictions = tf.nn.softmax(logits, axis=-1)
       if label_key != 'labels':
@@ -133,16 +132,16 @@ def run_eval_epoch(
   return val_outputs_np, {k: v.numpy() for k, v in test_outputs.items()}
 
 
-def setup_eval(
-    validation_dataset_builder: Optional[ub.datasets.BaseDataset],
-    test_dataset_builder: ub.datasets.BaseDataset,
-    batch_size: int,
-    strategy,
-    trial_dir: str,
-    model: tf.keras.Model,
-    metrics: Dict[str, tf.keras.metrics.Metric],
-    ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
-    ood_metrics: Dict[str, tf.keras.metrics.Metric] = None) -> _EvalSetupResult:
+def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
+               test_dataset_builder: ub.datasets.BaseDataset,
+               batch_size: int,
+               strategy,
+               trial_dir: str,
+               model: tf.keras.Model,
+               metrics: Dict[str, tf.keras.metrics.Metric],
+               ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
+               ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
+               mean_field_factor: float = -1) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
   test_dataset = test_dataset_builder.load(batch_size=batch_size)
   test_dataset = strategy.experimental_distribute_dataset(test_dataset)
@@ -153,7 +152,8 @@ def setup_eval(
       model,
       strategy,
       metrics,
-      iterations_per_loop=num_test_steps)
+      iterations_per_loop=num_test_steps,
+      mean_field_factor=mean_field_factor)
   ood_fn = None
   ood_dataset = None
   ood_summary_writer = None
@@ -174,7 +174,8 @@ def setup_eval(
         strategy,
         ood_metrics,
         iterations_per_loop=num_ood_steps,
-        label_key='is_in_distribution')
+        label_key='is_in_distribution',
+        mean_field_factor=mean_field_factor)
 
   # Have to have separate val_fn and test_fn because otherwise tf.function
   # retraces the function each time, which is very slow, because we are passing
@@ -197,7 +198,8 @@ def setup_eval(
           model,
           strategy,
           metrics,
-          iterations_per_loop=num_val_steps)
+          iterations_per_loop=num_val_steps,
+          mean_field_factor=mean_field_factor)
 
   return (
       test_fn, test_dataset, test_summary_writer,
@@ -205,32 +207,25 @@ def setup_eval(
       ood_fn, ood_dataset, ood_summary_writer)
 
 
-def run_eval_loop(
-    validation_dataset_builder: Optional[ub.datasets.BaseDataset],
-    test_dataset_builder: ub.datasets.BaseDataset,
-    batch_size: int,
-    model: tf.keras.Model,
-    trial_dir: str,
-    train_steps: int,
-    strategy: tf.distribute.Strategy,
-    metrics: Dict[str, tf.keras.metrics.Metric],
-    checkpoint_step: int = -1,
-    hparams: Dict[str, Any] = None,
-    ood_dataset_builder: ub.datasets.BaseDataset = None,
-    ood_metrics: Dict[str, tf.keras.metrics.Metric] = None):
+def run_eval_loop(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
+                  test_dataset_builder: ub.datasets.BaseDataset,
+                  batch_size: int,
+                  model: tf.keras.Model,
+                  trial_dir: str,
+                  train_steps: int,
+                  strategy: tf.distribute.Strategy,
+                  metrics: Dict[str, tf.keras.metrics.Metric],
+                  checkpoint_step: int = -1,
+                  hparams: Dict[str, Any] = None,
+                  ood_dataset_builder: ub.datasets.BaseDataset = None,
+                  ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
+                  mean_field_factor: float = -1):
   """Evaluate the model on the validation and test splits and record metrics."""
-  (test_fn, test_dataset, test_summary_writer,
-   val_fn, val_dataset, val_summary_writer,
-   ood_fn, ood_dataset, ood_summary_writer) = setup_eval(
-       validation_dataset_builder,
-       test_dataset_builder,
-       batch_size,
-       strategy,
-       trial_dir,
-       model,
-       metrics,
-       ood_dataset_builder,
-       ood_metrics)
+  (test_fn, test_dataset, test_summary_writer, val_fn, val_dataset,
+   val_summary_writer, ood_fn, ood_dataset, ood_summary_writer) = setup_eval(
+       validation_dataset_builder, test_dataset_builder, batch_size, strategy,
+       trial_dir, model, metrics, ood_dataset_builder, ood_metrics,
+       mean_field_factor)
 
   checkpoint = tf.train.Checkpoint(model=model)
   last_eval_step = -1

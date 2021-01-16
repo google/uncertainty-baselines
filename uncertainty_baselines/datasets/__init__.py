@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Baselines Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,9 @@ from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.base import make_ood_dataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
+from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
+from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedDataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.datasets import DATASETS

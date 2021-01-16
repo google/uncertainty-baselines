@@ -14,17 +14,23 @@
 # limitations under the License.
 
 # Lint as: python3
-"""Tests for SVHN."""
+"""Tests for CIFAR-100-C."""
 
+from absl.testing import parameterized
 import tensorflow as tf
 import uncertainty_baselines as ub
 
 
-class SvhnDatasetTest(ub.datasets.DatasetTest):
+class Cifar100CorruptedDatasetTest(ub.datasets.DatasetTest,
+                                   parameterized.TestCase):
 
-  def testDatasetSize(self):
-    super(SvhnDatasetTest, self)._testDatasetSize(
-        ub.datasets.SvhnDataset, (32, 32, 3), validation_percent=0.15)
+  def testCifar100CorruptedDatasetShape(self):
+    super(Cifar100CorruptedDatasetTest, self)._testDatasetSize(
+        ub.datasets.Cifar100CorruptedDataset,
+        (32, 32, 3),
+        splits=['test'],
+        corruption_type='brightness',
+        severity=1)
 
 
 if __name__ == '__main__':

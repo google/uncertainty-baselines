@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Baselines Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -179,9 +179,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         len_motifs=FLAGS.len_motifs,
         num_denses=FLAGS.num_denses,
         depth=FLAGS.wide_resnet_depth,
-        width=FLAGS.wide_resnet_depth,
+        width_multiplier=FLAGS.wide_resnet_width_multiplier,
         l2_weight=FLAGS.l2_regularization,
-        depth_multiplier=FLAGS.wide_resnet_width_multiplier,
         dropout_rate=FLAGS.dropout_rate,
         before_conv_dropout=FLAGS.before_conv_dropout,
         use_mc_dropout=FLAGS.use_mc_dropout,
@@ -211,7 +210,6 @@ def run(trial_dir: str, flag_string: Optional[str]):
           ood_dataset_builder_cls)
       ood_dataset_builder = ood_dataset_builder_cls(
           in_distribution_dataset=test_dataset_builder,
-          name=FLAGS.ood_dataset_name,
           split='test',
           validation_percent=FLAGS.validation_percent,
           normalize_by_cifar=svhn_normalize_by_cifar,
@@ -257,7 +255,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
           checkpoint_step=FLAGS.checkpoint_step,
           hparams=hparams,
           ood_dataset_builder=ood_dataset_builder,
-          ood_metrics=ood_metrics)
+          ood_metrics=ood_metrics,
+          mean_field_factor=FLAGS.gp_mean_field_factor)
       return
 
     if FLAGS.mode == 'train_and_eval':
@@ -300,7 +299,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
         hparams=hparams,
         ood_dataset_builder=ood_dataset_builder,
         ood_metrics=ood_metrics,
-        focal_loss_gamma=FLAGS.focal_loss_gamma)
+        focal_loss_gamma=FLAGS.focal_loss_gamma,
+        mean_field_factor=FLAGS.gp_mean_field_factor)
 
 
 

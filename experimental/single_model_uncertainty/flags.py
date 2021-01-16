@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Baselines Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -172,14 +172,14 @@ def define_flags() -> List[str]:
       'This is similar to automatic relevance determination (ARD) in the '
       'classic GP learning.')
   flags.DEFINE_float(
-      'gp_cov_ridge_penalty', 1e-3,
+      'gp_cov_ridge_penalty', 1.0,
       'The Ridge penalty parameter for GP posterior covariance.')
   flags.DEFINE_float(
       'gp_cov_discount_factor', 0.999,
       'The discount factor to compute the moving average of '
       'precision matrix.')
   flags.DEFINE_float(
-      'gp_mean_field_factor', 0.001,
+      'gp_mean_field_factor', -1,
       'The tunable multiplicative factor used in the mean-field approximation '
       'for the posterior mean of softmax Gaussian process. If -1 then use '
       'posterior mode instead of posterior mean. See [2] for detail.')

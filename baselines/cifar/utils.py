@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Baselines Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -264,7 +264,7 @@ class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 # TODO(baselines): Remove reliance on hard-coded metric names.
 def aggregate_corrupt_metrics(metrics,
                               corruption_types,
-                              max_intensity,
+                              max_intensity=5,
                               log_fine_metrics=False,
                               corrupt_diversity=None,
                               output_dir=None,

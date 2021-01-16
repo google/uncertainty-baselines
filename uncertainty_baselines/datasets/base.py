@@ -245,8 +245,9 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       dataset = dataset.enumerate()
       enum_preprocess_fn = self._create_enumerate_preprocess_fn(preprocess_fn)
 
-      # Compose function will not work with >1 arguments
-      preprocess_fn = lambda id, x: self._create_element_id(enum_preprocess_fn(id, x))
+      # Compose will not work with functions that have >1 arguments
+      preprocess_fn = lambda id, x: self._create_element_id(
+        enum_preprocess_fn(id, x))
     else:
       preprocess_fn = ops.compose(preprocess_fn, self._create_element_id)
 

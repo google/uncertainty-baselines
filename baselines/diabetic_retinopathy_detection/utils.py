@@ -100,10 +100,14 @@ def load_input_shape(dataset_train: tf.data.Dataset):
   return shape_tuple.as_list()[1:]
 
 
+# TODO @nband: debug checkpoint issue with retinopathy models
+#   (appears distribution strategy-related)
+#   For now, we just reload from keras.models (and only use for inference)
+#   using the method below (parse_keras_models)
 def parse_checkpoint_dir(checkpoint_dir):
   """
-  Parse directory of checkpoints; used for Deep Ensembles and
-  ensembles of MC Dropout models.
+  Parse directory of checkpoints; intended for use with Deep Ensembles and
+  ensembles of MC Dropout models. Currently not used, as per above bug.
   """
   paths = []
   subdirectories = tf.io.gfile.glob(checkpoint_dir)
@@ -114,4 +118,17 @@ def parse_checkpoint_dir(checkpoint_dir):
         latest_checkpoint_without_suffix = tf.train.latest_checkpoint(path)
         paths.append(os.path.join(path, latest_checkpoint_without_suffix))
         break
+
   return paths
+
+
+def parse_keras_models(checkpoint_dir):
+  """
+  Parse directory of saved Keras models; used for Deep Ensembles and
+  ensembles of MC Dropout models.
+  """
+  is_keras_model_dir = lambda f: ('keras_model' in f)
+
+  return [
+    f.path for f in os.scandir(checkpoint_dir)
+    if f.is_dir() and is_keras_model_dir(f.path)]

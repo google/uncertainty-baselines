@@ -36,7 +36,7 @@ DEFAULT_NUM_EPOCHS = 90
 
 # Data load / output flags.
 flags.DEFINE_string(
-  'output_dir', '/tmp/diabetic_retinopathy_detection/deterministic',
+  'output_dir', '/tmp/diabetic_retinopathy_detection/dropout',
   'The directory where the model weights and training/evaluation summaries are '
   'stored. If you aim to use these as trained models for dropoutensemble.py, '
   'you should specify an output_dir name that includes the random seed to '
@@ -318,9 +318,21 @@ def main(argv):
         os.path.join(FLAGS.output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
 
+      # TODO: @nband debug checkpointing
+      # Also save Keras model, due to checkpoint.save issue
+      keras_model_name = os.path.join(
+        FLAGS.output_dir, f'keras_model_{epoch + 1}')
+      model.save(keras_model_name)
+      logging.info('Saved keras model to %s', keras_model_name)
+
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'))
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+
+  keras_model_name = os.path.join(
+    FLAGS.output_dir, f'keras_model_{FLAGS.train_epochs}')
+  model.save(keras_model_name)
+  logging.info('Saved keras model to %s', keras_model_name)
 
 
 if __name__ == '__main__':

@@ -107,28 +107,20 @@ def main(argv):
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
     tf.keras.mixed_precision.experimental.set_policy(policy)
 
+  # TODO @nband: debug, switch from keras.models.save to Checkpoint
   logging.info('Building Keras ResNet-50 Ensemble MC Dropout model')
-  model = ub.models.resnet50_dropout(
-    input_shape=utils.load_input_shape(dataset_test),
-    num_classes=1,  # binary classification task
-    dropout_rate=FLAGS.dropout_rate,
-    filterwise_dropout=FLAGS.filterwise_dropout)
-  logging.info('Model input shape: %s', model.input_shape)
-  logging.info('Model output shape: %s', model.output_shape)
-  logging.info('Model number of weights: %s', model.count_params())
+  ensemble_filenames = utils.parse_keras_models(FLAGS.checkpoint_dir)
 
-  # Search for checkpoints from their index file; then remove the index suffix.
-  ensemble_filenames = utils.parse_checkpoint_dir(FLAGS.checkpoint_dir)
   ensemble_size = len(ensemble_filenames)
   logging.info('Ensemble size: %s', ensemble_size)
-  logging.info(
-    'Ensemble number of weights: %s', ensemble_size * model.count_params())
-  logging.info('Ensemble filenames: %s', str(ensemble_filenames))
-  checkpoint = tf.train.Checkpoint(model=model)
+  logging.info('Ensemble Keras model dir names: %s', str(ensemble_filenames))
 
   # Write model predictions to files.
   for member, ensemble_filename in enumerate(ensemble_filenames):
-    checkpoint.restore(ensemble_filename)
+    model = tf.keras.models.load_model(ensemble_filename, compile=False)
+    logging.info('Model input shape: %s', model.input_shape)
+    logging.info('Model output shape: %s', model.output_shape)
+    logging.info('Model number of weights: %s', model.count_params())
     filename = f'{member}.npy'
     filename = os.path.join(FLAGS.output_dir, filename)
     if not tf.io.gfile.exists(filename):

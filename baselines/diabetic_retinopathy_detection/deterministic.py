@@ -13,165 +13,137 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-ResNet50 trained with ML, GD
-on Kaggle's Diabetic Retinopathy Detection dataset.
-"""
+"""ResNet50 on Kaggle's Diabetic Retinopathy Detection trained with ML, GD."""
 
 import os
 import time
 
-import tensorflow as tf
-import tensorflow_datasets as tfds
-import uncertainty_metrics as um
 from absl import app
 from absl import flags
 from absl import logging
-
+import tensorflow as tf
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils
 
-DEFAULT_TRAIN_BATCH_SIZE = 16
-DEFAULT_NUM_EPOCHS = 90
-
-# Data load / output flags.
+flags.DEFINE_integer(
+    name='seed',
+    default=0,
+    help='Random seed.')
 flags.DEFINE_string(
-  'output_dir', '/tmp/diabetic_retinopathy_detection/deterministic',
-  'The directory where the model weights and training/evaluation summaries '
-  'are stored. If you aim to use these as trained models for ensemble.py, '
-  'you should specify an output_dir name that includes the random seed to '
-  'avoid overwriting.')
-flags.DEFINE_string(
-  'data_dir', None, 'Path to training and testing data.')
-flags.mark_flag_as_required('data_dir')
-
-# Learning rate / SGD flags.
+    name='output_dir',
+    default='/tmp/diabetic_retinopathy_detection',
+    help='The directory where the model weights and '
+    'training/evaluation summaries are stored.')
 flags.DEFINE_float(
-  'base_learning_rate', 0.1,
-  'Base learning rate when total batch size is DEFAULT_TRAIN_BATCH_SIZE. It is '
-  'scaled by the ratio of the total batch size to DEFAULT_TRAIN_BATCH_SIZE.')
-flags.DEFINE_integer(
-  'lr_warmup_epochs', 1,
-  'Number of epochs for a linear warmup to the initial '
-  'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list(
-  'lr_decay_epochs', ['30', '60'], 'Epochs to decay learning rate by.')
-
-# General model flags.
-flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
-flags.DEFINE_integer(
-  'train_epochs', DEFAULT_NUM_EPOCHS, 'Number of training epochs.')
-flags.DEFINE_integer(
-  'train_batch_size', DEFAULT_TRAIN_BATCH_SIZE,
-  'The per-core training batch size.')
-flags.DEFINE_integer(
-  'eval_batch_size', 32,
-  'The per-core validation/test batch size.')
-flags.DEFINE_integer(
-  'checkpoint_interval', 25,
-  'Number of epochs between saving checkpoints. '
-  'Use -1 to never save checkpoints.')
-
-# Metric flags.
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-
-# Accelerator flags.
-flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
-flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+    name='l2',
+    default=1e-4,
+    help='L2 coefficient.')
 flags.DEFINE_string(
-  'tpu', None, 'Name of the TPU. Only used if use_gpu is False.')
+    name='data_dir',
+    default=None,
+    help='Path to training and testing data.')
+flags.mark_flag_as_required('data_dir')
+flags.DEFINE_integer(
+    name='train_epochs',
+    default=90,
+    help='Number of training epochs.')
+flags.DEFINE_integer(
+    name='checkpoint_interval',
+    default=25,
+    help='Number of epochs between saving checkpoints. Use -1 to '
+    'never save checkpoints.')
+flags.DEFINE_bool(
+    name='use_bfloat16',
+    default=False,
+    help='Whether to use mixed precision.')
+flags.DEFINE_integer(
+    name='batch_size',
+    default=16,
+    help='The training batch size.')
+flags.DEFINE_integer(
+    name='eval_batch_size',
+    default=32,
+    help='The validation/test batch size.')
 FLAGS = flags.FLAGS
 
 
 def main(argv):
   del argv  # unused arg
-  tf.io.gfile.makedirs(FLAGS.output_dir)
-  logging.info('Saving checkpoints at %s', FLAGS.output_dir)
-  tf.random.set_seed(FLAGS.seed)
 
-  # Initialize distribution strategy on flag-specified accelerator
-  strategy = utils.init_distribution_strategy(
-    FLAGS.force_use_cpu, FLAGS.use_gpu, FLAGS.tpu)
+  # Parse command line arguments.
+  seed = FLAGS.seed
+  output_dir = FLAGS.output_dir
+  data_dir = FLAGS.data_dir
+  train_epochs = FLAGS.train_epochs
+  checkpoint_interval = FLAGS.checkpoint_interval
+  use_bfloat16 = FLAGS.use_bfloat16
+  batch_size = FLAGS.batch_size
+  eval_batch_size = FLAGS.eval_batch_size
+  steps_per_epoch = 1  # TODO(filangel): function of FLAGS
+  steps_per_eval = 1  # TODO(filangel): function of FLAGS
 
-  train_batch_size = FLAGS.train_batch_size * FLAGS.num_cores
-  eval_batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
+  tf.io.gfile.makedirs(output_dir)
+  logging.info('Saving checkpoints at %s', output_dir)
+  tf.random.set_seed(seed)
 
-  # As per the Kaggle challenge, we have split sizes:
-  # train: 35,126
-  # validation: 10,906 (currently unused)
-  # test: 42,670
-  ds_info = tfds.builder('diabetic_retinopathy_detection').info
-  steps_per_epoch = ds_info.splits['train'].num_examples // train_batch_size
-  steps_per_eval = ds_info.splits['test'].num_examples // eval_batch_size
+  # TODO(filangel): enable TPU support.
+  logging.info('Use GPU')
+  strategy = tf.distribute.MirroredStrategy()
 
-  dataset_train_builder = ub.datasets.get(
-    'diabetic_retinopathy_detection', split='train', data_dir=FLAGS.data_dir)
-  dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
-  dataset_train = strategy.experimental_distribute_dataset(dataset_train)
-  dataset_test_builder = ub.datasets.get(
-    'diabetic_retinopathy_detection', split='test', data_dir=FLAGS.data_dir)
-  dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
-  dataset_test = strategy.experimental_distribute_dataset(dataset_test)
-
-  if FLAGS.use_bfloat16:
+  if use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
     tf.keras.mixed_precision.experimental.set_policy(policy)
 
   summary_writer = tf.summary.create_file_writer(
-      os.path.join(FLAGS.output_dir, 'summaries'))
+      os.path.join(output_dir, 'summaries'))
+
+  dataset_train_builder = utils.load_diabetic_retinopathy_detection(
+      split='train',
+      data_dir=data_dir)
+  dataset_train = dataset_train_builder.load(batch_size=batch_size)
+  dataset_train = strategy.experimental_distribute_dataset(dataset_train)
+  dataset_test_builder = utils.load_diabetic_retinopathy_detection(
+      split='test',
+      data_dir=data_dir)
+  dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
+  dataset_test = strategy.experimental_distribute_dataset(dataset_test)
 
   with strategy.scope():
-    logging.info('Building Keras ResNet-50 deterministic model.')
+    logging.info('Building Keras ResNet-50 model')
+
+    # Shape tuple access depends on number of distributed devices
+    try:
+      shape_tuple = dataset_train.element_spec['features'].shape
+    except AttributeError:  # Multiple TensorSpec in a (nested) PerReplicaSpec.
+      tensor_spec_list = dataset_train.element_spec[  # pylint: disable=protected-access
+          'features']._flat_tensor_specs
+      shape_tuple = tensor_spec_list[0].shape
+
     model = ub.models.resnet50_deterministic(
-        input_shape=utils.load_input_shape(dataset_train),
+        input_shape=shape_tuple.as_list()[1:],
         num_classes=1)  # binary classification task
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
 
-    # Linearly scale learning rate and the decay epochs by vanilla settings.
-    base_lr = (
-      FLAGS.base_learning_rate * train_batch_size) / DEFAULT_TRAIN_BATCH_SIZE
-    lr_decay_epochs = [
-      (int(start_epoch_str) * FLAGS.train_epochs) // DEFAULT_NUM_EPOCHS
-      for start_epoch_str in FLAGS.lr_decay_epochs]
+    optimizer = tf.keras.optimizers.Adam(1e-4)
 
-    lr_schedule = utils.LearningRateSchedule(
-        steps_per_epoch,
-        base_lr,
-        decay_ratio=FLAGS.lr_decay_ratio,
-        decay_epochs=lr_decay_epochs,
-        warmup_epochs=FLAGS.lr_warmup_epochs)
-    optimizer = tf.keras.optimizers.SGD(
-      lr_schedule, momentum=0.9, nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/auc': tf.keras.metrics.AUC(),
+        'train/loss': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)}
+        'test/auc': tf.keras.metrics.AUC()}
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
-    latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
-    initial_epoch = 0
+    latest_checkpoint = tf.train.latest_checkpoint(output_dir)
     if latest_checkpoint:
-      # checkpoint.restore must be within a strategy.scope()
-      # so that optimizer slot variables are mirrored.
+      # checkpoint.restore must be within a strategy.scope() so that optimizer
+      # slot variables are mirrored.
       checkpoint.restore(latest_checkpoint)
       logging.info('Loaded checkpoint %s', latest_checkpoint)
-      initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
 
-  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
-  metrics.update({
-      'train/auc': tf.keras.metrics.AUC(),
-      'test/auc': tf.keras.metrics.AUC()})
-
-  @tf.function
   def train_step(iterator):
     """Training step function."""
 
@@ -179,27 +151,22 @@ def main(argv):
       """Per-replica step function."""
       images = inputs['features']
       labels = inputs['labels']
-
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
-        if FLAGS.use_bfloat16:
+        if use_bfloat16:
           logits = tf.cast(logits, tf.float32)
-
         negative_log_likelihood = tf.reduce_mean(
             tf.keras.losses.binary_crossentropy(
                 y_true=tf.expand_dims(labels, axis=-1),
                 y_pred=logits,
                 from_logits=True))
         l2_loss = sum(model.losses)
-        loss = negative_log_likelihood + (FLAGS.l2 * l2_loss)
+        loss = negative_log_likelihood + l2_loss
 
-        # Scale the loss given the TPUStrategy will reduce sum all gradients.
-        scaled_loss = loss / strategy.num_replicas_in_sync
-
-      grads = tape.gradient(scaled_loss, model.trainable_variables)
+      grads = tape.gradient(loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
       probs = tf.squeeze(tf.nn.sigmoid(logits))
-      metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
@@ -208,7 +175,6 @@ def main(argv):
 
     strategy.run(step_fn, args=(next(iterator),))
 
-  @tf.function
   def test_step(iterator):
     """Evaluation step function."""
 
@@ -217,7 +183,7 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
       logits = model(images, training=True)
-      if FLAGS.use_bfloat16:
+      if use_bfloat16:
         logits = tf.cast(logits, tf.float32)
 
       negative_log_likelihood = tf.reduce_mean(
@@ -230,55 +196,45 @@ def main(argv):
           negative_log_likelihood)
       metrics['test/accuracy'].update_state(labels, probs)
       metrics['test/auc'].update_state(labels, probs)
-      metrics['test/ece'].update_state(labels, probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
-  metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
+  train_iterator = iter(dataset_train)
+  test_iterator = iter(dataset_test)
   start_time = time.time()
-
-  for epoch in range(initial_epoch, FLAGS.train_epochs):
-    train_iterator = iter(dataset_train)
-    test_iterator = iter(dataset_test)
-    logging.info('Starting to run epoch: %s', epoch + 1)
+  for epoch in range(train_epochs):
+    logging.info('Starting to run epoch: %s', epoch)
     for step in range(steps_per_epoch):
       train_step(train_iterator)
 
       current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
+      max_steps = steps_per_epoch * train_epochs
       time_elapsed = time.time() - start_time
       steps_per_sec = float(current_step) / time_elapsed
       eta_seconds = (max_steps - current_step) / steps_per_sec
       message = (
           '{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
           'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-              current_step / max_steps, epoch + 1, FLAGS.train_epochs,
+              current_step / max_steps, epoch + 1, train_epochs,
               steps_per_sec, eta_seconds / 60, time_elapsed / 60))
       if step % 20 == 0:
         logging.info(message)
 
     for step in range(steps_per_eval):
       if step % 20 == 0:
-        logging.info(
-          'Starting to run eval step %s of epoch: %s', step, epoch + 1)
-
-      test_start_time = time.time()
+        logging.info('Starting to run eval step %s of epoch: %s', step, epoch)
       test_step(test_iterator)
-      ms_per_example = (time.time() - test_start_time) * 1e6 / eval_batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
 
     logging.info(
-        'Train Loss (NLL+L2): %.4f, Accuracy: %.2f%%, AUC: %.2f%%, ECE: %.2f%%',
+        'Train Loss (NLL+L2): %.4f, Accuracy: %.2f%%, AUC: %.2f%%',
         metrics['train/loss'].result(),
         metrics['train/accuracy'].result() * 100,
-        metrics['train/auc'].result() * 100,
-        metrics['train/ece'].result() * 100)
+        metrics['train/auc'].result() * 100)
     logging.info(
-        'Test NLL: %.4f, Accuracy: %.2f%%, AUC: %.2f%%, ECE: %.2f%%',
+        'Test NLL: %.4f, Accuracy: %.2f%%, AUC: %.2f%%',
         metrics['test/negative_log_likelihood'].result(),
         metrics['test/accuracy'].result() * 100,
-        metrics['test/auc'].result() * 100,
-        metrics['test/ece'].result() * 100)
+        metrics['test/auc'].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     with summary_writer.as_default():
       for name, result in total_results.items():
@@ -287,27 +243,13 @@ def main(argv):
     for metric in metrics.values():
       metric.reset_states()
 
-    if (FLAGS.checkpoint_interval > 0 and
-            (epoch + 1) % FLAGS.checkpoint_interval == 0):
-      checkpoint_name = checkpoint.save(
-        os.path.join(FLAGS.output_dir, 'checkpoint'))
+    if checkpoint_interval > 0 and (epoch + 1) % checkpoint_interval == 0:
+      checkpoint_name = checkpoint.save(os.path.join(output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
 
-      # TODO: @nband debug checkpointing
-      # Also save Keras model, due to checkpoint.save issue
-      keras_model_name = os.path.join(
-        FLAGS.output_dir, f'keras_model_{epoch + 1}')
-      model.save(keras_model_name)
-      logging.info('Saved keras model to %s', keras_model_name)
-
   final_checkpoint_name = checkpoint.save(
-      os.path.join(FLAGS.output_dir, 'checkpoint'))
+      os.path.join(output_dir, 'checkpoint'),)
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
-
-  keras_model_name = os.path.join(
-    FLAGS.output_dir, f'keras_model_{FLAGS.train_epochs}')
-  model.save(keras_model_name)
-  logging.info('Saved keras model to %s', keras_model_name)
 
 
 if __name__ == '__main__':

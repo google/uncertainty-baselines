@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2020 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """
-ResNet50 trained with ML, GD
+ResNet50 with Monte Carlo Dropout (Gal and Ghahramani 2016)
 on Kaggle's Diabetic Retinopathy Detection dataset.
 """
 
@@ -36,16 +36,16 @@ DEFAULT_NUM_EPOCHS = 90
 
 # Data load / output flags.
 flags.DEFINE_string(
-  'output_dir', '/tmp/diabetic_retinopathy_detection/deterministic',
-  'The directory where the model weights and training/evaluation summaries '
-  'are stored. If you aim to use these as trained models for ensemble.py, '
+  'output_dir', '/tmp/diabetic_retinopathy_detection/dropout',
+  'The directory where the model weights and training/evaluation summaries are '
+  'stored. If you aim to use these as trained models for dropoutensemble.py, '
   'you should specify an output_dir name that includes the random seed to '
   'avoid overwriting.')
 flags.DEFINE_string(
   'data_dir', None, 'Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')
 
-# Learning rate / SGD flags.
+# Learning Rate / SGD flags.
 flags.DEFINE_float(
   'base_learning_rate', 0.1,
   'Base learning rate when total batch size is DEFAULT_TRAIN_BATCH_SIZE. It is '
@@ -56,7 +56,7 @@ flags.DEFINE_integer(
   'learning rate. Use 0 to do no warmup.')
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list(
-  'lr_decay_epochs', ['30', '60'], 'Epochs to decay learning rate by.')
+  'lr_decay_epochs', ['30', '60'], 'Epochs at which we decay learning rate.')
 
 # General model flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
@@ -74,11 +74,21 @@ flags.DEFINE_integer(
   'Number of epochs between saving checkpoints. '
   'Use -1 to never save checkpoints.')
 
+# Dropout-related flags.
+flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate, between [0.0, 1.0).')
+flags.DEFINE_integer(
+  'num_dropout_samples_eval', 10,
+  'Number of dropout samples to use for prediction.')
+flags.DEFINE_bool(
+  'filterwise_dropout', False,
+  'Dropout whole convolutional filters instead of '
+  'individual values in the feature map.')
+
 # Metric flags.
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 
 # Accelerator flags.
-flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
+flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU.')
 flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
@@ -97,8 +107,9 @@ def main(argv):
   strategy = utils.init_distribution_strategy(
     FLAGS.force_use_cpu, FLAGS.use_gpu, FLAGS.tpu)
 
-  train_batch_size = FLAGS.train_batch_size * FLAGS.num_cores
-  eval_batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
+  train_batch_size = (FLAGS.train_batch_size * FLAGS.num_cores)
+  eval_batch_size = (
+    FLAGS.eval_batch_size * FLAGS.num_cores) // FLAGS.num_dropout_samples_eval
 
   # As per the Kaggle challenge, we have split sizes:
   # train: 35,126
@@ -125,10 +136,12 @@ def main(argv):
       os.path.join(FLAGS.output_dir, 'summaries'))
 
   with strategy.scope():
-    logging.info('Building Keras ResNet-50 deterministic model.')
-    model = ub.models.resnet50_deterministic(
+    logging.info('Building Keras ResNet-50 MC Dropout model.')
+    model = ub.models.resnet50_dropout(
         input_shape=utils.load_input_shape(dataset_train),
-        num_classes=1)  # binary classification task
+        num_classes=1,  # binary classification task
+        dropout_rate=FLAGS.dropout_rate,
+        filterwise_dropout=FLAGS.filterwise_dropout)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -148,14 +161,15 @@ def main(argv):
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(
       lr_schedule, momentum=0.9, nesterov=True)
+
     metrics = {
-        'train/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
-        'test/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)}
+      'train/negative_log_likelihood': tf.keras.metrics.Mean(),
+      'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
+      'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
+      'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/negative_log_likelihood': tf.keras.metrics.Mean(),
+      'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)}
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
@@ -198,7 +212,7 @@ def main(argv):
 
       grads = tape.gradient(scaled_loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
-      probs = tf.squeeze(tf.nn.sigmoid(logits))
+      probs = tf.nn.sigmoid(logits)
       metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
@@ -215,19 +229,30 @@ def main(argv):
     def step_fn(inputs):
       """Per-replica step function."""
       images = inputs['features']
-      labels = inputs['labels']
-      logits = model(images, training=True)
-      if FLAGS.use_bfloat16:
-        logits = tf.cast(logits, tf.float32)
+      labels = tf.convert_to_tensor(inputs['labels'])
 
+      logits_list = []
+      for _ in range(FLAGS.num_dropout_samples_eval):
+        logits = model(images, training=False)
+        logits = tf.squeeze(logits, axis=-1)
+        if FLAGS.use_bfloat16:
+          logits = tf.cast(logits, tf.float32)
+
+        logits_list.append(logits)
+
+      # Logits dimension is (num_samples, batch_size).
+      logits_list = tf.stack(logits_list, axis=0)
+      probs_list = tf.nn.sigmoid(logits_list)
+      probs = tf.reduce_mean(probs_list, axis=0)
+      labels_broadcasted = tf.broadcast_to(
+        labels, [FLAGS.num_dropout_samples_eval, labels.shape[0]])
+      log_likelihoods = -tf.keras.losses.binary_crossentropy(
+        labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(
-          tf.keras.losses.binary_crossentropy(
-              y_true=tf.expand_dims(labels, axis=-1),
-              y_pred=logits,
-              from_logits=True))
-      probs = tf.squeeze(tf.nn.sigmoid(logits))
+        -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
+        tf.math.log(float(FLAGS.num_dropout_samples_eval)))
       metrics['test/negative_log_likelihood'].update_state(
-          negative_log_likelihood)
+        negative_log_likelihood)
       metrics['test/accuracy'].update_state(labels, probs)
       metrics['test/auc'].update_state(labels, probs)
       metrics['test/ece'].update_state(labels, probs)

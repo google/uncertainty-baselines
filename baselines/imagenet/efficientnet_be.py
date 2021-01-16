@@ -47,8 +47,7 @@ flags.DEFINE_float('base_learning_rate', 0.016,
 flags.DEFINE_float('fast_weight_lr_multiplier', 0.5,
                    'fast weights lr multiplier.')
 flags.DEFINE_float('l2', 5e-6, 'L2 coefficient.')
-flags.DEFINE_string('data_dir', '', 'Path to training and testing data.')
-flags.mark_flag_as_required('data_dir')
+flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')

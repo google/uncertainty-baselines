@@ -355,7 +355,7 @@ class ImageNetInput(object):
   """
 
   def __init__(self,
-               data_dir,
+               data_dir=None,
                image_size=224,
                normalize_input=False,
                one_hot=False,

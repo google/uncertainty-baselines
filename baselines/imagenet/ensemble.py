@@ -36,7 +36,6 @@ import uncertainty_metrics as um
 flags.DEFINE_integer('per_core_batch_size', 512, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
-flags.mark_flag_as_required('data_dir')
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
 flags.mark_flag_as_required('checkpoint_dir')

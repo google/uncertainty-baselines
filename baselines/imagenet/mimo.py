@@ -48,7 +48,6 @@ flags.DEFINE_list('lr_decay_epochs', ['30', '60', '80'],
                   'Epochs to decay learning rate by.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
-flags.mark_flag_as_required('data_dir')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')

@@ -8,6 +8,19 @@ In this baseline, models are trained with images of blood vessels in the eye:
 
 The models try to predict the presence or absence of diabetic retinopathy (a binary classification task). 
 
+## Cite
+
+Please cite our paper if you use this code in your own work:
+
+```
+@article{filos2019systematic,
+  title={A Systematic Comparison of Bayesian Deep Learning Robustness in Diabetic Retinopathy Tasks},
+  author={Filos, Angelos and Farquhar, Sebastian and Gomez, Aidan N and Rudner, Tim GJ and Kenton, Zachary and Smith, Lewis and Alizadeh, Milad and de Kroon, Arnoud and Gal, Yarin},
+  journal={arXiv preprint arXiv:1912.10481},
+  year={2019}
+}
+```
+
 ## Acknowledgements
 
 The Diabetic Retinopathy Detection baseline was contributed through collaboration with the [Oxford Applied and Theoretical Machine Learning](http://oatml.cs.ox.ac.uk/) (OATML) group, with sponsorship from:

@@ -38,6 +38,7 @@ from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
 from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
 from uncertainty_baselines.models.wide_resnet import wide_resnet
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
+from uncertainty_baselines.models.wide_resnet_condconv import wide_resnet_condconv
 from uncertainty_baselines.models.wide_resnet_dropout import wide_resnet_dropout
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import e_factory as hyperbatchensemble_e_factory
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import LambdaConfig as HyperBatchEnsembleLambdaConfig

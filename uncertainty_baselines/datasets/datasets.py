@@ -68,7 +68,7 @@ DATASETS = {
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,
     'speech_commands': SpeechCommandsDataset,
-    'svhn': SvhnDataset,
+    'svhn_cropped': SvhnDataset,
     'glue/cola': GlueDatasets['glue/cola'],
     'glue/sst2': GlueDatasets['glue/sst2'],
     'glue/mrpc': GlueDatasets['glue/mrpc'],

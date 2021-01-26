@@ -254,7 +254,7 @@ def main(argv):
       """Per-replica step function."""
       images = inputs['features']
       labels = inputs['labels']
-      logits = model(images, training=True)
+      logits = model(images, training=False)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
 

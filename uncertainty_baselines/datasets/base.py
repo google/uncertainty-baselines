@@ -242,8 +242,14 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       # that is then added to the feature dict in
       # `self._create_enumerate_preprocess_fn` with key `self._fingerprint_key`.
       dataset = dataset.enumerate()
-      preprocess_fn = self._create_enumerate_preprocess_fn(preprocess_fn)
-    preprocess_fn = ops.compose(preprocess_fn, self._create_element_id)
+      enum_preprocess_fn = self._create_enumerate_preprocess_fn(preprocess_fn)
+
+      # Compose will not work with functions that have >1 arguments
+      preprocess_fn = lambda id, x: self._create_element_id(
+        enum_preprocess_fn(id, x))
+    else:
+      preprocess_fn = ops.compose(preprocess_fn, self._create_element_id)
+
     dataset = dataset.map(
         preprocess_fn,
         num_parallel_calls=self._num_parallel_parser_calls)

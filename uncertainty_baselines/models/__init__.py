@@ -28,6 +28,7 @@ from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchen
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
+from uncertainty_baselines.models.resnet50_variational import resnet50_variational
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_layer

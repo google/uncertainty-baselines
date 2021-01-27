@@ -17,6 +17,7 @@
 
 import warnings
 
+from uncertainty_baselines.google.models.criteo_sngp import create_model as CriteoSngpBuilder
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
 from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get
@@ -32,6 +33,7 @@ from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_layer
 from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
+from uncertainty_baselines.models.resnet50_variational import resnet50_variational
 from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
 from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
 from uncertainty_baselines.models.wide_resnet import wide_resnet
@@ -44,6 +46,7 @@ from uncertainty_baselines.models.wide_resnet_rank1 import wide_resnet_rank1
 from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be
 from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_variational
+
 
 # When adding a new model, also add to models.py for easier user access.
 

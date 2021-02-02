@@ -18,6 +18,7 @@
 import warnings
 
 from uncertainty_baselines.datasets import inception_preprocessing
+from uncertainty_baselines.datasets import resnet_preprocessing
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.base import make_ood_dataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset

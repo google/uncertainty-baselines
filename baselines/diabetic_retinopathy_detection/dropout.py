@@ -154,7 +154,7 @@ def main(argv):
         for start_epoch_str in FLAGS.lr_decay_epochs
     ]
 
-    lr_schedule = utils.LearningRateSchedule(
+    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,

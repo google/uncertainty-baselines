@@ -17,22 +17,6 @@
 
 import numpy as np
 import scipy
-import tensorflow_datasets as tfds
-
-
-def load(name, session):
-  """Loads dataset (mnist, fashion_mnist) as numpy array."""
-  train_ds = tfds.load(
-      name, split=tfds.Split.TRAIN, batch_size=-1, as_supervised=True)
-  x_train, y_train = session.run(train_ds)
-  test_ds = tfds.load(
-      name, split=tfds.Split.TEST, batch_size=-1, as_supervised=True)
-  x_test, y_test = session.run(test_ds)
-  # Scale to the [0, 1] interval.
-  x_min, x_max = np.amin(x_train), np.amax(x_train)
-  x_train = (x_train - x_min) / (x_max + 1e-10)
-  x_test = (x_test - x_min) / (x_max + 1e-10)
-  return x_train, y_train, x_test, y_test
 
 
 def one_hot(a, num_classes):

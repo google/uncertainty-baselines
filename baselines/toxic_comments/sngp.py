@@ -134,7 +134,8 @@ flags.DEFINE_float(
 
 # Optimization and evaluation flags
 flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_integer('per_core_batch_size', 32, 'Batch size per TPU core/GPU.')
+# TODO(kivlichan): this sets it to 64 with 8 cores; figure out why and fix.
+flags.DEFINE_integer('per_core_batch_size', 8, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float(
     'base_learning_rate', 2.5e-5,
     'Base learning rate when total batch size is 128. It is '
@@ -679,25 +680,28 @@ def main(argv):
         for identity_label_name in utils.IDENTITY_LABELS:
           additional_labels_all_dict[identity_label_name] = []
 
-      for step in range(steps_per_eval[dataset_name]):
-        if step % 20 == 0:
-          message = 'Starting to run eval step {}/{} of dataset: {}'.format(
-              step, steps_per_eval[dataset_name], dataset_name)
-          logging.info(message)
+      try:
+        with tf.experimental.async_scope():
+          for step in range(steps_per_eval[dataset_name]):
+            if step % 20 == 0:
+              message = 'Starting to run eval step {}/{} of dataset: {}'.format(
+                  step, steps_per_eval[dataset_name], dataset_name)
+              logging.info(message)
 
-        try:
-          (text_step, logits_step, labels_step,
-           additional_labels_dict_step) = final_eval_step(test_iterator)
-        except tf.errors.OutOfRangeError:
-          continue
+            (text_step, logits_step, labels_step,
+             additional_labels_dict_step) = final_eval_step(test_iterator)
 
-        texts_all.append(text_step)
-        logits_all.append(logits_step)
-        labels_all.append(labels_step)
-        if 'identity' in dataset_name:
-          for identity_label_name in utils.IDENTITY_LABELS:
-            additional_labels_all_dict[identity_label_name].append(
-                additional_labels_dict_step[identity_label_name])
+            texts_all.append(text_step)
+            logits_all.append(logits_step)
+            labels_all.append(labels_step)
+            if 'identity' in dataset_name:
+              for identity_label_name in utils.IDENTITY_LABELS:
+                additional_labels_all_dict[identity_label_name].append(
+                    additional_labels_dict_step[identity_label_name])
+
+      except (StopIteration, tf.errors.OutOfRangeError):
+        tf.experimental.async_clear_error()
+        logging.info('Done with eval on %s', dataset_name)
 
       texts_all = tf.concat(texts_all, axis=0)
       logits_all = tf.concat(logits_all, axis=0)
@@ -756,12 +760,17 @@ def main(argv):
         for dataset_name, test_dataset in test_datasets.items():
           test_iterator = iter(test_dataset)
           logging.info('Testing on dataset %s', dataset_name)
-          for step in range(steps_per_eval[dataset_name]):
-            if step % 20 == 0:
-              logging.info('Starting to run eval step %s of epoch: %s', step,
-                           epoch)
-            test_step(test_iterator, dataset_name)
-          logging.info('Done with testing on %s', dataset_name)
+
+          try:
+            with tf.experimental.async_scope():
+              for step in range(steps_per_eval[dataset_name]):
+                if step % 20 == 0:
+                  logging.info('Starting to run eval step %s/%s of epoch: %s',
+                               step, steps_per_eval[dataset_name], epoch)
+                test_step(test_iterator, dataset_name)
+          except (StopIteration, tf.errors.OutOfRangeError):
+            tf.experimental.async_clear_error()
+            logging.info('Done with testing on %s', dataset_name)
 
         logging.info('Train Loss: %.4f, ECE: %.2f, Accuracy: %.2f',
                      metrics['train/loss'].result(),

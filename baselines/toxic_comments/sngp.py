@@ -116,7 +116,7 @@ flags.DEFINE_integer(
     'The hidden dimension of the GP layer, which corresponds to the number of '
     'random features used for the approximation.')
 flags.DEFINE_bool(
-    'gp_input_normalization', True,
+    'gp_input_normalization', False,
     'Whether to normalize the input using LayerNorm for GP layer.'
     'This is similar to automatic relevance determination (ARD) in the classic '
     'GP learning.')
@@ -252,7 +252,8 @@ def main(argv):
   dataset_steps_per_epoch = {}
   total_steps_per_epoch = 0
   for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = dataset_builder.load(batch_size=batch_size)
+    train_datasets[dataset_name] = strategy.experimental_distribute_dataset(
+        dataset_builder.load(batch_size=batch_size))
     dataset_steps_per_epoch[dataset_name] = (
         dataset_builder.num_examples // batch_size)
     total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
@@ -260,8 +261,8 @@ def main(argv):
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.load(
-        batch_size=test_batch_size)
+    test_datasets[dataset_name] = strategy.experimental_distribute_dataset(
+        dataset_builder.load(batch_size=test_batch_size))
     steps_per_eval[dataset_name] = (
         dataset_builder.num_examples // test_batch_size)
 
@@ -351,7 +352,6 @@ def main(argv):
           repl_patterns=ub.models.bert_sngp.CHECKPOINT_REPL_PATTERNS)
       logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
 
-    # Finally, define test metrics outside the accelerator scope for CPU eval.
     metrics.update({
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
@@ -740,21 +740,27 @@ def main(argv):
       logging.info('Starting to run epoch: %s', epoch)
       current_step = epoch * total_steps_per_epoch
       for dataset_name, train_iterator in train_iterators.items():
-        for step in range(dataset_steps_per_epoch[dataset_name]):
-          train_step(train_iterator, dataset_name)
+        try:
+          with tf.experimental.async_scope():
+            for step in range(dataset_steps_per_epoch[dataset_name]):
+              train_step(train_iterator, dataset_name)
 
-          current_step += 1
-          max_steps = total_steps_per_epoch * FLAGS.train_epochs
-          time_elapsed = time.time() - start_time
-          steps_per_sec = float(current_step) / time_elapsed
-          eta_seconds = (max_steps - current_step) / steps_per_sec
-          message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                     'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                         current_step / max_steps, epoch + 1,
-                         FLAGS.train_epochs, steps_per_sec, eta_seconds / 60,
-                         time_elapsed / 60))
-          if step % 20 == 0:
-            logging.info(message)
+              current_step += 1
+              max_steps = total_steps_per_epoch * FLAGS.train_epochs
+              time_elapsed = time.time() - start_time
+              steps_per_sec = float(current_step) / time_elapsed
+              eta_seconds = (max_steps - current_step) / steps_per_sec
+              message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                         'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                             current_step / max_steps, epoch + 1,
+                             FLAGS.train_epochs, steps_per_sec,
+                             eta_seconds / 60, time_elapsed / 60))
+              if step % 20 == 0:
+                logging.info(message)
+
+        except (StopIteration, tf.errors.OutOfRangeError):
+          tf.experimental.async_clear_error()
+          logging.info('Done with testing on %s', dataset_name)
 
       if epoch % FLAGS.evaluation_interval == 0:
         for dataset_name, test_dataset in test_datasets.items():

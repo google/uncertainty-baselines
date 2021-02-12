@@ -177,7 +177,8 @@ def main(argv):
   dataset_steps_per_epoch = {}
   total_steps_per_epoch = 0
   for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = dataset_builder.load(batch_size=batch_size)
+    train_datasets[dataset_name] = strategy.experimental_distribute_dataset(
+        dataset_builder.load(batch_size=batch_size))
     dataset_steps_per_epoch[dataset_name] = (
         dataset_builder.num_examples // batch_size)
     total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
@@ -185,8 +186,8 @@ def main(argv):
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.load(
-        batch_size=test_batch_size)
+    test_datasets[dataset_name] = strategy.experimental_distribute_dataset(
+        dataset_builder.load(batch_size=test_batch_size))
     steps_per_eval[dataset_name] = (
         dataset_builder.num_examples // test_batch_size)
 

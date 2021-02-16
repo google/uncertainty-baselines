@@ -34,8 +34,8 @@ from absl import flags
 from absl import logging
 import tensorflow as tf
 import tensorflow_datasets as tfds
+
 import uncertainty_baselines as ub
-import uncertainty_metrics as um
 import utils  # local file import
 
 DEFAULT_BATCH_SIZE = 16
@@ -51,7 +51,7 @@ flags.mark_flag_as_required('data_dir')
 
 # Learning rate / SGD flags.
 flags.DEFINE_float(
-    'base_learning_rate', 0.1,
+    'base_learning_rate', 4e-4,
     'Base learning rate when total batch size is DEFAULT_TRAIN_BATCH_SIZE. It is '
     'scaled by the ratio of the total batch size to DEFAULT_TRAIN_BATCH_SIZE.')
 flags.DEFINE_integer(
@@ -89,8 +89,9 @@ flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
 flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
+flags.DEFINE_string(
+    'tpu', None,
+    'Name of the TPU. Only used if force_use_cpu and use_gpu are both False.')
 FLAGS = flags.FLAGS
 
 
@@ -103,6 +104,7 @@ def main(argv):
   # Initialize distribution strategy on flag-specified accelerator
   strategy = utils.init_distribution_strategy(FLAGS.force_use_cpu,
                                               FLAGS.use_gpu, FLAGS.tpu)
+  use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
   batch_size = FLAGS.batch_size * FLAGS.num_cores
 
@@ -159,17 +161,12 @@ def main(argv):
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(
         lr_schedule, momentum=0.9, nesterov=True)
-    metrics = {
-        'train/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+    metrics = utils.get_diabetic_retinopathy_base_metrics(
+        use_tpu=use_tpu, num_bins=FLAGS.num_bins)
+    metrics.update({
         'train/kl': tf.keras.metrics.Mean(),
-        'train/kl_scale': tf.keras.metrics.Mean(),
-        'test/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
-    }
+        'train/kl_scale': tf.keras.metrics.Mean()
+    })
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
@@ -181,10 +178,12 @@ def main(argv):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
 
   # Finally, define OOD metrics outside the accelerator scope for CPU eval.
-  metrics.update({
-      'train/auc': tf.keras.metrics.AUC(),
-      'test/auc': tf.keras.metrics.AUC()
-  })
+  # This will cause an error on TPU.
+  if not use_tpu:
+    metrics.update({
+        'train/auc': tf.keras.metrics.AUC(),
+        'test/auc': tf.keras.metrics.AUC()
+    })
 
   @tf.function
   def train_step(iterator):
@@ -199,8 +198,6 @@ def main(argv):
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
-        print(tf.expand_dims(labels, axis=-1).shape)
-        print(logits.shape)
         negative_log_likelihood = tf.reduce_mean(
             tf.keras.losses.binary_crossentropy(
                 y_true=tf.expand_dims(labels, axis=-1),
@@ -224,14 +221,14 @@ def main(argv):
         kl_loss = kl_scale * kl
 
         loss = negative_log_likelihood + l2_loss + kl_loss
+
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
       grads = tape.gradient(scaled_loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
       probs = tf.squeeze(tf.nn.sigmoid(logits))
-      metrics['train/ece'].update_state(labels, probs)
+
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
@@ -239,6 +236,9 @@ def main(argv):
       metrics['train/kl_scale'].update_state(kl_scale)
       metrics['train/accuracy'].update_state(labels, probs)
       metrics['train/auc'].update_state(labels, probs)
+
+      if not use_tpu:
+        metrics['train/ece'].update_state(labels, probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -260,11 +260,14 @@ def main(argv):
               y_pred=logits,
               from_logits=True))
       probs = tf.squeeze(tf.nn.sigmoid(logits))
+
       metrics['test/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['test/accuracy'].update_state(labels, probs)
       metrics['test/auc'].update_state(labels, probs)
-      metrics['test/ece'].update_state(labels, probs)
+
+      if not use_tpu:
+        metrics['test/ece'].update_state(labels, probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -300,16 +303,8 @@ def main(argv):
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
       metrics['test/ms_per_example'].update_state(ms_per_example)
 
-    logging.info('Train Loss: %.4f, Accuracy: %.2f%%, AUC: %.2f%%, ECE: %.2f%%',
-                 metrics['train/loss'].result(),
-                 metrics['train/accuracy'].result() * 100,
-                 metrics['train/auc'].result() * 100,
-                 metrics['train/ece'].result() * 100)
-    logging.info('Test NLL: %.4f, Accuracy: %.2f%%, AUC: %.2f%%, ECE: %.2f%%',
-                 metrics['test/negative_log_likelihood'].result(),
-                 metrics['test/accuracy'].result() * 100,
-                 metrics['test/auc'].result() * 100,
-                 metrics['test/ece'].result() * 100)
+    # Log and write to summary the epoch metrics
+    utils.log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     with summary_writer.as_default():
       for name, result in total_results.items():
@@ -324,9 +319,21 @@ def main(argv):
           os.path.join(FLAGS.output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
 
+      # TODO(nband): debug checkpointing
+      # Also save Keras model, due to checkpoint.save issue
+      keras_model_name = os.path.join(FLAGS.output_dir,
+                                      f'keras_model_{epoch + 1}')
+      model.save(keras_model_name)
+      logging.info('Saved keras model to %s', keras_model_name)
+
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'),)
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+
+  keras_model_name = os.path.join(FLAGS.output_dir,
+                                  f'keras_model_{FLAGS.train_epochs}')
+  model.save(keras_model_name)
+  logging.info('Saved keras model to %s', keras_model_name)
 
 
 if __name__ == '__main__':

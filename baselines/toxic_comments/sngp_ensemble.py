@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Ensemble on Toxic Comments Detection.
+"""Ensemble of SNGP models on Toxic Comments Detection.
 
 This script only performs evaluation, not training. We recommend training
 ensembles by launching independent runs of `deterministic.py` over different
 seeds.
+
+The reported results are based on GP layer commit
+311d3ad6946b543e70af1495eab9a0a9b4f69854.
+
+TODO(lzi): update this to latest version of GP layer.
 """
 
 import collections
@@ -27,13 +32,14 @@ from typing import Mapping, Text  # pylint:disable=unused-import
 from absl import app
 from absl import flags
 from absl import logging
+import edward2 as ed
 import numpy as np
 import tensorflow as tf
 from tensorflow_addons import metrics as tfa_metrics
 
 import uncertainty_baselines as ub
-# import toxic_comments.deterministic to inherit its flags
-import deterministic  # pylint:disable=unused-import  # local file import
+# import toxic_comments.sngp to inherit its flags
+import sngp  # pylint:disable=unused-import  # local file import
 import utils  # local file import
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
@@ -45,6 +51,11 @@ import uncertainty_metrics as um
 # from a binary or duplicate the model definition here.
 
 # Model flags
+flags.DEFINE_float(
+    'gp_mean_field_factor_ensemble', -1,
+    'The tunable multiplicative factor used in the mean-field approximation '
+    'for the posterior mean of softmax Gaussian process. If -1 then use '
+    'posterior mode instead of posterior mean.')
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
 flags.DEFINE_integer('num_models', 10, 'Number of models to be included '
@@ -96,7 +107,6 @@ def main(argv):
   logging.info('class_weight: %s', str(class_weight))
 
   ds_info = ind_dataset_builder.tfds_info
-  feature_size = _MAX_SEQ_LENGTH
   # Positive and negative classes.
   num_classes = ds_info.metadata['num_classes']
 
@@ -114,10 +124,29 @@ def main(argv):
       FLAGS.bert_model_type, FLAGS.bert_dir, FLAGS.bert_config_dir,
       FLAGS.bert_ckpt_dir)
   bert_config = utils.create_config(bert_config_dir)
-  model, _ = ub.models.BertBuilder(
+
+  gp_layer_kwargs = dict(
+      num_inducing=FLAGS.gp_hidden_dim,
+      gp_kernel_scale=FLAGS.gp_scale,
+      gp_output_bias=FLAGS.gp_bias,
+      normalize_input=FLAGS.gp_input_normalization,
+      gp_cov_momentum=FLAGS.gp_cov_discount_factor,
+      gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty)
+  spec_norm_kwargs = dict(
+      iteration=FLAGS.spec_norm_iteration,
+      norm_multiplier=FLAGS.spec_norm_bound)
+
+  model, _ = ub.models.SngpBertBuilder(
       num_classes=num_classes,
-      max_seq_length=feature_size,
-      bert_config=bert_config)
+      bert_config=bert_config,
+      gp_layer_kwargs=gp_layer_kwargs,
+      spec_norm_kwargs=spec_norm_kwargs,
+      use_gp_layer=FLAGS.use_gp_layer,
+      use_spec_norm_att=FLAGS.use_spec_norm_att,
+      use_spec_norm_ffn=FLAGS.use_spec_norm_ffn,
+      use_layer_norm_att=FLAGS.use_layer_norm_att,
+      use_layer_norm_ffn=FLAGS.use_layer_norm_ffn,
+      use_spec_norm_plr=FLAGS.use_spec_norm_plr)
 
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)
@@ -147,7 +176,7 @@ def main(argv):
       filename = '{dataset}_{member}.npy'.format(dataset=dataset_name, member=m)
       filename = os.path.join(FLAGS.output_dir, filename)
       if not tf.io.gfile.exists(filename):
-        logits = []
+        logits_list = []
         test_iterator = iter(test_dataset)
         for step in range(steps_per_eval[dataset_name]):
           try:
@@ -155,11 +184,27 @@ def main(argv):
           except StopIteration:
             continue
           features, labels, _ = utils.create_feature_and_label(inputs)
-          logits.append(model(features, training=False))
+          logits = model(features, training=False)
 
-        logits = tf.concat(logits, axis=0)
+          if isinstance(logits, tuple):
+            # If model returns a tuple of (logits, covmat), extract both.
+            logits, covmat = logits
+          else:
+            covmat = tf.eye(test_batch_size)
+
+          if FLAGS.use_bfloat16:
+            logits = tf.cast(logits, tf.float32)
+            covmat = tf.cast(covmat, tf.float32)
+
+          logits = ed.layers.utils.mean_field_logits(
+              logits, covmat,
+              mean_field_factor=FLAGS.gp_mean_field_factor_ensemble)
+
+          logits_list.append(logits)
+
+        logits_all = tf.concat(logits_list, axis=0)
         with tf.io.gfile.GFile(filename, 'w') as f:
-          np.save(f, logits.numpy())
+          np.save(f, logits_all.numpy())
       percent = (m * num_datasets + (n + 1)) / (ensemble_size * num_datasets)
       message = ('{:.1%} completion for prediction: ensemble member {:d}/{:d}. '
                  'Dataset {:d}/{:d}'.format(percent, m + 1, ensemble_size,
@@ -254,7 +299,7 @@ def main(argv):
     additional_labels_dict = collections.OrderedDict()
     for step in range(steps_per_eval[dataset_name]):
       try:
-        inputs = next(test_iterator)  # type: Mapping[Text, tf.Tensor]
+        inputs = next(test_iterator)  # type: Mapping[Text, tf.Tensor]  # pytype: disable=annotation-type-mismatch
       except StopIteration:
         continue
       features, labels, additional_labels = (
@@ -299,9 +344,9 @@ def main(argv):
         metrics['test/acc'].update_state(ece_labels, pred_labels)
         metrics['test/acc_weighted'].update_state(
             ece_labels, pred_labels, sample_weight=sample_weight)
-        metrics['test/precision'].updated_state(ece_labels, pred_labels)
-        metrics['test/recall'].updated_state(ece_labels, pred_labels)
-        metrics['test/f1'].updated_state(one_hot_labels, ece_probs)
+        metrics['test/precision'].update_state(ece_labels, pred_labels)
+        metrics['test/recall'].update_state(ece_labels, pred_labels)
+        metrics['test/f1'].update_state(one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)

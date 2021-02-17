@@ -21,11 +21,12 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-import robustness_metrics as rm
+
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import uncertainty_baselines as ub
-from tensorboard.plugins.hparams import api as hp
+import efficientnet_model  # local file import
+import utils  # local file import
+import uncertainty_metrics as um
 
 # ~312.78 steps per epoch for 4x4 TPU; per_core_batch_size=128; 350 epochs;
 
@@ -39,7 +40,6 @@ flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.016,
                    'Base learning rate when train batch size is 256.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('l2', 5e-6, 'L2 coefficient.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
@@ -93,24 +93,19 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   width_coefficient, depth_coefficient, input_image_size, dropout_rate = (
-      ub.models.efficientnet_utils.efficientnet_params(FLAGS.model_name))
-  train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
-      use_bfloat16=FLAGS.use_bfloat16,
-      image_size=input_image_size,
-      normalize_input=True,
-      one_hot=True)
-  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
-  test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16,
-      image_size=input_image_size,
-      normalize_input=True,
-      one_hot=True)
-  clean_test_dataset = test_builder.load(
-      batch_size=batch_size, strategy=strategy)
+      efficientnet_model.efficientnet_params(FLAGS.model_name))
+  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                use_bfloat16=FLAGS.use_bfloat16,
+                                image_size=input_image_size,
+                                normalize_input=True,
+                                one_hot=True)
+  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
+                                     batch_size=batch_size)
+  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
+                                          batch_size=batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
-      'clean': clean_test_dataset,
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
   }
   train_iterator = iter(train_dataset)
   test_iterator = iter(test_datasets['clean'])
@@ -124,9 +119,9 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building %s model', FLAGS.model_name)
-    model = ub.models.EfficientNetBuilder(width_coefficient,
-                                          depth_coefficient,
-                                          dropout_rate)
+    model = efficientnet_model.Model(width_coefficient,
+                                     depth_coefficient,
+                                     dropout_rate)
 
     scaled_lr = FLAGS.base_learning_rate * (batch_size / 256.0)
     # Decay epoch is 2.4, warmup epoch is 5 according to the Efficientnet paper.
@@ -134,15 +129,11 @@ def main(argv):
     warmup_step = steps_per_epoch * 5
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         scaled_lr, decay_steps, decay_rate=0.97, staircase=True)
-    learning_rate = ub.schedules.AddWarmupDecaySchedule(
-        lr_schedule, warmup_step)
+    learning_rate = utils.WarmupDecaySchedule(lr_schedule, warmup_step)
     optimizer = tf.keras.optimizers.RMSprop(
-        learning_rate,
-        rho=0.9,
-        momentum=1.0 - FLAGS.one_minus_momentum,
-        epsilon=0.001)
+        learning_rate, rho=0.9, momentum=0.9, epsilon=0.001)
     if FLAGS.moving_average_decay > 0:
-      optimizer = ub.optimizers.MovingAverage(
+      optimizer = utils.MovingAverage(
           optimizer,
           average_decay=FLAGS.moving_average_decay)
       optimizer.shadow_copy(model)
@@ -150,13 +141,11 @@ def main(argv):
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'train/loss': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
     logging.info('Finished building %s model', FLAGS.model_name)
 
@@ -172,8 +161,7 @@ def main(argv):
 
   def train_step(inputs):
     """Build `step_fn` for efficientnet learning."""
-    images = inputs['features']
-    labels = inputs['labels']
+    images, labels = inputs
 
     num_replicas = tf.cast(strategy.num_replicas_in_sync, tf.float32)
     l2_coeff = tf.cast(FLAGS.l2, tf.float32)
@@ -209,7 +197,7 @@ def main(argv):
     metrics['train/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['train/accuracy'].update_state(labels, logits)
-    metrics['train/ece'].add_batch(probs, label=sparse_labels)
+    metrics['train/ece'].update_state(sparse_labels, probs)
 
     step_info = {
         'loss/negative_log_likelihood': negative_log_likelihood / num_replicas,
@@ -219,8 +207,7 @@ def main(argv):
 
   def eval_step(inputs):
     """A single step."""
-    images = inputs['features']
-    labels = inputs['labels']
+    images, labels = inputs
     logits = model(images, training=False)
     logits = tf.cast(logits, tf.float32)
     negative_log_likelihood = tf.reduce_mean(
@@ -232,7 +219,7 @@ def main(argv):
     metrics['test/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['test/accuracy'].update_state(labels, logits)
-    metrics['test/ece'].add_batch(probs, label=sparse_labels)
+    metrics['test/ece'].update_state(sparse_labels, probs)
 
   @tf.function
   def epoch_fn(should_eval):
@@ -249,11 +236,11 @@ def main(argv):
         summary_writer.flush()
 
     if should_eval:
-      if isinstance(optimizer, ub.optimizers.MovingAverage):
+      if isinstance(optimizer, utils.MovingAverage):
         optimizer.swap_weights(strategy)
       for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
         strategy.run(eval_step, args=(next(test_iterator),))
-      if isinstance(optimizer, ub.optimizers.MovingAverage):
+      if isinstance(optimizer, utils.MovingAverage):
         optimizer.swap_weights(strategy)
 
   # Main training loop.
@@ -300,12 +287,6 @@ def main(argv):
       total_results = {name: metric.result()
                        for name, metric in total_metrics.items()}
       total_results.update({'lr': learning_rate(optimizer.iterations)})
-      # Metrics from Robustness Metrics (like ECE) will return a dict with a
-      # single key/value, instead of a scalar.
-      total_results = {
-          k: (list(v.values())[0] if isinstance(v, dict) else v)
-          for k, v in total_results.items()
-      }
       with summary_writer.as_default():
         for name, result in total_results.items():
           if should_eval or 'test' not in name:
@@ -323,13 +304,6 @@ def main(argv):
   final_save_name = os.path.join(FLAGS.output_dir, 'model')
   model.save(final_save_name)
   logging.info('Saved model to %s', final_save_name)
-  with summary_writer.as_default():
-    hp.hparams({
-        'base_learning_rate': FLAGS.base_learning_rate,
-        'one_minus_momentum': FLAGS.one_minus_momentum,
-        'l2': FLAGS.l2,
-    })
-
 
 if __name__ == '__main__':
   app.run(main)

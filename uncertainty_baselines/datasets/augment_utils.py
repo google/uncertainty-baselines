@@ -443,18 +443,16 @@ def unwrap(image, replace):
   return image
 
 
-def _randomly_negate_tensor(tensor, seed):
+def _randomly_negate_tensor(tensor):
   """With 50% prob turn the tensor negative."""
-  should_flip = tf.cast(tf.floor(tf.random.stateless_uniform([], seed) + 0.5),
-                        tf.bool)
+  should_flip = tf.cast(tf.floor(tf.random.uniform([]) + 0.5), tf.bool)
   final_tensor = tf.cond(should_flip, lambda: tensor, lambda: -tensor)
   return final_tensor
 
 
-def _rotate_level_to_arg(level, seed, randomly_negate_level=True):
-  level = (level / MAX_LEVEL) * 30.
-  if randomly_negate_level:
-    level = _randomly_negate_tensor(level, seed)
+def _rotate_level_to_arg(level):
+  level = (level/MAX_LEVEL) * 30.
+  level = _randomly_negate_tensor(level)
   return (level,)
 
 
@@ -468,23 +466,20 @@ def _shrink_level_to_arg(level):
 
 
 def _enhance_level_to_arg(level):
-  return ((level / MAX_LEVEL) * 1.8 + 0.1,)
+  return ((level/MAX_LEVEL) * 1.8 + 0.1,)
 
 
-def _shear_level_to_arg(level, seed, randomly_negate_level=True):
-  level = (level / MAX_LEVEL) * 0.3
-  if randomly_negate_level:
-    # Flip level to negative with 50% chance.
-    level = _randomly_negate_tensor(level, seed)
+def _shear_level_to_arg(level):
+  level = (level/MAX_LEVEL) * 0.3
+  # Flip level to negative with 50% chance.
+  level = _randomly_negate_tensor(level)
   return (level,)
 
 
-def _translate_level_to_arg(level, translate_const,
-                            seed, randomly_negate_level=True):
-  level = (level / MAX_LEVEL) * float(translate_const)
-  if randomly_negate_level:
-    # Flip level to negative with 50% chance.
-    level = _randomly_negate_tensor(level, seed)
+def _translate_level_to_arg(level, translate_const):
+  level = (level/MAX_LEVEL) * float(translate_const)
+  # Flip level to negative with 50% chance.
+  level = _randomly_negate_tensor(level)
   return (level,)
 
 
@@ -492,30 +487,23 @@ def _mult_to_arg(level, multiplier=1.):
   return (int((level / MAX_LEVEL) * multiplier),)
 
 
-def level_to_arg(translate_const, seed, randomly_negate_level=True):
+def level_to_arg(translate_const):
   """Creates a dict mapping image operation names to their arguments."""
 
   no_arg = lambda level: ()
   posterize_arg = lambda level: _mult_to_arg(level, 4)
   solarize_arg = lambda level: _mult_to_arg(level, 256)
-  # pylint: disable=g-long-lambda
-  rotate_arg = lambda level: _rotate_level_to_arg(
-      level, seed, randomly_negate_level=randomly_negate_level)
-  shear_arg = lambda level: _shear_level_to_arg(
-      level, seed, randomly_negate_level=randomly_negate_level)
-  translate_arg = lambda level: _translate_level_to_arg(
-      level, translate_const, seed, randomly_negate_level=randomly_negate_level)
-  # pylint: enable=g-long-lambda
+  translate_arg = lambda level: _translate_level_to_arg(level, translate_const)
 
   args = {
       'AutoContrast': no_arg,
       'Equalize': no_arg,
-      'Rotate': rotate_arg,
+      'Rotate': _rotate_level_to_arg,
       'Posterize': posterize_arg,
       'Solarize': solarize_arg,
       'Color': _enhance_level_to_arg,
-      'ShearX': shear_arg,
-      'ShearY': shear_arg,
+      'ShearX': _shear_level_to_arg,
+      'ShearY': _shear_level_to_arg,
       'TranslateX': translate_arg,
       'TranslateY': translate_arg,
   }
@@ -549,15 +537,10 @@ def _parse_policy_info(name,
                        prob,
                        level,
                        replace_value,
-                       translate_const,
-                       seed,
-                       randomly_negate_level=True):
+                       translate_const):
   """Return the function that corresponds to `name` and update `level` param."""
   func = NAME_TO_FUNC[name]
-  # Pass in the seed to level_to_arg for the _randomly_negate_tensor calls.
-  args = level_to_arg(
-      translate_const, seed, randomly_negate_level=randomly_negate_level)[name](
-          level)
+  args = level_to_arg(translate_const)[name](level)
 
   if name in REPLACE_FUNCS:
     # Add in replace arg if it is required for the function that is called.
@@ -575,8 +558,7 @@ class RandAugment(object):
   def __init__(self,
                num_layers=1,
                magnitude=10,
-               translate_const=100,
-               randomly_negate_level=True):
+               translate_const=100):
     """Applies the RandAugment policy to images.
 
     Args:
@@ -587,8 +569,6 @@ class RandAugment(object):
         Represented as (M) in the paper. Usually best values are in the range
         [5, 10].
       translate_const: multiplier for applying translation.
-      randomly_negate_level: whether to randomly flip the sign of levels used
-        for rotation, translation, and shear augmentations.
     """
     self.num_layers = num_layers
     self.magnitude = float(magnitude)
@@ -597,30 +577,16 @@ class RandAugment(object):
         'AutoContrast', 'Equalize', 'Rotate', 'Posterize', 'Solarize',
         'Color', 'ShearX', 'ShearY', 'TranslateX', 'TranslateY',
     ]
-    self.randomly_negate_level = randomly_negate_level
 
-  def distort(self, image, seed=None):
+  def distort(self, image):
     """Applies the RandAugment policy to `image`.
 
     Args:
       image: `Tensor` of shape [height, width, 3] representing an image.
-      seed: An optional seed to control the deterministic nature of
-        augmentation.
 
     Returns:
       The augmented version of `image`.
     """
-    if seed is None:
-      seed = tf.random.uniform((2,), maxval=int(1e10), dtype=tf.int32)
-    # Generate stateless seeds for each random sampling in the code.
-    # Number of seeds = self.num_layers * self.available_ops + self.num_layers.
-    # seeds_for_layers is (self.num_layers, 2).
-    # seeds_for_ops is (self.num_layers * self.available_ops, 2)
-    seeds = tf.random.experimental.stateless_split(
-        seed, num=self.num_layers + self.num_layers * len(self.available_ops))
-    seeds_for_layers = seeds[:self.num_layers]
-    seeds_for_ops = seeds[self.num_layers:]
-
     input_image_type = image.dtype
 
     if input_image_type != tf.uint8:
@@ -630,29 +596,21 @@ class RandAugment(object):
     replace_value = [128] * 3
     min_prob, max_prob = 0.2, 0.8
 
-    for n in range(self.num_layers):
-      op_to_select = tf.random.stateless_uniform(
-          [], seeds_for_layers[n], maxval=len(self.available_ops) + 1,
-          dtype=tf.int32)
+    for _ in range(self.num_layers):
+      op_to_select = tf.random.uniform(
+          [], maxval=len(self.available_ops) + 1, dtype=tf.int32)
 
       branch_fns = []
       for (i, op_name) in enumerate(self.available_ops):
-        prob = tf.random.stateless_uniform(
-            [],
-            seeds_for_ops[n * len(self.available_ops) + i],
-            minval=min_prob,
-            maxval=max_prob,
-            dtype=tf.float32)
-        seed_for_random_negation = tf.random.experimental.stateless_fold_in(
-            seeds_for_ops[n * len(self.available_ops) + i],
-            n * len(self.available_ops) + i)
+        prob = tf.random.uniform([],
+                                 minval=min_prob,
+                                 maxval=max_prob,
+                                 dtype=tf.float32)
         func, _, args = _parse_policy_info(op_name,
                                            prob,
                                            self.magnitude,
                                            replace_value,
-                                           self.translate_const,
-                                           seed_for_random_negation,
-                                           self.randomly_negate_level)
+                                           self.translate_const)
         branch_fns.append((
             i,
             # pylint:disable=g-long-lambda

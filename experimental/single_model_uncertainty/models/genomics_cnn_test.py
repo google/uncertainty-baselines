@@ -138,7 +138,7 @@ class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
         gp_layer_hparams=gp_layer_hparams)
 
     logits = model(self.rand_data)
-    if isinstance(logits, (tuple, list)):
+    if isinstance(logits, tuple):
       logits, covmat = logits
       self.assertEqual(covmat.shape,
                        (self.params['batch_size'], self.params['batch_size']))

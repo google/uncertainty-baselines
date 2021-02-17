@@ -135,24 +135,6 @@ __Adding a new model.__
 4. Add the model to `models/models.py` for easy access.
 5. Add the `create_model` function to `models/__init__.py`.
 
-### Methods
-The end-to-end baseline training scripts can be found in [`baselines/`](https://github.com/google/uncertainty-baselines/tree/master/baselines).
-
-Supported methods include:
-
-- Deterministic
-- BatchEnsemble
-- Ensemble
-- Hyper-batch Ensemble
-- Hyper-deep Ensemble ([Quick Intro Notebook](https://github.com/google/uncertainty-baselines/blob/master/baselines/notebooks/Hyperparameter_Ensembles.ipynb))
-- MIMO
-- Rank-1 BNN
-- SNGP
-- Monte Carlo Dropout
-- Variational Inference
-
-
-
 ## Metrics
 
 We define metrics used across datasets below. All results are reported by roughly 3 significant digits and averaged over 10 runs.
@@ -206,14 +188,11 @@ Contributors (past and present):
 * Jeremiah Liu
 * Jeremy Nixon
 * Jie Ren
-* Josip Djolonga
 * Marton Havasi
 * Michael W. Dusenberry
 * Neil Band
 * Rodolphe Jenatton
-* Sebastian Farquhar
 * Shreyas Padhy
-* Tim G. J. Rudner
 * Yarin Gal
 * Yeming Wen
 * Zachary Nado

@@ -24,7 +24,7 @@ import collections
 import functools
 import math
 import tensorflow as tf
-from uncertainty_baselines.models import efficientnet_utils
+import utils  # local file import
 
 BlockArgs = collections.namedtuple('BlockArgs', [
     'kernel_size',
@@ -125,7 +125,7 @@ class MBConvBlock(tf.keras.layers.Layer):
         filters=filters,
         kernel_size=[1, 1],
         strides=[1, 1],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -136,7 +136,7 @@ class MBConvBlock(tf.keras.layers.Layer):
     self._depthwise_conv = tf.keras.layers.DepthwiseConv2D(
         kernel_size=[kernel_size, kernel_size],
         strides=self._block_args.strides,
-        depthwise_initializer=efficientnet_utils.conv_kernel_initializer,
+        depthwise_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -151,7 +151,7 @@ class MBConvBlock(tf.keras.layers.Layer):
           num_reduced_filters,
           kernel_size=[1, 1],
           strides=[1, 1],
-          kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+          kernel_initializer=utils.conv_kernel_initializer,
           padding='same',
           data_format=self._data_format,
           use_bias=True)
@@ -159,7 +159,7 @@ class MBConvBlock(tf.keras.layers.Layer):
           filters,
           kernel_size=[1, 1],
           strides=[1, 1],
-          kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+          kernel_initializer=utils.conv_kernel_initializer,
           padding='same',
           data_format=self._data_format,
           use_bias=True)
@@ -169,7 +169,7 @@ class MBConvBlock(tf.keras.layers.Layer):
         filters=filters,
         kernel_size=[1, 1],
         strides=[1, 1],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -210,12 +210,12 @@ class MBConvBlock(tf.keras.layers.Layer):
         s == 1 for s in self._block_args.strides
     ) and self._block_args.input_filters == self._block_args.output_filters:
       if survival_prob:
-        x = efficientnet_utils.drop_connect(x, training, survival_prob)
+        x = utils.drop_connect(x, training, survival_prob)
       x = tf.add(x, inputs)
     return x
 
 
-class EfficientNetModel(tf.keras.Model):
+class Model(tf.keras.Model):
   """EfficientNet."""
 
   def __init__(self,
@@ -230,8 +230,7 @@ class EfficientNetModel(tf.keras.Model):
                depth_divisor=8,
                min_depth=None,
                relu_fn=tf.nn.swish,
-               # TPU-specific requirement.
-               batch_norm=tf.keras.layers.experimental.SyncBatchNormalization,
+               batch_norm=utils.SyncBatchNorm,  # TPU-specific requirement.
                use_se=True,
                clip_projection_output=False):
     """Initializes model instance.
@@ -252,7 +251,7 @@ class EfficientNetModel(tf.keras.Model):
       use_se: Whether to use squeeze and excitation layers.
       clip_projection_output: Whether to clip projected conv outputs.
     """
-    super(EfficientNetModel, self).__init__()
+    super(Model, self).__init__()
     self._width_coefficient = width_coefficient
     self._depth_coefficient = depth_coefficient
     self._dropout_rate = dropout_rate
@@ -285,7 +284,7 @@ class EfficientNetModel(tf.keras.Model):
                               self._min_depth),
         kernel_size=[3, 3],
         strides=[2, 2],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -388,7 +387,7 @@ class EfficientNetModel(tf.keras.Model):
                               self._min_depth),
         kernel_size=[1, 1],
         strides=[1, 1],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         use_bias=False)
     self._bn1 = self._batch_norm(
@@ -403,7 +402,7 @@ class EfficientNetModel(tf.keras.Model):
       self._dropout = None
     self._fc = tf.keras.layers.Dense(
         self._num_classes,
-        kernel_initializer=efficientnet_utils.dense_kernel_initializer)
+        kernel_initializer=utils.dense_kernel_initializer)
 
   def call(self, inputs, training=True):
     """Implementation of call().
@@ -433,7 +432,3 @@ class EfficientNetModel(tf.keras.Model):
       outputs = self._dropout(outputs, training=training)
     outputs = self._fc(outputs)
     return outputs
-
-
-def create_model(*args, **kwargs):
-  return EfficientNetModel(*args, **kwargs)

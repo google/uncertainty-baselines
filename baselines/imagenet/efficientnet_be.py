@@ -21,11 +21,12 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-import robustness_metrics as rm
+
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import uncertainty_baselines as ub
-from tensorboard.plugins.hparams import api as hp
+import efficientnet_be_model  # local file import
+import utils  # local file import
+import uncertainty_metrics as um
 
 # ~312.78 steps per epoch for 4x4 TPU; per_core_batch_size=128; 350 epochs;
 
@@ -43,7 +44,6 @@ flags.DEFINE_float('random_sign_init', -0.5,
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.016,
                    'Base learning rate when train batch size is 256.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('fast_weight_lr_multiplier', 0.5,
                    'fast weights lr multiplier.')
 flags.DEFINE_float('l2', 5e-6, 'L2 coefficient.')
@@ -98,24 +98,20 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   width_coefficient, depth_coefficient, input_image_size, dropout_rate = (
-      ub.models.efficientnet_utils.efficientnet_params(FLAGS.model_name))
-  train_builder = ub.datasets.ImageNetDataset(
+      efficientnet_be_model.efficientnet_params(FLAGS.model_name))
+  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
+                                use_bfloat16=FLAGS.use_bfloat16,
+                                image_size=input_image_size,
+                                normalize_input=True,
+                                one_hot=True)
+  train_dataset = builder.as_dataset(
       split=tfds.Split.TRAIN,
-      use_bfloat16=FLAGS.use_bfloat16,
-      image_size=input_image_size,
-      normalize_input=True,
-      one_hot=True)
-  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
-  test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16,
-      image_size=input_image_size,
-      normalize_input=True,
-      one_hot=True)
-  clean_test_dataset = test_builder.load(
-      batch_size=batch_size, strategy=strategy)
+      batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores)
+  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
+                                          batch_size=batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
-      'clean': clean_test_dataset,
+      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
   }
   train_iterator = iter(train_dataset)
   test_iterator = iter(test_datasets['clean'])
@@ -129,7 +125,7 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building %s model', FLAGS.model_name)
-    model = ub.models.EfficientNetBatchEnsembleBuilder(
+    model = efficientnet_be_model.Model(
         width_coefficient,
         depth_coefficient,
         dropout_rate,
@@ -142,24 +138,18 @@ def main(argv):
     warmup_step = steps_per_epoch * 5
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         scaled_lr, decay_steps, decay_rate=0.97, staircase=True)
-    learning_rate = ub.schedules.AddWarmupDecaySchedule(
-        lr_schedule, warmup_step)
+    learning_rate = utils.WarmupDecaySchedule(lr_schedule, warmup_step)
     optimizer = tf.keras.optimizers.RMSprop(
-        learning_rate,
-        rho=0.9,
-        momentum=1.0 - FLAGS.one_minus_momentum,
-        epsilon=0.001)
+        learning_rate, rho=0.9, momentum=0.9, epsilon=0.001)
 
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'train/loss': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
     logging.info('Finished building %s model', FLAGS.model_name)
 
@@ -175,8 +165,7 @@ def main(argv):
 
   def train_step(inputs):
     """Build `step_fn` for efficientnet learning."""
-    images = inputs['features']
-    labels = inputs['labels']
+    images, labels = inputs
     images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
     labels = tf.tile(labels, [FLAGS.ensemble_size, 1])
 
@@ -230,7 +219,7 @@ def main(argv):
     metrics['train/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['train/accuracy'].update_state(labels, logits)
-    metrics['train/ece'].add_batch(probs, label=sparse_labels)
+    metrics['train/ece'].update_state(sparse_labels, probs)
 
     step_info = {
         'loss/negative_log_likelihood': negative_log_likelihood / num_replicas,
@@ -240,8 +229,7 @@ def main(argv):
 
   def eval_step(inputs):
     """A single step."""
-    images = inputs['features']
-    labels = inputs['labels']
+    images, labels = inputs
     images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
     logits = model(images, training=False)
     logits = tf.cast(logits, tf.float32)
@@ -257,7 +245,7 @@ def main(argv):
     metrics['test/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['test/accuracy'].update_state(labels, probs)
-    metrics['test/ece'].add_batch(probs, label=sparse_labels)
+    metrics['test/ece'].update_state(sparse_labels, probs)
 
   @tf.function
   def epoch_fn(should_eval):
@@ -314,12 +302,6 @@ def main(argv):
       total_results = {name: metric.result()
                        for name, metric in total_metrics.items()}
       total_results.update({'lr': learning_rate(optimizer.iterations)})
-      # Metrics from Robustness Metrics (like ECE) will return a dict with a
-      # single key/value, instead of a scalar.
-      total_results = {
-          k: (list(v.values())[0] if isinstance(v, dict) else v)
-          for k, v in total_results.items()
-      }
       with summary_writer.as_default():
         for name, result in total_results.items():
           if should_eval or 'test' not in name:
@@ -333,14 +315,6 @@ def main(argv):
         checkpoint_name = checkpoint.save(os.path.join(
             FLAGS.output_dir, 'checkpoint'))
         logging.info('Saved checkpoint to %s', checkpoint_name)
-  with summary_writer.as_default():
-    hp.hparams({
-        'base_learning_rate': FLAGS.base_learning_rate,
-        'one_minus_momentum': FLAGS.one_minus_momentum,
-        'l2': FLAGS.l2,
-        'random_sign_init': FLAGS.random_sign_init,
-        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
-    })
 
 
 if __name__ == '__main__':

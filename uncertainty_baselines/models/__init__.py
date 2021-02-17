@@ -16,12 +16,8 @@
 """Uncertainty baseline training models."""
 
 import warnings
-import tensorflow as tf
 
-from uncertainty_baselines.models import efficientnet_utils
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
-from uncertainty_baselines.models.efficientnet import create_model as EfficientNetBuilder
-from uncertainty_baselines.models.efficientnet_batch_ensemble import create_model as EfficientNetBatchEnsembleBuilder
 from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.movielens import create_model as MovieLensBuilder
@@ -32,10 +28,7 @@ from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchen
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
-from uncertainty_baselines.models.resnet50_het_mimo import resnet50_het_mimo
-from uncertainty_baselines.models.resnet50_het_rank1 import resnet50_het_rank1
 from uncertainty_baselines.models.resnet50_heteroscedastic import resnet50_heteroscedastic
-from uncertainty_baselines.models.resnet50_radial import resnet50_radial
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_layer
@@ -47,7 +40,6 @@ from uncertainty_baselines.models.wide_resnet import wide_resnet
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
 from uncertainty_baselines.models.wide_resnet_condconv import wide_resnet_condconv
 from uncertainty_baselines.models.wide_resnet_dropout import wide_resnet_dropout
-from uncertainty_baselines.models.wide_resnet_heteroscedastic import wide_resnet_heteroscedastic
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import e_factory as hyperbatchensemble_e_factory
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import LambdaConfig as HyperBatchEnsembleLambdaConfig
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import wide_resnet_hyperbatchensemble
@@ -67,6 +59,4 @@ try:
   from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
-except tf.errors.NotFoundError as e:
-  warnings.warn(f'Skipped dur to NotFoundError: {e}')
 # pylint: enable=g-import-not-at-top

@@ -18,9 +18,8 @@
 
 import os.path
 
-from typing import Any, Callable, Dict, Iterator, Optional, Union
+from typing import Any, Callable, Dict, Iterator, Optional
 from absl import logging
-import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 import eval as eval_lib  # local file import
@@ -34,8 +33,7 @@ _TrainStepFn = Callable[[Iterator[_TensorDict]], _TensorDict]
 def _train_step_fn(model: tf.keras.Model,
                    optimizer: tf.keras.optimizers.Optimizer,
                    strategy: tf.distribute.Strategy,
-                   metrics: Dict[str, Union[tf.keras.metrics.Metric,
-                                            rm.metrics.KerasMetric]],
+                   metrics: Dict[str, tf.keras.metrics.Metric],
                    iterations_per_loop: int,
                    focal_loss_gamma: float) -> _TrainStepFn:
   """Return a function to run `iterations_per_loop` train steps."""
@@ -76,10 +74,7 @@ def _train_step_fn(model: tf.keras.Model,
 
       predictions = tf.nn.softmax(logits, axis=-1)
       for metric in metrics.values():
-        if isinstance(metric, tf.keras.metrics.Metric):
-          metric.update_state(labels, predictions)  # pytype: disable=attribute-error
-        else:
-          metric.add_batch(predictions, label=labels)
+        metric.update_state(labels, predictions)
       grads = tape.gradient(scaled_loss, model.trainable_variables)
       optimizer.apply_gradients(list(zip(grads, model.trainable_variables)))
       return
@@ -91,14 +86,7 @@ def _train_step_fn(model: tf.keras.Model,
     # https://www.kaggle.com/c/flower-classification-with-tpus/discussion/135443.
     for _ in tf.range(iterations_per_loop):  # Note the use of tf.range.
       ub.utils.call_step_fn(strategy, step, next(train_iterator))
-    total_results = {name: value.result() for name, value in metrics.items()}
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
-    return total_results
+    return {name: metric.result() for name, metric in metrics.items()}
 
   return train_step
 
@@ -130,7 +118,7 @@ def run_train_loop(
     train_steps: int,
     mode: str,
     strategy: tf.distribute.Strategy,
-    metrics: Dict[str, Union[tf.keras.metrics.Metric, rm.metrics.KerasMetric]],
+    metrics: Dict[str, tf.keras.metrics.Metric],
     hparams: Dict[str, Any],
     ood_dataset_builder: ub.datasets.BaseDataset = None,
     ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,

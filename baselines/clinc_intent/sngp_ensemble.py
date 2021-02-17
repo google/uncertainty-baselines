@@ -28,12 +28,13 @@ from absl import logging
 
 import edward2 as ed
 import numpy as np
-import robustness_metrics as rm
 import tensorflow as tf
 
 import uncertainty_baselines as ub
 import bert_utils  # local file import
 import sngp  # local file import
+import uncertainty_metrics as um
+
 
 # TODO(trandustin): We inherit
 # FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
@@ -168,8 +169,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': rm.metrics.ExpectedCalibrationError(
-          num_bins=FLAGS.num_bins),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
   }
 
   for dataset_name, test_dataset in test_datasets.items():
@@ -180,7 +180,7 @@ def main(argv):
           'test/accuracy_{}'.format(dataset_name):
               tf.keras.metrics.SparseCategoricalAccuracy(),
           'test/ece_{}'.format(dataset_name):
-              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
       })
 
   # Finally, define OOD metrics for the combined IND and OOD dataset.
@@ -205,27 +205,22 @@ def main(argv):
       _, labels = bert_utils.create_feature_and_label(inputs, feature_size)
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
       labels = tf.cast(labels, tf.int32)
-      negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()
-      negative_log_likelihood_metric.add_batch(logits, labels=labels)
-      negative_log_likelihood = list(
-          negative_log_likelihood_metric.result().values())[0]
+      negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
       per_probs = tf.nn.softmax(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
       if name == 'clean':
-        gibbs_ce_metric = rm.metrics.GibbsCrossEntropy()
-        gibbs_ce_metric.add_batch(logits, labels=labels)
-        gibbs_ce = list(gibbs_ce_metric.result().values())[0]
+        gibbs_ce = um.gibbs_cross_entropy(labels, logits)
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].add_batch(probs, label=labels)
+        metrics['test/ece'].update_state(labels, probs)
       else:
         metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)
         metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
-        metrics['test/ece_{}'.format(name)].add_batch(probs, label=labels)
+        metrics['test/ece_{}'.format(name)].update_state(labels, probs)
 
       if dataset_name == 'all':
         ood_labels = tf.cast(labels == 150, labels.dtype)
@@ -240,12 +235,6 @@ def main(argv):
     logging.info(message)
 
   total_results = {name: metric.result() for name, metric in metrics.items()}
-  # Metrics from Robustness Metrics (like ECE) will return a dict with a
-  # single key/value, instead of a scalar.
-  total_results = {
-      k: (list(v.values())[0] if isinstance(v, dict) else v)
-      for k, v in total_results.items()
-  }
   logging.info('Metrics: %s', total_results)
 
 

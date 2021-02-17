@@ -26,12 +26,12 @@ from absl import flags
 from absl import logging
 
 import numpy as np
-import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 import eval as eval_lib  # local file import
 import flags as flags_lib  # local file import
 import train as train_lib  # local file import
+import uncertainty_metrics as um
 
 
 
@@ -81,6 +81,13 @@ def _maybe_setup_trial_dir(
       _setup_trial_dir(trial_dir, flag_string, mode)
   else:
     _setup_trial_dir(trial_dir, flag_string, mode)
+
+
+class BrierScore(tf.keras.metrics.Mean):
+
+  def update_state(self, y_true, y_pred, sample_weight=None):
+    brier_score = um.brier_score(labels=y_true, probabilities=y_pred)
+    super(BrierScore, self).update_state(brier_score)
 
 
 def _hparams_flag_name_filter(name):
@@ -164,7 +171,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
 
     metrics = {
         'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'brier_score': rm.metrics.Brier(),
+        'brier_score': BrierScore(name='brier_score'),
         'loss': tf.keras.metrics.SparseCategoricalCrossentropy(),
     }
 

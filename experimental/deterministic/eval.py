@@ -19,9 +19,8 @@
 import os.path
 import time
 
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 from absl import logging
-import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 from tensorboard.plugins.hparams import api as hp
@@ -36,7 +35,7 @@ EvalStepFn = Callable[[Iterator[_TensorDict]], _TensorDict]
 def eval_step_fn(
     model: tf.keras.Model,
     strategy: tf.distribute.Strategy,
-    metrics: Dict[str, Union[tf.keras.metrics.Metric, rm.metrics.KerasMetric]],
+    metrics: Dict[str, tf.keras.metrics.Metric],
     iterations_per_loop: int) -> EvalStepFn:
   """Generator for a function to run iters_per_loop validation/test steps."""
 
@@ -51,24 +50,14 @@ def eval_step_fn(
       # Later when metric.result() is called, it will return the computed
       # result, averaged across replicas.
       for metric in metrics.values():
-        if isinstance(metric, tf.keras.metrics.Metric):
-          metric.update_state(labels, predictions)  # pytype: disable=attribute-error
-        else:
-          metric.add_batch(predictions, label=labels)
+        metric.update_state(labels, predictions)
       return
 
     for metric in metrics.values():
       metric.reset_states()
     for _ in tf.range(iterations_per_loop):  # Note the use of tf.range.
       ub.utils.call_step_fn(strategy, step, next(train_iterator))
-    total_results = {name: value.result() for name, value in metrics.items()}
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
-    return total_results
+    return {name: value.result() for name, value in metrics.items()}
 
   return eval_step
 
@@ -123,8 +112,7 @@ def setup_eval(
     strategy,
     trial_dir: str,
     model: tf.keras.Model,
-    metrics: Dict[str, Union[tf.keras.metrics.Metric, rm.metrics.KerasMetric]]
-        ) -> _EvalSetupResult:
+    metrics: Dict[str, tf.keras.metrics.Metric]) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
   test_dataset = test_dataset_builder.load(batch_size=batch_size)
   test_dataset = strategy.experimental_distribute_dataset(test_dataset)
@@ -176,7 +164,7 @@ def run_eval_loop(
     trial_dir: str,
     train_steps: int,
     strategy: tf.distribute.Strategy,
-    metrics: Dict[str, Union[tf.keras.metrics.Metric, rm.metrics.KerasMetric]],
+    metrics: Dict[str, tf.keras.metrics.Metric],
     checkpoint_step: int = -1,
     hparams: Dict[str, Any] = None):
   """Evaluate the model on the validation and test splits and record metrics."""

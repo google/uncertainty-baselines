@@ -47,7 +47,7 @@ Note:
 import json
 import os.path
 
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Tuple
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -268,7 +268,6 @@ class ClincIntentDetectionDataset(base.BaseDataset):
       data_mode: str = 'ind',
       data_dir: str = None,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a CLINC tf.data.Dataset builder.
 
@@ -286,9 +285,6 @@ class ClincIntentDetectionDataset(base.BaseDataset):
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
-      is_training: Whether or not the given `split` is the training split. Only
-        required when the passed split is not one of ['train', 'validation',
-        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     self.tokenizer = _load_tokenizer(
         tokenizer_dir=os.path.join(data_dir, _FILENAME_TOKENZIER))
@@ -297,17 +293,16 @@ class ClincIntentDetectionDataset(base.BaseDataset):
         name='clinc_intent',
         dataset_builder=_ClincIntentionDatasetBuilder(data_dir, data_mode),
         split=split,
-        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=False)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
-    def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
+    def _example_parser(example: tf.Tensor) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
       features_spec = _make_features_spec()
-      features = tf.io.parse_example(example['features'], features_spec)
+      features = tf.io.parse_example(example, features_spec)
       labels = tf.cast(features.pop(_LABEL_NAME), tf.int32)
       utterance_indices = features[_FEATURE_NAME]
       num_tokens = features[_NUM_TOKEN_NAME]

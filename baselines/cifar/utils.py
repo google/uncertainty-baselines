@@ -16,61 +16,9 @@
 """Utilities for CIFAR-10 and CIFAR-100."""
 
 import os
-from absl import flags
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
-# common flags
-flags.DEFINE_float('base_learning_rate', 0.1,
-                   'Base learning rate when total batch size is 128. It is '
-                   'scaled by the ratio of the total batch size to 128.')
-flags.DEFINE_integer('checkpoint_interval', 25,
-                     'Number of epochs between saving checkpoints. Use -1 to '
-                     'never save checkpoints.')
-# TODO(ghassen): consider adding CIFAR-100-C to TFDS.
-flags.DEFINE_string('cifar100_c_path', None,
-                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-                    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', -1,
-                     'Number of epochs between evaluating on the corrupted '
-                     'test data. Use -1 to never evaluate.')
-flags.DEFINE_enum('dataset', 'cifar10',
-                  enum_values=['cifar10', 'cifar100'],
-                  help='Dataset.')
-flags.DEFINE_string('data_dir', None,
-                    'data_dir to be used for tfds dataset construction.'
-                    'It is required when training with cloud TPUs')
-flags.DEFINE_bool('download_data', False,
-                  'Whether to download data locally when initializing a '
-                  'dataset.')
-flags.DEFINE_float('l2', 2e-4, 'L2 regularization coefficient.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
-                  'Epochs to decay learning rate by.')
-flags.DEFINE_integer('lr_warmup_epochs', 1,
-                     'Number of epochs for a linear warmup to the initial '
-                     'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
-flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
-flags.DEFINE_integer('per_core_batch_size', 64,
-                     'Batch size per TPU core/GPU. The number of new '
-                     'datapoints gathered per batch is this number divided by '
-                     'ensemble_size (we tile the batch by that # of times).')
-flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
-flags.DEFINE_float('train_proportion', default=1.0,
-                   help='only use a proportion of training set.')
-flags.register_validator('train_proportion',
-                         lambda tp: tp > 0.0 and tp <= 1.0,
-                         message='--train_proportion must be in (0, 1].')
-
-# Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
 
 
 def load_cifar100_c(corruption_name,
@@ -133,14 +81,8 @@ def load_cifar10_c(corruption_name,
   def preprocess(image, label):
     image = tf.image.convert_image_dtype(image, dtype)
     if normalize:
-      # We use the convention of mean = np.mean(train_images, axis=(0,1,2))
-      # and std = np.std(train_images, axis=(0,1,2)).
       mean = tf.constant([0.4914, 0.4822, 0.4465], dtype=dtype)
-      std = tf.constant([0.2470, 0.2435, 0.2616], dtype=dtype)
-      # Previously, std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
-      # which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype).
-      # However, we change convention to use the std over the entire training
-      # set instead.
+      std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype)
       image = (image - mean) / std
     label = tf.cast(label, dtype)
     return image, label
@@ -198,6 +140,125 @@ def load_corrupted_test_info(dataset):
     ]
   max_intensity = 5
   return corruption_types, max_intensity
+
+
+def load_dataset(split,
+                 batch_size,
+                 name,
+                 use_bfloat16,
+                 normalize=True,
+                 drop_remainder=True,
+                 repeat=False,
+                 proportion=1.0,
+                 data_dir=None):
+  """Loads CIFAR dataset for training or testing.
+
+  Args:
+    split: tfds.Split.
+    batch_size: The global batch size to use.
+    name: A string indicates whether it is cifar10 or cifar100.
+    use_bfloat16: data type, bfloat16 precision or float32.
+    normalize: Whether to apply mean-std normalization on features.
+    drop_remainder: bool.
+    repeat: bool.
+    proportion: float, the proportion of dataset to be used.
+    data_dir: Directory where the dataset is stored to be loaded via tfds.load.
+      Optional, useful for loading datasets stored on GCS.
+
+  Returns:
+    Input function which returns a locally-sharded dataset batch.
+  """
+  if use_bfloat16:
+    dtype = tf.bfloat16
+  else:
+    dtype = tf.float32
+  ds_info = tfds.builder(name).info
+  image_shape = ds_info.features['image'].shape
+  dataset_size = ds_info.splits['train'].num_examples
+
+  def preprocess(image, label):
+    """Image preprocessing function."""
+    if split == tfds.Split.TRAIN:
+      image = tf.image.resize_with_crop_or_pad(
+          image, image_shape[0] + 4, image_shape[1] + 4)
+      image = tf.image.random_crop(image, image_shape)
+      image = tf.image.random_flip_left_right(image)
+
+    image = tf.image.convert_image_dtype(image, dtype)
+    if normalize:
+      mean = tf.constant([0.4914, 0.4822, 0.4465], dtype=dtype)
+      std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype)
+      image = (image - mean) / std
+    label = tf.cast(label, dtype)
+    return image, label
+
+  if proportion == 1.0:
+    dataset = tfds.load(
+        name, split=split, data_dir=data_dir, as_supervised=True)
+  else:
+    new_name = '{}:3.*.*'.format(name)
+    if split == tfds.Split.TRAIN:
+      # use round instead of floor to resolve bug when e.g. using
+      # proportion = 1 - 0.8 = 0.19999999
+      new_split = 'train[:{}%]'.format(round(100 * proportion))
+    elif split == tfds.Split.VALIDATION:
+      new_split = 'train[-{}%:]'.format(round(100 * proportion))
+    elif split == tfds.Split.TEST:
+      new_split = 'test[:{}%]'.format(round(100 * proportion))
+    else:
+      raise ValueError('Provide valid split.')
+    dataset = tfds.load(new_name, split=new_split, as_supervised=True)
+  if split == tfds.Split.TRAIN or repeat:
+    dataset = dataset.shuffle(buffer_size=dataset_size).repeat()
+
+  dataset = dataset.map(preprocess,
+                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+  dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
+  dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+  return dataset
+
+
+class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+  """Learning rate schedule.
+
+  It starts with a linear warmup to the initial learning rate over
+  `warmup_epochs`. This is found to be helpful for large batch size training
+  (Goyal et al., 2018). The learning rate's value then uses the initial
+  learning rate, and decays by a multiplier at the start of each epoch in
+  `decay_epochs`. The stepwise decaying schedule follows He et al. (2015).
+  """
+
+  def __init__(self,
+               steps_per_epoch,
+               initial_learning_rate,
+               decay_ratio,
+               decay_epochs,
+               warmup_epochs):
+    super(LearningRateSchedule, self).__init__()
+    self.steps_per_epoch = steps_per_epoch
+    self.initial_learning_rate = initial_learning_rate
+    self.decay_ratio = decay_ratio
+    self.decay_epochs = decay_epochs
+    self.warmup_epochs = warmup_epochs
+
+  def __call__(self, step):
+    lr_epoch = tf.cast(step, tf.float32) / self.steps_per_epoch
+    learning_rate = self.initial_learning_rate
+    if self.warmup_epochs >= 1:
+      learning_rate *= lr_epoch / self.warmup_epochs
+    decay_epochs = [self.warmup_epochs] + self.decay_epochs
+    for index, start_epoch in enumerate(decay_epochs):
+      learning_rate = tf.where(
+          lr_epoch >= start_epoch,
+          self.initial_learning_rate * self.decay_ratio**index,
+          learning_rate)
+    return learning_rate
+
+  def get_config(self):
+    return {
+        'steps_per_epoch': self.steps_per_epoch,
+        'initial_learning_rate': self.initial_learning_rate,
+    }
 
 
 # TODO(baselines): Remove reliance on hard-coded metric names.
@@ -363,10 +424,3 @@ def aggregate_corrupt_metrics(metrics,
     return fine_metrics_results
   else:
     return results
-
-
-def get_data_dir_from_flags(all_flags):
-  if all_flags.use_gpu:
-    return None
-  else:
-    return all_flags.data_dir

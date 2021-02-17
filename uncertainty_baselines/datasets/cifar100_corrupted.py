@@ -220,7 +220,7 @@ class Cifar100CorruptedDataset(base.BaseDataset):
     def _example_parser(example: types.Features) -> types.Features:
       """A pre-process function to return images in [0, 1]."""
       features = tf.io.parse_single_example(
-          example['features'],
+          example,
           features={
               'image': tf.io.FixedLenFeature([], tf.string),
               'label': tf.io.FixedLenFeature([], tf.int64),
@@ -231,14 +231,8 @@ class Cifar100CorruptedDataset(base.BaseDataset):
       image = tf.image.convert_image_dtype(image, dtype)
       image = image / 255  # to convert into the [0, 1) range
       if self._normalize:
-        # We use the convention of mean = np.mean(train_images, axis=(0,1,2))
-        # and std = np.std(train_images, axis=(0,1,2)).
         mean = tf.constant([0.4914, 0.4822, 0.4465], dtype=dtype)
-        std = tf.constant([0.2470, 0.2435, 0.2616], dtype=dtype)
-        # Previously, std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
-        # which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype).
-        # However, we change convention to use the std over the entire training
-        # set instead.
+        std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype)
         image = (image - mean) / std
 
       label = tf.cast(features['label'], dtype)

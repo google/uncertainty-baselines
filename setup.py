@@ -28,15 +28,12 @@ setup(
         'absl-py>=0.8.1',
         'numpy>=1.7',
         'tf-nightly',
-        'tensorboard',
         'tensorflow-datasets>=1.3.0',
-        # https://github.com/tensorflow/tensorflow/issues/44146 is reproducible
-        # with tf-nightly
-        'gast==0.3.3'
     ],
     extras_require={
         'experimental': [
             'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
+            'uncertainty_metrics @ git+https://github.com/google/uncertainty-metrics.git#egg=uncertainty_metrics[tensorflow]',
         ],
         'models': [
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.

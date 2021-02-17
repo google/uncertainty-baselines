@@ -26,10 +26,10 @@ from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
-import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import uncertainty_metrics.tensorflow as um
 import utils  # local file import
 
 # Data load / output flags.
@@ -138,9 +138,8 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-      'test/auprc': tf.keras.metrics.AUC(curve='PR'),
-      'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
-      'test/ece': rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/auc': tf.keras.metrics.AUC()
   }
 
   for i in range(ensemble_size):
@@ -172,24 +171,18 @@ def main(argv):
                                                          eval_batch_size)]
     labels = tf.cast(labels, tf.float32)
     logits = tf.cast(logits, tf.float32)
-    negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy(
-        binary=True)
-    negative_log_likelihood_metric.add_batch(
-        logits, labels=tf.expand_dims(labels, axis=-1))
-    negative_log_likelihood = list(
-        negative_log_likelihood_metric.result().values())[0]
+    negative_log_likelihood = um.ensemble_cross_entropy(
+        tf.expand_dims(labels, axis=-1), logits, binary=True)
     per_probs = tf.nn.sigmoid(logits)
     probs = tf.reduce_mean(per_probs, axis=0)
-    gibbs_ce_metric = rm.metrics.GibbsCrossEntropy(binary=True)
-    gibbs_ce_metric.add_batch(logits, labels=tf.expand_dims(labels, axis=-1))
-    gibbs_ce = list(gibbs_ce_metric.result().values())[0]
+    gibbs_ce = um.gibbs_cross_entropy(
+        tf.expand_dims(labels, axis=-1), logits, binary=True)
     metrics['test/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
     metrics['test/accuracy'].update_state(labels, probs)
-    metrics['test/auprc'].update_state(labels, probs)
-    metrics['test/auroc'].update_state(labels, probs)
-    metrics['test/ece'].add_batch(probs, label=labels)
+    metrics['test/ece'].update_state(labels, probs)
+    metrics['test/auc'].update_state(labels, probs)
 
     for i in range(ensemble_size):
       member_probs = per_probs[i]
@@ -198,19 +191,11 @@ def main(argv):
       metrics['test/accuracy_member_{}'.format(i)].update_state(
           labels, member_probs)
 
-    diversity = rm.metrics.AveragePairwiseDiversity()
-    diversity.add_batch(per_probs, num_models=ensemble_size)
-    diversity_results = diversity.result()
+    diversity_results = um.average_pairwise_diversity(per_probs, ensemble_size)
     for k, v in diversity_results.items():
       test_diversity['test/' + k].update_state(v)
 
   total_results = {name: metric.result() for name, metric in metrics.items()}
-  # Metrics from Robustness Metrics (like ECE) will return a dict with a
-  # single key/value, instead of a scalar.
-  total_results = {
-      k: (list(v.values())[0] if isinstance(v, dict) else v)
-      for k, v in total_results.items()
-  }
   logging.info('Metrics: %s', total_results)
 
 

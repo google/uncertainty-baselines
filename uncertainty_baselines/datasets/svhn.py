@@ -35,7 +35,6 @@ class SvhnDataset(base.BaseDataset):
       try_gcs: bool = False,
       download_data: bool = False,
       normalize_by_cifar: bool = False,
-      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create an SVHN tf.data.Dataset builder.
 
@@ -54,22 +53,16 @@ class SvhnDataset(base.BaseDataset):
       download_data: Whether or not to download data before loading.
       normalize_by_cifar: whether or not to normalize each image by the CIFAR
         dataset mean and stddev.
-      is_training: Whether or not the given `split` is the training split. Only
-        required when the passed split is not one of ['train', 'validation',
-        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     self._normalize_by_cifar = normalize_by_cifar
     name = 'svhn_cropped'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs)
-    if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
-    new_split = base.get_validation_percent_split(
+    split = base.get_validation_percent_split(
         dataset_builder, validation_percent, split)
     super(SvhnDataset, self).__init__(
         name=name,
         dataset_builder=dataset_builder,
-        split=new_split,
-        is_training=is_training,
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data)
@@ -82,14 +75,8 @@ class SvhnDataset(base.BaseDataset):
       image = tf.image.convert_image_dtype(image, tf.float32)
       label = tf.cast(example['label'], tf.int32)
       if self._normalize_by_cifar:
-        # We use the convention of mean = np.mean(train_images, axis=(0,1,2))
-        # and std = np.std(train_images, axis=(0,1,2)).
         mean = tf.constant([0.4914, 0.4822, 0.4465])
-        std = tf.constant([0.2470, 0.2435, 0.2616])
-        # Previously, std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
-        # which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype).
-        # However, we change convention to use the std over the entire training
-        # set instead.
+        std = tf.constant([0.2023, 0.1994, 0.2010])
         image = (image - mean) / std
       parsed_example = {
           'features': image,

@@ -36,18 +36,17 @@ from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
-import robustness_metrics as rm
 import scipy
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-from tensorboard.plugins.hparams import api as hp
+import utils  # local file import
+import uncertainty_metrics as um
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.1,
                    'Base learning rate when train batch size is 256.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')
@@ -87,6 +86,7 @@ flags.DEFINE_float('temperature', 1.5,
 flags.DEFINE_integer('num_mc_samples', 5000,
                      'Num MC samples for heteroscedastic layer.')
 
+
 FLAGS = flags.FLAGS
 
 # Number of images in ImageNet-1k train dataset.
@@ -95,6 +95,9 @@ APPROX_IMAGENET_TRAIN_IMAGES = 1281167
 IMAGENET_VALIDATION_IMAGES = 50000
 NUM_CLASSES = 1000
 
+_LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
+    (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
+]
 
 IMAGE_SHAPE = (224, 224, 3)
 
@@ -135,28 +138,31 @@ def main(argv):
       'use_truncated_beta': FLAGS.use_truncated_beta
   }
 
-  train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
+  train_builder = utils.ImageNetInput(
+      data_dir=FLAGS.data_dir,
       use_bfloat16=FLAGS.use_bfloat16,
       one_hot=True,
       mixup_params=mixup_params)
-  test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
-  test_dataset = test_builder.load(batch_size=batch_size, strategy=strategy)
+  test_builder = utils.ImageNetInput(
+      data_dir=FLAGS.data_dir, use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.as_dataset(
+      split=tfds.Split.TRAIN, batch_size=batch_size)
+  test_dataset = test_builder.as_dataset(
+      split=tfds.Split.TEST, batch_size=batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  test_dataset = strategy.experimental_distribute_dataset(test_dataset)
 
   if enable_mixup:
 
     mean_theta = mean_truncated_beta_distribution(FLAGS.mixup_alpha)
 
     # Train set to compute the means of the images and of the (one-hot) labels
-    imagenet_train_no_mixup = ub.datasets.ImageNetDataset(
-        split=tfds.Split.TRAIN,
-        use_bfloat16=FLAGS.use_bfloat16,
-        one_hot=True)
-    tr_data_no_mixup = imagenet_train_no_mixup.load(
-        batch_size=batch_size, strategy=strategy)
+    imagenet_train_no_mixup = utils.ImageNetInput(
+        data_dir=FLAGS.data_dir, use_bfloat16=FLAGS.use_bfloat16, one_hot=True)
+    imagenet_train_no_mixup = imagenet_train_no_mixup.as_dataset(
+        split=tfds.Split.TRAIN, batch_size=batch_size)
+    tr_data_no_mixup = strategy.experimental_distribute_dataset(
+        imagenet_train_no_mixup)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -180,30 +186,21 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    decay_epochs = [
-        (FLAGS.train_epochs * 30) // 90,
-        (FLAGS.train_epochs * 60) // 90,
-        (FLAGS.train_epochs * 80) // 90,
-    ]
-    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
-        steps_per_epoch=steps_per_epoch,
-        base_learning_rate=base_lr,
-        decay_ratio=0.1,
-        decay_epochs=decay_epochs,
-        warmup_epochs=5)
+    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
+                                               base_lr,
+                                               FLAGS.train_epochs,
+                                               _LR_SCHEDULE)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
-                                        momentum=1.0 - FLAGS.one_minus_momentum,
+                                        momentum=0.9,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
     logging.info('Finished building Keras ResNet-50 model')
 
@@ -213,7 +210,7 @@ def main(argv):
                                                            .Mean())
       metrics['test/accuracy+rescaling'] = (tf.keras.metrics
                                             .SparseCategoricalAccuracy())
-      metrics['test/ece+rescaling'] = rm.metrics.ExpectedCalibrationError(
+      metrics['test/ece+rescaling'] = um.ExpectedCalibrationError(
           num_bins=FLAGS.num_bins)
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -242,9 +239,7 @@ def main(argv):
     new_count = count + 1.
     count.assign(new_count)
 
-    inputs = next(iterator)
-    images = inputs['features']
-    labels = inputs['labels']
+    images, labels = next(iterator)
 
     per_replica_means = strategy.run(step_fn_labels, args=(labels,))
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
@@ -259,8 +254,7 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images = inputs['features']
-      labels = inputs['labels']
+      images, labels = inputs
 
       with tf.GradientTape() as tape:
 
@@ -293,14 +287,13 @@ def main(argv):
       # We go back from one-hot labels to integers
       labels = tf.argmax(labels, axis=-1)
 
-      metrics['train/ece'].add_batch(probs, label=labels)
+      metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
-      strategy.run(step_fn, args=(next(iterator),))
+    strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
   def update_test_metrics(labels, logits, metric_suffix=''):
@@ -311,15 +304,14 @@ def main(argv):
     metrics['test/negative_log_likelihood' + metric_suffix].update_state(
         negative_log_likelihood)
     metrics['test/accuracy' + metric_suffix].update_state(labels, probs)
-    metrics['test/ece' + metric_suffix].add_batch(probs, label=labels)
+    metrics['test/ece' + metric_suffix].update_state(labels, probs)
 
   @tf.function
   def test_step(iterator):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images = inputs['features']
-      labels = inputs['labels']
+      images, labels = inputs
 
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:
@@ -341,15 +333,14 @@ def main(argv):
 
         update_test_metrics(labels, scaled_logits, '+rescaling')
 
-    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
-      strategy.run(step_fn, args=(next(iterator),))
+    strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
   if enable_mixup:
     logging.info('Starting to compute the means of labels and images')
     tr_iterator_no_mixup = iter(tr_data_no_mixup)
-    for _ in range(steps_per_epoch):
+    for step in range(steps_per_epoch):
       moving_average_step(tr_iterator_no_mixup)
     # Save stats required by the mixup rescaling [2] for subsequent predictions
     mixup_rescaling_stats = {
@@ -366,29 +357,33 @@ def main(argv):
   start_time = time.time()
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    train_step(train_iterator)
+    for step in range(steps_per_epoch):
+      train_step(train_iterator)
 
-    current_step = (epoch + 1) * steps_per_epoch
-    max_steps = steps_per_epoch * FLAGS.train_epochs
-    time_elapsed = time.time() - start_time
-    steps_per_sec = float(current_step) / time_elapsed
-    eta_seconds = (max_steps - current_step) / steps_per_sec
-    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                   current_step / max_steps,
-                   epoch + 1,
-                   FLAGS.train_epochs,
-                   steps_per_sec,
-                   eta_seconds / 60,
-                   time_elapsed / 60))
-    logging.info(message)
+      current_step = epoch * steps_per_epoch + (step + 1)
+      max_steps = steps_per_epoch * FLAGS.train_epochs
+      time_elapsed = time.time() - start_time
+      steps_per_sec = float(current_step) / time_elapsed
+      eta_seconds = (max_steps - current_step) / steps_per_sec
+      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                     current_step / max_steps,
+                     epoch + 1,
+                     FLAGS.train_epochs,
+                     steps_per_sec,
+                     eta_seconds / 60,
+                     time_elapsed / 60))
+      if step % 20 == 0:
+        logging.info(message)
 
     test_iterator = iter(test_dataset)
-    logging.info('Starting to run eval at epoch: %s', epoch)
-    test_start_time = time.time()
-    test_step(test_iterator)
-    ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-    metrics['test/ms_per_example'].update_state(ms_per_example)
+    for step in range(steps_per_eval):
+      if step % 20 == 0:
+        logging.info('Starting to run eval step %s of epoch: %s', step, epoch)
+      test_start_time = time.time()
+      test_step(test_iterator)
+      ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
+      metrics['test/ms_per_example'].update_state(ms_per_example)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),
@@ -403,12 +398,6 @@ def main(argv):
           metrics['test/accuracy+rescaling'].result() * 100)
 
     total_results = {name: metric.result() for name, metric in metrics.items()}
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -425,16 +414,6 @@ def main(argv):
   final_save_name = os.path.join(FLAGS.output_dir, 'model')
   model.save(final_save_name)
   logging.info('Saved model to %s', final_save_name)
-  with summary_writer.as_default():
-    hp.hparams({
-        'base_learning_rate': FLAGS.base_learning_rate,
-        'one_minus_momentum': FLAGS.one_minus_momentum,
-        'l2': FLAGS.l2,
-        'num_factors': FLAGS.num_factors,
-        'temperature': FLAGS.temperature,
-        'num_mc_samples': FLAGS.num_mc_samples,
-    })
-
 
 if __name__ == '__main__':
   app.run(main)

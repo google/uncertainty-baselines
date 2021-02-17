@@ -28,32 +28,46 @@ from absl import logging
 
 import edward2 as ed
 import numpy as np
-import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
+import uncertainty_metrics as um
 
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
 flags.mark_flag_as_required('checkpoint_dir')
+flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
+flags.DEFINE_enum('dataset', 'cifar10',
+                  enum_values=['cifar10', 'cifar100'],
+                  help='Dataset.')
+flags.DEFINE_string('cifar100_c_path', None,
+                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
+                    '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
+flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
+
 # SNGP ensemble flags
 flags.DEFINE_float(
     'gp_mean_field_factor_ensemble', 0.0005,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean.')
+
 # Dropout flags
 flags.DEFINE_bool('use_filterwise_dropout', True,
                   'Whether to use filterwise dropout for the hidden layers.')
 flags.DEFINE_bool('use_mc_dropout', False,
                   'Whether to use Monte Carlo dropout for the hidden layers.')
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
+
 # SNGP flags.
 flags.DEFINE_bool('use_spec_norm', True,
                   'Whether to apply spectral normalization.')
 flags.DEFINE_bool('use_gp_layer', True,
                   'Whether to use Gaussian process as the output layer.')
+
 # Spectral normalization flags.
 flags.DEFINE_integer(
     'spec_norm_iteration', 1,
@@ -61,6 +75,7 @@ flags.DEFINE_integer(
     'the spectral norm of weight matrices.')
 flags.DEFINE_float('spec_norm_bound', 6.,
                    'Upper bound to spectral norm of weight matrices.')
+
 # Gaussian process flags.
 flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
 flags.DEFINE_float(
@@ -91,6 +106,10 @@ flags.DEFINE_float(
     'The discount factor to compute the moving average of precision matrix'
     'across epochs. If -1 then compute the exact precision matrix within the '
     'latest epoch.')
+
+# Accelerator flags.
+flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_integer('num_cores', 1, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
 
 
@@ -108,23 +127,19 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  data_dir = utils.get_data_dir_from_flags(FLAGS)
   dataset = ub.datasets.get(
       FLAGS.dataset,
-      data_dir=data_dir,
-      download_data=FLAGS.download_data,
       split=tfds.Split.TEST).load(batch_size=batch_size)
   test_datasets = {'clean': dataset}
   extra_kwargs = {}
   if FLAGS.dataset == 'cifar100':
-    data_dir = FLAGS.cifar100_c_path
+    extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
   corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
   for corruption_type in corruption_types:
     for severity in range(1, 6):
       dataset = ub.datasets.get(
           f'{FLAGS.dataset}_corrupted',
           corruption_type=corruption_type,
-          data_dir=data_dir,
           severity=severity,
           split=tfds.Split.TEST,
           **extra_kwargs).load(batch_size=batch_size)
@@ -180,7 +195,7 @@ def main(argv):
         for _ in range(steps_per_eval):
           features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
           logits_member = model(features, training=False)
-          if isinstance(logits_member, (list, tuple)):
+          if isinstance(logits_member, tuple):
             # If model returns a tuple of (logits, covmat), extract both
             logits_member, covmat_member = logits_member
           else:
@@ -205,8 +220,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': rm.metrics.ExpectedCalibrationError(
-          num_bins=FLAGS.num_bins),
+      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
   }
   corrupt_metrics = {}
   for name in test_datasets:
@@ -214,7 +228,7 @@ def main(argv):
     corrupt_metrics['test/accuracy_{}'.format(name)] = (
         tf.keras.metrics.SparseCategoricalAccuracy())
     corrupt_metrics['test/ece_{}'.format(name)] = (
-        rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+        um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
   # Evaluate model predictions.
   for n, (name, test_dataset) in enumerate(test_datasets.items()):
@@ -231,28 +245,23 @@ def main(argv):
       labels = next(test_iterator)['labels']  # pytype: disable=unsupported-operands
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
-      negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()
-      negative_log_likelihood_metric.add_batch(logits, labels=labels)
-      negative_log_likelihood = list(
-          negative_log_likelihood_metric.result().values())[0]
+      negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
       per_probs = tf.nn.softmax(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
       if name == 'clean':
-        gibbs_ce_metric = rm.metrics.GibbsCrossEntropy()
-        gibbs_ce_metric.add_batch(logits, labels=labels)
-        gibbs_ce = list(gibbs_ce_metric.result().values())[0]
+        gibbs_ce = um.gibbs_cross_entropy(labels, logits)
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].add_batch(probs, label=labels)
+        metrics['test/ece'].update_state(labels, probs)
       else:
         corrupt_metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(name)].add_batch(
-            probs, label=labels)
+        corrupt_metrics['test/ece_{}'.format(name)].update_state(
+            labels, probs)
 
     message = ('{:.1%} completion for evaluation: dataset {:d}/{:d}'.format(
         (n + 1) / num_datasets, n + 1, num_datasets))
@@ -262,12 +271,6 @@ def main(argv):
                                                     corruption_types)
   total_results = {name: metric.result() for name, metric in metrics.items()}
   total_results.update(corrupt_results)
-  # Metrics from Robustness Metrics (like ECE) will return a dict with a
-  # single key/value, instead of a scalar.
-  total_results = {
-      k: (list(v.values())[0] if isinstance(v, dict) else v)
-      for k, v in total_results.items()
-  }
   logging.info('Metrics: %s', total_results)
 
 

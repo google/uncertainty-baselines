@@ -67,12 +67,45 @@ from absl import flags
 from absl import logging
 
 import edward2 as ed
-import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import data_utils  # local file import
 import utils  # local file import
-from tensorboard.plugins.hparams import api as hp
+import uncertainty_metrics as um
+
+flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
+flags.DEFINE_float('base_learning_rate', 0.05,
+                   'Base learning rate when total batch size is 128. It is '
+                   'scaled by the ratio of the total batch size to 128.')
+flags.DEFINE_integer('lr_warmup_epochs', 1,
+                     'Number of epochs for a linear warmup to the initial '
+                     'learning rate. Use 0 to do no warmup.')
+flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
+flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
+                  'Epochs to decay learning rate by.')
+flags.DEFINE_float('l2', 3e-4, 'L2 regularization coefficient.')
+
+flags.DEFINE_float('train_proportion', 1.,
+                   'Only a fraction (between 0 and 1) of the train set is used '
+                   'for training. The remainder can be used for validation.')
+flags.DEFINE_enum('dataset', 'cifar10',
+                  enum_values=['cifar10', 'cifar100'],
+                  help='Dataset.')
+flags.DEFINE_string('cifar100_c_path', None,
+                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
+                    '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_integer('corruptions_interval', -1,
+                     'Number of epochs between evaluating on the corrupted '
+                     'test data. Use -1 to never evaluate.')
+flags.DEFINE_integer(
+    'checkpoint_interval', -1,
+    'Number of epochs between saving checkpoints. Use -1 to '
+    'never save checkpoints.')
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
+flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
+flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
 
 # Data Augmentation flags.
 flags.DEFINE_bool('augmix', False,
@@ -151,10 +184,12 @@ flags.DEFINE_float(
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
 
-# Redefining default values
-flags.FLAGS.set_default('base_learning_rate', 0.05)
-flags.FLAGS.set_default('l2', 3e-4)
-flags.FLAGS.set_default('train_epochs', 250)
+# Accelerator flags.
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+flags.DEFINE_string('tpu', None,
+                    'Name of the TPU. Only used if use_gpu is False.')
 FLAGS = flags.FLAGS
 
 
@@ -163,10 +198,7 @@ def main(argv):
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
-  # Split the seed into a 2-tuple, for passing into dataset builder.
-  dataset_seed = (FLAGS.seed, FLAGS.seed + 1)
 
-  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -178,10 +210,11 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
+  ds_info = tfds.builder(FLAGS.dataset).info
   batch_size = (FLAGS.per_core_batch_size * FLAGS.num_cores
                 // FLAGS.num_dropout_samples_training)
   test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  num_classes = 10 if FLAGS.dataset == 'cifar10' else 100
+  num_classes = ds_info.features['label'].num_classes
 
   aug_params = {
       'augmix': FLAGS.augmix,
@@ -194,43 +227,40 @@ def main(argv):
   }
   validation_proportion = 1. - FLAGS.train_proportion
   use_validation_set = validation_proportion > 0.
-  if FLAGS.dataset == 'cifar10':
-    dataset_builder_class = ub.datasets.Cifar10Dataset
-  else:
-    dataset_builder_class = ub.datasets.Cifar100Dataset
-  train_dataset_builder = dataset_builder_class(
-      data_dir=data_dir,
-      download_data=FLAGS.download_data,
+  train_dataset = data_utils.load_dataset(
       split=tfds.Split.TRAIN,
+      name=FLAGS.dataset,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       aug_params=aug_params,
-      validation_percent=validation_proportion,
-      seed=dataset_seed)
-  train_dataset = train_dataset_builder.load(batch_size=batch_size)
-  train_sample_size = train_dataset_builder.num_examples
-  if validation_proportion > 0.:
-    validation_dataset_builder = dataset_builder_class(
-        data_dir=data_dir,
-        download_data=FLAGS.download_data,
+      validation_set=use_validation_set,
+      validation_proportion=validation_proportion)
+  train_sample_size = ds_info.splits[
+      'train'].num_examples * FLAGS.train_proportion
+  val_sample_size = ds_info.splits['train'].num_examples - train_sample_size
+  if use_validation_set:
+    validation_dataset = data_utils.load_dataset(
         split=tfds.Split.VALIDATION,
+        name=FLAGS.dataset,
+        batch_size=batch_size,
         use_bfloat16=FLAGS.use_bfloat16,
-        validation_percent=validation_proportion)
-    validation_dataset = validation_dataset_builder.load(batch_size=batch_size)
+        aug_params=aug_params,
+        validation_set=use_validation_set,
+        validation_proportion=validation_proportion)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
-    val_sample_size = validation_dataset_builder.num_examples
     steps_per_val = steps_per_epoch = int(val_sample_size / batch_size)
-  clean_test_dataset_builder = dataset_builder_class(
-      data_dir=data_dir,
-      download_data=FLAGS.download_data,
+  clean_test_dataset = utils.load_dataset(
       split=tfds.Split.TEST,
+      name=FLAGS.dataset,
+      batch_size=test_batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  clean_test_dataset = clean_test_dataset_builder.load(
-      batch_size=test_batch_size)
 
+  train_sample_size = ds_info.splits[
+      'train'].num_examples * FLAGS.train_proportion
   steps_per_epoch = int(train_sample_size / batch_size)
-  steps_per_epoch = train_dataset_builder.num_examples // batch_size
-  steps_per_eval = clean_test_dataset_builder.num_examples // batch_size
+  steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
+  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
@@ -249,8 +279,6 @@ def main(argv):
             corruption_name=corruption,
             corruption_intensity=intensity,
             batch_size=test_batch_size,
-            data_dir=data_dir,
-            download_data=FLAGS.download_data,
             use_bfloat16=FLAGS.use_bfloat16)
         test_datasets['{0}_{1}'.format(corruption, intensity)] = (
             strategy.experimental_distribute_dataset(dataset))
@@ -271,7 +299,7 @@ def main(argv):
       logging.info('Use GP layer with hidden units %d', FLAGS.gp_hidden_dim)
 
     model = ub.models.wide_resnet_sngp(
-        input_shape=(32, 32, 3),
+        input_shape=ds_info.features['image'].shape,
         batch_size=batch_size,
         depth=28,
         width_multiplier=10,
@@ -299,33 +327,30 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
+    lr_schedule = utils.LearningRateSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=1.0 - FLAGS.one_minus_momentum,
+                                        momentum=0.9,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/stddev': tf.keras.metrics.Mean(),
     }
     if use_validation_set:
       metrics.update({
           'val/negative_log_likelihood': tf.keras.metrics.Mean(),
           'val/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-          'val/ece': rm.metrics.ExpectedCalibrationError(
-              num_bins=FLAGS.num_bins),
+          'val/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
           'val/stddev': tf.keras.metrics.Mean(),
       })
     if FLAGS.corruptions_interval > 0:
@@ -338,7 +363,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
           corrupt_metrics['test/stddev_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
 
@@ -358,8 +383,7 @@ def main(argv):
 
     def step_fn(inputs, step):
       """Per-Replica StepFn."""
-      images = inputs['features']
-      labels = inputs['labels']
+      images, labels = inputs
 
       if tf.equal(step, 0) and FLAGS.gp_cov_discount_factor < 0:
         # Resetting covaraince estimator at the begining of a new epoch.
@@ -379,7 +403,7 @@ def main(argv):
 
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract logits
           logits, _ = logits
         if FLAGS.use_bfloat16:
@@ -406,7 +430,7 @@ def main(argv):
       probs = tf.nn.softmax(logits)
       if FLAGS.mixup_alpha > 0:
         labels = tf.argmax(labels, axis=-1)
-      metrics['train/ece'].add_batch(probs, label=labels)
+      metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
@@ -419,14 +443,13 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images = inputs['features']
-      labels = inputs['labels']
+      images, labels = inputs
 
       logits_list = []
       stddev_list = []
       for _ in range(FLAGS.num_dropout_samples):
         logits = model(images, training=False)
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract both
           logits, covmat = logits
         else:
@@ -460,26 +483,25 @@ def main(argv):
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].add_batch(probs, label=labels)
+        metrics['test/ece'].update_state(labels, probs)
         metrics['test/stddev'].update_state(stddev)
       elif dataset_name == 'val':
         metrics['val/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['val/accuracy'].update_state(labels, probs)
-        metrics['val/ece'].add_batch(probs, label=labels)
+        metrics['val/ece'].update_state(labels, probs)
         metrics['val/stddev'].update_state(stddev)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
-            probs, label=labels)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
+            labels, probs)
         corrupt_metrics['test/stddev_{}'.format(dataset_name)].update_state(
             stddev)
 
-    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
-      strategy.run(step_fn, args=(next(iterator),))
+    strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
@@ -521,11 +543,14 @@ def main(argv):
       test_iterator = iter(test_dataset)
       logging.info('Testing on dataset %s', dataset_name)
       steps_per_eval = steps_per_val if dataset_name == 'val' else steps_per_eval
-      logging.info('Starting to run eval at epoch: %s', epoch)
-      test_start_time = time.time()
-      test_step(test_iterator, dataset_name)
-      ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+      for step in range(steps_per_eval):
+        if step % 20 == 0:
+          logging.info('Starting to run eval step %s of epoch: %s', step,
+                       epoch)
+        test_start_time = time.time()
+        test_step(test_iterator, dataset_name)
+        ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
+        metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
 
@@ -548,12 +573,6 @@ def main(argv):
                  metrics['test/accuracy'].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -574,14 +593,6 @@ def main(argv):
   final_save_name = os.path.join(FLAGS.output_dir, 'model')
   model.save(final_save_name)
   logging.info('Saved model to %s', final_save_name)
-  with summary_writer.as_default():
-    hp.hparams({
-        'base_learning_rate': FLAGS.base_learning_rate,
-        'one_minus_momentum': FLAGS.one_minus_momentum,
-        'l2': FLAGS.l2,
-        'gp_mean_field_factor': FLAGS.gp_mean_field_factor,
-    })
-
 
 if __name__ == '__main__':
   app.run(main)

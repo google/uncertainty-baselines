@@ -25,16 +25,15 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 from tensorflow_addons import metrics as tfa_metrics
 
 import uncertainty_baselines as ub
-import metrics as tc_metrics  # local file import
 import utils  # local file import
 from uncertainty_baselines.datasets import toxic_comments as ds
-from tensorboard.plugins.hparams import api as hp
+import uncertainty_metrics as um
+
 
 # Data flags
 flags.DEFINE_string(
@@ -64,7 +63,6 @@ flags.DEFINE_string(
     'If None then then default to {bert_dir}/bert_config.json.')
 
 # Dropout flags
-flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
 flags.DEFINE_bool(
     'channel_wise_dropout_all', True,
     'Whether to apply channel-wise dropout for all layers.')
@@ -90,28 +88,26 @@ flags.DEFINE_bool(
 flags.DEFINE_bool(
     'use_mc_dropout_output', False,
     'Whether to apply Monte Carlo dropout to the dense output layer.')
+flags.DEFINE_integer('num_dropout_samples', 10,
+                     'Number of dropout samples to use for prediction.')
 
 # Optimization and evaluation flags
 flags.DEFINE_integer('seed', 8, 'Random seed.')
-flags.DEFINE_integer('per_core_batch_size', 32, 'Batch size per TPU core/GPU.')
+# TODO(kivlichan): this sets it to 64 with 8 cores; figure out why and fix.
+flags.DEFINE_integer('per_core_batch_size', 8, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float(
     'base_learning_rate', 5e-5,
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_integer(
     'checkpoint_interval', 5,
     'Number of epochs between saving checkpoints. Use -1 to '
     'never save checkpoints.')
 flags.DEFINE_integer('evaluation_interval', 1,
                      'Number of epochs between evaluation.')
-flags.DEFINE_integer('num_ece_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_integer(
-    'num_approx_bins', 1000,
-    'Number of bins for approximating collaborative and abstention metrics.')
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_list(
-    'fractions',
-    ['0.0', '0.001', '0.005', '0.01', '0.02', '0.05', '0.1', '0.15', '0.2'],
+    'fractions', ['0.0', '0.01', '0.05', '0.1', '0.15', '0.2'],
     'A list of fractions of total examples to send to '
     'the moderators (up to 1).')
 flags.DEFINE_string('output_dir', '/tmp/toxic_comments', 'Output directory.')
@@ -196,21 +192,6 @@ def main(argv):
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
-  if FLAGS.prediction_mode and FLAGS.identity_prediction:
-    for dataset_name in utils.IDENTITY_LABELS:
-      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
-        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
-            split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_specific_dataset_dir, dataset_name),
-            shuffle_buffer_size=data_buffer_size)
-    for dataset_name in utils.IDENTITY_TYPES:
-      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
-        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
-            split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_type_dataset_dir, dataset_name),
-            shuffle_buffer_size=data_buffer_size)
 
   class_weight = utils.create_class_weight(
       train_dataset_builders, test_dataset_builders)
@@ -223,12 +204,8 @@ def main(argv):
   train_datasets = {}
   dataset_steps_per_epoch = {}
   total_steps_per_epoch = 0
-
-  # TODO(jereliu): Apply strategy.experimental_distribute_dataset to the
-  # dataset_builders.
   for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = dataset_builder.load(
-        batch_size=FLAGS.per_core_batch_size)
+    train_datasets[dataset_name] = dataset_builder.load(batch_size=batch_size)
     dataset_steps_per_epoch[dataset_name] = (
         dataset_builder.num_examples // batch_size)
     total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
@@ -238,12 +215,8 @@ def main(argv):
   for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.load(
         batch_size=test_batch_size)
-    if dataset_name in ['ind', 'ood', 'ood_identity']:
-      steps_per_eval[dataset_name] = (
-          dataset_builder.num_examples // test_batch_size)
-    else:
-      steps_per_eval[dataset_name] = (
-          utils.NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
+    steps_per_eval[dataset_name] = (
+        dataset_builder.num_examples // test_batch_size)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -259,8 +232,6 @@ def main(argv):
         FLAGS.bert_model_type, FLAGS.bert_dir, FLAGS.bert_config_dir,
         FLAGS.bert_ckpt_dir)
     bert_config = utils.create_config(bert_config_dir)
-    bert_config.hidden_dropout_prob = FLAGS.dropout_rate
-    bert_config.attention_probs_dropout_prob = FLAGS.dropout_rate
     model, bert_encoder = ub.models.DropoutBertBuilder(
         num_classes=num_classes,
         bert_config=bert_config,
@@ -272,40 +243,28 @@ def main(argv):
         channel_wise_dropout_att=FLAGS.channel_wise_dropout_att,
         channel_wise_dropout_ffn=FLAGS.channel_wise_dropout_ffn)
 
-    # Create an AdamW optimizer with beta_2=0.999, epsilon=1e-6.
     optimizer = utils.create_optimizer(
         FLAGS.base_learning_rate,
         steps_per_epoch=total_steps_per_epoch,
         epochs=FLAGS.train_epochs,
-        warmup_proportion=FLAGS.warmup_proportion,
-        beta_1=1.0 - FLAGS.one_minus_momentum)
+        warmup_proportion=FLAGS.warmup_proportion)
 
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
 
     metrics = {
-        'train/negative_log_likelihood':
-            tf.keras.metrics.Mean(),
-        'train/accuracy':
-            tf.keras.metrics.Accuracy(),
-        'train/accuracy_weighted':
-            tf.keras.metrics.Accuracy(),
-        'train/auroc':
-            tf.keras.metrics.AUC(),
-        'train/loss':
-            tf.keras.metrics.Mean(),
-        'train/ece':
-            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins),
-        'train/precision':
-            tf.keras.metrics.Precision(),
-        'train/recall':
-            tf.keras.metrics.Recall(),
-        'train/f1':
-            tfa_metrics.F1Score(
-                num_classes=num_classes,
-                average='micro',
-                threshold=FLAGS.ece_label_threshold),
+        'train/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'train/accuracy': tf.keras.metrics.Accuracy(),
+        'train/accuracy_weighted': tf.keras.metrics.Accuracy(),
+        'train/auroc': tf.keras.metrics.AUC(),
+        'train/loss': tf.keras.metrics.Mean(),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/precision': tf.keras.metrics.Precision(),
+        'train/recall': tf.keras.metrics.Recall(),
+        'train/f1': tfa_metrics.F1Score(
+            num_classes=num_classes, average='micro',
+            threshold=FLAGS.ece_label_threshold),
     }
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -327,67 +286,27 @@ def main(argv):
       logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
 
     metrics.update({
-        'test/negative_log_likelihood':
-            tf.keras.metrics.Mean(),
-        'test/auroc':
-            tf.keras.metrics.AUC(curve='ROC'),
-        'test/aupr':
-            tf.keras.metrics.AUC(curve='PR'),
-        'test/brier':
-            tf.keras.metrics.MeanSquaredError(),
-        'test/brier_weighted':
-            tf.keras.metrics.MeanSquaredError(),
-        'test/ece':
-            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins),
-        'test/acc':
-            tf.keras.metrics.Accuracy(),
-        'test/acc_weighted':
-            tf.keras.metrics.Accuracy(),
-        'test/eval_time':
-            tf.keras.metrics.Mean(),
-        'test/precision':
-            tf.keras.metrics.Precision(),
-        'test/recall':
-            tf.keras.metrics.Recall(),
-        'test/f1':
-            tfa_metrics.F1Score(
-                num_classes=num_classes,
-                average='micro',
-                threshold=FLAGS.ece_label_threshold)
+        'test/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
+        'test/aupr': tf.keras.metrics.AUC(curve='PR'),
+        'test/brier': tf.keras.metrics.MeanSquaredError(),
+        'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/acc': tf.keras.metrics.Accuracy(),
+        'test/acc_weighted': tf.keras.metrics.Accuracy(),
+        'test/eval_time': tf.keras.metrics.Mean(),
+        'test/precision': tf.keras.metrics.Precision(),
+        'test/recall': tf.keras.metrics.Recall(),
+        'test/f1': tfa_metrics.F1Score(
+            num_classes=num_classes, average='micro',
+            threshold=FLAGS.ece_label_threshold),
     })
-
-    for policy in ('uncertainty', 'toxicity'):
+    for fraction in FLAGS.fractions:
       metrics.update({
-          'test_{}/calibration_auroc'.format(policy):
-              tc_metrics.CalibrationAUC(curve='ROC'),
-          'test_{}/calibration_auprc'.format(policy):
-              tc_metrics.CalibrationAUC(curve='PR')
+          'test_collab_acc/collab_acc_{}'.format(fraction):
+              um.OracleCollaborativeAccuracy(
+                  fraction=float(fraction), num_bins=FLAGS.num_bins)
       })
-
-      for fraction in FLAGS.fractions:
-        metrics.update({
-            'test_{}/collab_acc_{}'.format(policy, fraction):
-                rm.metrics.OracleCollaborativeAccuracy(
-                    fraction=float(fraction), num_bins=FLAGS.num_approx_bins),
-            'test_{}/abstain_prec_{}'.format(policy, fraction):
-                tc_metrics.AbstainPrecision(
-                    abstain_fraction=float(fraction),
-                    num_approx_bins=FLAGS.num_approx_bins),
-            'test_{}/abstain_recall_{}'.format(policy, fraction):
-                tc_metrics.AbstainRecall(
-                    abstain_fraction=float(fraction),
-                    num_approx_bins=FLAGS.num_approx_bins),
-            'test_{}/collab_auroc_{}'.format(policy, fraction):
-                tc_metrics.OracleCollaborativeAUC(
-                    oracle_fraction=float(fraction),
-                    num_bins=FLAGS.num_approx_bins),
-            'test_{}/collab_auprc_{}'.format(policy, fraction):
-                tc_metrics.OracleCollaborativeAUC(
-                    oracle_fraction=float(fraction),
-                    curve='PR',
-                    num_bins=FLAGS.num_approx_bins),
-        })
-
     for dataset_name, test_dataset in test_datasets.items():
       if dataset_name != 'ind':
         metrics.update({
@@ -402,8 +321,7 @@ def main(argv):
             'test/brier_weighted_{}'.format(dataset_name):
                 tf.keras.metrics.MeanSquaredError(),
             'test/ece_{}'.format(dataset_name):
-                rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins
-                                                   ),
+                um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
             'test/acc_{}'.format(dataset_name):
                 tf.keras.metrics.Accuracy(),
             'test/acc_weighted_{}'.format(dataset_name):
@@ -418,46 +336,14 @@ def main(argv):
                 tfa_metrics.F1Score(
                     num_classes=num_classes,
                     average='micro',
-                    threshold=FLAGS.ece_label_threshold)
+                    threshold=FLAGS.ece_label_threshold),
         })
-
-        for policy in ('uncertainty', 'toxicity'):
+        for fraction in FLAGS.fractions:
           metrics.update({
-              'test_{}/calibration_auroc_{}'.format(policy, dataset_name):
-                  tc_metrics.CalibrationAUC(curve='ROC'),
-              'test_{}/calibration_auprc_{}'.format(policy, dataset_name):
-                  tc_metrics.CalibrationAUC(curve='PR'),
+              'test_collab_acc/collab_acc_{}_{}'.format(fraction, dataset_name):
+                  um.OracleCollaborativeAccuracy(
+                      fraction=float(fraction), num_bins=FLAGS.num_bins)
           })
-
-          for fraction in FLAGS.fractions:
-            metrics.update({
-                'test_{}/collab_acc_{}_{}'.format(policy, fraction,
-                                                  dataset_name):
-                    rm.metrics.OracleCollaborativeAccuracy(
-                        fraction=float(fraction),
-                        num_bins=FLAGS.num_approx_bins),
-                'test_{}/abstain_prec_{}_{}'.format(policy, fraction,
-                                                    dataset_name):
-                    tc_metrics.AbstainPrecision(
-                        abstain_fraction=float(fraction),
-                        num_approx_bins=FLAGS.num_approx_bins),
-                'test_{}/abstain_recall_{}_{}'.format(policy, fraction,
-                                                      dataset_name):
-                    tc_metrics.AbstainRecall(
-                        abstain_fraction=float(fraction),
-                        num_approx_bins=FLAGS.num_approx_bins),
-                'test_{}/collab_auroc_{}_{}'.format(policy, fraction,
-                                                    dataset_name):
-                    tc_metrics.OracleCollaborativeAUC(
-                        oracle_fraction=float(fraction),
-                        num_bins=FLAGS.num_approx_bins),
-                'test_{}/collab_auprc_{}_{}'.format(policy, fraction,
-                                                    dataset_name):
-                    tc_metrics.OracleCollaborativeAUC(
-                        oracle_fraction=float(fraction),
-                        curve='PR',
-                        num_bins=FLAGS.num_approx_bins),
-            })
 
   @tf.function
   def generate_sample_weight(labels, class_weight, label_threshold=0.7):
@@ -472,7 +358,7 @@ def main(argv):
     return sample_weight
 
   @tf.function
-  def train_step(iterator, dataset_name, num_steps):
+  def train_step(iterator, dataset_name):
     """Training StepFn."""
 
     def step_fn(inputs):
@@ -536,13 +422,12 @@ def main(argv):
           ece_labels, pred_labels, sample_weight=sample_weight)
       metrics['train/auroc'].update_state(labels, auc_probs)
       metrics['train/loss'].update_state(loss)
-      metrics['train/ece'].add_batch(ece_probs, label=ece_labels)
+      metrics['train/ece'].update_state(ece_labels, ece_probs)
       metrics['train/precision'].update_state(ece_labels, pred_labels)
       metrics['train/recall'].update_state(ece_labels, pred_labels)
       metrics['train/f1'].update_state(one_hot_labels, ece_probs)
 
-    for _ in tf.range(tf.cast(num_steps, tf.int32)):
-      strategy.run(step_fn, args=(next(iterator),))
+    strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -571,11 +456,6 @@ def main(argv):
       negative_log_likelihood = tf.reduce_mean(
           tf.nn.sigmoid_cross_entropy_with_logits(labels, loss_logits))
 
-      # Use normalized binary predictive variance as the confidence score.
-      # Since the prediction variance p*(1-p) is within range (0, 0.25),
-      # normalize it by maximum value so the confidence is between (0, 1).
-      calib_confidence = 1. - probs * (1. - probs) / .25
-
       sample_weight = generate_sample_weight(
           labels, class_weight['test/{}'.format(dataset_name)],
           FLAGS.ece_label_threshold)
@@ -587,7 +467,7 @@ def main(argv):
         metrics['test/brier'].update_state(labels, auc_probs)
         metrics['test/brier_weighted'].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece'].add_batch(ece_probs, label=ece_labels)
+        metrics['test/ece'].update_state(ece_labels, ece_probs)
         metrics['test/acc'].update_state(ece_labels, pred_labels)
         metrics['test/acc_weighted'].update_state(
             ece_labels, pred_labels, sample_weight=sample_weight)
@@ -595,35 +475,9 @@ def main(argv):
         metrics['test/precision'].update_state(ece_labels, pred_labels)
         metrics['test/recall'].update_state(ece_labels, pred_labels)
         metrics['test/f1'].update_state(one_hot_labels, ece_probs)
-
-        for policy in ('uncertainty', 'toxicity'):
-          # calib_confidence or decreasing toxicity score.
-          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
-
-          metrics['test_{}/calibration_auroc'.format(policy)].update_state(
-              ece_labels, pred_labels, confidence)
-          metrics['test_{}/calibration_auprc'.format(policy)].update_state(
-              ece_labels, pred_labels, confidence)
-
-          for fraction in FLAGS.fractions:
-            metrics['test_{}/collab_acc_{}'.format(policy, fraction)].add_batch(
-                ece_probs,
-                label=ece_labels,
-                custom_binning_score=binning_confidence)
-            metrics['test_{}/abstain_prec_{}'.format(
-                policy, fraction)].update_state(ece_labels, pred_labels,
-                                                confidence)
-            metrics['test_{}/abstain_recall_{}'.format(
-                policy, fraction)].update_state(ece_labels, pred_labels,
-                                                confidence)
-            metrics['test_{}/collab_auroc_{}'.format(
-                policy, fraction)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
-            metrics['test_{}/collab_auprc_{}'.format(
-                policy, fraction)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
-
+        for fraction in FLAGS.fractions:
+          metrics['test_collab_acc/collab_acc_{}'.format(
+              fraction)].update_state(ece_labels, ece_probs)
       else:
         metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -635,8 +489,8 @@ def main(argv):
             labels, auc_probs)
         metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece_{}'.format(dataset_name)].add_batch(
-            ece_probs, label=ece_labels)
+        metrics['test/ece_{}'.format(dataset_name)].update_state(
+            ece_labels, ece_probs)
         metrics['test/acc_{}'.format(dataset_name)].update_state(
             ece_labels, pred_labels)
         metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
@@ -649,37 +503,9 @@ def main(argv):
             ece_labels, pred_labels)
         metrics['test/f1_{}'.format(dataset_name)].update_state(
             one_hot_labels, ece_probs)
-
-        for policy in ('uncertainty', 'toxicity'):
-          # calib_confidence or decreasing toxicity score.
-          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
-
-          metrics['test_{}/calibration_auroc_{}'.format(
-              policy, dataset_name)].update_state(ece_labels, pred_labels,
-                                                  confidence)
-          metrics['test_{}/calibration_auprc_{}'.format(
-              policy, dataset_name)].update_state(ece_labels, pred_labels,
-                                                  confidence)
-
-          for fraction in FLAGS.fractions:
-            metrics['test_{}/collab_acc_{}_{}'.format(
-                policy, fraction, dataset_name)].add_batch(
-                    ece_probs,
-                    label=ece_labels,
-                    custom_binning_score=binning_confidence)
-            metrics['test_{}/abstain_prec_{}_{}'.format(
-                policy, fraction,
-                dataset_name)].update_state(ece_labels, pred_labels, confidence)
-            metrics['test_{}/abstain_recall_{}_{}'.format(
-                policy, fraction,
-                dataset_name)].update_state(ece_labels, pred_labels, confidence)
-            metrics['test_{}/collab_auroc_{}_{}'.format(
-                policy, fraction, dataset_name)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
-            metrics['test_{}/collab_auprc_{}_{}'.format(
-                policy, fraction, dataset_name)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
+        for fraction in FLAGS.fractions:
+          metrics['test_collab_acc/collab_acc_{}_{}'.format(
+              fraction, dataset_name)].update_state(ece_labels, ece_probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -793,23 +619,23 @@ def main(argv):
       train_iterators[dataset_name] = iter(train_dataset)
     for epoch in range(initial_epoch, FLAGS.train_epochs):
       logging.info('Starting to run epoch: %s', epoch)
+      current_step = epoch * total_steps_per_epoch
       for dataset_name, train_iterator in train_iterators.items():
-        train_step(
-            train_iterator, dataset_name, dataset_steps_per_epoch[dataset_name])
+        for step in range(dataset_steps_per_epoch[dataset_name]):
+          train_step(train_iterator, dataset_name)
 
-        current_step = (
-            epoch * total_steps_per_epoch +
-            dataset_steps_per_epoch[dataset_name])
-        max_steps = total_steps_per_epoch * FLAGS.train_epochs
-        time_elapsed = time.time() - start_time
-        steps_per_sec = float(current_step) / time_elapsed
-        eta_seconds = (max_steps - current_step) / steps_per_sec
-        message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                   'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                       current_step / max_steps, epoch + 1,
-                       FLAGS.train_epochs, steps_per_sec, eta_seconds / 60,
-                       time_elapsed / 60))
-        logging.info(message)
+          current_step += 1
+          max_steps = total_steps_per_epoch * FLAGS.train_epochs
+          time_elapsed = time.time() - start_time
+          steps_per_sec = float(current_step) / time_elapsed
+          eta_seconds = (max_steps - current_step) / steps_per_sec
+          message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                     'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                         current_step / max_steps, epoch + 1,
+                         FLAGS.train_epochs, steps_per_sec, eta_seconds / 60,
+                         time_elapsed / 60))
+          if step % 20 == 0:
+            logging.info(message)
 
       if epoch % FLAGS.evaluation_interval == 0:
         for dataset_name, test_dataset in test_datasets.items():
@@ -835,15 +661,9 @@ def main(argv):
                      metrics['test/auroc'].result())
 
         # record results
-        total_results = {
-            name: metric.result() for name, metric in metrics.items()
-        }
-        # Metrics from Robustness Metrics (like ECE) will return a dict with a
-        # single key/value, instead of a scalar.
-        total_results = {
-            k: (list(v.values())[0] if isinstance(v, dict) else v)
-            for k, v in total_results.items()
-        }
+        total_results = {}
+        for name, metric in metrics.items():
+          total_results[name] = metric.result()
 
         with summary_writer.as_default():
           for name, result in total_results.items():
@@ -862,12 +682,6 @@ def main(argv):
     final_save_name = os.path.join(FLAGS.output_dir, 'model')
     model.save(final_save_name)
     logging.info('Saved model to %s', final_save_name)
-  with summary_writer.as_default():
-    hp.hparams({
-        'base_learning_rate': FLAGS.base_learning_rate,
-        'one_minus_momentum': FLAGS.one_minus_momentum,
-        'dropout_rate': FLAGS.dropout_rate,
-    })
 
 
 if __name__ == '__main__':

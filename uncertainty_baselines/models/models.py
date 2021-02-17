@@ -24,8 +24,6 @@ import warnings
 import tensorflow as tf
 
 from uncertainty_baselines.models import criteo_mlp
-from uncertainty_baselines.models import efficientnet
-from uncertainty_baselines.models import efficientnet_batch_ensemble
 from uncertainty_baselines.models import genomics_cnn
 from uncertainty_baselines.models import movielens
 from uncertainty_baselines.models import resnet20
@@ -37,8 +35,6 @@ try:
   from uncertainty_baselines.models import bert  # pylint: disable=g-import-not-at-top
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
-except tf.errors.NotFoundError as e:
-  warnings.warn(f'Skipped dur to NotFoundError: {e}')
 
 
 def get_model_names() -> List[str]:
@@ -99,9 +95,3 @@ def get(
     return wide_resnet.create_model(batch_size, **hyperparameters)
   if model_name == 'genomics_cnn':
     return genomics_cnn.create_model(batch_size, **hyperparameters)
-
-  # EfficientNet models don't take in the batch size.
-  if model_name == 'efficientnet':
-    return efficientnet.create_model(**hyperparameters)
-  if model_name == 'efficientnet_batch_ensemble':
-    return efficientnet_batch_ensemble.create_model(**hyperparameters)

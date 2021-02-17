@@ -22,7 +22,6 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
@@ -31,13 +30,46 @@ import utils  # local file import
 from uncertainty_baselines.models import hyperbatchensemble_e_factory as e_factory
 from uncertainty_baselines.models import HyperBatchEnsembleLambdaConfig as LambdaConfig
 from uncertainty_baselines.models import wide_resnet_hyperbatchensemble
-from tensorboard.plugins.hparams import api as hp
+import uncertainty_metrics as um
 
 # General model, training, and evaluation flags
+flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
+flags.DEFINE_float('base_learning_rate', 0.1,
+                   'Base learning rate when total batch size is 128. It is '
+                   'scaled by the ratio of the total batch size to 128.')
+flags.DEFINE_integer('lr_warmup_epochs', 1,
+                     'Number of epochs for a linear warmup to the initial '
+                     'learning rate. Use 0 to do no warmup.')
+flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
+# this correpsonds to [80, 160, 180] stretched by 250/200 epochs
+flags.DEFINE_list('lr_decay_epochs', ['100', '200', '225'],
+                  'Epochs to decay learning rate by.')
+flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
+flags.DEFINE_integer(
+    'checkpoint_interval', 25,
+    'Number of epochs between saving checkpoints. Use -1 to '
+    'never save checkpoints.')
 flags.DEFINE_boolean('restore_checkpoint', False,
                      'Start training from latest checkpoint.')
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
+flags.DEFINE_string('output_dir', '/tmp/wide_resnet', 'Output directory.')
 
 # Data flags
+flags.DEFINE_enum(
+    'dataset', 'cifar10', enum_values=['cifar10', 'cifar100'], help='Dataset.')
+flags.DEFINE_float(
+    'train_proportion', 0.95,
+    'Only a fraction (between 0 and 1) of the train set is used for training. '
+    'The remainder can be used for validation.')
+flags.DEFINE_string(
+    'cifar100_c_path', None,
+    'Path to the TFRecords files for CIFAR-100-C. Only valid '
+    '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_integer('corruptions_interval', -1,
+                     'Number of epochs between evaluating on the corrupted '
+                     'test data. Use -1 to never evaluate.')
+
 # Hyper-batchensemble flags
 flags.DEFINE_bool('e_model_use_bias', False, 'Whether to use bias in e models.')
 flags.DEFINE_float('min_l2_range', 1e-1, 'Min value of l2 range.')
@@ -53,6 +85,7 @@ flags.DEFINE_float('ens_init_delta_bounds', 0.2,
                    'determines the spread of the log-uniform distribution'
                    'around it (used by ens_init: random, default).')
 flags.DEFINE_float('init_emodels_stddev', 1e-4, 'Init e_models weights.')
+
 flags.DEFINE_integer('ensemble_size', 4, 'Size of the ensemble.')
 flags.DEFINE_float('lr_tuning', 1e-3, 'Learning rate for hparam tuning.')
 flags.DEFINE_float('tau', 1e-3,
@@ -77,10 +110,12 @@ flags.DEFINE_integer(
     'If >=0, we take num_eval_samples + the mean of lambdas.'
     '(by default, notice that when = 0, predictions are with the mean only)'
     'If < 0, we take -num_eval_samples, without including the mean of lambdas.')
-# Redefining default values
-flags.FLAGS.set_default('lr_decay_epochs', ['100', '200', '225'])
-flags.FLAGS.set_default('train_epochs', 250)
-flags.FLAGS.set_default('train_proportion', 0.95)
+# Accelerator flags
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+flags.DEFINE_string('tpu', None,
+                    'Name of the TPU. Only used if use_gpu is False.')
+
 FLAGS = flags.FLAGS
 
 
@@ -166,7 +201,6 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
-  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -192,22 +226,16 @@ def main(argv):
   validation_percent = 1 - FLAGS.train_proportion
   train_dataset = ub.datasets.get(
       FLAGS.dataset,
-      data_dir=data_dir,
-      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
       validation_percent=validation_percent).load(batch_size=batch_size)
   validation_dataset = ub.datasets.get(
       FLAGS.dataset,
-      data_dir=data_dir,
-      download_data=FLAGS.download_data,
       split=tfds.Split.VALIDATION,
       validation_percent=validation_percent,
       drop_remainder=drop_remainder_validation).load(batch_size=batch_size)
   validation_dataset = validation_dataset.repeat()
   clean_test_dataset = ub.datasets.get(
       FLAGS.dataset,
-      data_dir=data_dir,
-      download_data=FLAGS.download_data,
       split=tfds.Split.TEST).load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   validation_dataset = strategy.experimental_distribute_dataset(
@@ -216,17 +244,18 @@ def main(argv):
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
+    extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
-      data_dir = FLAGS.cifar100_c_path
+      extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
     corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
     for corruption_type in corruption_types:
       for severity in range(1, 6):
         dataset = ub.datasets.get(
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
-            data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST).load(batch_size=batch_size)
+            split=tfds.Split.TEST,
+            **extra_kwargs).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -328,14 +357,14 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [int(l) for l in FLAGS.lr_decay_epochs]
 
-    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
+    lr_schedule = utils.LearningRateSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=1.0 - FLAGS.one_minus_momentum,
+                                        momentum=0.9,
                                         nesterov=True)
 
     # tuner used for optimizing lambda_parameters
@@ -345,15 +374,13 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'train/disagreement': tf.keras.metrics.Mean(),
         'train/average_kl': tf.keras.metrics.Mean(),
         'train/cosine_similarity': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/gibbs_nll': tf.keras.metrics.Mean(),
         'test/gibbs_accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/disagreement': tf.keras.metrics.Mean(),
@@ -378,7 +405,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     checkpoint = tf.train.Checkpoint(
         model=model, lambda_parameters=lambda_parameters, optimizer=optimizer)
@@ -446,14 +473,13 @@ def main(argv):
       per_probs = tf.split(
           probs, num_or_size_splits=FLAGS.ensemble_size, axis=0)
       per_probs_stacked = tf.stack(per_probs, axis=0)
-      metrics['train/ece'].add_batch(probs, label=labels)
+      metrics['train/ece'].update_state(labels, probs)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
-      diversity = rm.metrics.AveragePairwiseDiversity()
-      diversity.add_batch(per_probs_stacked, num_models=FLAGS.ensemble_size)
-      diversity_results = diversity.result()
+      diversity_results = um.average_pairwise_diversity(
+          per_probs_stacked, FLAGS.ensemble_size)
       for k, v in diversity_results.items():
         metrics['train/' + k].update_state(v)
 
@@ -570,20 +596,19 @@ def main(argv):
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].add_batch(probs, label=labels)
+        metrics['test/ece'].update_state(labels, probs)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
-            probs, label=labels)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
+            labels, probs)
 
       if dataset_name == 'clean':
         per_probs_stacked = tf.stack(per_probs, axis=0)
-        diversity = rm.metrics.AveragePairwiseDiversity()
-        diversity.add_batch(per_probs_stacked, num_models=ensemble_size)
-        diversity_results = diversity.result()
+        diversity_results = um.average_pairwise_diversity(
+            per_probs_stacked, ensemble_size)
         for k, v in diversity_results.items():
           metrics['test/' + k].update_state(v)
 
@@ -659,12 +684,6 @@ def main(argv):
     total_results.update(
         {name: metric.result() for name, metric in corrupt_metrics.items()})
     total_results.update(corrupt_results)
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -682,15 +701,6 @@ def main(argv):
       with tf.io.gfile.GFile(filepath, 'wb') as fp:
         pickle.dump(lambdas_cf, fp, protocol=pickle.HIGHEST_PROTOCOL)
       logging.info('Saved checkpoint to %s', checkpoint_name)
-  with summary_writer.as_default():
-    hp.hparams({
-        'base_learning_rate': FLAGS.base_learning_rate,
-        'one_minus_momentum': FLAGS.one_minus_momentum,
-        'l2': FLAGS.l2,
-        'random_sign_init': FLAGS.random_sign_init,
-        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
-    })
-
 
 if __name__ == '__main__':
   app.run(main)

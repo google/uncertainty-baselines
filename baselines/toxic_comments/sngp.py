@@ -438,7 +438,7 @@ def main(argv):
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
 
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract logits
           logits, _ = logits
         if FLAGS.use_bfloat16:
@@ -519,7 +519,7 @@ def main(argv):
       for _ in range(FLAGS.num_mc_samples):
         logits = model(features, training=False)
 
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract both.
           logits, covmat = logits
         else:
@@ -624,7 +624,7 @@ def main(argv):
       bert_features, labels, additional_labels = utils.create_feature_and_label(
           inputs)
       logits = model(bert_features, training=False)
-      if isinstance(logits, (list, tuple)):
+      if isinstance(logits, tuple):
         # If model returns a tuple of (logits, covmat), extract both.
         logits, covmat = logits
       else:

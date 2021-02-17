@@ -142,6 +142,125 @@ def load_corrupted_test_info(dataset):
   return corruption_types, max_intensity
 
 
+def load_dataset(split,
+                 batch_size,
+                 name,
+                 use_bfloat16,
+                 normalize=True,
+                 drop_remainder=True,
+                 repeat=False,
+                 proportion=1.0,
+                 data_dir=None):
+  """Loads CIFAR dataset for training or testing.
+
+  Args:
+    split: tfds.Split.
+    batch_size: The global batch size to use.
+    name: A string indicates whether it is cifar10 or cifar100.
+    use_bfloat16: data type, bfloat16 precision or float32.
+    normalize: Whether to apply mean-std normalization on features.
+    drop_remainder: bool.
+    repeat: bool.
+    proportion: float, the proportion of dataset to be used.
+    data_dir: Directory where the dataset is stored to be loaded via tfds.load.
+      Optional, useful for loading datasets stored on GCS.
+
+  Returns:
+    Input function which returns a locally-sharded dataset batch.
+  """
+  if use_bfloat16:
+    dtype = tf.bfloat16
+  else:
+    dtype = tf.float32
+  ds_info = tfds.builder(name).info
+  image_shape = ds_info.features['image'].shape
+  dataset_size = ds_info.splits['train'].num_examples
+
+  def preprocess(image, label):
+    """Image preprocessing function."""
+    if split == tfds.Split.TRAIN:
+      image = tf.image.resize_with_crop_or_pad(
+          image, image_shape[0] + 4, image_shape[1] + 4)
+      image = tf.image.random_crop(image, image_shape)
+      image = tf.image.random_flip_left_right(image)
+
+    image = tf.image.convert_image_dtype(image, dtype)
+    if normalize:
+      mean = tf.constant([0.4914, 0.4822, 0.4465], dtype=dtype)
+      std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype)
+      image = (image - mean) / std
+    label = tf.cast(label, dtype)
+    return image, label
+
+  if proportion == 1.0:
+    dataset = tfds.load(
+        name, split=split, data_dir=data_dir, as_supervised=True)
+  else:
+    new_name = '{}:3.*.*'.format(name)
+    if split == tfds.Split.TRAIN:
+      # use round instead of floor to resolve bug when e.g. using
+      # proportion = 1 - 0.8 = 0.19999999
+      new_split = 'train[:{}%]'.format(round(100 * proportion))
+    elif split == tfds.Split.VALIDATION:
+      new_split = 'train[-{}%:]'.format(round(100 * proportion))
+    elif split == tfds.Split.TEST:
+      new_split = 'test[:{}%]'.format(round(100 * proportion))
+    else:
+      raise ValueError('Provide valid split.')
+    dataset = tfds.load(new_name, split=new_split, as_supervised=True)
+  if split == tfds.Split.TRAIN or repeat:
+    dataset = dataset.shuffle(buffer_size=dataset_size).repeat()
+
+  dataset = dataset.map(preprocess,
+                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+  dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
+  dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+  return dataset
+
+
+class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+  """Learning rate schedule.
+
+  It starts with a linear warmup to the initial learning rate over
+  `warmup_epochs`. This is found to be helpful for large batch size training
+  (Goyal et al., 2018). The learning rate's value then uses the initial
+  learning rate, and decays by a multiplier at the start of each epoch in
+  `decay_epochs`. The stepwise decaying schedule follows He et al. (2015).
+  """
+
+  def __init__(self,
+               steps_per_epoch,
+               initial_learning_rate,
+               decay_ratio,
+               decay_epochs,
+               warmup_epochs):
+    super(LearningRateSchedule, self).__init__()
+    self.steps_per_epoch = steps_per_epoch
+    self.initial_learning_rate = initial_learning_rate
+    self.decay_ratio = decay_ratio
+    self.decay_epochs = decay_epochs
+    self.warmup_epochs = warmup_epochs
+
+  def __call__(self, step):
+    lr_epoch = tf.cast(step, tf.float32) / self.steps_per_epoch
+    learning_rate = self.initial_learning_rate
+    if self.warmup_epochs >= 1:
+      learning_rate *= lr_epoch / self.warmup_epochs
+    decay_epochs = [self.warmup_epochs] + self.decay_epochs
+    for index, start_epoch in enumerate(decay_epochs):
+      learning_rate = tf.where(
+          lr_epoch >= start_epoch,
+          self.initial_learning_rate * self.decay_ratio**index,
+          learning_rate)
+    return learning_rate
+
+  def get_config(self):
+    return {
+        'steps_per_epoch': self.steps_per_epoch,
+        'initial_learning_rate': self.initial_learning_rate,
+    }
+
+
 # TODO(baselines): Remove reliance on hard-coded metric names.
 def aggregate_corrupt_metrics(metrics,
                               corruption_types,

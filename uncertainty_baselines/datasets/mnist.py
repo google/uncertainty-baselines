@@ -34,7 +34,6 @@ class MnistDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create an MNIST tf.data.Dataset builder.
 
@@ -51,21 +50,15 @@ class MnistDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
-      is_training: Whether or not the given `split` is the training split. Only
-        required when the passed split is not one of ['train', 'validation',
-        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     name = 'mnist'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs)
-    if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
-    new_split = base.get_validation_percent_split(
+    split = base.get_validation_percent_split(
         dataset_builder, validation_percent, split)
     super(MnistDataset, self).__init__(
         name=name,
         dataset_builder=dataset_builder,
-        split=new_split,
-        is_training=is_training,
+        split=split,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data)

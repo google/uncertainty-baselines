@@ -165,7 +165,6 @@ class _JigsawToxicityDataset(base.BaseDataset):
       data_dir: Optional[str] = None,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a tf.data.Dataset builder.
 
@@ -189,9 +188,6 @@ class _JigsawToxicityDataset(base.BaseDataset):
         files. Currently unsupported.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
-      is_training: Whether or not the given `split` is the training split. Only
-        required when the passed split is not one of ['train', 'validation',
-        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     dataset_builder = _JigsawToxicityDatasetBuilder(
         tfds.builder(name, try_gcs=try_gcs), max_seq_length, data_dir)
@@ -200,9 +196,6 @@ class _JigsawToxicityDataset(base.BaseDataset):
     self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
     self.split_names = _DATA_SPLIT_NAMES
     self._data_dir = data_dir
-
-    if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
 
     if validation_percent == 0:
       # This value will never be used.
@@ -232,7 +225,6 @@ class _JigsawToxicityDataset(base.BaseDataset):
         name=name,
         dataset_builder=dataset_builder,
         split=split,
-        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data)

@@ -17,7 +17,6 @@
 | SNGP Ensemble (size=4) | 0.851 / 78.1% / 0.039 | 2.77 / 44.9% / 0.050 (69.73%) | - | - | - | - | - | 17.5 (128 TPUv3 cores) | 6.52 / 0.055 (32 TPUv3 cores) | 102.4M |
 | Ensemble (size=4) | 0.877 / 77.5% / 0.031 | 2.99 / 42.1% / 0.051 (73.3%) | - | - | - | - | - | 17.5 (128 TPUv2 cores) | 6.40 / 0.082 (32 TPUv2 cores) | 102.4M |
 | Heteroscedastic | 0.898 / 77.5% / 0.033 | - | - | - | - | - | - | 7.5 (32 TPUv2 cores) | 7.5 / 1.28 (32 TPUv2 cores) | 58.4M |
-| Heteroscedastic with Mixup | 0.854 / 78.9% / 0.043 | - | - | - | - | - | - | 12.5 (32 TPUv2 cores) | 12.5 / 1.28 (32 TPUv2 cores) | 58.4M |
 | Heteroscedastic Ensemble (size=4) | 0.790 / 79.5% / 0.015 | 2.93 / 44.9% / 0.048 (69.6%) | - | - | - | - | - | - | - | 233.6M |
 
 ## EfficientNet

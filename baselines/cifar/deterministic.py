@@ -78,9 +78,6 @@ flags.DEFINE_enum('dataset', 'cifar10',
 flags.DEFINE_string('cifar100_c_path', None,
                     'Path to the TFRecords files for CIFAR-100-C. Only valid '
                     '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_string('data_dir', None,
-                    'data_dir to be used for tfds dataset construction.'
-                    'It is required when training with cloud TPUs')
 flags.DEFINE_integer('corruptions_interval', -1,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
@@ -90,8 +87,6 @@ flags.DEFINE_integer('checkpoint_interval', 25,
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
-flags.DEFINE_bool('collect_profile', False,
-                  'Whether to trace a profile with tensorboard')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -110,23 +105,18 @@ def _extract_hyperparameter_dictionary():
 
 
 def main(argv):
-  fmt = '[%(filename)s:%(lineno)s] %(message)s'
-  formatter = logging.PythonFormatter(fmt)
-  logging.get_absl_handler().setFormatter(formatter)
   del argv  # unused arg
 
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
-  data_dir = None
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
   else:
     logging.info('Use TPU at %s',
                  FLAGS.tpu if FLAGS.tpu is not None else 'local')
-    data_dir = FLAGS.data_dir
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
@@ -137,30 +127,25 @@ def main(argv):
   train_dataset_size = (
       ds_info.splits['train'].num_examples * FLAGS.train_proportion)
   steps_per_epoch = int(train_dataset_size / batch_size)
-  logging.info('Steps per epoch %s', steps_per_epoch)
-  logging.info('Size of the dataset %s', ds_info.splits['train'].num_examples)
-  logging.info('Train proportion %s', FLAGS.train_proportion)
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
   train_dataset = ub.datasets.get(
       FLAGS.dataset,
       split=tfds.Split.TRAIN,
-      download_data=True,
-      validation_percent=1. - FLAGS.train_proportion,
-      data_dir=data_dir).load(
+      validation_percent=1. - FLAGS.train_proportion).load(
           batch_size=batch_size)
   clean_test_dataset = ub.datasets.get(
       FLAGS.dataset,
-      split=tfds.Split.TEST,
-      data_dir=data_dir).load(batch_size=batch_size)
+      split=tfds.Split.TEST).load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
+    extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
-      data_dir = FLAGS.cifar100_c_path
+      extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
     corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
     for corruption_type in corruption_types:
       for severity in range(1, 6):
@@ -169,7 +154,7 @@ def main(argv):
             corruption_type=corruption_type,
             severity=severity,
             split=tfds.Split.TEST,
-            data_dir=data_dir).load(batch_size=batch_size)
+            **extra_kwargs).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -193,7 +178,7 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
+    lr_schedule = utils.LearningRateSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
@@ -307,25 +292,13 @@ def main(argv):
     strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
-  metrics.update({'train/ms_per_example': tf.keras.metrics.Mean()})
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
-  tb_callback = None
-  if FLAGS.collect_profile:
-    tb_callback = tf.keras.callbacks.TensorBoard(
-        profile_batch=(100, 102),
-        log_dir=os.path.join(FLAGS.output_dir, 'logs'))
-    tb_callback.set_model(model)
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
     for step in range(steps_per_epoch):
-      if tb_callback:
-        tb_callback.on_train_batch_begin(step)
-      train_start_time = time.time()
       train_step(train_iterator)
-      ms_per_example = (time.time() - train_start_time) * 1e6 / batch_size
-      metrics['train/ms_per_example'].update_state(ms_per_example)
 
       current_step = epoch * steps_per_epoch + (step + 1)
       max_steps = steps_per_epoch * FLAGS.train_epochs
@@ -342,8 +315,7 @@ def main(argv):
                      time_elapsed / 60))
       if step % 20 == 0:
         logging.info(message)
-      if tb_callback:
-        tb_callback.on_train_batch_end(step)
+
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):

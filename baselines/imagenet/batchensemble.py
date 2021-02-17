@@ -163,17 +163,10 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    decay_epochs = [
-        (FLAGS.train_epochs * 30) // 90,
-        (FLAGS.train_epochs * 60) // 90,
-        (FLAGS.train_epochs * 80) // 90,
-    ]
-    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
-        steps_per_epoch=steps_per_epoch,
-        base_learning_rate=base_lr,
-        decay_ratio=0.1,
-        decay_epochs=decay_epochs,
-        warmup_epochs=5)
+    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
+                                               base_lr,
+                                               FLAGS.train_epochs,
+                                               _LR_SCHEDULE)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)

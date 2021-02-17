@@ -154,20 +154,17 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // test_batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  if FLAGS.dataset == 'cifar10':
-    dataset_builder_class = ub.datasets.Cifar10Dataset
-  else:
-    dataset_builder_class = ub.datasets.Cifar100Dataset
-  train_dataset_builder = dataset_builder_class(
+  train_dataset = utils.load_dataset(
       split=tfds.Split.TRAIN,
+      name=FLAGS.dataset,
+      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = train_dataset_builder.load(batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
-  clean_test_dataset_builder = dataset_builder_class(
+  clean_test_dataset = utils.load_dataset(
       split=tfds.Split.TEST,
+      name=FLAGS.dataset,
+      batch_size=test_batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  clean_test_dataset = clean_test_dataset_builder.load(
-      batch_size=test_batch_size)
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
@@ -223,7 +220,7 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
+    lr_schedule = utils.LearningRateSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
@@ -390,14 +387,13 @@ def main(argv):
 
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images = inputs['features']
-      labels = inputs['labels']
+      images, labels = inputs
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         # if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
-        if not isinstance(logits, (list, tuple)):
+        if not isinstance(logits, tuple):
           raise ValueError('Logits are not a tuple.')
         # logits is a `Tensor` of shape [batch_size, num_experts, num_classes]
         logits, all_routing_weights = logits
@@ -435,12 +431,11 @@ def main(argv):
 
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images = inputs['features']
-      labels = inputs['labels']
+      images, labels = inputs
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
-      if not isinstance(logits, (list, tuple)):
+      if not isinstance(logits, tuple):
         raise ValueError('Logits not a tuple')
       # logits is a `Tensor` of shape [batch_size, num_experts, num_classes]
       # routing_weights is a `Tensor` of shape [batch_size, num_experts]

@@ -145,6 +145,10 @@ APPROX_IMAGENET_TRAIN_IMAGES = 1281167
 IMAGENET_VALIDATION_IMAGES = 50000
 NUM_CLASSES = 1000
 
+_LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
+    (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
+]
+
 
 def main(argv):
   del argv  # unused arg
@@ -222,17 +226,10 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    decay_epochs = [
-        (FLAGS.train_epochs * 30) // 90,
-        (FLAGS.train_epochs * 60) // 90,
-        (FLAGS.train_epochs * 80) // 90,
-    ]
-    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
-        steps_per_epoch=steps_per_epoch,
-        base_learning_rate=base_lr,
-        decay_ratio=0.1,
-        decay_epochs=decay_epochs,
-        warmup_epochs=5)
+    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
+                                               base_lr,
+                                               FLAGS.train_epochs,
+                                               _LR_SCHEDULE)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)
@@ -300,7 +297,7 @@ def main(argv):
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
 
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract logits
           logits, _ = logits
         if FLAGS.use_bfloat16:
@@ -359,7 +356,7 @@ def main(argv):
       for _ in range(FLAGS.ensemble_size):
         logits = model(images, training=False)
 
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract both
           logits, covmat = logits
         else:

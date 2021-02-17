@@ -42,8 +42,7 @@ class Resnet50VariationalTest(tf.test.TestCase):
         num_classes=num_classes,
         prior_stddev=0.1,
         dataset_size=dataset_size,
-        stddev_mean_init=1e-3,
-        stddev_stddev_init=1e-3)
+        stddev_init=1e-3)
     model.compile(
         'adam',
         loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))

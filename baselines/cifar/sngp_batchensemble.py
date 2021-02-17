@@ -242,7 +242,7 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
+    lr_schedule = utils.LearningRateSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
@@ -301,7 +301,7 @@ def main(argv):
 
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract logits
           logits, _ = logits
         negative_log_likelihood = tf.reduce_mean(
@@ -351,7 +351,7 @@ def main(argv):
 
       for i in range(FLAGS.ensemble_size):
         logits = model(images, training=False)
-        if isinstance(logits, (list, tuple)):
+        if isinstance(logits, tuple):
           # If model returns a tuple of (logits, covmat), extract both
           logits, covmat = logits
         else:

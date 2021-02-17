@@ -23,7 +23,6 @@ _IMPORTS = [
     'datasets',
     'models',
     'optimizers',
-    'schedules',
     'strategy_utils',
     'utils',
 ]

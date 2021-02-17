@@ -20,7 +20,7 @@ import functools
 import math
 import edward2 as ed
 import tensorflow as tf
-from uncertainty_baselines.models import efficientnet_utils
+import utils  # local file import
 
 BlockArgs = collections.namedtuple('BlockArgs', [
     'kernel_size',
@@ -31,6 +31,24 @@ BlockArgs = collections.namedtuple('BlockArgs', [
     'strides',
     'se_ratio',
 ])
+
+
+def efficientnet_params(model_name):
+  """Get efficientnet params based on model name."""
+  params_dict = {
+      # (width_coefficient, depth_coefficient, resolution, dropout_rate)
+      'efficientnet-b0': (1.0, 1.0, 224, 0.2),
+      'efficientnet-b1': (1.0, 1.1, 240, 0.2),
+      'efficientnet-b2': (1.1, 1.2, 260, 0.3),
+      'efficientnet-b3': (1.2, 1.4, 300, 0.3),
+      'efficientnet-b4': (1.4, 1.8, 380, 0.4),
+      'efficientnet-b5': (1.6, 2.2, 456, 0.4),
+      'efficientnet-b6': (1.8, 2.6, 528, 0.5),
+      'efficientnet-b7': (2.0, 3.1, 600, 0.5),
+      'efficientnet-b8': (2.2, 3.6, 672, 0.5),
+      'efficientnet-l2': (4.3, 5.3, 800, 0.5),
+  }
+  return params_dict[model_name]
 
 
 def round_filters(filters, width_coefficient, depth_divisor, min_depth):
@@ -121,7 +139,7 @@ class MBConvBlock(tf.keras.layers.Layer):
         gamma_initializer=make_sign_initializer(self._random_sign_init),
         ensemble_size=self._ensemble_size,
         strides=[1, 1],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -135,7 +153,7 @@ class MBConvBlock(tf.keras.layers.Layer):
         gamma_initializer=make_sign_initializer(self._random_sign_init),
         ensemble_size=self._ensemble_size,
         strides=self._block_args.strides,
-        depthwise_initializer=efficientnet_utils.conv_kernel_initializer,
+        depthwise_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -153,7 +171,7 @@ class MBConvBlock(tf.keras.layers.Layer):
           gamma_initializer=make_sign_initializer(self._random_sign_init),
           ensemble_size=self._ensemble_size,
           strides=[1, 1],
-          kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+          kernel_initializer=utils.conv_kernel_initializer,
           padding='same',
           data_format=self._data_format,
           use_bias=True)
@@ -164,7 +182,7 @@ class MBConvBlock(tf.keras.layers.Layer):
           gamma_initializer=make_sign_initializer(self._random_sign_init),
           ensemble_size=self._ensemble_size,
           strides=[1, 1],
-          kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+          kernel_initializer=utils.conv_kernel_initializer,
           padding='same',
           data_format=self._data_format,
           use_bias=True)
@@ -177,7 +195,7 @@ class MBConvBlock(tf.keras.layers.Layer):
         gamma_initializer=make_sign_initializer(self._random_sign_init),
         ensemble_size=self._ensemble_size,
         strides=[1, 1],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -218,12 +236,12 @@ class MBConvBlock(tf.keras.layers.Layer):
         s == 1 for s in self._block_args.strides
     ) and self._block_args.input_filters == self._block_args.output_filters:
       if survival_prob:
-        x = efficientnet_utils.drop_connect(x, training, survival_prob)
+        x = utils.drop_connect(x, training, survival_prob)
       x = tf.add(x, inputs)
     return x
 
 
-class EfficientNetBatchEnsembleModel(tf.keras.Model):
+class Model(tf.keras.Model):
   """EfficientNet."""
 
   def __init__(self,
@@ -240,8 +258,7 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
                depth_divisor=8,
                min_depth=None,
                relu_fn=tf.nn.swish,
-               # TPU-specific requirement.
-               batch_norm=tf.keras.layers.experimental.SyncBatchNormalization,
+               batch_norm=utils.SyncBatchNorm,  # TPU-specific requirement.
                use_se=True,
                clip_projection_output=False):
     """Initializes model instance.
@@ -264,7 +281,7 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
       use_se: Whether to use squeeze and excitation layers.
       clip_projection_output: Whether to clip projected conv outputs.
     """
-    super(EfficientNetBatchEnsembleModel, self).__init__()
+    super(Model, self).__init__()
     self._width_coefficient = width_coefficient
     self._depth_coefficient = depth_coefficient
     self._dropout_rate = dropout_rate
@@ -302,7 +319,7 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
         gamma_initializer=make_sign_initializer(self._random_sign_init),
         ensemble_size=self._ensemble_size,
         strides=[2, 2],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         data_format=self._data_format,
         use_bias=False)
@@ -410,7 +427,7 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
         gamma_initializer=make_sign_initializer(self._random_sign_init),
         ensemble_size=self._ensemble_size,
         strides=[1, 1],
-        kernel_initializer=efficientnet_utils.conv_kernel_initializer,
+        kernel_initializer=utils.conv_kernel_initializer,
         padding='same',
         use_bias=False)
     self._bn1 = self._batch_norm(
@@ -428,7 +445,7 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
         alpha_initializer=make_sign_initializer(self._random_sign_init),
         gamma_initializer=make_sign_initializer(self._random_sign_init),
         ensemble_size=self._ensemble_size,
-        kernel_initializer=efficientnet_utils.dense_kernel_initializer)
+        kernel_initializer=utils.dense_kernel_initializer)
 
   def call(self, inputs, training=True):
     """Implementation of call().
@@ -458,7 +475,3 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
       outputs = self._dropout(outputs, training=training)
     outputs = self._fc(outputs)
     return outputs
-
-
-def create_model(*args, **kwargs):
-  return EfficientNetBatchEnsembleModel(*args, **kwargs)

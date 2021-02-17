@@ -22,7 +22,7 @@ seeds.
 
 import collections
 import os
-from typing import Mapping, Text  # pylint:disable=unused-import
+from typing import Mapping, Text
 
 from absl import app
 from absl import flags

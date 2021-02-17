@@ -74,7 +74,6 @@ class _GlueDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a GLUE tf.data.Dataset builder.
 
@@ -91,9 +90,6 @@ class _GlueDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
-      is_training: Whether or not the given `split` is the training split. Only
-        required when the passed split is not one of ['train', 'validation',
-        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     tfds_name = 'glue/' + name
     dataset_builder = tfds.builder(tfds_name, try_gcs=try_gcs)
@@ -101,7 +97,6 @@ class _GlueDataset(base.BaseDataset):
         name=tfds_name,
         dataset_builder=dataset_builder,
         split=split,
-        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         fingerprint_key='idx',

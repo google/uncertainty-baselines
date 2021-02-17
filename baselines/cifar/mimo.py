@@ -146,12 +146,10 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * train_batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
-        steps_per_epoch,
-        base_lr,
-        FLAGS.lr_decay_ratio,
-        lr_decay_epochs,
-        FLAGS.lr_warmup_epochs)
+    lr_schedule = utils.LearningRateSchedule(steps_per_epoch, base_lr,
+                                             FLAGS.lr_decay_ratio,
+                                             lr_decay_epochs,
+                                             FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(
         lr_schedule, momentum=0.9, nesterov=True)
     metrics = {

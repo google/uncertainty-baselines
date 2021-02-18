@@ -123,8 +123,10 @@ flags.DEFINE_bool(
 flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
                    'Ridge penalty parameter for GP posterior covariance.')
 flags.DEFINE_float(
-    'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of precision matrix.')
+    'gp_cov_discount_factor',
+    -1,  # 0.999,
+    'The discount factor to compute the moving average of precision matrix.'
+    'If -1 then only compute the exact covariance at the latest epoch.')
 flags.DEFINE_float(
     'gp_mean_field_factor', 1e-4,
     'The tunable multiplicative factor used in the mean-field approximation '
@@ -371,7 +373,13 @@ def main(argv):
     })
     for fraction in FLAGS.fractions:
       metrics.update({
-          'test_collab_acc/collab_acc_{}'.format(fraction):
+          'test_collab_acc/probability_{}'.format(fraction):
+              um.OracleCollaborativeAccuracy(
+                  fraction=float(fraction), num_bins=FLAGS.num_bins),
+          'test_collab_acc/high_toxicity_{}'.format(fraction):
+              um.OracleCollaborativeAccuracy(
+                  fraction=float(fraction), num_bins=FLAGS.num_bins),
+          'test_collab_acc/uncertainty_{}'.format(fraction):
               um.OracleCollaborativeAccuracy(
                   fraction=float(fraction), num_bins=FLAGS.num_bins)
       })
@@ -410,7 +418,16 @@ def main(argv):
         })
         for fraction in FLAGS.fractions:
           metrics.update({
-              'test_collab_acc/collab_acc_{}_{}'.format(fraction, dataset_name):
+              'test_collab_acc/probability_{}_{}'.format(
+                  dataset_name, fraction):
+                  um.OracleCollaborativeAccuracy(
+                      fraction=float(fraction), num_bins=FLAGS.num_bins),
+              'test_collab_acc/high_toxicity_{}_{}'.format(
+                  dataset_name, fraction):
+                  um.OracleCollaborativeAccuracy(
+                      fraction=float(fraction), num_bins=FLAGS.num_bins),
+              'test_collab_acc/uncertainty_{}_{}'.format(
+                  dataset_name, fraction):
                   um.OracleCollaborativeAccuracy(
                       fraction=float(fraction), num_bins=FLAGS.num_bins)
           })
@@ -582,8 +599,21 @@ def main(argv):
         metrics['test/recall'].update_state(ece_labels, pred_labels)
         metrics['test/f1'].update_state(one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
-          metrics['test_collab_acc/collab_acc_{}'.format(
+          metrics['test_collab_acc/probability_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)
+          metrics['test_collab_acc/high_toxicity_{}'.format(
+              fraction)].update_state(
+                  ece_labels,
+                  ece_probs,
+                  custom_binning_score=1. - tf.squeeze(auc_probs))
+          metrics['test_collab_acc/uncertainty_{}'.format(
+              fraction
+          )].update_state(
+              # This assumes stddev is close to uniformly spaced in [0, 1].
+              # Is there a way to enforce that, even approximately?
+              ece_labels,
+              ece_probs,
+              custom_binning_score=1. - stddev)
       else:
         metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -611,8 +641,21 @@ def main(argv):
         metrics['test/f1_{}'.format(dataset_name)].update_state(
             one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
-          metrics['test_collab_acc/collab_acc_{}_{}'.format(
-              fraction, dataset_name)].update_state(ece_labels, ece_probs)
+          metrics['test_collab_acc/probability_{}_{}'.format(
+              dataset_name, fraction)].update_state(ece_labels, ece_probs)
+          metrics['test_collab_acc/high_toxicity_{}_{}'.format(
+              dataset_name, fraction)].update_state(
+                  ece_labels,
+                  ece_probs,
+                  custom_binning_score=1. - tf.squeeze(auc_probs))
+          metrics['test_collab_acc/uncertainty_{}_{}'.format(
+              dataset_name, fraction
+          )].update_state(
+              # This assumes stddev is close to uniformly spaced in [0, 1].
+              # Is there a way to enforce that, even approximately?
+              ece_labels,
+              ece_probs,
+              custom_binning_score=1. - stddev)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -742,6 +785,9 @@ def main(argv):
       for dataset_name, train_iterator in train_iterators.items():
         try:
           with tf.experimental.async_scope():
+            if FLAGS.gp_cov_discount_factor < 0:
+              # Resetting covaraince estimator at the begining of a new epoch.
+              model.layers[-1].reset_covariance_matrix()
             for step in range(dataset_steps_per_epoch[dataset_name]):
               train_step(train_iterator, dataset_name)
 

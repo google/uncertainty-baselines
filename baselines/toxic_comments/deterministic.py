@@ -270,9 +270,12 @@ def main(argv):
     })
     for fraction in FLAGS.fractions:
       metrics.update({
-          'test_collab_acc/collab_acc_{}'.format(fraction):
+          'test_collab_acc/probability_{}'.format(fraction):
               um.OracleCollaborativeAccuracy(
-                  fraction=float(fraction), num_bins=FLAGS.num_bins)
+                  fraction=float(fraction), num_bins=FLAGS.num_bins),
+          'test_collab_acc/high_toxicity_{}'.format(fraction):
+              um.OracleCollaborativeAccuracy(
+                  fraction=float(fraction), num_bins=FLAGS.num_bins),
       })
     for dataset_name, test_dataset in test_datasets.items():
       if dataset_name != 'ind':
@@ -306,9 +309,14 @@ def main(argv):
         })
         for fraction in FLAGS.fractions:
           metrics.update({
-              'test_collab_acc/collab_acc_{}_{}'.format(fraction, dataset_name):
+              'test_collab_acc/probability_{}_{}'.format(
+                  dataset_name, fraction):
                   um.OracleCollaborativeAccuracy(
-                      fraction=float(fraction), num_bins=FLAGS.num_bins)
+                      fraction=float(fraction), num_bins=FLAGS.num_bins),
+              'test_collab_acc/high_toxicity_{}_{}'.format(
+                  dataset_name, fraction):
+                  um.OracleCollaborativeAccuracy(
+                      fraction=float(fraction), num_bins=FLAGS.num_bins),
           })
 
   @tf.function
@@ -442,8 +450,13 @@ def main(argv):
         metrics['test/recall'].update_state(ece_labels, pred_labels)
         metrics['test/f1'].update_state(one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
-          metrics['test_collab_acc/collab_acc_{}'.format(
+          metrics['test_collab_acc/probability_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)
+          metrics['test_collab_acc/high_toxicity_{}'.format(
+              fraction)].update_state(
+                  ece_labels,
+                  ece_probs,
+                  custom_binning_score=1. - tf.squeeze(auc_probs))
       else:
         metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -470,8 +483,13 @@ def main(argv):
         metrics['test/f1_{}'.format(dataset_name)].update_state(
             one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
-          metrics['test_collab_acc/collab_acc_{}_{}'.format(
-              fraction, dataset_name)].update_state(ece_labels, ece_probs)
+          metrics['test_collab_acc/probability_{}_{}'.format(
+              dataset_name, fraction)].update_state(ece_labels, ece_probs)
+          metrics['test_collab_acc/high_toxicity_{}_{}'.format(
+              dataset_name, fraction)].update_state(
+                  ece_labels,
+                  ece_probs,
+                  custom_binning_score=1. - tf.squeeze(auc_probs))
 
     strategy.run(step_fn, args=(next(iterator),))
 

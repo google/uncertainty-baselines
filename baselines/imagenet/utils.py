@@ -18,305 +18,18 @@
 import functools
 import os
 
-import edward2 as ed
 import numpy as np
 import pandas as pd
 import tensorflow.compat.v1 as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
+from uncertainty_baselines.datasets import augmix
+from uncertainty_baselines.datasets import resnet_preprocessing
 tfd = tfp.distributions
-
-IMAGE_SIZE = 224
-CROP_PADDING = 32
 
 # ImageNet statistics. Used to normalize the input to Efficientnet.
 IMAGENET_MEAN = np.array([[[0.485, 0.456, 0.406]]], np.float32) * 255.
 IMAGENET_STDDEV = np.array([[[0.229, 0.224, 0.225]]], np.float32) * 255.
-
-
-# TODO(trandustin): Refactor similar to CIFAR code.
-class LearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-  """Resnet learning rate schedule."""
-
-  def __init__(self, steps_per_epoch, initial_learning_rate, num_epochs,
-               schedule):
-    super(LearningRateSchedule, self).__init__()
-    self.num_epochs = num_epochs
-    self.steps_per_epoch = steps_per_epoch
-    self.initial_learning_rate = initial_learning_rate
-    self.schedule = schedule
-
-  def __call__(self, step):
-    lr_epoch = tf.cast(step, tf.float32) / self.steps_per_epoch
-    warmup_lr_multiplier, warmup_end_epoch = self.schedule[0]
-    # Scale learning rate schedule by total epochs at vanilla settings.
-    warmup_end_epoch = (warmup_end_epoch * self.num_epochs) // 90
-    learning_rate = (
-        self.initial_learning_rate * warmup_lr_multiplier * lr_epoch /
-        warmup_end_epoch)
-    for mult, start_epoch in self.schedule:
-      start_epoch = (start_epoch * self.num_epochs) // 90
-      learning_rate = tf.where(lr_epoch >= start_epoch,
-                               self.initial_learning_rate * mult, learning_rate)
-    return learning_rate
-
-  def get_config(self):
-    return {
-        'steps_per_epoch': self.steps_per_epoch,
-        'initial_learning_rate': self.initial_learning_rate,
-        'num_epochs': self.num_epochs,
-        'schedule': self.schedule,
-    }
-
-
-class WarmupDecaySchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-  """A wrapper for LearningRateSchedule that includes warmup steps."""
-
-  def __init__(self, lr_schedule, warmup_steps):
-    """Add warmup decay to a learning rate schedule.
-
-    Args:
-      lr_schedule: base learning rate scheduler
-      warmup_steps: number of warmup steps
-
-    """
-    super(WarmupDecaySchedule, self).__init__()
-    self._lr_schedule = lr_schedule
-    self._warmup_steps = warmup_steps
-
-  def __call__(self, step):
-    lr = self._lr_schedule(step)
-    if self._warmup_steps:
-      initial_learning_rate = tf.convert_to_tensor(
-          self._lr_schedule.initial_learning_rate, name='initial_learning_rate')
-      dtype = initial_learning_rate.dtype
-      global_step_recomp = tf.cast(step, dtype)
-      warmup_steps = tf.cast(self._warmup_steps, dtype)
-      warmup_lr = initial_learning_rate * global_step_recomp / warmup_steps
-      lr = tf.cond(global_step_recomp < warmup_steps,
-                   lambda: warmup_lr,
-                   lambda: lr)
-    return lr
-
-  def get_config(self):
-    config = self._lr_schedule.get_config()
-    config.update({
-        'warmup_steps': self._warmup_steps,
-    })
-    return config
-
-
-def distorted_bounding_box_crop(image_bytes,
-                                bbox,
-                                min_object_covered=0.1,
-                                aspect_ratio_range=(0.75, 1.33),
-                                area_range=(0.05, 1.0),
-                                max_attempts=100,
-                                scope=None):
-  """Generates cropped_image using one of the bboxes randomly distorted.
-
-  See `tf.image.sample_distorted_bounding_box` for more documentation.
-
-  Args:
-    image_bytes: `Tensor` of binary image data.
-    bbox: `Tensor` of bounding boxes arranged `[1, num_boxes, coords]`
-        where each coordinate is [0, 1) and the coordinates are arranged
-        as `[ymin, xmin, ymax, xmax]`. If num_boxes is 0 then use the whole
-        image.
-    min_object_covered: An optional `float`. Defaults to `0.1`. The cropped
-        area of the image must contain at least this fraction of any bounding
-        box supplied.
-    aspect_ratio_range: An optional list of `float`s. The cropped area of the
-        image must have an aspect ratio = width / height within this range.
-    area_range: An optional list of `float`s. The cropped area of the image
-        must contain a fraction of the supplied image within in this range.
-    max_attempts: An optional `int`. Number of attempts at generating a cropped
-        region of the image of the specified constraints. After `max_attempts`
-        failures, return the entire image.
-    scope: Optional `str` for name scope.
-  Returns:
-    (cropped image `Tensor`, distorted bbox `Tensor`).
-  """
-  with tf.name_scope(scope, 'distorted_bounding_box_crop', [image_bytes, bbox]):
-    decoded = image_bytes.dtype != tf.string
-    shape = (tf.shape(image_bytes) if decoded
-             else tf.image.extract_jpeg_shape(image_bytes))
-    sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
-        shape,
-        bounding_boxes=bbox,
-        min_object_covered=min_object_covered,
-        aspect_ratio_range=aspect_ratio_range,
-        area_range=area_range,
-        max_attempts=max_attempts,
-        use_image_if_no_bounding_boxes=True)
-    bbox_begin, bbox_size, _ = sample_distorted_bounding_box
-
-    # Crop the image to the specified bounding box.
-    offset_y, offset_x, _ = tf.unstack(bbox_begin)
-    target_height, target_width, _ = tf.unstack(bbox_size)
-    if decoded:
-      image = tf.image.crop_to_bounding_box(
-          image_bytes,
-          offset_height=offset_y,
-          offset_width=offset_x,
-          target_height=target_height,
-          target_width=target_width)
-    else:
-      crop_window = tf.stack([offset_y, offset_x, target_height, target_width])
-      image = tf.image.decode_and_crop_jpeg(image_bytes,
-                                            crop_window,
-                                            channels=3)
-    return image
-
-
-def _at_least_x_are_equal(a, b, x):
-  """At least `x` of `a` and `b` `Tensors` are equal."""
-  match = tf.equal(a, b)
-  match = tf.cast(match, tf.int32)
-  return tf.greater_equal(tf.reduce_sum(match), x)
-
-
-def _resize_image(image, image_size, method=None):
-  if method is not None:
-    return tf.image.resize([image], [image_size, image_size], method)[0]
-  return tf.image.resize_bicubic([image], [image_size, image_size])[0]
-
-
-def _decode_and_random_crop(image_bytes, image_size, resize_method=None):
-  """Make a random crop of image_size."""
-  bbox = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4])
-  image = distorted_bounding_box_crop(
-      image_bytes,
-      bbox,
-      min_object_covered=0.1,
-      aspect_ratio_range=(3. / 4, 4. / 3.),
-      area_range=(0.08, 1.0),
-      max_attempts=10,
-      scope=None)
-  original_shape = tf.image.extract_jpeg_shape(image_bytes)
-  bad = _at_least_x_are_equal(original_shape, tf.shape(image), 3)
-
-  image = tf.cond(
-      bad,
-      lambda: _decode_and_center_crop(image_bytes, image_size),
-      lambda: _resize_image(image, image_size, resize_method))
-
-  return image
-
-
-def _decode_and_center_crop(image_bytes, image_size, resize_method=None):
-  """Crops to center of image with padding then scales by image_size.
-
-  Args:
-    image_bytes: `Tensor` representing an image binary of arbitrary size, or
-      an already decoded image.
-    image_size: Image height/width dimension.
-    resize_method: Resize method.
-
-  Returns:
-    A decoded and cropped image Tensor.
-  """
-  decoded = image_bytes.dtype != tf.string
-  shape = (tf.shape(image_bytes) if decoded
-           else tf.image.extract_jpeg_shape(image_bytes))
-  image_height = shape[0]
-  image_width = shape[1]
-
-  padded_center_crop_size = tf.cast(
-      ((image_size / (image_size + CROP_PADDING)) *
-       tf.cast(tf.minimum(image_height, image_width), tf.float32)),
-      tf.int32)
-
-  offset_height = ((image_height - padded_center_crop_size) + 1) // 2
-  offset_width = ((image_width - padded_center_crop_size) + 1) // 2
-  crop_window = tf.stack([offset_height, offset_width,
-                          padded_center_crop_size, padded_center_crop_size])
-  if decoded:
-    image = tf.image.crop_to_bounding_box(
-        image_bytes,
-        offset_height=offset_height,
-        offset_width=offset_width,
-        target_height=padded_center_crop_size,
-        target_width=padded_center_crop_size)
-  else:
-    image = tf.image.decode_and_crop_jpeg(image_bytes, crop_window, channels=3)
-
-  image = _resize_image(image, image_size, resize_method)
-
-  return image
-
-
-def preprocess_for_train(image_bytes,
-                         use_bfloat16,
-                         image_size=IMAGE_SIZE,
-                         resize_method=None):
-  """Preprocesses the given image for evaluation.
-
-  Args:
-    image_bytes: `Tensor` representing an image binary of arbitrary size, or
-      an already decoded image.
-    use_bfloat16: `bool` for whether to use bfloat16.
-    image_size: image size/resolution in Efficientnet.
-    resize_method: resize method. If none, use bicubic.
-
-  Returns:
-    A preprocessed image `Tensor`.
-  """
-  image = _decode_and_random_crop(image_bytes, image_size, resize_method)
-  image = tf.image.random_flip_left_right(image)
-  image = tf.reshape(image, [image_size, image_size, 3])
-  image = tf.image.convert_image_dtype(
-      image, dtype=tf.bfloat16 if use_bfloat16 else tf.float32)
-  return image
-
-
-def preprocess_for_eval(image_bytes,
-                        use_bfloat16,
-                        image_size=IMAGE_SIZE,
-                        resize_method=None):
-  """Preprocesses the given image for evaluation.
-
-  Args:
-    image_bytes: `Tensor` representing an image binary of arbitrary size, or
-      an already decoded image.
-    use_bfloat16: `bool` for whether to use bfloat16.
-    image_size: image size.
-    resize_method: if None, use bicubic.
-
-  Returns:
-    A preprocessed image `Tensor`.
-  """
-  image = _decode_and_center_crop(image_bytes, image_size, resize_method)
-  image = tf.reshape(image, [image_size, image_size, 3])
-  image = tf.image.convert_image_dtype(
-      image, dtype=tf.bfloat16 if use_bfloat16 else tf.float32)
-  return image
-
-
-def preprocess_image(image_bytes,
-                     is_training=False,
-                     use_bfloat16=False,
-                     image_size=IMAGE_SIZE,
-                     resize_method=None):
-  """Preprocesses the given image.
-
-  Args:
-    image_bytes: `Tensor` representing an image binary of arbitrary size, or
-      an already decoded image.
-    is_training: `bool` for whether the preprocessing is for training.
-    use_bfloat16: `bool` for whether to use bfloat16.
-    image_size: image size.
-    resize_method: if None, use bicubic.
-
-  Returns:
-    A preprocessed image `Tensor`.
-  """
-  if is_training:
-    return preprocess_for_train(image_bytes, use_bfloat16,
-                                image_size, resize_method)
-  else:
-    return preprocess_for_eval(image_bytes, use_bfloat16,
-                               image_size, resize_method)
 
 
 class ImageNetInput(object):
@@ -416,7 +129,7 @@ class ImageNetInput(object):
     parsed = tf.parse_single_example(value, keys_to_features)
     image_bytes = tf.reshape(parsed['image/encoded'], shape=[])
 
-    image = preprocess_image(
+    image = resnet_preprocessing.preprocess_image(
         image_bytes=image_bytes,
         is_training=split == tfds.Split.TRAIN,
         use_bfloat16=self.use_bfloat16,
@@ -489,16 +202,20 @@ class ImageNetInput(object):
           # Hard target in the first epoch!
           self.mixup_params['mixup_coeff'] = tf.ones(
               [self.ensemble_size, self.mixup_params['num_classes']])
+        adaptive_mixup_fn = functools.partial(
+            augmix.adaptive_mixup, batch_size, self.mixup_params),
         dataset = dataset.map(
-            functools.partial(adaptive_mixup, batch_size, self.mixup_params),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+            adaptive_mixup_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
       else:
+        aug_params = {
+            'mixup_alpha': self.mixup_alpha,
+            'same_mix_weight_per_batch': self.same_mix_weight_per_batch,
+            'use_truncated_beta': self.use_truncated_beta,
+            'use_random_shuffling': self.use_random_shuffling,
+        }
+        mixup_fn = functools.partial(augmix.mixup, batch_size, aug_params)
         dataset = dataset.map(
-            functools.partial(mixup, batch_size, self.mixup_alpha,
-                              self.same_mix_weight_per_batch,
-                              self.use_truncated_beta,
-                              self.use_random_shuffling),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE)
+            mixup_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
@@ -512,102 +229,6 @@ class ImageNetInput(object):
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
     return dataset
-
-
-def mixup(batch_size, alpha, same_mix_weight_per_batch, use_truncated_beta,
-          use_random_shuffling, images, labels):
-  """Applies Mixup regularization to a batch of images and labels.
-
-  [1] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, David Lopez-Paz
-    Mixup: Beyond Empirical Risk Minimization.
-    ICLR'18, https://arxiv.org/abs/1710.09412
-
-  Arguments:
-    batch_size: The input batch size for images and labels.
-    alpha: Float that controls the strength of Mixup regularization.
-    same_mix_weight_per_batch: whether to use the same mix coef over the batch.
-    use_truncated_beta: whether to sample from Beta_[0,1](alpha, alpha) or from
-       the truncated distribution Beta_[1/2, 1](alpha, alpha).
-    use_random_shuffling: Whether to pair images by random shuffling
-      (default is a deterministic pairing by reversing the batch).
-    images: A batch of images of shape [batch_size, ...]
-    labels: A batch of labels of shape [batch_size, num_classes]
-
-  Returns:
-    A tuple of (images, labels) with the same dimensions as the input with
-    Mixup regularization applied.
-  """
-  if same_mix_weight_per_batch:
-    mix_weight = ed.Beta(alpha, alpha, sample_shape=[1, 1])
-    mix_weight = tf.tile(mix_weight, [batch_size, 1])
-  else:
-    mix_weight = ed.Beta(alpha, alpha, sample_shape=[batch_size, 1])
-
-  if use_truncated_beta:
-    mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
-
-  images_mix_weight = tf.reshape(mix_weight, [batch_size, 1, 1, 1])
-  images_mix_weight = tf.cast(images_mix_weight, images.dtype)
-
-  if not use_random_shuffling:
-  # Mixup on a single batch is implemented by taking a weighted sum with the
-  # same batch in reverse.
-    mixup_index = tf.reverse(tf.range(batch_size), axis=[0])
-  else:
-    mixup_index = tf.random.shuffle(tf.range(batch_size))
-
-  images_mix = (
-      images * images_mix_weight + tf.gather(images, mixup_index) *
-      (1. - images_mix_weight))
-  mix_weight = tf.cast(mix_weight, labels.dtype)
-  labels_mix = labels * mix_weight + tf.gather(labels,
-                                               mixup_index) * (1. - mix_weight)
-  return images_mix, labels_mix
-
-
-def adaptive_mixup(batch_size, mixup_params, images, labels):
-  """Applies CAMixup regularization to a batch of images and labels.
-
-  Arguments:
-    batch_size: The input batch size for images and labels.
-    mixup_params: `Dict` to store the hparams of mixup.
-    images: A batch of images of shape [batch_size, ...]
-    labels: A batch of labels of shape [batch_size, num_classes]
-
-  Returns:
-    A tuple of (images, labels) with the same dimensions as the input with
-    Mixup regularization applied.
-  """
-  ensemble_size = mixup_params.get('ensemble_size', 1)
-  mixup_coeff = mixup_params['mixup_coeff']
-  scalar_labels = tf.argmax(labels, axis=1)
-  alpha = tf.gather(mixup_coeff, scalar_labels, axis=-1)
-
-  # Need to filter out elements in alpha which equal to 0.
-  greater_zero_indicator = tf.cast(alpha > 0, alpha.dtype)
-  less_one_indicator = tf.cast(alpha < 1, alpha.dtype)
-  valid_alpha_indicator = tf.cast(
-      greater_zero_indicator * less_one_indicator, tf.bool)
-
-  dummy_alpha = 0.1 * tf.ones_like(alpha)
-  sampled_alpha = tf.where(valid_alpha_indicator, alpha, dummy_alpha)
-  mix_weight = tfd.Beta(sampled_alpha, sampled_alpha).sample()
-  mix_weight = tf.where(valid_alpha_indicator, mix_weight, alpha)
-  mix_weight = tf.reshape(mix_weight, [ensemble_size * batch_size, 1])
-  mix_weight = tf.clip_by_value(mix_weight, 0, 1)
-  mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
-  images_mix_weight = tf.reshape(mix_weight,
-                                 [ensemble_size * batch_size, 1, 1, 1])
-
-  # Mixup on a single batch is implemented by taking a weighted sum with the
-  # same batch in reverse.
-  images = tf.tile(images, [ensemble_size, 1, 1, 1])
-  labels = tf.tile(labels, [ensemble_size, 1])
-  images_mix_weight = tf.cast(images_mix_weight, images.dtype)
-  images_mix = (
-      images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
-  labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
-  return images_mix, labels_mix
 
 
 def load_corrupted_test_dataset(corruption_name,
@@ -629,7 +250,7 @@ def load_corrupted_test_dataset(corruption_name,
 
   def preprocess(image, label):
     image = tf.reshape(image, shape=[])
-    image = preprocess_for_eval(image, use_bfloat16)
+    image = resnet_preprocessing.preprocess_for_eval(image, use_bfloat16)
     label = tf.cast(label, dtype=tf.float32)
     return image, label
 

@@ -230,7 +230,8 @@ class Model(tf.keras.Model):
                depth_divisor=8,
                min_depth=None,
                relu_fn=tf.nn.swish,
-               batch_norm=utils.SyncBatchNorm,  # TPU-specific requirement.
+               # TPU-specific requirement.
+               batch_norm=tf.keras.layers.experimental.SyncBatchNormalization,
                use_se=True,
                clip_projection_output=False):
     """Initializes model instance.

@@ -35,6 +35,8 @@ try:
   from uncertainty_baselines.models import bert  # pylint: disable=g-import-not-at-top
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
+except tf.errors.NotFoundError as e:
+  warnings.warn(f'Skipped dur to NotFoundError: {e}')
 
 
 def get_model_names() -> List[str]:

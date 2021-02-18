@@ -251,7 +251,7 @@ class Radial(distribution.Distribution):
 
 @kullback_leibler.RegisterKL(
   Radial, distributions.MultivariateNormalLinearOperator)
-def kl_radial_normal(p, q, name=None):
+def kl_radial_normal(p, q, n_samples=10, name=None):
   with tf.name_scope(name or 'kl_radial_normal'):
     if p.event_shape != q.event_shape:
       raise ValueError(
@@ -263,14 +263,13 @@ def kl_radial_normal(p, q, name=None):
 
     # Kl = Entropy - Cross-entropy
     # We find cross-entropy by MC estimation
-    n_samples = 10
     cross_entropy = tf.math.reduce_sum(
       q.log_prob(p.sample((n_samples,)))) / n_samples
     return p.entropy() - cross_entropy
 
 
 @kullback_leibler.RegisterKL(Radial, Radial)
-def kl_radial_radial(p, q, name=None):
+def kl_radial_radial(p, q, n_samples=10, name=None):
   with tf.name_scope(name or 'kl_radial_radial'):
     if p.event_shape != q.event_shape:
       raise ValueError(
@@ -282,7 +281,6 @@ def kl_radial_radial(p, q, name=None):
 
     # Kl = Entropy - Cross-entropy
     # We find cross-entropy by MC estimation from equation 44
-    n_samples = 10
     cross_entropy = -tf.math.reduce_sum(
       ((q.sample((n_samples,)) - p.loc) / p.scale) ** 2) / (2 * n_samples)
     return p.entropy() - cross_entropy

@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-
 """Provides utilities to preprocess images for the Inception networks."""
 
 from typing import Callable, Tuple, Optional

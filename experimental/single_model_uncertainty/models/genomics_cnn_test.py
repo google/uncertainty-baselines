@@ -97,12 +97,12 @@ class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
       ('Onehot_mcdropout', True, True, False, False),
       # test sn
       ('Onehot_sn', True, False, True, False),
-      # test gp
-      ('Onehot_gp', True, False, False, True),
-      # test sn+gp
-      ('Onehot_sn_gp', True, False, True, True),
-      # test mcdropout+sn+gp
-      ('Onehot_mcdropout_sn_gp', True, True, True, True),
+      # # test gp
+      # ('Onehot_gp', True, False, False, True),
+      # # test sn+gp
+      # ('Onehot_sn_gp', True, False, True, True),
+      # # test mcdropout+sn+gp
+      # ('Onehot_mcdropout_sn_gp', True, True, True, True),
   )
   def testCreateDifferentModels(self, one_hot, use_mc_dropout, use_spec_norm,
                                 use_gp_layer):

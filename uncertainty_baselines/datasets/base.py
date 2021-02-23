@@ -231,8 +231,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
           'Must provide a positive batch size, received {}.'.format(batch_size))
 
     if self._download_data:
-      self._dataset_builder.download_and_prepare(
-          download_dir=self._dataset_builder.data_dir)
+      self._dataset_builder.download_and_prepare()
     dataset = self._dataset_builder.as_dataset(self._split)
 
     # Map the parser over the dataset.

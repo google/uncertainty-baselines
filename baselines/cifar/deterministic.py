@@ -105,6 +105,9 @@ def _extract_hyperparameter_dictionary():
 
 
 def main(argv):
+  fmt = '[%(filename)s:%(lineno)s] %(message)s'
+  formatter = logging.PythonFormatter(fmt)
+  logging.get_absl_handler().setFormatter(formatter)
   del argv  # unused arg
 
   tf.io.gfile.makedirs(FLAGS.output_dir)
@@ -133,6 +136,7 @@ def main(argv):
   train_dataset = ub.datasets.get(
       FLAGS.dataset,
       split=tfds.Split.TRAIN,
+      download_data=True,
       validation_percent=1. - FLAGS.train_proportion).load(
           batch_size=batch_size)
   clean_test_dataset = ub.datasets.get(
@@ -178,7 +182,7 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = utils.LearningRateSchedule(
+    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
@@ -292,13 +296,17 @@ def main(argv):
     strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
+  metrics.update({'train/ms_per_example': tf.keras.metrics.Mean()})
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
     for step in range(steps_per_epoch):
+      train_start_time = time.time()
       train_step(train_iterator)
+      ms_per_example = (time.time() - train_start_time) * 1e6 / batch_size
+      metrics['train/ms_per_example'].update_state(ms_per_example)
 
       current_step = epoch * steps_per_epoch + (step + 1)
       max_steps = steps_per_epoch * FLAGS.train_epochs

@@ -24,6 +24,7 @@ from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import uncertainty_baselines as ub
 import efficientnet_model  # local file import
 import utils  # local file import
 import uncertainty_metrics as um
@@ -129,11 +130,12 @@ def main(argv):
     warmup_step = steps_per_epoch * 5
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         scaled_lr, decay_steps, decay_rate=0.97, staircase=True)
-    learning_rate = utils.WarmupDecaySchedule(lr_schedule, warmup_step)
+    learning_rate = ub.schedules.AddWarmupDecaySchedule(
+        lr_schedule, warmup_step)
     optimizer = tf.keras.optimizers.RMSprop(
         learning_rate, rho=0.9, momentum=0.9, epsilon=0.001)
     if FLAGS.moving_average_decay > 0:
-      optimizer = utils.MovingAverage(
+      optimizer = ub.optimizers.MovingAverage(
           optimizer,
           average_decay=FLAGS.moving_average_decay)
       optimizer.shadow_copy(model)
@@ -236,11 +238,11 @@ def main(argv):
         summary_writer.flush()
 
     if should_eval:
-      if isinstance(optimizer, utils.MovingAverage):
+      if isinstance(optimizer, ub.optimizers.MovingAverage):
         optimizer.swap_weights(strategy)
       for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
         strategy.run(eval_step, args=(next(test_iterator),))
-      if isinstance(optimizer, utils.MovingAverage):
+      if isinstance(optimizer, ub.optimizers.MovingAverage):
         optimizer.swap_weights(strategy)
 
   # Main training loop.

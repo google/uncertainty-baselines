@@ -13,32 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Uncertainty baseline training."""
+"""Tests for Fashion-MNIST."""
 
-import importlib
-from absl import logging
-
-
-_IMPORTS = [
-    'datasets',
-    'models',
-    'optimizers',
-    'schedules',
-    'strategy_utils',
-    'utils',
-]
+import tensorflow as tf
+import uncertainty_baselines as ub
 
 
-def _lazy_import(name):
-  module = importlib.import_module(__name__)
-  imported = importlib.import_module('.' + name, 'uncertainty_baselines')
-  setattr(module, name, imported)
-  return imported
+class FashionMnistDatasetTest(ub.datasets.DatasetTest):
+
+  def testDatasetSize(self):
+    super(FashionMnistDatasetTest, self)._testDatasetSize(
+        ub.datasets.FashionMnistDataset, (28, 28, 1), validation_percent=0.1)
 
 
-for module_name in _IMPORTS:
-  try:
-    _lazy_import(module_name)
-  except ModuleNotFoundError as e:
-    logging.warning(e)
-
+if __name__ == '__main__':
+  tf.test.main()

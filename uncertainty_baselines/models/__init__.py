@@ -16,8 +16,8 @@
 """Uncertainty baseline training models."""
 
 import warnings
+import tensorflow as tf
 
-from uncertainty_baselines.google.models.criteo_sngp import create_model as CriteoSngpBuilder
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
 from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get
@@ -61,4 +61,6 @@ try:
   from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
+except tf.errors.NotFoundError as e:
+  warnings.warn(f'Skipped dur to NotFoundError: {e}')
 # pylint: enable=g-import-not-at-top

@@ -17,9 +17,11 @@
 
 This script performs variational inference with a few notable techniques:
 
-1. Normal prior whose mean is tied at the variational posterior's. This makes
-   the KL penalty only penalize the weight posterior's standard deviation and
-   not its mean. The prior's standard deviation is a fixed hyperparameter.
+1. Normal prior whose mean is tied at the variational posterior's.
+    This makes the KL penalty only penalize the weight posterior's standard
+    deviation and not its mean.
+    The prior's standard deviation can be fixed as a hyperparameter, but is by
+    default set to the He initializer stddev: sqrt(2 / fan_in) (Neal 1995).
 2. Fully factorized normal variational distribution (Blundell et al., 2015).
 3. Flipout for lower-variance gradients in convolutional layers and the final
    dense layer (Wen et al., 2018).
@@ -29,11 +31,11 @@ This script performs variational inference with a few notable techniques:
 import os
 import time
 
+import tensorflow as tf
+import tensorflow_datasets as tfds
 from absl import app
 from absl import flags
 from absl import logging
-import tensorflow as tf
-import tensorflow_datasets as tfds
 
 import uncertainty_baselines as ub
 import utils  # local file import
@@ -63,12 +65,26 @@ flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
                   'Epochs to decay learning rate by.')
 
 # VI flags.
+flags.DEFINE_bool(
+  'tied_mean_prior', True,
+  'If True, fix the mean of the prior to that of the variational posterior. '
+  'This causes the KL to only penalize the standard deviation of the weight '
+  'posterior, and not its mean.')
 flags.DEFINE_integer('kl_annealing_epochs', 200,
                      'Number of epochs over which to anneal the KL term to 1.')
-flags.DEFINE_float('prior_stddev', 0.1, 'Fixed stddev for weight prior.')
 flags.DEFINE_float(
-    'stddev_init', 1e-3,
-    'Initialization of posterior standard deviation parameters.')
+  'prior_stddev', None,
+  'Sets a fixed stddev for weight prior. '
+  'If None, defaults to the He initializer stddev: sqrt(2 / fan_in).')
+flags.DEFINE_float(
+  'stddev_mean_init', 1e-3,
+  'Initializes the mean of the TruncatedNormal from which we sample the '
+  'initial posterior standard deviation: '
+  'mean = np.log(np.expm1(stddev_mean_init)).')
+flags.DEFINE_float(
+  'stddev_stddev_init', 0.1,
+  'Standard deviation of the TruncatedNormal from which we sample the '
+  'initial posterior standard deviation.')
 
 # General model flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
@@ -106,6 +122,12 @@ def main(argv):
                                               FLAGS.use_gpu, FLAGS.tpu)
   use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
+  # Only permit use of L2 regularization with a tied mean prior
+  if FLAGS.l2 is not None and FLAGS.l2 > 0 and not FLAGS.tied_mean_prior:
+    raise NotImplementedError(
+      'For a principled objective, L2 regularization should not be used '
+      'when the prior mean is untied from the posterior mean.')
+
   batch_size = FLAGS.batch_size * FLAGS.num_cores
 
   # As per the Kaggle challenge, we have split sizes:
@@ -135,12 +157,21 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 Variational Inference model.')
+
+    if FLAGS.prior_stddev is None:
+      logging.info(
+        'A fixed prior stddev was not supplied. Computing a prior stddev = '
+        'sqrt(2 / fan_in) for each layer. This is recommended over providing '
+        'a fixed prior stddev.')
+
     model = ub.models.resnet50_variational(
         input_shape=utils.load_input_shape(dataset_train),
         num_classes=1,  # binary classification task
         prior_stddev=FLAGS.prior_stddev,
         dataset_size=train_dataset_size,
-        stddev_init=FLAGS.stddev_init)
+        stddev_mean_init=FLAGS.stddev_mean_init,
+        stddev_stddev_init=FLAGS.stddev_stddev_init,
+        tied_mean_prior=FLAGS.tied_mean_prior)
 
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)

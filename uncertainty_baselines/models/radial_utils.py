@@ -5,8 +5,6 @@ import tensorflow.compat.v2 as tf
 import tensorflow_probability.python.distributions as distributions
 from edward2.tensorflow import constraints
 from edward2.tensorflow import generated_random_variables
-from edward2.tensorflow import make_random_variable
-from edward2.tensorflow import random_variable
 from edward2.tensorflow import regularizers
 from edward2.tensorflow.initializers import get, serialize
 from tensorflow_probability.python.distributions import distribution
@@ -17,9 +15,7 @@ from tensorflow_probability.python.internal import samplers
 from tensorflow_probability.python.internal import tensor_util
 from tensorflow_probability.python.internal import tensorshape_util
 
-__all__ = [
-  'Radial', 'TrainableHeRadial', 'RadialKLDivergenceWithTiedMean',
-  'RadialKLDivergence']
+__all__ = ['Radial', 'TrainableHeRadial']
 
 
 class Radial(distribution.Distribution):
@@ -244,7 +240,8 @@ class Radial(distribution.Distribution):
             isinstance(other.distribution, distributions.Normal)):
       return kl_radial_normal(p=self, q=other)
     elif isinstance(other, Radial):
-      return kl_radial_radial(p=self, q=other)
+      raise NotImplementedError(
+        'Have not yet added Radial-Radial KL divergence.')
     else:
       raise NotImplementedError(f'Other distribution has type {type(other)}.')
 
@@ -265,24 +262,6 @@ def kl_radial_normal(p, q, n_samples=10, name=None):
     # We find cross-entropy by MC estimation
     cross_entropy = tf.math.reduce_sum(
       q.log_prob(p.sample((n_samples,)))) / n_samples
-    return p.entropy() - cross_entropy
-
-
-@kullback_leibler.RegisterKL(Radial, Radial)
-def kl_radial_radial(p, q, n_samples=10, name=None):
-  with tf.name_scope(name or 'kl_radial_radial'):
-    if p.event_shape != q.event_shape:
-      raise ValueError(
-        f'KL-divergence between two Radials with '
-        f'different event shapes cannot be computed')
-
-    warnings.warn(
-      "KL is correct only up to a constant, for optimization only.")
-
-    # Kl = Entropy - Cross-entropy
-    # We find cross-entropy by MC estimation from equation 44
-    cross_entropy = -tf.math.reduce_sum(
-      ((q.sample((n_samples,)) - p.loc) / p.scale) ** 2) / (2 * n_samples)
     return p.entropy() - cross_entropy
 
 
@@ -387,59 +366,3 @@ class TrainableHeRadial(TrainableRadial):
     return {
       'seed': self.seed,
     }
-
-
-class RadialKLDivergenceWithTiedMean(tf.keras.regularizers.Regularizer):
-  """KL with Radial prior whose mean is fixed at the variational posterior's."""
-
-  def __init__(self, stddev=1., scale_factor=1.):
-    """Constructs regularizer."""
-    self.stddev = stddev
-    self.scale_factor = scale_factor
-
-  def __call__(self, x):
-    """Computes regularization given a Radial random variable as input."""
-    if not isinstance(x, random_variable.RandomVariable):
-      raise ValueError('Input must be an ed.RandomVariable.')
-    prior = make_random_variable(Radial)(
-      loc=x.distribution.mean(),
-      presoftplus_scale=tf.broadcast_to(
-        tf.math.log(tf.math.expm1(self.stddev)),
-        x.distribution.event_shape))
-    regularization = x.distribution.kl_divergence(prior.distribution)
-    return self.scale_factor * regularization
-
-  def get_config(self):
-    return {
-      'stddev': self.stddev,
-      'scale_factor': self.scale_factor}
-
-
-class RadialKLDivergence(tf.keras.regularizers.Regularizer):
-  """KL divergence regularizer from an input to the Radial distribution."""
-
-  def __init__(self, mean=0., stddev=1., scale_factor=1.):
-    """
-    Constructs regularizer where default is a KL towards a `standard Radial`.
-    """
-    self.mean = mean
-    self.stddev = stddev
-    self.scale_factor = scale_factor
-
-  def __call__(self, x):
-    """Computes regularization given an input ed.RandomVariable."""
-    if not isinstance(x, random_variable.RandomVariable):
-      raise ValueError('Input must be an ed.RandomVariable.')
-    prior = make_random_variable(Radial)(
-      loc=tf.broadcast_to(self.mean, x.distribution.event_shape),
-      presoftplus_scale=tf.broadcast_to(
-        tf.math.log(tf.math.expm1(self.stddev)),
-        x.distribution.event_shape))
-    regularization = x.distribution.kl_divergence(prior.distribution)
-    return self.scale_factor * regularization
-
-  def get_config(self):
-    return {
-      'mean': self.mean,
-      'stddev': self.stddev,
-      'scale_factor': self.scale_factor}

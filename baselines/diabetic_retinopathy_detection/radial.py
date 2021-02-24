@@ -20,10 +20,11 @@ as introduced in Radial Bayesian Neural Networks (Farquhar et al. 2020).
 
 We use a few additional, noteworthy techniques in training:
 
-1. Normal (or Radial) prior whose mean is tied at the variational posterior's.
+1. Normal prior whose mean is tied at the variational posterior's.
     This makes the KL penalty only penalize the weight posterior's standard
     deviation and not its mean.
-    The prior's standard deviation is a fixed hyperparameter.
+    The prior's standard deviation can be fixed as a hyperparameter, but is by
+    default set to the He initializer stddev: sqrt(2 / fan_in) (Neal 1995).
 2. Flipout for lower-variance gradients in convolutional layers and the final
     dense layer (Wen et al., 2018).
 3. KL annealing (Bowman et al., 2015).
@@ -72,18 +73,22 @@ flags.DEFINE_bool(
   'If True, fix the mean of the prior to that of the variational posterior. '
   'This causes the KL to only penalize the standard deviation of the weight '
   'posterior, and not its mean.')
-flags.DEFINE_bool(
-  'radial_prior', False,
-  'If True, use a Radial prior instead of a Normal. This is by default False '
-  'to enable comparability to other methods, but can be helpful in e.g. '
-  'variational continual learning (Nguyen et al. 2018, Farquhar et al. 2020).')
 flags.DEFINE_integer(
   'kl_annealing_epochs', 200,
   'Number of epochs over which to anneal the KL term to 1.')
-flags.DEFINE_float('prior_stddev', 0.1, 'Fixed stddev for weight prior.')
 flags.DEFINE_float(
-  'stddev_init', 1e-3,
-  'Initialization of posterior standard deviation parameters.')
+  'prior_stddev', None,
+  'Sets a fixed stddev for weight prior. '
+  'If None, defaults to the He initializer stddev: sqrt(2 / fan_in).')
+flags.DEFINE_float(
+  'stddev_mean_init', 1e-3,
+  'Initializes the mean of the TruncatedNormal from which we sample the '
+  'initial posterior standard deviation: '
+  'mean = np.log(np.expm1(stddev_mean_init)).')
+flags.DEFINE_float(
+  'stddev_stddev_init', 0.1,
+  'Standard deviation of the TruncatedNormal from which we sample the '
+  'initial posterior standard deviation.')
 
 # General model flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
@@ -123,6 +128,12 @@ def main(argv):
                                               FLAGS.use_gpu, FLAGS.tpu)
   use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
+  # Only permit use of L2 regularization with a tied mean prior
+  if FLAGS.l2 is not None and FLAGS.l2 > 0 and not FLAGS.tied_mean_prior:
+    raise NotImplementedError(
+      'For a principled objective, L2 regularization should not be used '
+      'when the prior mean is untied from the posterior mean.')
+
   batch_size = FLAGS.batch_size * FLAGS.num_cores
 
   # As per the Kaggle challenge, we have split sizes:
@@ -152,14 +163,21 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 Radial model.')
+
+    if FLAGS.prior_stddev is None:
+      logging.info(
+        'A fixed prior stddev was not supplied. Computing a prior stddev = '
+        'sqrt(2 / fan_in) for each layer. This is recommended over providing '
+        'a fixed prior stddev.')
+
     model = ub.models.resnet50_radial(
         input_shape=utils.load_input_shape(dataset_train),
         num_classes=1,  # binary classification task
         prior_stddev=FLAGS.prior_stddev,
         dataset_size=train_dataset_size,
-        stddev_init=FLAGS.stddev_init,
-        tied_mean_prior=FLAGS.tied_mean_prior,
-        radial_prior=FLAGS.radial_prior)
+        stddev_mean_init=FLAGS.stddev_mean_init,
+        stddev_stddev_init=FLAGS.stddev_stddev_init,
+        tied_mean_prior=FLAGS.tied_mean_prior)
 
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)

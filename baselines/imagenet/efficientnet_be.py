@@ -24,7 +24,7 @@ from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import efficientnet_be_model  # local file import
+import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
 
@@ -98,7 +98,7 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   width_coefficient, depth_coefficient, input_image_size, dropout_rate = (
-      efficientnet_be_model.efficientnet_params(FLAGS.model_name))
+      ub.models.efficientnet_utils.efficientnet_params(FLAGS.model_name))
   builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
                                 use_bfloat16=FLAGS.use_bfloat16,
                                 image_size=input_image_size,
@@ -125,7 +125,7 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building %s model', FLAGS.model_name)
-    model = efficientnet_be_model.Model(
+    model = ub.models.EfficientNetBatchEnsembleBuilder(
         width_coefficient,
         depth_coefficient,
         dropout_rate,
@@ -138,7 +138,8 @@ def main(argv):
     warmup_step = steps_per_epoch * 5
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         scaled_lr, decay_steps, decay_rate=0.97, staircase=True)
-    learning_rate = utils.WarmupDecaySchedule(lr_schedule, warmup_step)
+    learning_rate = ub.schedules.AddWarmupDecaySchedule(
+        lr_schedule, warmup_step)
     optimizer = tf.keras.optimizers.RMSprop(
         learning_rate, rho=0.9, momentum=0.9, epsilon=0.001)
 

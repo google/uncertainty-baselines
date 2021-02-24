@@ -67,12 +67,11 @@ from absl import flags
 from absl import logging
 
 import edward2 as ed
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import data_utils  # local file import
 import utils  # local file import
-import uncertainty_metrics as um
 
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
@@ -210,11 +209,10 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  ds_info = tfds.builder(FLAGS.dataset).info
   batch_size = (FLAGS.per_core_batch_size * FLAGS.num_cores
                 // FLAGS.num_dropout_samples_training)
   test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  num_classes = ds_info.features['label'].num_classes
+  num_classes = 10
 
   aug_params = {
       'augmix': FLAGS.augmix,
@@ -227,40 +225,37 @@ def main(argv):
   }
   validation_proportion = 1. - FLAGS.train_proportion
   use_validation_set = validation_proportion > 0.
-  train_dataset = data_utils.load_dataset(
+  if FLAGS.dataset == 'cifar10':
+    dataset_builder_class = ub.datasets.Cifar10Dataset
+  else:
+    dataset_builder_class = ub.datasets.Cifar100Dataset
+  train_dataset_builder = dataset_builder_class(
       split=tfds.Split.TRAIN,
-      name=FLAGS.dataset,
-      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16,
       aug_params=aug_params,
-      validation_set=use_validation_set,
-      validation_proportion=validation_proportion)
-  train_sample_size = ds_info.splits[
-      'train'].num_examples * FLAGS.train_proportion
-  val_sample_size = ds_info.splits['train'].num_examples - train_sample_size
-  if use_validation_set:
-    validation_dataset = data_utils.load_dataset(
+      validation_percent=validation_proportion)
+  train_dataset = train_dataset_builder.load(batch_size=batch_size)
+  train_sample_size = train_dataset_builder.num_examples
+  if validation_proportion > 0.:
+    validation_dataset_builder = dataset_builder_class(
         split=tfds.Split.VALIDATION,
-        name=FLAGS.dataset,
-        batch_size=batch_size,
         use_bfloat16=FLAGS.use_bfloat16,
         aug_params=aug_params,
-        validation_set=use_validation_set,
-        validation_proportion=validation_proportion)
+        validation_percent=validation_proportion)
+    validation_dataset = validation_dataset_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
+    val_sample_size = validation_dataset_builder.num_examples
     steps_per_val = steps_per_epoch = int(val_sample_size / batch_size)
-  clean_test_dataset = utils.load_dataset(
+  clean_test_dataset_builder = dataset_builder_class(
       split=tfds.Split.TEST,
-      name=FLAGS.dataset,
-      batch_size=test_batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
+  clean_test_dataset = clean_test_dataset_builder.load(
+      batch_size=test_batch_size)
 
-  train_sample_size = ds_info.splits[
-      'train'].num_examples * FLAGS.train_proportion
   steps_per_epoch = int(train_sample_size / batch_size)
-  steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
-  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
+  steps_per_epoch = train_dataset_builder.num_examples // batch_size
+  steps_per_eval = clean_test_dataset_builder.num_examples // batch_size
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
@@ -299,7 +294,7 @@ def main(argv):
       logging.info('Use GP layer with hidden units %d', FLAGS.gp_hidden_dim)
 
     model = ub.models.wide_resnet_sngp(
-        input_shape=ds_info.features['image'].shape,
+        input_shape=(32, 32, 3),
         batch_size=batch_size,
         depth=28,
         width_multiplier=10,
@@ -327,7 +322,7 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = utils.LearningRateSchedule(
+    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
@@ -340,17 +335,17 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'test/stddev': tf.keras.metrics.Mean(),
     }
     if use_validation_set:
       metrics.update({
           'val/negative_log_likelihood': tf.keras.metrics.Mean(),
           'val/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-          'val/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+          'val/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
           'val/stddev': tf.keras.metrics.Mean(),
       })
     if FLAGS.corruptions_interval > 0:
@@ -363,7 +358,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'))
           corrupt_metrics['test/stddev_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
 

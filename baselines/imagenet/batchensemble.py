@@ -21,7 +21,7 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -163,10 +163,17 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               _LR_SCHEDULE)
+    decay_epochs = [
+        (FLAGS.train_epochs * 30) // 90,
+        (FLAGS.train_epochs * 60) // 90,
+        (FLAGS.train_epochs * 80) // 90,
+    ]
+    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
+        steps_per_epoch=steps_per_epoch,
+        base_learning_rate=base_lr,
+        decay_ratio=0.1,
+        decay_epochs=decay_epochs,
+        warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)
@@ -174,14 +181,14 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'test/member_accuracy_mean': (
             tf.keras.metrics.SparseCategoricalAccuracy()),
-        'test/member_ece_mean': um.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins)
+        'test/member_ece_mean': rm.metrics.get(
+            f'ece(num_bins={FLAGS.num_bins})'),
     }
 
     if FLAGS.corruptions_interval > 0:
@@ -194,11 +201,11 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'))
           corrupt_metrics['test/member_acc_mean_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/member_ece_mean_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'))
 
     test_diversity = {}
     training_diversity = {}

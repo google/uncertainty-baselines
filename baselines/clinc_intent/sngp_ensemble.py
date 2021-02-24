@@ -21,6 +21,7 @@ seeds.
 """
 
 import os
+from typing import Any, Dict  # pylint:disable=unused-import
 
 from absl import app
 from absl import flags
@@ -28,13 +29,13 @@ from absl import logging
 
 import edward2 as ed
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 
 import uncertainty_baselines as ub
 import bert_utils  # local file import
 import sngp  # local file import
 import uncertainty_metrics as um
-
 
 # TODO(trandustin): We inherit
 # FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
@@ -145,7 +146,7 @@ def main(argv):
         logits_list = []
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval[name]):
-          inputs = next(test_iterator)
+          inputs = next(test_iterator)  # type: Dict[str, Any]
           features, _ = bert_utils.create_feature_and_label(
               inputs, feature_size)
 
@@ -169,7 +170,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
   }
 
   for dataset_name, test_dataset in test_datasets.items():
@@ -180,7 +181,7 @@ def main(argv):
           'test/accuracy_{}'.format(dataset_name):
               tf.keras.metrics.SparseCategoricalAccuracy(),
           'test/ece_{}'.format(dataset_name):
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+              rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})')
       })
 
   # Finally, define OOD metrics for the combined IND and OOD dataset.
@@ -201,7 +202,7 @@ def main(argv):
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
     for step in range(steps_per_eval[name]):
-      inputs = next(test_iterator)
+      inputs = next(test_iterator)  # type: Dict[str, Any]
       _, labels = bert_utils.create_feature_and_label(inputs, feature_size)
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
       labels = tf.cast(labels, tf.int32)

@@ -22,12 +22,14 @@ not overlapping with the validation set defined here.
 """
 
 import os
+from typing import Iterator, Mapping, Text  # pylint:disable=unused-import
 
 from absl import app
 from absl import flags
 from absl import logging
 
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -152,7 +154,7 @@ def main(argv):
       split=tfds.Split.TEST).load(batch_size=batch_size)
   validation_percent = 1. - FLAGS.train_proportion
   val_dataset = ub.datasets.get(
-      name=FLAGS.dataset,
+      dataset_name=FLAGS.dataset,
       split=tfds.Split.VALIDATION,
       validation_percent=validation_percent,
       drop_remainder=False).load(batch_size=batch_size)
@@ -247,7 +249,7 @@ def main(argv):
       filename = os.path.join(FLAGS.output_dir, filename)
       if not tf.io.gfile.exists(filename):
         logits = []
-        test_iterator = iter(test_dataset)
+        test_iterator = iter(test_dataset)  # type: Iterator[Mapping[Text, tf.Tensor]]
         for _ in range(steps_per_eval):
           features = next(test_iterator)['features']
           logits.append(model(features, training=False))
@@ -271,7 +273,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
   }
   metrics.update(val_metrics)
   corrupt_metrics = {}
@@ -280,7 +282,7 @@ def main(argv):
     corrupt_metrics['test/accuracy_{}'.format(name)] = (
         tf.keras.metrics.SparseCategoricalAccuracy())
     corrupt_metrics['test/ece_{}'.format(name)] = (
-        um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+        rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'))
   for i in range(len(unique_selected_members)):
     metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
     metrics['test/accuracy_member_{}'.format(i)] = (
@@ -302,7 +304,7 @@ def main(argv):
         logits_dataset.append(np.load(f))
 
     logits_dataset = tf.convert_to_tensor(logits_dataset)
-    test_iterator = iter(test_dataset)
+    test_iterator = iter(test_dataset)  # type: Iterator[Mapping[Text, tf.Tensor]]
     for step in range(steps_per_eval):
       labels = next(test_iterator)['labels']
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]

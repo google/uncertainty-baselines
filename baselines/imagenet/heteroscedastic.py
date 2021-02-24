@@ -36,12 +36,12 @@ from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
+import robustness_metrics as rm
 import scipy
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
@@ -95,9 +95,6 @@ APPROX_IMAGENET_TRAIN_IMAGES = 1281167
 IMAGENET_VALIDATION_IMAGES = 50000
 NUM_CLASSES = 1000
 
-_LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
-    (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
-]
 
 IMAGE_SHAPE = (224, 224, 3)
 
@@ -186,10 +183,17 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               _LR_SCHEDULE)
+    decay_epochs = [
+        (FLAGS.train_epochs * 30) // 90,
+        (FLAGS.train_epochs * 60) // 90,
+        (FLAGS.train_epochs * 80) // 90,
+    ]
+    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
+        steps_per_epoch=steps_per_epoch,
+        base_learning_rate=base_lr,
+        decay_ratio=0.1,
+        decay_epochs=decay_epochs,
+        warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)
@@ -197,10 +201,10 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
     }
     logging.info('Finished building Keras ResNet-50 model')
 
@@ -210,8 +214,8 @@ def main(argv):
                                                            .Mean())
       metrics['test/accuracy+rescaling'] = (tf.keras.metrics
                                             .SparseCategoricalAccuracy())
-      metrics['test/ece+rescaling'] = um.ExpectedCalibrationError(
-          num_bins=FLAGS.num_bins)
+      metrics['test/ece+rescaling'] = rm.metrics.get(
+          f'ece(num_bins={FLAGS.num_bins})')
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)

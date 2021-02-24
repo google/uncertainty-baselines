@@ -22,12 +22,13 @@ seeds.
 
 import collections
 import os
-from typing import Mapping, Text
+from typing import Mapping, Text  # pylint:disable=unused-import
 
 from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow_addons import metrics as tfa_metrics
 
@@ -172,7 +173,7 @@ def main(argv):
       'test/aupr': tf.keras.metrics.AUC(curve='PR'),
       'test/brier': tf.keras.metrics.MeanSquaredError(),
       'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
       'test/acc': tf.keras.metrics.Accuracy(),
       'test/acc_weighted': tf.keras.metrics.Accuracy(),
       'test/precision': tf.keras.metrics.Precision(),
@@ -201,7 +202,7 @@ def main(argv):
           'test/brier_weighted_{}'.format(dataset_name):
               tf.keras.metrics.MeanSquaredError(),
           'test/ece_{}'.format(dataset_name):
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+              rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
           'test/acc_weighted_{}'.format(dataset_name):
               tf.keras.metrics.Accuracy(),
           'test/acc_{}'.format(dataset_name):

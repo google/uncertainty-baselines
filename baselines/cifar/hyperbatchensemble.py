@@ -22,6 +22,7 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
+import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
@@ -357,7 +358,7 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [int(l) for l in FLAGS.lr_decay_epochs]
 
-    lr_schedule = utils.LearningRateSchedule(
+    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
@@ -374,13 +375,13 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'train/disagreement': tf.keras.metrics.Mean(),
         'train/average_kl': tf.keras.metrics.Mean(),
         'train/cosine_similarity': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'test/gibbs_nll': tf.keras.metrics.Mean(),
         'test/gibbs_accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/disagreement': tf.keras.metrics.Mean(),
@@ -405,7 +406,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'))
 
     checkpoint = tf.train.Checkpoint(
         model=model, lambda_parameters=lambda_parameters, optimizer=optimizer)

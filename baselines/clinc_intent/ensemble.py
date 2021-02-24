@@ -27,6 +27,7 @@ from absl import flags
 from absl import logging
 
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 import uncertainty_baselines as ub
 import bert_utils  # local file import
@@ -156,7 +157,7 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
   }
 
   for dataset_name, test_dataset in test_datasets.items():
@@ -167,7 +168,7 @@ def main(argv):
           'test/accuracy_{}'.format(dataset_name):
               tf.keras.metrics.SparseCategoricalAccuracy(),
           'test/ece_{}'.format(dataset_name):
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+              rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})')
       })
 
   # Finally, define OOD metrics for the combined IND and OOD dataset.

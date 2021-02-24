@@ -27,6 +27,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
+import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 import eval as eval_lib  # local file import
@@ -190,7 +191,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
     metrics = {
         'accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'brier_score': BrierScore(name='brier_score'),
-        'ece': um.ExpectedCalibrationError(num_bins=10, name='ece'),
+        'ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'loss': tf.keras.metrics.SparseCategoricalCrossentropy(),
     }
 

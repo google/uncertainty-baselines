@@ -25,6 +25,7 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
+import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 from tensorflow_addons import metrics as tfa_metrics
@@ -33,7 +34,6 @@ import uncertainty_baselines as ub
 import utils  # local file import
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
-
 
 # Data flags
 flags.DEFINE_string(
@@ -226,7 +226,7 @@ def main(argv):
         'train/accuracy_weighted': tf.keras.metrics.Accuracy(),
         'train/auroc': tf.keras.metrics.AUC(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'train/precision': tf.keras.metrics.Precision(),
         'train/recall': tf.keras.metrics.Recall(),
         'train/f1': tfa_metrics.F1Score(
@@ -258,7 +258,7 @@ def main(argv):
         'test/aupr': tf.keras.metrics.AUC(curve='PR'),
         'test/brier': tf.keras.metrics.MeanSquaredError(),
         'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
         'test/acc': tf.keras.metrics.Accuracy(),
         'test/acc_weighted': tf.keras.metrics.Accuracy(),
         'test/eval_time': tf.keras.metrics.Mean(),
@@ -288,7 +288,7 @@ def main(argv):
             'test/brier_weighted_{}'.format(dataset_name):
                 tf.keras.metrics.MeanSquaredError(),
             'test/ece_{}'.format(dataset_name):
-                um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+                rm.metrics.get(f'ece(num_bins={FLAGS.num_bins})'),
             'test/acc_{}'.format(dataset_name):
                 tf.keras.metrics.Accuracy(),
             'test/acc_weighted_{}'.format(dataset_name):

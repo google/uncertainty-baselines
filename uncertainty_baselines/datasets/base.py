@@ -17,7 +17,7 @@
 """Abstract base classes which defines interfaces for datasets."""
 
 import logging
-from typing import Callable, Optional, Sequence, Type, TypeVar, Union
+from typing import Callable, Dict, Optional, Sequence, Type, TypeVar, Union
 
 from robustness_metrics.common import ops
 from robustness_metrics.common import types
@@ -101,7 +101,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       num_parallel_parser_calls: int = 64,
       drop_remainder: bool = True,
       fingerprint_key: Optional[str] = None,
-      download_data: bool = False):
+      download_data: bool = False,
+      decoders: Optional[Dict[str, tfds.decode.Decoder]] = None):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -125,17 +126,24 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         then `ds.enumerate()` is added before the `ds.map(preprocessing_fn)` is
         called and an `id` field is added to the example Dict.
       download_data: Whether or not to download data before loading.
+      decoders: Optional TFDS decoders to provide to
+        `dataset_builder.as_dataset`, the same as passed to `tfds.load`.
     """
     self.name = name
     self._split = split
     self._num_parallel_parser_calls = num_parallel_parser_calls
     self._drop_remainder = drop_remainder
     self._download_data = download_data
+    self._decoders = decoders
 
     self._is_training = split in [
         'train', tfds.Split.TRAIN
     ] or (isinstance(split, tfds.core.ReadInstruction) and
           split._relative_instructions[0].splitname == 'train')
+    self._is_validation = split in [
+        'validation', tfds.Split.VALIDATION
+    ] or (isinstance(split, tfds.core.ReadInstruction) and
+          split._relative_instructions[0].splitname == 'validation')
     # TODO(znado): properly parse the number of train/validation/test examples
     # from the provided split, see `make_file_instructions(...)` in
     # tensorflow_datasets/core/tfrecords_reader.py.
@@ -186,6 +194,20 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     raise NotImplementedError(
         'Must override dataset _create_process_example_fn!')
 
+  def _create_process_batch_fn(self, batch_size: int) -> Optional[PreProcessFn]:
+    """Create a function to perform pre-processing on batches, such as mixup.
+
+    Args:
+      batch_size: the size of the batch to be processed.
+
+    Returns:
+      None if no processing is necessary. Otherwise, a function which takes as
+      inputs a batch of elements of the dataset (passed from dataset.batch()),
+      and returns a dict with keys 'features' and 'labels' and their
+      corresponding Tensor values.
+    """
+    return None
+
   def _create_element_id(self, features: types.Features) -> types.Features:
     """Hash the element id to compute a unique id."""
     if 'element_id' in features:
@@ -231,9 +253,9 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
           'Must provide a positive batch size, received {}.'.format(batch_size))
 
     if self._download_data:
-      self._dataset_builder.download_and_prepare(
-          download_dir=self._dataset_builder.data_dir)
-    dataset = self._dataset_builder.as_dataset(self._split)
+      self._dataset_builder.download_and_prepare()
+    dataset = self._dataset_builder.as_dataset(
+        self._split, decoders=self._decoders)
 
     # Map the parser over the dataset.
     if preprocess_fn is None:
@@ -259,6 +281,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
     # Shuffle and repeat only for the training split.
     if self._is_training:
+      # DO NOT SUBMIT add support for partial batches or shuffle validation/test sets
       dataset = dataset.shuffle(self._shuffle_buffer_size)
       dataset = dataset.repeat()
 
@@ -268,11 +291,22 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # TODO(znado): add padding to last partial eval batch.
     dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
 
+    process_batch_fn = self._create_process_batch_fn(batch_size)  # pylint: disable=assignment-from-none
+    if self._create_process_batch_fn(batch_size):
+      dataset = dataset.map(
+          process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
     dataset = dataset.prefetch(-1)
 
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = (
         tf.data.experimental.AutoShardPolicy.OFF)
+    # Optimize dataset performance.
+    # Keep commented out, unclear if will always improve performance.
+    # options.experimental_optimization.parallel_batch = True
+    options.experimental_optimization.map_fusion = True
+    options.experimental_optimization.map_vectorization.enabled = True
+    options.experimental_optimization.map_parallelization = True
     dataset = dataset.with_options(options)
     return dataset
 

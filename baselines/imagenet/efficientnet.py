@@ -24,8 +24,7 @@ from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import efficientnet_model  # local file import
-import utils  # local file import
+import uncertainty_baselines as ub
 import uncertainty_metrics as um
 
 # ~312.78 steps per epoch for 4x4 TPU; per_core_batch_size=128; 350 epochs;
@@ -93,16 +92,21 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   width_coefficient, depth_coefficient, input_image_size, dropout_rate = (
-      efficientnet_model.efficientnet_params(FLAGS.model_name))
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=FLAGS.use_bfloat16,
-                                image_size=input_image_size,
-                                normalize_input=True,
-                                one_hot=True)
-  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                     batch_size=batch_size)
-  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                          batch_size=batch_size)
+      ub.models.efficientnet_utils.efficientnet_params(FLAGS.model_name))
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      use_bfloat16=FLAGS.use_bfloat16,
+      image_size=input_image_size,
+      normalize_input=True,
+      one_hot=True)
+  train_dataset = train_builder.load(batch_size=batch_size)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16,
+      image_size=input_image_size,
+      normalize_input=True,
+      one_hot=True)
+  clean_test_dataset = test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
@@ -119,9 +123,9 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building %s model', FLAGS.model_name)
-    model = efficientnet_model.Model(width_coefficient,
-                                     depth_coefficient,
-                                     dropout_rate)
+    model = ub.models.EfficientNetBuilder(width_coefficient,
+                                          depth_coefficient,
+                                          dropout_rate)
 
     scaled_lr = FLAGS.base_learning_rate * (batch_size / 256.0)
     # Decay epoch is 2.4, warmup epoch is 5 according to the Efficientnet paper.
@@ -129,11 +133,12 @@ def main(argv):
     warmup_step = steps_per_epoch * 5
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         scaled_lr, decay_steps, decay_rate=0.97, staircase=True)
-    learning_rate = utils.WarmupDecaySchedule(lr_schedule, warmup_step)
+    learning_rate = ub.schedules.AddWarmupDecaySchedule(
+        lr_schedule, warmup_step)
     optimizer = tf.keras.optimizers.RMSprop(
         learning_rate, rho=0.9, momentum=0.9, epsilon=0.001)
     if FLAGS.moving_average_decay > 0:
-      optimizer = utils.MovingAverage(
+      optimizer = ub.optimizers.MovingAverage(
           optimizer,
           average_decay=FLAGS.moving_average_decay)
       optimizer.shadow_copy(model)
@@ -161,7 +166,8 @@ def main(argv):
 
   def train_step(inputs):
     """Build `step_fn` for efficientnet learning."""
-    images, labels = inputs
+    images = inputs['features']
+      labels = inputs['labels']
 
     num_replicas = tf.cast(strategy.num_replicas_in_sync, tf.float32)
     l2_coeff = tf.cast(FLAGS.l2, tf.float32)
@@ -207,7 +213,8 @@ def main(argv):
 
   def eval_step(inputs):
     """A single step."""
-    images, labels = inputs
+    images = inputs['features']
+      labels = inputs['labels']
     logits = model(images, training=False)
     logits = tf.cast(logits, tf.float32)
     negative_log_likelihood = tf.reduce_mean(
@@ -236,11 +243,11 @@ def main(argv):
         summary_writer.flush()
 
     if should_eval:
-      if isinstance(optimizer, utils.MovingAverage):
+      if isinstance(optimizer, ub.optimizers.MovingAverage):
         optimizer.swap_weights(strategy)
       for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
         strategy.run(eval_step, args=(next(test_iterator),))
-      if isinstance(optimizer, utils.MovingAverage):
+      if isinstance(optimizer, ub.optimizers.MovingAverage):
         optimizer.swap_weights(strategy)
 
   # Main training loop.

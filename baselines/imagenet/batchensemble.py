@@ -108,24 +108,26 @@ def main(argv):
       'adaptive_mixup': FLAGS.adaptive_mixup,
       'num_classes': NUM_CLASSES,
   }
-  train_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                      one_hot=(FLAGS.mixup_alpha > 0),
-                                      use_bfloat16=FLAGS.use_bfloat16,
-                                      mixup_params=mixup_params,
-                                      ensemble_size=FLAGS.ensemble_size)
-  test_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                     use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = train_builder.as_dataset(split=tfds.Split.TRAIN,
-                                           batch_size=batch_size)
-  clean_test_dataset = test_builder.as_dataset(split=tfds.Split.TEST,
-                                               batch_size=batch_size)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      one_hot=(FLAGS.mixup_alpha > 0),
+      use_bfloat16=FLAGS.use_bfloat16,
+      mixup_params=mixup_params,
+      ensemble_size=FLAGS.ensemble_size)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.load(batch_size=batch_size)
+  clean_test_dataset = test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
   }
   if FLAGS.adaptive_mixup:
-    imagenet_confidence_dataset = test_builder.as_dataset(
+    validation_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
+        use_bfloat16=FLAGS.use_bfloat16)
+    imagenet_confidence_dataset = validation_builder.load(
         batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores)
     imagenet_confidence_dataset = (
         strategy.experimental_distribute_dataset(imagenet_confidence_dataset))
@@ -163,10 +165,17 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               _LR_SCHEDULE)
+    decay_epochs = [
+        (FLAGS.train_epochs * 30) // 90,
+        (FLAGS.train_epochs * 60) // 90,
+        (FLAGS.train_epochs * 80) // 90,
+    ]
+    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
+        steps_per_epoch=steps_per_epoch,
+        base_learning_rate=base_lr,
+        decay_ratio=0.1,
+        decay_epochs=decay_epochs,
+        warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)
@@ -234,7 +243,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       if FLAGS.adaptive_mixup:
         images = tf.identity(images)
       else:
@@ -316,7 +326,8 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:
@@ -371,10 +382,7 @@ def main(argv):
       if dataset_name == 'confidence_validation':
         return tf.stack(per_probs, 0), labels
 
-    if dataset_name == 'confidence_validation':
-      return strategy.run(step_fn, args=(next(iterator),))
-    else:
-      strategy.run(step_fn, args=(next(iterator),))
+    return strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 

@@ -40,7 +40,6 @@ import scipy
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
 import uncertainty_metrics as um
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
@@ -127,29 +126,28 @@ def main(argv):
       'use_truncated_beta': FLAGS.use_truncated_beta
   }
 
-  train_builder = utils.ImageNetInput(
-      data_dir=FLAGS.data_dir,
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
       one_hot=True,
       mixup_params=mixup_params)
-  test_builder = utils.ImageNetInput(
-      data_dir=FLAGS.data_dir, use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = train_builder.as_dataset(
-      split=tfds.Split.TRAIN, batch_size=batch_size)
-  test_dataset = test_builder.as_dataset(
-      split=tfds.Split.TEST, batch_size=batch_size)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.load(batch_size=batch_size)
+  test_dataset = test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_dataset = strategy.experimental_distribute_dataset(test_dataset)
 
   if enable_mixup:
-
     mean_theta = mean_truncated_beta_distribution(FLAGS.mixup_alpha)
-
     # Train set to compute the means of the images and of the (one-hot) labels
-    imagenet_train_no_mixup = utils.ImageNetInput(
-        data_dir=FLAGS.data_dir, use_bfloat16=FLAGS.use_bfloat16, one_hot=True)
-    imagenet_train_no_mixup = imagenet_train_no_mixup.as_dataset(
-        split=tfds.Split.TRAIN, batch_size=batch_size)
+    imagenet_train_no_mixup = ub.datasets.ImageNetDataset(
+        split=tfds.Split.TRAIN,
+        use_bfloat16=FLAGS.use_bfloat16,
+        one_hot=True)
+    imagenet_train_no_mixup = imagenet_train_no_mixup.load(
+        batch_size=batch_size)
     tr_data_no_mixup = strategy.experimental_distribute_dataset(
         imagenet_train_no_mixup)
 
@@ -173,10 +171,17 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               _LR_SCHEDULE)
+    decay_epochs = [
+        (FLAGS.train_epochs * 30) // 90,
+        (FLAGS.train_epochs * 60) // 90,
+        (FLAGS.train_epochs * 80) // 90,
+    ]
+    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
+        steps_per_epoch=steps_per_epoch,
+        base_learning_rate=base_lr,
+        decay_ratio=0.1,
+        decay_epochs=decay_epochs,
+        warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)
@@ -241,7 +246,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
 
       with tf.GradientTape() as tape:
 
@@ -298,7 +304,8 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
 
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:

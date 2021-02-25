@@ -25,7 +25,6 @@ from absl import logging
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
 import uncertainty_metrics as um
 
 flags.DEFINE_integer('ensemble_size', 2, 'Size of ensemble.')
@@ -95,12 +94,14 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                     batch_size=train_batch_size)
-  test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                    batch_size=test_batch_size)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.load(batch_size=train_batch_size)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  test_dataset = test_builder.load(batch_size=test_batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_dataset = strategy.experimental_distribute_dataset(test_dataset)
 
@@ -120,16 +121,17 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * train_batch_size / 256
-    lr_schedule = [    # (multiplier, epoch to start) tuples
-        (1.0, FLAGS.lr_warmup_epochs),
-        (0.1, int(FLAGS.lr_decay_epochs[0])),
-        (0.01, int(FLAGS.lr_decay_epochs[1])),
-        (0.001, int(FLAGS.lr_decay_epochs[2]))
+    decay_epochs = [
+        (FLAGS.train_epochs * 30) // 90,
+        (FLAGS.train_epochs * 60) // 90,
+        (FLAGS.train_epochs * 80) // 90,
     ]
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               lr_schedule)
+    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
+        steps_per_epoch=steps_per_epoch,
+        base_learning_rate=base_lr,
+        decay_ratio=0.1,
+        decay_epochs=decay_epochs,
+        warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=0.9,
                                         nesterov=True)
@@ -172,7 +174,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       batch_size = tf.shape(images)[0]
       main_shuffle = tf.random.shuffle(tf.tile(
           tf.range(batch_size), [FLAGS.batch_repetitions]))
@@ -229,7 +232,8 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       images = tf.tile(
           tf.expand_dims(images, 1), [1, FLAGS.ensemble_size, 1, 1, 1])
       logits = model(images, training=False)

@@ -212,7 +212,7 @@ class Radial(distribution.Distribution):
     warnings.warn(
       "Entropy is correct only up to a constant, for optimization only."
     )
-    return -tf.math.log(tf.math.reduce_sum(self.scale))
+    return tf.math.log(tf.math.reduce_sum(self.scale))
 
   def mean(self):
     shape = tensorshape_util.concatenate(self.batch_shape,
@@ -258,11 +258,11 @@ def kl_radial_normal(p, q, n_samples=10, name=None):
     warnings.warn(
       "KL is correct only up to a constant, for optimization only.")
 
-    # Kl = Entropy - Cross-entropy
+    # KL = Cross-Entropy - Entropy
     # We find cross-entropy by MC estimation
-    cross_entropy = tf.math.reduce_sum(
+    cross_entropy = -tf.math.reduce_sum(
       q.log_prob(p.sample((n_samples,)))) / n_samples
-    return p.entropy() - cross_entropy
+    return cross_entropy - p.entropy()
 
 
 class TrainableRadial(tf.keras.layers.Layer):

@@ -98,7 +98,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       dataset_builder: tfds.core.DatasetBuilder,
       split: Union[float, str, tfds.Split],
       shuffle_buffer_size: int = None,
-      num_parallel_parser_calls: int = 64,
+      num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
       drop_remainder: bool = True,
       fingerprint_key: Optional[str] = None,
       download_data: bool = False):
@@ -231,8 +231,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
           'Must provide a positive batch size, received {}.'.format(batch_size))
 
     if self._download_data:
-      self._dataset_builder.download_and_prepare(
-          download_dir=self._dataset_builder.data_dir)
+      self._dataset_builder.download_and_prepare()
     dataset = self._dataset_builder.as_dataset(self._split)
 
     # Map the parser over the dataset.
@@ -253,14 +252,14 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     else:
       preprocess_fn = ops.compose(preprocess_fn, self._create_element_id)
 
-    dataset = dataset.map(
-        preprocess_fn,
-        num_parallel_calls=self._num_parallel_parser_calls)
-
     # Shuffle and repeat only for the training split.
     if self._is_training:
       dataset = dataset.shuffle(self._shuffle_buffer_size)
       dataset = dataset.repeat()
+
+    dataset = dataset.map(
+        preprocess_fn,
+        num_parallel_calls=self._num_parallel_parser_calls)
 
     # Note that unless the default value of `drop_remainder=True` is overriden
     # in `__init__`, we always drop the last batch when the batch size does not
@@ -268,7 +267,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # TODO(znado): add padding to last partial eval batch.
     dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
 
-    dataset = dataset.prefetch(-1)
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = (

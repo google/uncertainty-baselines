@@ -24,6 +24,7 @@ import edward2 as ed
 import numpy as np
 import tensorflow as tf
 import tensorflow.compat.v1 as tf1
+import uncertainty_baselines as ub
 import utils  # local file import
 
 flags.DEFINE_enum('dataset', 'mnist',
@@ -40,8 +41,8 @@ flags.DEFINE_string('output_dir', '/tmp/det_training',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_integer('num_cores', 1, 'Number of TPU cores or number of GPUs.')
 FLAGS = flags.FLAGS
 
 
@@ -82,12 +83,24 @@ def main(argv):
   np.random.seed(FLAGS.seed)
   tf.random.set_seed(FLAGS.seed)
   tf.io.gfile.makedirs(FLAGS.output_dir)
-  tf1.disable_v2_behavior()
 
-  session = tf1.Session()
-  x_train, y_train, x_test, y_test = utils.load(FLAGS.dataset, session)
-  n_train = x_train.shape[0]
+  if FLAGS.dataset == 'mnist':
+    dataset_builder_class = ub.datasets.MnistDataset
+  else:
+    dataset_builder_class = ub.datasets.FashionMnistDataset
+  n_train = 50000
+  train_dataset = next(dataset_builder_class(
+      'train').load(batch_size=n_train).as_numpy_iterator())
+  x_train = train_dataset['features']
+  y_train = train_dataset['labels']
+  test_dataset = next(dataset_builder_class(
+      'test').load(batch_size=10000).as_numpy_iterator())
+  x_test = test_dataset['features']
+  y_test = test_dataset['labels']
   num_classes = int(np.amax(y_train)) + 1
+
+  # Note that we need to disable v2 behavior after we load the data.
+  tf1.disable_v2_behavior()
 
   ensemble_filenames = []
   for i in range(FLAGS.ensemble_size):

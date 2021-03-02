@@ -154,17 +154,20 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // test_batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  train_dataset = utils.load_dataset(
+  if FLAGS.dataset == 'cifar10':
+    dataset_builder_class = ub.datasets.Cifar10Dataset
+  else:
+    dataset_builder_class = ub.datasets.Cifar100Dataset
+  train_dataset_builder = dataset_builder_class(
       split=tfds.Split.TRAIN,
-      name=FLAGS.dataset,
-      batch_size=batch_size,
       use_bfloat16=FLAGS.use_bfloat16)
-  clean_test_dataset = utils.load_dataset(
-      split=tfds.Split.TEST,
-      name=FLAGS.dataset,
-      batch_size=test_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_dataset_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  clean_test_dataset_builder = dataset_builder_class(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  clean_test_dataset = clean_test_dataset_builder.load(
+      batch_size=test_batch_size)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
@@ -220,7 +223,7 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = utils.LearningRateSchedule(
+    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,

@@ -13,18 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
-"""Places-365 dataset builder."""
+"""Fashion-MNIST dataset builder."""
 
 from typing import Any, Dict, Optional
+
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
-from uncertainty_baselines.datasets import inception_preprocessing
 
 
-class Places365Dataset(base.BaseDataset):
-  """Places365 dataset builder class."""
+class FashionMnistDataset(base.BaseDataset):
+  """Fashion-MNIST dataset builder class."""
 
   def __init__(
       self,
@@ -36,7 +35,7 @@ class Places365Dataset(base.BaseDataset):
       download_data: bool = False,
       is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
-    """Create an Places-365 tf.data.Dataset builder.
+    """Create a Fashion-MNIST tf.data.Dataset builder.
 
     Args:
       split: a dataset split, either a custom tfds.Split or one of the
@@ -55,16 +54,13 @@ class Places365Dataset(base.BaseDataset):
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
-    name = 'places365_small'
+    name = 'fashion_mnist'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs)
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(
-        dataset_builder,
-        validation_percent,
-        split,
-        test_split=tfds.Split.VALIDATION)
-    super(Places365Dataset, self).__init__(
+        dataset_builder, validation_percent, split)
+    super(FashionMnistDataset, self).__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,
@@ -74,20 +70,14 @@ class Places365Dataset(base.BaseDataset):
         download_data=download_data)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
-    """Create a pre-process function to return images in [0, 1]."""
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
-      """Preprocesses Places-365 image Tensors using inception_preprocessing."""
-      # `preprocess_image` returns images in [-1, 1].
-      image = inception_preprocessing.preprocess_image(
-          example['image'],
-          height=224,
-          width=224,
-          is_training=self._is_training)
-      # Rescale to [0, 1].
-      image = (image + 1.0) / 2.0
-
-      label = tf.cast(example['label'], tf.int32)
-      return {'features': image, 'labels': label}
+      """A pre-process function to return images in [0, 1]."""
+      image = example['image']
+      image = tf.image.convert_image_dtype(image, tf.float32)
+      return {
+          'features': image,
+          'labels': tf.cast(example['label'], tf.int32),
+      }
 
     return _example_parser

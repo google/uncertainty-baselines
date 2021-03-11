@@ -16,9 +16,12 @@
 """Uncertainty baseline training models."""
 
 import warnings
+import tensorflow as tf
 
-from uncertainty_baselines.google.models.criteo_sngp import create_model as CriteoSngpBuilder
+from uncertainty_baselines.models import efficientnet_utils
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
+from uncertainty_baselines.models.efficientnet import create_model as EfficientNetBuilder
+from uncertainty_baselines.models.efficientnet_batch_ensemble import create_model as EfficientNetBatchEnsembleBuilder
 from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
 from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.movielens import create_model as MovieLensBuilder
@@ -30,6 +33,7 @@ from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchense
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
 from uncertainty_baselines.models.resnet50_heteroscedastic import resnet50_heteroscedastic
+from uncertainty_baselines.models.resnet50_radial import resnet50_radial
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_layer
@@ -61,4 +65,6 @@ try:
   from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
+except tf.errors.NotFoundError as e:
+  warnings.warn(f'Skipped dur to NotFoundError: {e}')
 # pylint: enable=g-import-not-at-top

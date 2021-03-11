@@ -35,6 +35,7 @@ class MovieLensDataset(base.BaseDataset):
       normalize: bool = True,
       try_gcs: bool = False,
       download_data: bool = False,
+      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a MovieLens tf.data.Dataset builder.
 
@@ -54,10 +55,16 @@ class MovieLensDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
+      is_training: Whether or not the given `split` is the training split. Only
+        required when the passed split is not one of ['train', 'validation',
+        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     # The total example size and detailed info on MovieLens-1M can be found at:
     # https://www.tensorflow.org/datasets/catalog/movie_lens#movie_lens1m-ratings
     num_total_examples = 1000209
+
+    if is_training is None:
+      is_training = split in ['train', tfds.Split.TRAIN]
 
     if validation_percent < 0.0 or validation_percent >= 1.0:
       raise ValueError(
@@ -92,6 +99,7 @@ class MovieLensDataset(base.BaseDataset):
         name=name,
         dataset_builder=dataset_builder,
         split=split,
+        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data)

@@ -13,7 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ResNet50 Keras model with variational Bayesian layers."""
+"""ResNet50 Keras model with Radial variational layers, as introduced in Radial Bayesian Neural Networks (Farquhar et al.
+
+2020).
+"""
 
 import functools
 import string
@@ -22,6 +25,7 @@ import warnings
 import numpy as np
 import tensorflow as tf
 
+from uncertainty_baselines.models.radial_utils import TrainableHeRadial
 from uncertainty_baselines.models.variational_utils import get_kernel_regularizer_class
 from uncertainty_baselines.models.variational_utils import init_kernel_regularizer
 
@@ -92,7 +96,7 @@ def bottleneck_block(inputs,
   x = Conv2DFlipout(
       filters1,
       kernel_size=1,
-      kernel_initializer=ed.initializers.TrainableHeNormal(
+      kernel_initializer=TrainableHeRadial(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_mean_init)),
               stddev=stddev_stddev_init)),
@@ -114,7 +118,7 @@ def bottleneck_block(inputs,
       kernel_size=3,
       strides=strides,
       padding='same',
-      kernel_initializer=ed.initializers.TrainableHeNormal(
+      kernel_initializer=TrainableHeRadial(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_mean_init)),
               stddev=stddev_stddev_init)),
@@ -134,7 +138,7 @@ def bottleneck_block(inputs,
   x = Conv2DFlipout(
       filters3,
       kernel_size=1,
-      kernel_initializer=ed.initializers.TrainableHeNormal(
+      kernel_initializer=TrainableHeRadial(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_mean_init)),
               stddev=stddev_stddev_init)),
@@ -156,7 +160,7 @@ def bottleneck_block(inputs,
         filters3,
         kernel_size=1,
         strides=strides,
-        kernel_initializer=ed.initializers.TrainableHeNormal(
+        kernel_initializer=TrainableHeRadial(
             stddev_initializer=tf.keras.initializers.TruncatedNormal(
                 mean=np.log(np.expm1(stddev_mean_init)),
                 stddev=stddev_stddev_init)),
@@ -198,15 +202,15 @@ def group(inputs, filters, num_blocks, stage, strides, prior_stddev,
   return x
 
 
-def resnet50_variational(input_shape,
-                         num_classes,
-                         prior_stddev,
-                         dataset_size,
-                         stddev_mean_init,
-                         stddev_stddev_init,
-                         tied_mean_prior=True,
-                         omit_last_layer=False):
-  """Builds variational inference ResNet50.
+def resnet50_radial(input_shape,
+                    num_classes,
+                    prior_stddev,
+                    dataset_size,
+                    stddev_mean_init,
+                    stddev_stddev_init,
+                    tied_mean_prior=True,
+                    omit_last_layer=False):
+  """Builds Radial BNN ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
   network maps spatial features of size 224x224 -> 112x112 -> 56x56 -> 28x28 ->
@@ -249,7 +253,7 @@ def resnet50_variational(input_shape,
       kernel_size=7,
       strides=2,
       padding='valid',
-      kernel_initializer=ed.initializers.TrainableHeNormal(
+      kernel_initializer=TrainableHeRadial(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_mean_init)),
               stddev=stddev_stddev_init)),
@@ -297,7 +301,7 @@ def resnet50_variational(input_shape,
       stddev_stddev_init=stddev_stddev_init)
 
   if omit_last_layer:
-    return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50_variational')
+    return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50_radial')
 
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
   kernel_regularizer_fc1000 = init_kernel_regularizer(
@@ -309,7 +313,7 @@ def resnet50_variational(input_shape,
   x = ed.layers.DenseFlipout(
       num_classes,
       activation=None,
-      kernel_initializer=ed.initializers.TrainableHeNormal(
+      kernel_initializer=TrainableHeRadial(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(
               mean=np.log(np.expm1(stddev_mean_init)),
               stddev=stddev_stddev_init)),
@@ -317,4 +321,4 @@ def resnet50_variational(input_shape,
       name='fc1000')(
           x)
 
-  return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50_variational')
+  return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50_radial')

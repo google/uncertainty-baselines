@@ -33,6 +33,7 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
       download_data: bool = False,
+      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
@@ -47,7 +48,12 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       data_dir: optional dir to save TFDS data to. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
       download_data: Whether or not to download data before loading.
+      is_training: Whether or not the given `split` is the training split. Only
+        required when the passed split is not one of ['train', 'validation',
+        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
+    if is_training is None:
+      is_training = split in ['train', tfds.Split.TRAIN]
     if split == 'train':
       split = tfds.core.ReadInstruction(
           'train',
@@ -60,6 +66,7 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
         name='diabetic_retinopathy_detection',
         dataset_builder=dataset_builder,
         split=split,
+        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data)

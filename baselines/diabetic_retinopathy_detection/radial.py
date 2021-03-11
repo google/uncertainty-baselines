@@ -13,19 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Variational Inference ResNet50 trained on Kaggle's Diabetic Retinopathy Detection.
+"""ResNet50 Radial BNN trained on Kaggle's Diabetic Retinopathy Detection.
 
-This script performs variational inference with a few notable techniques:
+This script performs variational inference with a Radial posterior,
+as introduced in Radial Bayesian Neural Networks (Farquhar et al. 2020).
+
+We use a few additional, noteworthy techniques in training:
 
 1. Normal prior whose mean is tied at the variational posterior's.
     This makes the KL penalty only penalize the weight posterior's standard
     deviation and not its mean.
     The prior's standard deviation can be fixed as a hyperparameter, but is by
     default set to the He initializer stddev: sqrt(2 / fan_in) (Neal 1995).
-2. Fully factorized normal variational distribution (Blundell et al., 2015).
-3. Flipout for lower-variance gradients in convolutional layers and the final
-   dense layer (Wen et al., 2018).
-4. KL annealing (Bowman et al., 2015).
+2. Flipout for lower-variance gradients in convolutional layers and the final
+    dense layer (Wen et al., 2018).
+3. KL annealing (Bowman et al., 2015).
 """
 
 import os
@@ -45,7 +47,7 @@ DEFAULT_NUM_EPOCHS = 90
 
 # Data load / output flags.
 flags.DEFINE_string(
-    'output_dir', '/tmp/diabetic_retinopathy_detection/variational_inference',
+    'output_dir', '/tmp/diabetic_retinopathy_detection/radial',
     'The directory where the model weights and '
     'training/evaluation summaries are stored.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
@@ -64,7 +66,7 @@ flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
                   'Epochs to decay learning rate by.')
 
-# VI flags.
+# Radial BNN flags.
 flags.DEFINE_bool(
     'tied_mean_prior', True,
     'If True, fix the mean of the prior to that of the variational posterior. '
@@ -155,7 +157,7 @@ def main(argv):
       os.path.join(FLAGS.output_dir, 'summaries'))
 
   with strategy.scope():
-    logging.info('Building Keras ResNet-50 Variational Inference model.')
+    logging.info('Building Keras ResNet-50 Radial model.')
 
     if FLAGS.prior_stddev is None:
       logging.info(
@@ -163,7 +165,7 @@ def main(argv):
           'sqrt(2 / fan_in) for each layer. This is recommended over providing '
           'a fixed prior stddev.')
 
-    model = ub.models.resnet50_variational(
+    model = ub.models.resnet50_radial(
         input_shape=utils.load_input_shape(dataset_train),
         num_classes=1,  # binary classification task
         prior_stddev=FLAGS.prior_stddev,
@@ -183,7 +185,7 @@ def main(argv):
         for start_epoch_str in FLAGS.lr_decay_epochs
     ]
 
-    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
+    lr_schedule = utils.LearningRateSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,

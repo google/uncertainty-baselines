@@ -16,7 +16,7 @@
 # Lint as: python3
 """Random noise dataset builder."""
 
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Optional
 
 import numpy as np
 import tensorflow.compat.v2 as tf
@@ -130,6 +130,7 @@ class _RandomNoiseDataset(base.BaseDataset):
       data_dir: str = None,
       try_gcs: bool = False,
       download_data: bool = False,
+      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a Random Image tf.data.Dataset builder.
 
@@ -154,6 +155,9 @@ class _RandomNoiseDataset(base.BaseDataset):
         files. Currently unsupported.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      is_training: Whether or not the given `split` is the training split. Only
+        required when the passed split is not one of ['train', 'validation',
+        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     self._image_shape = image_shape
     self._split_seed = {
@@ -165,6 +169,7 @@ class _RandomNoiseDataset(base.BaseDataset):
         name=name,
         dataset_builder=_RandomDatasetBuilder(image_shape=image_shape),
         split=split,
+        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=False)

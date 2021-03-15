@@ -314,7 +314,6 @@ def resnet50_variational(input_shape,
               mean=np.log(np.expm1(stddev_mean_init)),
               stddev=stddev_stddev_init)),
       kernel_regularizer=kernel_regularizer_fc1000,
-      name='fc1000')(
-          x)
+      name='fc1000')(x)
 
   return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50_variational')

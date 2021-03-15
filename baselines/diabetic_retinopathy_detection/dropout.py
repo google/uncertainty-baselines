@@ -26,8 +26,8 @@ import tensorflow_datasets as tfds
 
 import uncertainty_baselines as ub
 import utils  # local file import
+from tensorboard.plugins.hparams import api as hp
 
-DEFAULT_TRAIN_BATCH_SIZE = 16
 DEFAULT_NUM_EPOCHS = 90
 
 # Data load / output flags.
@@ -38,13 +38,10 @@ flags.DEFINE_string(
     'you should specify an output_dir name that includes the random seed to '
     'avoid overwriting.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
-flags.mark_flag_as_required('data_dir')
 
 # Learning Rate / SGD flags.
-flags.DEFINE_float(
-    'base_learning_rate', 4e-4,
-    'Base learning rate when total batch size is DEFAULT_TRAIN_BATCH_SIZE. It is '
-    'scaled by the ratio of the total batch size to DEFAULT_TRAIN_BATCH_SIZE.')
+flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_integer(
     'lr_warmup_epochs', 1,
     'Number of epochs for a linear warmup to the initial '
@@ -58,7 +55,7 @@ flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
-flags.DEFINE_integer('train_batch_size', DEFAULT_TRAIN_BATCH_SIZE,
+flags.DEFINE_integer('train_batch_size', 16,
                      'The per-core training batch size.')
 flags.DEFINE_integer('eval_batch_size', 32,
                      'The per-core validation/test batch size.')
@@ -117,14 +114,26 @@ def main(argv):
   # test: 42,670
   ds_info = tfds.builder('diabetic_retinopathy_detection').info
   steps_per_epoch = ds_info.splits['train'].num_examples // train_batch_size
-  steps_per_eval = ds_info.splits['test'].num_examples // eval_batch_size
+  steps_per_validation_eval = (
+      ds_info.splits['validation'].num_examples // eval_batch_size)
+  steps_per_test_eval = ds_info.splits['test'].num_examples // eval_batch_size
+
+  data_dir = FLAGS.data_dir
 
   dataset_train_builder = ub.datasets.get(
-      'diabetic_retinopathy_detection', split='train', data_dir=FLAGS.data_dir)
+      'diabetic_retinopathy_detection', split='train', data_dir=data_dir)
   dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
   dataset_train = strategy.experimental_distribute_dataset(dataset_train)
+
+  dataset_validation_builder = ub.datasets.get(
+      'diabetic_retinopathy_detection', split='validation', data_dir=data_dir)
+  dataset_validation = dataset_validation_builder.load(
+      batch_size=eval_batch_size)
+  dataset_validation = strategy.experimental_distribute_dataset(
+      dataset_validation)
+
   dataset_test_builder = ub.datasets.get(
-      'diabetic_retinopathy_detection', split='test', data_dir=FLAGS.data_dir)
+      'diabetic_retinopathy_detection', split='test', data_dir=data_dir)
   dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
   dataset_test = strategy.experimental_distribute_dataset(dataset_test)
 
@@ -147,8 +156,7 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
 
     # Linearly scale learning rate and the decay epochs by vanilla settings.
-    base_lr = (FLAGS.base_learning_rate *
-               train_batch_size) / DEFAULT_TRAIN_BATCH_SIZE
+    base_lr = FLAGS.base_learning_rate
     lr_decay_epochs = [
         (int(start_epoch_str) * FLAGS.train_epochs) // DEFAULT_NUM_EPOCHS
         for start_epoch_str in FLAGS.lr_decay_epochs
@@ -161,7 +169,7 @@ def main(argv):
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(
-        lr_schedule, momentum=0.9, nesterov=True)
+        lr_schedule, momentum=1.0 - FLAGS.one_minus_momentum, nesterov=True)
     metrics = utils.get_diabetic_retinopathy_base_metrics(
         use_tpu=use_tpu, num_bins=FLAGS.num_bins)
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -179,6 +187,7 @@ def main(argv):
   if not use_tpu:
     metrics.update({
         'train/auc': tf.keras.metrics.AUC(),
+        'validation/auc': tf.keras.metrics.AUC(),
         'test/auc': tf.keras.metrics.AUC()
     })
 
@@ -223,7 +232,7 @@ def main(argv):
     strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator):
+  def test_step(iterator, dataset_split):
     """Evaluation step function."""
 
     def step_fn(inputs):
@@ -251,22 +260,21 @@ def main(argv):
       negative_log_likelihood = tf.reduce_mean(
           -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
           tf.math.log(float(FLAGS.num_dropout_samples_eval)))
-      metrics['test/negative_log_likelihood'].update_state(
+      metrics[dataset_split + '/negative_log_likelihood'].update_state(
           negative_log_likelihood)
-      metrics['test/accuracy'].update_state(labels, probs)
-      metrics['test/auc'].update_state(labels, probs)
+      metrics[dataset_split + '/accuracy'].update_state(labels, probs)
+      metrics[dataset_split + '/auc'].update_state(labels, probs)
 
       if not use_tpu:
-        metrics['test/ece'].update_state(labels, probs)
+        metrics[dataset_split + '/ece'].update_state(labels, probs)
 
     strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
   start_time = time.time()
 
+  train_iterator = iter(dataset_train)
   for epoch in range(initial_epoch, FLAGS.train_epochs):
-    train_iterator = iter(dataset_train)
-    test_iterator = iter(dataset_test)
     logging.info('Starting to run epoch: %s', epoch + 1)
     for step in range(steps_per_epoch):
       train_step(train_iterator)
@@ -283,13 +291,20 @@ def main(argv):
       if step % 20 == 0:
         logging.info(message)
 
-    for step in range(steps_per_eval):
+    validation_iterator = iter(dataset_validation)
+    for step in range(steps_per_validation_eval):
       if step % 20 == 0:
-        logging.info('Starting to run eval step %s of epoch: %s', step,
-                     epoch + 1)
+        logging.info('Starting to run validation eval step %s of epoch: %s',
+                     step, epoch + 1)
+      test_step(validation_iterator, 'validation')
 
+    test_iterator = iter(dataset_test)
+    for step in range(steps_per_test_eval):
+      if step % 20 == 0:
+        logging.info('Starting to run test eval step %s of epoch: %s', step,
+                     epoch + 1)
       test_start_time = time.time()
-      test_step(test_iterator)
+      test_step(test_iterator, 'test')
       ms_per_example = (time.time() - test_start_time) * 1e6 / eval_batch_size
       metrics['test/ms_per_example'].update_state(ms_per_example)
 
@@ -324,6 +339,13 @@ def main(argv):
                                   f'keras_model_{FLAGS.train_epochs}')
   model.save(keras_model_name)
   logging.info('Saved keras model to %s', keras_model_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'dropout_rate': FLAGS.dropout_rate,
+        'l2': FLAGS.l2,
+    })
 
 
 if __name__ == '__main__':

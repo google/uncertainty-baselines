@@ -54,12 +54,6 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
     """
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
-    if split == 'train':
-      split = tfds.core.ReadInstruction(
-          'train',
-          unit='abs')
-    elif split == 'validation':
-      split = tfds.core.ReadInstruction('validation', unit='abs')
     dataset_builder = tfds.builder(
         'diabetic_retinopathy_detection/btgraham-300', data_dir=data_dir)
     super(DiabeticRetinopathyDetectionDataset, self).__init__(
@@ -77,7 +71,7 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       """A pre-process function to return images in [0, 1]."""
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)
-      image = tf.image.resize(image, size=[512, 512], method='bilinear')
+      image = tf.image.resize(image, size=(512, 512), method='bilinear')
       label = tf.cast(example['label'] > 1, tf.int32)  # Binarise task.
       parsed_example = {
           'features': image,

@@ -350,7 +350,7 @@ def main(argv):
       logging.info('Saved checkpoint to %s', checkpoint_name)
 
       # TODO(nband): debug checkpointing
-      # Also save Keras model, due to checkpoint.save issue
+      # Also save Keras model, due to checkpoint.save issue.
       keras_model_name = os.path.join(FLAGS.output_dir,
                                       f'keras_model_{epoch + 1}')
       model.save(keras_model_name)

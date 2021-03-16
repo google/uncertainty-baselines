@@ -223,7 +223,7 @@ def resnet50_radial(input_shape,
     dataset_size: Dataset size to properly scale the KL.
     stddev_mean_init: float, initializes the mean of the TruncatedNormal from
       which we sample the initial posterior stddev: mean =
-        np.log(np.expm1(stddev_mean_init))
+        np.log(np.expm1(stddev_mean_init)).
     stddev_stddev_init: float, stddev of the TruncatedNormal distribution used
       to initialize the stddev of the variational posterior.
     tied_mean_prior: bool, if True, fix the mean of the prior to that of the

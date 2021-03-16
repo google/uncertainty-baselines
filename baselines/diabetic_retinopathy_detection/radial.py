@@ -335,7 +335,7 @@ def main(argv):
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
       metrics['test/ms_per_example'].update_state(ms_per_example)
 
-    # Log and write to summary the epoch metrics
+    # Log and write to summary the epoch metrics.
     utils.log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     with summary_writer.as_default():

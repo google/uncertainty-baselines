@@ -178,8 +178,8 @@ class Radial(tfp.distributions.Distribution):
   def _cartesian_to_hyperspherical(self, x_c):
     """Helper for log_prob.
 
-    As a convention here, the first element is the radius
-    and the rest are angles.
+    As a convention here, the first element is the radius and the rest are
+    angles.
 
     Assumes only one dimension representing a vector in cartesian space.
 

@@ -99,3 +99,29 @@ class AddWarmupDecaySchedule(
     })
     return config
 
+
+class WarmUpPolynomialSchedule(
+    tf.keras.optimizers.schedules.LearningRateSchedule):
+  """Linear warmup then polynomial decay learning rate schedule."""
+
+  def __init__(self,
+               base_learning_rate,
+               end_learning_rate,
+               decay_steps,
+               warmup_steps,
+               decay_power=1.0):
+    super(WarmUpPolynomialSchedule, self).__init__()
+    poly_schedule = tf.keras.optimizers.schedules.PolynomialDecay(
+        base_learning_rate,
+        decay_steps,
+        end_learning_rate,
+        decay_power)
+    self._schedule = AddWarmupDecaySchedule(poly_schedule, warmup_steps)
+
+  def __call__(self, step):
+    return self._schedule(step)
+
+  def get_config(self):
+    return {
+        'schedule': self._schedule,
+    }

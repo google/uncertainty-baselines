@@ -18,12 +18,8 @@
 import logging
 import os
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 import uncertainty_metrics as um
-from tensorflow import config
-from tensorflow import distribute
-from tensorflow import io
-from tensorflow import tpu
 
 
 # Distribution / parallelism.
@@ -47,13 +43,13 @@ def init_distribution_strategy(force_use_cpu, use_gpu, tpu_name):
     logging.info('Use GPU')
 
   if force_use_cpu or use_gpu:
-    strategy = distribute.MirroredStrategy()
+    strategy = tf.distribute.MirroredStrategy()
   else:
     logging.info('Use TPU at %s', tpu_name if tpu_name is not None else 'local')
-    resolver = distribute.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
-    config.experimental_connect_to_cluster(resolver)
-    tpu.experimental.initialize_tpu_system(resolver)
-    strategy = distribute.TPUStrategy(resolver)
+    resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
+    tf.config.experimental_connect_to_cluster(resolver)
+    tf.tpu.experimental.initialize_tpu_system(resolver)
+    strategy = tf.distribute.TPUStrategy(resolver)
 
   return strategy
 
@@ -107,21 +103,25 @@ def get_diabetic_retinopathy_base_metrics(use_tpu, num_bins):
       'train/negative_log_likelihood': tf.keras.metrics.Mean(),
       'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
+      'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+      'validation/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
-      'test/accuracy': tf.keras.metrics.BinaryAccuracy()
+      'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
   }
 
   if use_tpu:
     # AUC does not yet work within GPU strategy scope, but does for TPU
     metrics.update({
         'train/auc': tf.keras.metrics.AUC(),
-        'test/auc': tf.keras.metrics.AUC()
+        'validation/auc': tf.keras.metrics.AUC(),
+        'test/auc': tf.keras.metrics.AUC(),
     })
   else:
     # ECE does not yet work on TPU
     metrics.update({
         'train/ece': um.ExpectedCalibrationError(num_bins=num_bins),
-        'test/ece': um.ExpectedCalibrationError(num_bins=num_bins)
+        'validation/ece': um.ExpectedCalibrationError(num_bins=num_bins),
+        'test/ece': um.ExpectedCalibrationError(num_bins=num_bins),
     })
 
   return metrics
@@ -177,10 +177,10 @@ def parse_checkpoint_dir(checkpoint_dir):
     paths of checkpoints
   """
   paths = []
-  subdirectories = io.gfile.glob(checkpoint_dir)
+  subdirectories = tf.io.gfile.glob(checkpoint_dir)
   is_checkpoint = lambda f: ('checkpoint' in f and '.index' in f)
   for subdir in subdirectories:
-    for path, _, files in io.gfile.walk(subdir):
+    for path, _, files in tf.io.gfile.walk(subdir):
       if any(f for f in files if is_checkpoint(f)):
         latest_checkpoint_without_suffix = tf.train.latest_checkpoint(path)
         paths.append(os.path.join(path, latest_checkpoint_without_suffix))
@@ -201,7 +201,7 @@ def parse_keras_models(checkpoint_dir):
   """
   paths = []
   is_keras_model_dir = lambda dir_name: ('keras_model' in dir_name)
-  for dir_name in io.gfile.listdir(checkpoint_dir):
+  for dir_name in tf.io.gfile.listdir(checkpoint_dir):
     dir_path = os.path.join(checkpoint_dir, dir_name)
     if tf.io.gfile.isdir(dir_path) and is_keras_model_dir(dir_name):
       paths.append(dir_path)

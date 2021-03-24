@@ -43,6 +43,8 @@
 | Ensemble (size=4) | 0.003 / 0.666 | 99.9% / 82.7% | - / 0.021 | 2.27 / 54.1% / 0.138 | 1.1 (32 TPUv2 cores) | 20.1 / 0.317 (8 TPUv2 cores) |  146M |
 | Hyper-deep ensemble (size=4)<sup>12</sup> | - / 0.654 | - / 83.0% | - / 0.022 | 2.26 / 53.2% / 0.128 | 1.2 (32 TPUv2 cores) | 20.7 / 0.317  (8 TPUv2 cores) | 146M |
 | Variational inference (sample=1) | 3e-3 / 0.944 | 99.9% / 77.8% | 2e-3 / 0.097 | 3.18 / 48.2% / 0.271 | 5.5 (8 TPUv2 cores) | 4.69 / 0.210 (8 TPUv2 cores) | 73M |
+| Heteroscedastic | 4e-3 / 0.833 | 99.9% / 80.2% | 4e-3 / 0.059 | 2.40 / 52.1% / 0.177 | 5 (8 TPUv2 cores) | 5 / 4 (8 TPUv2 cores) | 37M |
+| Heteroscedastic Ensemble (size=4) | - / 0.671 | - / 82.7% | - / 0.026 | 2.07 / 55.2% / 0.105 | - | -| 148M |
 
 ## Metrics
 

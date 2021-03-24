@@ -166,7 +166,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
       try_gcs: bool = False,
       download_data: bool = False,
       is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      **unused_kwargs: Dict[str, Any]):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
     Args:

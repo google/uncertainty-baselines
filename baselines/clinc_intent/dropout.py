@@ -167,7 +167,8 @@ def main(argv):
       'all': all_dataset_builder
   }
 
-  train_dataset = train_dataset_builder.load(batch_size=batch_size)
+  train_dataset = train_dataset_builder.load(
+      batch_size=FLAGS.per_core_batch_size)
 
   ds_info = train_dataset_builder.tfds_info
   feature_size = ds_info.metadata['feature_size']

@@ -116,7 +116,7 @@ flags.DEFINE_integer(
     'The hidden dimension of the GP layer, which corresponds to the number of '
     'random features used for the approximation.')
 flags.DEFINE_bool(
-    'gp_input_normalization', False,
+    'gp_input_normalization', True,
     'Whether to normalize the input using LayerNorm for GP layer.'
     'This is similar to automatic relevance determination (ARD) in the classic '
     'GP learning.')
@@ -126,7 +126,7 @@ flags.DEFINE_float(
     'gp_cov_discount_factor', 0.999,
     'The discount factor to compute the moving average of precision matrix.')
 flags.DEFINE_float(
-    'gp_mean_field_factor', 1e-4,
+    'gp_mean_field_factor', 1e-1,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
@@ -134,8 +134,7 @@ flags.DEFINE_float(
 
 # Optimization and evaluation flags
 flags.DEFINE_integer('seed', 42, 'Random seed.')
-# TODO(kivlichan): this sets it to 64 with 8 cores; figure out why and fix.
-flags.DEFINE_integer('per_core_batch_size', 8, 'Batch size per TPU core/GPU.')
+flags.DEFINE_integer('per_core_batch_size', 32, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float(
     'base_learning_rate', 2.5e-5,
     'Base learning rate when total batch size is 128. It is '
@@ -251,9 +250,12 @@ def main(argv):
   train_datasets = {}
   dataset_steps_per_epoch = {}
   total_steps_per_epoch = 0
+
+  # TODO(jereliu): Apply strategy.experimental_distribute_dataset to the
+  # dataset_builders.
   for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = strategy.experimental_distribute_dataset(
-        dataset_builder.load(batch_size=batch_size))
+    train_datasets[dataset_name] = dataset_builder.load(
+        batch_size=FLAGS.per_core_batch_size)
     dataset_steps_per_epoch[dataset_name] = (
         dataset_builder.num_examples // batch_size)
     total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
@@ -261,8 +263,8 @@ def main(argv):
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = strategy.experimental_distribute_dataset(
-        dataset_builder.load(batch_size=test_batch_size))
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=test_batch_size)
     steps_per_eval[dataset_name] = (
         dataset_builder.num_examples // test_batch_size)
 

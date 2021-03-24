@@ -212,7 +212,7 @@ def main(argv):
   batch_size = (FLAGS.per_core_batch_size * FLAGS.num_cores
                 // FLAGS.num_dropout_samples_training)
   test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  num_classes = 10
+  num_classes = 10 if FLAGS.dataset == 'cifar10' else 100
 
   aug_params = {
       'augmix': FLAGS.augmix,

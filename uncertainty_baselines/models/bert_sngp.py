@@ -545,7 +545,7 @@ class BertGaussianProcessClassifier(tf.keras.Model):
     # Produce final logits.
     if use_gp_layer:
       # We use the stddev=0.05 (i.e., the tf keras default)
-      # as the distribution of the random features instead of stddev=1.
+      # for the distribution of the random features instead of stddev=1.
       # (which is often suggested by the theoretical literature).
       # The reason is deep BERT model is sensitive to the scaling of the
       # initializers.

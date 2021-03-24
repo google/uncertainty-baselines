@@ -299,9 +299,9 @@ def main(argv):
         metrics['test/acc'].update_state(ece_labels, pred_labels)
         metrics['test/acc_weighted'].update_state(
             ece_labels, pred_labels, sample_weight=sample_weight)
-        metrics['test/precision'].updated_state(ece_labels, pred_labels)
-        metrics['test/recall'].updated_state(ece_labels, pred_labels)
-        metrics['test/f1'].updated_state(one_hot_labels, ece_probs)
+        metrics['test/precision'].update_state(ece_labels, pred_labels)
+        metrics['test/recall'].update_state(ece_labels, pred_labels)
+        metrics['test/f1'].update_state(one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)

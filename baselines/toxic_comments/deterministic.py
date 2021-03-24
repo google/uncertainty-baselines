@@ -64,8 +64,7 @@ flags.DEFINE_string(
 
 # Optimization and evaluation flags
 flags.DEFINE_integer('seed', 8, 'Random seed.')
-# TODO(kivlichan): this sets it to 64 with 8 cores; figure out why and fix.
-flags.DEFINE_integer('per_core_batch_size', 8, 'Batch size per TPU core/GPU.')
+flags.DEFINE_integer('per_core_batch_size', 32, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float(
     'base_learning_rate', 1e-5,
     'Base learning rate when total batch size is 128. It is '
@@ -176,9 +175,12 @@ def main(argv):
   train_datasets = {}
   dataset_steps_per_epoch = {}
   total_steps_per_epoch = 0
+
+  # TODO(jereliu): Apply strategy.experimental_distribute_dataset to the
+  # dataset_builders.
   for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = strategy.experimental_distribute_dataset(
-        dataset_builder.load(batch_size=batch_size))
+    train_datasets[dataset_name] = dataset_builder.load(
+        batch_size=FLAGS.per_core_batch_size)
     dataset_steps_per_epoch[dataset_name] = (
         dataset_builder.num_examples // batch_size)
     total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
@@ -186,8 +188,8 @@ def main(argv):
   test_datasets = {}
   steps_per_eval = {}
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = strategy.experimental_distribute_dataset(
-        dataset_builder.load(batch_size=test_batch_size))
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=test_batch_size)
     steps_per_eval[dataset_name] = (
         dataset_builder.num_examples // test_batch_size)
 

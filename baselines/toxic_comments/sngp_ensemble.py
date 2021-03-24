@@ -186,7 +186,7 @@ def main(argv):
           features, labels, _ = utils.create_feature_and_label(inputs)
           logits = model(features, training=False)
 
-          if isinstance(logits, tuple):
+          if isinstance(logits, (list, tuple)):
             # If model returns a tuple of (logits, covmat), extract both.
             logits, covmat = logits
           else:

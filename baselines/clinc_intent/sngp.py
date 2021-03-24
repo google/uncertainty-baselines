@@ -106,7 +106,7 @@ flags.DEFINE_float(
     'gp_cov_discount_factor', 0.999,
     'The discount factor to compute the moving average of precision matrix.')
 flags.DEFINE_float(
-    'gp_mean_field_factor', 1e-4,
+    'gp_mean_field_factor', 1e-1,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
@@ -207,7 +207,8 @@ def main(argv):
       'all': all_dataset_builder
   }
 
-  train_dataset = train_dataset_builder.load(batch_size=batch_size)
+  train_dataset = train_dataset_builder.load(
+      batch_size=FLAGS.per_core_batch_size)
 
   ds_info = train_dataset_builder.tfds_info
   feature_size = ds_info.metadata['feature_size']

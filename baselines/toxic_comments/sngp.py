@@ -44,6 +44,7 @@ from absl import flags
 from absl import logging
 
 import edward2 as ed
+import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 from tensorflow_addons import metrics as tfa_metrics
@@ -52,7 +53,7 @@ import uncertainty_baselines as ub
 import utils  # local file import
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
-
+from tensorboard.plugins.hparams import api as hp
 
 # Data flags
 flags.DEFINE_string(
@@ -139,6 +140,7 @@ flags.DEFINE_float(
     'base_learning_rate', 2.5e-5,
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_integer(
     'checkpoint_interval', 5,
     'Number of epochs between saving checkpoints. Use -1 to '
@@ -310,11 +312,13 @@ def main(argv):
         use_layer_norm_att=FLAGS.use_layer_norm_att,
         use_layer_norm_ffn=FLAGS.use_layer_norm_ffn,
         use_spec_norm_plr=FLAGS.use_spec_norm_plr)
+    # Create an AdamW optimizer with beta_2=0.999, epsilon=1e-6.
     optimizer = utils.create_optimizer(
         FLAGS.base_learning_rate,
         steps_per_epoch=total_steps_per_epoch,
         epochs=FLAGS.train_epochs,
-        warmup_proportion=FLAGS.warmup_proportion)
+        warmup_proportion=FLAGS.warmup_proportion,
+        beta_1=1.0 - FLAGS.one_minus_momentum)
 
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
@@ -326,7 +330,8 @@ def main(argv):
         'train/accuracy_weighted': tf.keras.metrics.Accuracy(),
         'train/auroc': tf.keras.metrics.AUC(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'train/precision': tf.keras.metrics.Precision(),
         'train/recall': tf.keras.metrics.Recall(),
         'train/f1': tfa_metrics.F1Score(
@@ -360,7 +365,8 @@ def main(argv):
         'test/aupr': tf.keras.metrics.AUC(curve='PR'),
         'test/brier': tf.keras.metrics.MeanSquaredError(),
         'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/acc': tf.keras.metrics.Accuracy(),
         'test/acc_weighted': tf.keras.metrics.Accuracy(),
         'test/eval_time': tf.keras.metrics.Mean(),
@@ -391,7 +397,7 @@ def main(argv):
             'test/brier_weighted_{}'.format(dataset_name):
                 tf.keras.metrics.MeanSquaredError(),
             'test/ece_{}'.format(dataset_name):
-                um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+                rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
             'test/acc_{}'.format(dataset_name):
                 tf.keras.metrics.Accuracy(),
             'test/acc_weighted_{}'.format(dataset_name):
@@ -430,7 +436,7 @@ def main(argv):
     return sample_weight
 
   @tf.function
-  def train_step(iterator, dataset_name):
+  def train_step(iterator, dataset_name, num_steps):
     """Training StepFn."""
 
     def step_fn(inputs):
@@ -499,12 +505,13 @@ def main(argv):
           ece_labels, pred_labels, sample_weight=sample_weight)
       metrics['train/auroc'].update_state(labels, auc_probs)
       metrics['train/loss'].update_state(loss)
-      metrics['train/ece'].update_state(ece_labels, ece_probs)
+      metrics['train/ece'].add_batch(ece_probs, label=ece_labels)
       metrics['train/precision'].update_state(ece_labels, pred_labels)
       metrics['train/recall'].update_state(ece_labels, pred_labels)
       metrics['train/f1'].update_state(one_hot_labels, ece_probs)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -574,7 +581,7 @@ def main(argv):
         metrics['test/brier'].update_state(labels, auc_probs)
         metrics['test/brier_weighted'].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece'].update_state(ece_labels, ece_probs)
+        metrics['test/ece'].add_batch(ece_probs, label=ece_labels)
         metrics['test/acc'].update_state(ece_labels, pred_labels)
         metrics['test/acc_weighted'].update_state(
             ece_labels, pred_labels, sample_weight=sample_weight)
@@ -597,8 +604,8 @@ def main(argv):
             labels, auc_probs)
         metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece_{}'.format(dataset_name)].update_state(
-            ece_labels, ece_probs)
+        metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            ece_probs, label=ece_labels)
         metrics['test/acc_{}'.format(dataset_name)].update_state(
             ece_labels, pred_labels)
         metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
@@ -740,25 +747,27 @@ def main(argv):
       train_iterators[dataset_name] = iter(train_dataset)
     for epoch in range(initial_epoch, FLAGS.train_epochs):
       logging.info('Starting to run epoch: %s', epoch)
-      current_step = epoch * total_steps_per_epoch
       for dataset_name, train_iterator in train_iterators.items():
         try:
           with tf.experimental.async_scope():
-            for step in range(dataset_steps_per_epoch[dataset_name]):
-              train_step(train_iterator, dataset_name)
+            train_step(
+                train_iterator,
+                dataset_name,
+                dataset_steps_per_epoch[dataset_name])
 
-              current_step += 1
-              max_steps = total_steps_per_epoch * FLAGS.train_epochs
-              time_elapsed = time.time() - start_time
-              steps_per_sec = float(current_step) / time_elapsed
-              eta_seconds = (max_steps - current_step) / steps_per_sec
-              message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                         'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                             current_step / max_steps, epoch + 1,
-                             FLAGS.train_epochs, steps_per_sec,
-                             eta_seconds / 60, time_elapsed / 60))
-              if step % 20 == 0:
-                logging.info(message)
+            current_step = (
+                epoch * total_steps_per_epoch +
+                dataset_steps_per_epoch[dataset_name])
+            max_steps = total_steps_per_epoch * FLAGS.train_epochs
+            time_elapsed = time.time() - start_time
+            steps_per_sec = float(current_step) / time_elapsed
+            eta_seconds = (max_steps - current_step) / steps_per_sec
+            message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                       'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                           current_step / max_steps, epoch + 1,
+                           FLAGS.train_epochs, steps_per_sec,
+                           eta_seconds / 60, time_elapsed / 60))
+            logging.info(message)
 
         except (StopIteration, tf.errors.OutOfRangeError):
           tf.experimental.async_clear_error()
@@ -788,6 +797,12 @@ def main(argv):
         total_results = {
             name: metric.result() for name, metric in metrics.items()
         }
+        # Metrics from Robustness Metrics (like ECE) will return a dict with a
+        # single key/value, instead of a scalar.
+        total_results = {
+            k: (list(v.values())[0] if isinstance(v, dict) else v)
+            for k, v in total_results.items()
+        }
         with summary_writer.as_default():
           for name, result in total_results.items():
             tf.summary.scalar(name, result, step=epoch + 1)
@@ -805,6 +820,12 @@ def main(argv):
     final_save_name = os.path.join(FLAGS.output_dir, 'model')
     model.save(final_save_name)
     logging.info('Saved model to %s', final_save_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'gp_mean_field_factor': FLAGS.gp_mean_field_factor,
+    })
 
 
 if __name__ == '__main__':

@@ -243,7 +243,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
       """Preprocesses sentences as well as toxicity and other labels."""
       if self._data_dir:
-        return tf.io.parse_example(example, self.feature_spec)
+        return tf.io.parse_example(example['features'], self.feature_spec)
       else:
         label = example['toxicity']
         feature = example['text']

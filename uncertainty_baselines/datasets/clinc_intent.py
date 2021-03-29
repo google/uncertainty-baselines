@@ -304,10 +304,10 @@ class ClincIntentDetectionDataset(base.BaseDataset):
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
-    def _example_parser(example: tf.Tensor) -> Dict[str, tf.Tensor]:
+    def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
       features_spec = _make_features_spec()
-      features = tf.io.parse_example(example, features_spec)
+      features = tf.io.parse_example(example['features'], features_spec)
       labels = tf.cast(features.pop(_LABEL_NAME), tf.int32)
       utterance_indices = features[_FEATURE_NAME]
       num_tokens = features[_NUM_TOKEN_NAME]

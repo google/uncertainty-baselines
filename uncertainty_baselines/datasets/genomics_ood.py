@@ -187,7 +187,7 @@ class GenomicsOodDataset(base.BaseDataset):
       # NCBI accession number, and the position where it was sampled from.
       # domain: if the bacteria is in-distribution (in), or OOD (ood)
       features = tf.io.parse_single_example(
-          example,
+          example['features'],
           features={
               'seq': tf.io.FixedLenFeature([], tf.string),
               'label': tf.io.FixedLenFeature([], tf.int64),

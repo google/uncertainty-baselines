@@ -27,6 +27,7 @@ from absl import flags
 from absl import logging
 
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -132,7 +133,8 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.ExpectedCalibrationError(
+          num_bins=FLAGS.num_bins),
   }
   corrupt_metrics = {}
   for name in test_datasets:
@@ -140,7 +142,7 @@ def main(argv):
     corrupt_metrics['test/accuracy_{}'.format(name)] = (
         tf.keras.metrics.SparseCategoricalAccuracy())
     corrupt_metrics['test/ece_{}'.format(
-        name)] = um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+        name)] = rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
 
   # Evaluate model predictions.
   for n, (name, test_dataset) in enumerate(test_datasets.items()):
@@ -166,14 +168,14 @@ def main(argv):
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(name)].add_batch(
+            probs, label=labels)
 
     message = ('{:.1%} completion for evaluation: dataset {:d}/{:d}'.format(
         (n + 1) / num_datasets, n + 1, num_datasets))
@@ -184,7 +186,13 @@ def main(argv):
                                                     max_intensity,
                                                     FLAGS.alexnet_errors_path)
   total_results = {name: metric.result() for name, metric in metrics.items()}
+  # Metrics from Robustness Metrics (like ECE) will return a dict with a
+  # single key/value, instead of a scalar.
   total_results.update(corrupt_results)
+  total_results = {
+      k: (list(v.values())[0] if isinstance(v, dict) else v)
+      for k, v in total_results.items()
+  }
   logging.info('Metrics: %s', total_results)
 
 

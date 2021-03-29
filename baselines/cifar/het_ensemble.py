@@ -204,7 +204,7 @@ def main(argv):
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
 
         for i in range(ensemble_size):
           member_probs = per_probs[i]
@@ -222,8 +222,8 @@ def main(argv):
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(name)].add_batch(
+            probs, label=labels)
 
     message = ('{:.1%} completion for evaluation: dataset {:d}/{:d}'.format(
         (n + 1) / num_datasets, n + 1, num_datasets))
@@ -233,6 +233,12 @@ def main(argv):
                                                     corruption_types)
   total_results = {name: metric.result() for name, metric in metrics.items()}
   total_results.update(corrupt_results)
+  # Metrics from Robustness Metrics (like ECE) will return a dict with a
+  # single key/value, instead of a scalar.
+  total_results = {
+      k: (list(v.values())[0] if isinstance(v, dict) else v)
+      for k, v in total_results.items()
+  }
   logging.info('Metrics: %s', total_results)
 
 

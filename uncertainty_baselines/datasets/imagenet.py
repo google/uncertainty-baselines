@@ -21,7 +21,7 @@ and treat the original validation set as the test set. This is similar to what
 is also done in the NeurIPS uncertainty benchmark paper
 https://arxiv.org/abs/1906.02530 (which used (100 / 1024)% as a validation set).
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -52,6 +52,7 @@ class ImageNetDataset(base.BaseDataset):
   def __init__(
       self,
       split: str,
+      seed: Optional[Union[int, tf.Tensor]] = None,
       validation_percent: float = 0.0,
       shuffle_buffer_size: Optional[int] = 16384,
       num_parallel_parser_calls: int = 64,
@@ -74,6 +75,7 @@ class ImageNetDataset(base.BaseDataset):
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
+      seed: the seed used as a source of randomness.
       validation_percent: the percent of the training set to use as a validation
         set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
@@ -145,12 +147,15 @@ class ImageNetDataset(base.BaseDataset):
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Preprocesses ImageNet image Tensors."""
+      per_example_step_seed = tf.random.experimental.stateless_fold_in(
+          self._seed, example[self._enumerate_id_key])
       if self._preprocessing_type == 'inception':
         # `inception_preprocessing.preprocess_image` returns images in [-1, 1].
         image = inception_preprocessing.preprocess_image(
             example['image'],
             height=self._image_size,
             width=self._image_size,
+            seed=per_example_step_seed,
             is_training=self._is_training)
         # Rescale to [0, 1].
         image = (image + 1.0) / 2.0
@@ -161,6 +166,7 @@ class ImageNetDataset(base.BaseDataset):
             is_training=self._is_training,
             use_bfloat16=self._use_bfloat16,
             image_size=self._image_size,
+            seed=per_example_step_seed,
             resize_method=self._resnet_preprocessing_resize_method)
       else:
         raise ValueError(

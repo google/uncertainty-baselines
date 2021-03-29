@@ -28,6 +28,7 @@ from absl import flags
 from absl import logging
 
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -152,7 +153,7 @@ def main(argv):
       split=tfds.Split.TEST).load(batch_size=batch_size)
   validation_percent = 1. - FLAGS.train_proportion
   val_dataset = ub.datasets.get(
-      name=FLAGS.dataset,
+      dataset_name=FLAGS.dataset,
       split=tfds.Split.VALIDATION,
       validation_percent=validation_percent,
       drop_remainder=False).load(batch_size=batch_size)
@@ -249,7 +250,7 @@ def main(argv):
         logits = []
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval):
-          features = next(test_iterator)['features']
+          features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
           logits.append(model(features, training=False))
 
         logits = tf.concat(logits, axis=0)
@@ -271,7 +272,8 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.ExpectedCalibrationError(
+          num_bins=FLAGS.num_bins),
   }
   metrics.update(val_metrics)
   corrupt_metrics = {}
@@ -280,7 +282,7 @@ def main(argv):
     corrupt_metrics['test/accuracy_{}'.format(name)] = (
         tf.keras.metrics.SparseCategoricalAccuracy())
     corrupt_metrics['test/ece_{}'.format(name)] = (
-        um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+        rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
   for i in range(len(unique_selected_members)):
     metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
     metrics['test/accuracy_member_{}'.format(i)] = (
@@ -304,7 +306,7 @@ def main(argv):
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
     for step in range(steps_per_eval):
-      labels = next(test_iterator)['labels']
+      labels = next(test_iterator)['labels']  # pytype: disable=unsupported-operands
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
       negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
@@ -316,7 +318,7 @@ def main(argv):
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
 
         # Attention must be paid to deal with duplicated members:
         # e.g.,
@@ -340,8 +342,8 @@ def main(argv):
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(name)].add_batch(
+            probs, label=labels)
 
     message = ('{:.1%} completion for evaluation: dataset {:d}/{:d}'.format(
         (n + 1) / num_datasets, n + 1, num_datasets))
@@ -351,6 +353,13 @@ def main(argv):
                                                     corruption_types)
   total_results = {name: metric.result() for name, metric in metrics.items()}
   total_results.update(corrupt_results)
+  # Metrics from Robustness Metrics (like ECE) will return a dict with a
+  # single key/value, instead of a scalar.
+  total_results = {
+      k: (list(v.values())[0] if isinstance(v, dict) else v)
+      for k, v in total_results.items()
+  }
+
   logging.info('Metrics: %s', total_results)
 
 

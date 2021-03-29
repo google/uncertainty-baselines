@@ -15,7 +15,7 @@
 
 """Provides utilities to preprocess images for the Inception networks."""
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 IMAGE_SIZE = 224
 CROP_PADDING = 32
@@ -23,11 +23,11 @@ CROP_PADDING = 32
 
 def distorted_bounding_box_crop(image_bytes,
                                 bbox,
+                                seed,
                                 min_object_covered=0.1,
                                 aspect_ratio_range=(0.75, 1.33),
                                 area_range=(0.05, 1.0),
-                                max_attempts=100,
-                                scope=None):
+                                max_attempts=100):
   """Generates cropped_image using one of the bboxes randomly distorted.
 
   See `tf.image.sample_distorted_bounding_box` for more documentation.
@@ -38,6 +38,7 @@ def distorted_bounding_box_crop(image_bytes,
         where each coordinate is [0, 1) and the coordinates are arranged
         as `[ymin, xmin, ymax, xmax]`. If num_boxes is 0 then use the whole
         image.
+    seed: the random seed to use.
     min_object_covered: An optional `float`. Defaults to `0.1`. The cropped
         area of the image must contain at least this fraction of any bounding
         box supplied.
@@ -48,17 +49,17 @@ def distorted_bounding_box_crop(image_bytes,
     max_attempts: An optional `int`. Number of attempts at generating a cropped
         region of the image of the specified constraints. After `max_attempts`
         failures, return the entire image.
-    scope: Optional `str` for name scope.
   Returns:
     (cropped image `Tensor`, distorted bbox `Tensor`).
   """
-  with tf.name_scope(scope, 'distorted_bounding_box_crop', [image_bytes, bbox]):
+  with tf.name_scope('distorted_bounding_box_crop'):
     decoded = image_bytes.dtype != tf.string
     shape = (tf.shape(image_bytes) if decoded
              else tf.image.extract_jpeg_shape(image_bytes))
-    sample_distorted_bounding_box = tf.image.sample_distorted_bounding_box(
+    sample_distorted_bounding_box = tf.image.stateless_sample_distorted_bounding_box(
         shape,
         bounding_boxes=bbox,
+        seed=seed,
         min_object_covered=min_object_covered,
         aspect_ratio_range=aspect_ratio_range,
         area_range=area_range,
@@ -94,20 +95,20 @@ def _at_least_x_are_equal(a, b, x):
 def _resize_image(image, image_size, method=None):
   if method is not None:
     return tf.image.resize([image], [image_size, image_size], method)[0]
-  return tf.image.resize_bicubic([image], [image_size, image_size])[0]
+  return tf.image.resize([image], [image_size, image_size], method='bicubic')[0]
 
 
-def _decode_and_random_crop(image_bytes, image_size, resize_method=None):
+def _decode_and_random_crop(image_bytes, image_size, seed, resize_method=None):
   """Make a random crop of image_size."""
   bbox = tf.constant([0.0, 0.0, 1.0, 1.0], dtype=tf.float32, shape=[1, 1, 4])
   image = distorted_bounding_box_crop(
       image_bytes,
       bbox,
+      seed=seed,
       min_object_covered=0.1,
       aspect_ratio_range=(3. / 4, 4. / 3.),
       area_range=(0.08, 1.0),
-      max_attempts=10,
-      scope=None)
+      max_attempts=10)
   decoded = image_bytes.dtype != tf.string
   original_shape = (tf.shape(image_bytes) if decoded
                     else tf.image.extract_jpeg_shape(image_bytes))
@@ -165,6 +166,7 @@ def _decode_and_center_crop(image_bytes, image_size, resize_method=None):
 
 def preprocess_for_train(image_bytes,
                          use_bfloat16,
+                         seed,
                          image_size=IMAGE_SIZE,
                          resize_method=None):
   """Preprocesses the given image for evaluation.
@@ -173,14 +175,17 @@ def preprocess_for_train(image_bytes,
     image_bytes: `Tensor` representing an image binary of arbitrary size, or
       an already decoded image.
     use_bfloat16: `bool` for whether to use bfloat16.
+    seed: the random seed to use.
     image_size: image size/resolution in Efficientnet.
     resize_method: resize method. If none, use bicubic.
 
   Returns:
     A preprocessed image `Tensor`.
   """
-  image = _decode_and_random_crop(image_bytes, image_size, resize_method)
-  image = tf.image.random_flip_left_right(image)
+  seeds = tf.random.experimental.stateless_split(seed, num=2)
+  image = _decode_and_random_crop(
+      image_bytes, image_size, seed=seeds[0], resize_method=resize_method)
+  image = tf.image.stateless_random_flip_left_right(image, seed=seeds[1])
   image = tf.reshape(image, [image_size, image_size, 3])
   image = tf.image.convert_image_dtype(
       image, dtype=tf.bfloat16 if use_bfloat16 else tf.float32)
@@ -211,6 +216,7 @@ def preprocess_for_eval(image_bytes,
 
 
 def preprocess_image(image_bytes,
+                     seed=None,
                      is_training=False,
                      use_bfloat16=False,
                      image_size=IMAGE_SIZE,
@@ -220,6 +226,7 @@ def preprocess_image(image_bytes,
   Args:
     image_bytes: `Tensor` representing an image binary of arbitrary size, or
       an already decoded image.
+    seed: the random seed to use. Must be a shape (2,) array.
     is_training: `bool` for whether the preprocessing is for training.
     use_bfloat16: `bool` for whether to use bfloat16.
     image_size: image size.
@@ -228,9 +235,15 @@ def preprocess_image(image_bytes,
   Returns:
     A preprocessed image `Tensor`.
   """
+  if seed is None:
+    seed = tf.random.uniform((2,), maxval=int(1e10), dtype=tf.int32)
   if is_training:
-    return preprocess_for_train(image_bytes, use_bfloat16,
-                                image_size, resize_method)
+    return preprocess_for_train(
+        image_bytes,
+        use_bfloat16,
+        seed=seed,
+        image_size=image_size,
+        resize_method=resize_method)
   else:
     return preprocess_for_eval(image_bytes, use_bfloat16,
                                image_size, resize_method)

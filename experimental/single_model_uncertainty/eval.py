@@ -18,10 +18,11 @@
 
 import os.path
 import time
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union
 
 from absl import logging
 import edward2 as ed
+import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
 from tensorboard.plugins.hparams import api as hp
@@ -45,7 +46,8 @@ _EvalSetupResult = Tuple[
 
 def eval_step_fn(model: tf.keras.Model,
                  strategy: tf.distribute.Strategy,
-                 metrics: Dict[str, tf.keras.metrics.Metric],
+                 metrics: Dict[str, Union[tf.keras.metrics.Metric,
+                                          rm.metrics.KerasMetric]],
                  iterations_per_loop: int,
                  label_key: str = 'labels',
                  mean_field_factor: float = -1) -> EvalStepFn:
@@ -73,14 +75,24 @@ def eval_step_fn(model: tf.keras.Model,
       # Later when metric.result() is called, it will return the computed
       # result, averaged across replicas.
       for metric in metrics.values():
-        metric.update_state(labels, predictions)
+        if isinstance(metric, tf.keras.metrics.Metric):
+          metric.update_state(labels, predictions)  # pytype: disable=attribute-error
+        else:
+          metric.add_batch(predictions, label=labels)
       return
 
     for metric in metrics.values():
       metric.reset_states()
     for _ in tf.range(iterations_per_loop):  # Note the use of tf.range.
       ub.utils.call_step_fn(strategy, step, next(train_iterator))
-    return {name: value.result() for name, value in metrics.items()}
+    total_results = {name: value.result() for name, value in metrics.items()}
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
+    return total_results
 
   return eval_step
 
@@ -138,7 +150,8 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
                strategy,
                trial_dir: str,
                model: tf.keras.Model,
-               metrics: Dict[str, tf.keras.metrics.Metric],
+               metrics: Dict[str, Union[tf.keras.metrics.Metric,
+                                        rm.metrics.KerasMetric]],
                ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
                ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
                mean_field_factor: float = -1) -> _EvalSetupResult:
@@ -214,7 +227,8 @@ def run_eval_loop(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
                   trial_dir: str,
                   train_steps: int,
                   strategy: tf.distribute.Strategy,
-                  metrics: Dict[str, tf.keras.metrics.Metric],
+                  metrics: Dict[str, Union[tf.keras.metrics.Metric,
+                                           rm.metrics.KerasMetric]],
                   checkpoint_step: int = -1,
                   hparams: Dict[str, Any] = None,
                   ood_dataset_builder: ub.datasets.BaseDataset = None,

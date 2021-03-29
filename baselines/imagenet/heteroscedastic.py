@@ -36,17 +36,19 @@ from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
+import robustness_metrics as rm
 import scipy
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.1,
                    'Base learning rate when train batch size is 256.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')
@@ -85,7 +87,6 @@ flags.DEFINE_float('temperature', 1.5,
                    'Temperature for heteroscedastic head.')
 flags.DEFINE_integer('num_mc_samples', 5000,
                      'Num MC samples for heteroscedastic layer.')
-
 
 FLAGS = flags.FLAGS
 
@@ -195,16 +196,18 @@ def main(argv):
         decay_epochs=decay_epochs,
         warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
-                                        momentum=0.9,
+                                        momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
     }
     logging.info('Finished building Keras ResNet-50 model')
 
@@ -214,7 +217,7 @@ def main(argv):
                                                            .Mean())
       metrics['test/accuracy+rescaling'] = (tf.keras.metrics
                                             .SparseCategoricalAccuracy())
-      metrics['test/ece+rescaling'] = um.ExpectedCalibrationError(
+      metrics['test/ece+rescaling'] = rm.metrics.ExpectedCalibrationError(
           num_bins=FLAGS.num_bins)
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -291,13 +294,14 @@ def main(argv):
       # We go back from one-hot labels to integers
       labels = tf.argmax(labels, axis=-1)
 
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
   def update_test_metrics(labels, logits, metric_suffix=''):
@@ -308,7 +312,7 @@ def main(argv):
     metrics['test/negative_log_likelihood' + metric_suffix].update_state(
         negative_log_likelihood)
     metrics['test/accuracy' + metric_suffix].update_state(labels, probs)
-    metrics['test/ece' + metric_suffix].update_state(labels, probs)
+    metrics['test/ece' + metric_suffix].add_batch(probs, label=labels)
 
   @tf.function
   def test_step(iterator):
@@ -337,14 +341,15 @@ def main(argv):
 
         update_test_metrics(labels, scaled_logits, '+rescaling')
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
   if enable_mixup:
     logging.info('Starting to compute the means of labels and images')
     tr_iterator_no_mixup = iter(tr_data_no_mixup)
-    for step in range(steps_per_epoch):
+    for _ in range(steps_per_epoch):
       moving_average_step(tr_iterator_no_mixup)
     # Save stats required by the mixup rescaling [2] for subsequent predictions
     mixup_rescaling_stats = {
@@ -361,33 +366,29 @@ def main(argv):
   start_time = time.time()
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps,
+                   epoch + 1,
+                   FLAGS.train_epochs,
+                   steps_per_sec,
+                   eta_seconds / 60,
+                   time_elapsed / 60))
+    logging.info(message)
 
     test_iterator = iter(test_dataset)
-    for step in range(steps_per_eval):
-      if step % 20 == 0:
-        logging.info('Starting to run eval step %s of epoch: %s', step, epoch)
-      test_start_time = time.time()
-      test_step(test_iterator)
-      ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+    logging.info('Starting to run eval at epoch: %s', epoch)
+    test_start_time = time.time()
+    test_step(test_iterator)
+    ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
+    metrics['test/ms_per_example'].update_state(ms_per_example)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),
@@ -402,6 +403,12 @@ def main(argv):
           metrics['test/accuracy+rescaling'].result() * 100)
 
     total_results = {name: metric.result() for name, metric in metrics.items()}
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -418,6 +425,16 @@ def main(argv):
   final_save_name = os.path.join(FLAGS.output_dir, 'model')
   model.save(final_save_name)
   logging.info('Saved model to %s', final_save_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'num_factors': FLAGS.num_factors,
+        'temperature': FLAGS.temperature,
+        'num_mc_samples': FLAGS.num_mc_samples,
+    })
+
 
 if __name__ == '__main__':
   app.run(main)

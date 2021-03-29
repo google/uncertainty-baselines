@@ -67,17 +67,19 @@ from absl import flags
 from absl import logging
 
 import edward2 as ed
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float('base_learning_rate', 0.05,
                    'Base learning rate when total batch size is 128. It is '
                    'scaled by the ratio of the total batch size to 128.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_integer('lr_warmup_epochs', 1,
                      'Number of epochs for a linear warmup to the initial '
                      'learning rate. Use 0 to do no warmup.')
@@ -329,23 +331,26 @@ def main(argv):
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=0.9,
+                                        momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/stddev': tf.keras.metrics.Mean(),
     }
     if use_validation_set:
       metrics.update({
           'val/negative_log_likelihood': tf.keras.metrics.Mean(),
           'val/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-          'val/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+          'val/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=FLAGS.num_bins),
           'val/stddev': tf.keras.metrics.Mean(),
       })
     if FLAGS.corruptions_interval > 0:
@@ -358,7 +363,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
           corrupt_metrics['test/stddev_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
 
@@ -373,7 +378,7 @@ def main(argv):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
 
   @tf.function
-  def train_step(iterator, step):
+  def train_step(iterator):
     """Training StepFn."""
 
     def step_fn(inputs, step):
@@ -426,13 +431,14 @@ def main(argv):
       probs = tf.nn.softmax(logits)
       if FLAGS.mixup_alpha > 0:
         labels = tf.argmax(labels, axis=-1)
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    strategy.run(step_fn, args=(next(iterator), step))
+    for step in tf.range(tf.cast(steps_per_eval, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator), step))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -480,55 +486,50 @@ def main(argv):
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
         metrics['test/stddev'].update_state(stddev)
       elif dataset_name == 'val':
         metrics['val/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['val/accuracy'].update_state(labels, probs)
-        metrics['val/ece'].update_state(labels, probs)
+        metrics['val/ece'].add_batch(probs, label=labels)
         metrics['val/stddev'].update_state(stddev)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            probs, label=labels)
         corrupt_metrics['test/stddev_{}'.format(dataset_name)].update_state(
             stddev)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
-  step_variable = tf.Variable(0, dtype=tf.int32)
   train_iterator = iter(train_dataset)
   start_time = time.time()
 
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      step_variable.assign(step)
-      # Pass `step` as a tf.Variable to train_step to prevent the tf.function
-      # train_step() re-compiling itself at each function call.
-      train_step(train_iterator, step_variable)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps,
+                   epoch + 1,
+                   FLAGS.train_epochs,
+                   steps_per_sec,
+                   eta_seconds / 60,
+                   time_elapsed / 60))
+    logging.info(message)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if use_validation_set:
@@ -540,14 +541,11 @@ def main(argv):
       test_iterator = iter(test_dataset)
       logging.info('Testing on dataset %s', dataset_name)
       steps_per_eval = steps_per_val if dataset_name == 'val' else steps_per_eval
-      for step in range(steps_per_eval):
-        if step % 20 == 0:
-          logging.info('Starting to run eval step %s of epoch: %s', step,
-                       epoch)
-        test_start_time = time.time()
-        test_step(test_iterator, dataset_name)
-        ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-        metrics['test/ms_per_example'].update_state(ms_per_example)
+      logging.info('Starting to run eval at epoch: %s', epoch)
+      test_start_time = time.time()
+      test_step(test_iterator, dataset_name)
+      ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
+      metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
 
@@ -570,6 +568,12 @@ def main(argv):
                  metrics['test/accuracy'].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -590,6 +594,14 @@ def main(argv):
   final_save_name = os.path.join(FLAGS.output_dir, 'model')
   model.save(final_save_name)
   logging.info('Saved model to %s', final_save_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'gp_mean_field_factor': FLAGS.gp_mean_field_factor,
+    })
+
 
 if __name__ == '__main__':
   app.run(main)

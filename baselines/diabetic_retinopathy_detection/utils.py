@@ -17,9 +17,8 @@
 
 import logging
 import os
-
+import robustness_metrics as rm
 import tensorflow as tf
-import uncertainty_metrics as um
 
 
 # Distribution / parallelism.
@@ -81,7 +80,10 @@ def load_input_shape(dataset_train: tf.data.Dataset):
 # Metrics.
 
 
-def get_diabetic_retinopathy_base_metrics(use_tpu, num_bins):
+def get_diabetic_retinopathy_base_metrics(
+    use_tpu,
+    num_bins,
+    use_validation=True):
   """Initialize base metrics for non-ensemble Diabetic Retinopathy predictors.
 
   Should be called within the distribution strategy scope (e.g. see
@@ -95,6 +97,7 @@ def get_diabetic_retinopathy_base_metrics(use_tpu, num_bins):
   Args:
     use_tpu: bool, is run using TPU.
     num_bins: number of ECE bins.
+    use_validation: whether to use a validation split.
 
   Returns:
     dict, metrics
@@ -103,26 +106,34 @@ def get_diabetic_retinopathy_base_metrics(use_tpu, num_bins):
       'train/negative_log_likelihood': tf.keras.metrics.Mean(),
       'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
-      'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
-      'validation/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
   }
+  if use_validation:
+    metrics.update({
+        'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'validation/accuracy': tf.keras.metrics.BinaryAccuracy(),
+    })
 
   if use_tpu:
     # AUC does not yet work within GPU strategy scope, but does for TPU
     metrics.update({
         'train/auc': tf.keras.metrics.AUC(),
-        'validation/auc': tf.keras.metrics.AUC(),
         'test/auc': tf.keras.metrics.AUC(),
     })
+    if use_validation:
+      metrics.update({'validation/auc': tf.keras.metrics.AUC()})
   else:
     # ECE does not yet work on TPU
     metrics.update({
-        'train/ece': um.ExpectedCalibrationError(num_bins=num_bins),
-        'validation/ece': um.ExpectedCalibrationError(num_bins=num_bins),
-        'test/ece': um.ExpectedCalibrationError(num_bins=num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(num_bins=num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(num_bins=num_bins)
     })
+    if use_validation:
+      metrics.update({
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=num_bins)
+      })
 
   return metrics
 

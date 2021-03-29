@@ -16,7 +16,8 @@
 # Lint as: python3
 """Places-365 dataset builder."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
@@ -29,6 +30,7 @@ class Places365Dataset(base.BaseDataset):
   def __init__(
       self,
       split: str,
+      seed: Optional[Union[int, tf.Tensor]] = None,
       validation_percent: float = 0.0,
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
@@ -42,6 +44,7 @@ class Places365Dataset(base.BaseDataset):
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
+      seed: the seed used as a source of randomness.
       validation_percent: the percent of the training set to use as a validation
         set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
@@ -68,6 +71,7 @@ class Places365Dataset(base.BaseDataset):
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,
+        seed=seed,
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
@@ -78,11 +82,14 @@ class Places365Dataset(base.BaseDataset):
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Preprocesses Places-365 image Tensors using inception_preprocessing."""
+      per_example_step_seed = tf.random.experimental.stateless_fold_in(
+          self._seed, example[self._enumerate_id_key])
       # `preprocess_image` returns images in [-1, 1].
       image = inception_preprocessing.preprocess_image(
           example['image'],
           height=224,
           width=224,
+          seed=per_example_step_seed,
           is_training=self._is_training)
       # Rescale to [0, 1].
       image = (image + 1.0) / 2.0

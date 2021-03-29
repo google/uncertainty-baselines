@@ -340,7 +340,7 @@ def main(argv):
         metrics['test/brier'].update_state(labels, auc_probs)
         metrics['test/brier_weighted'].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece'].update_state(ece_labels, ece_probs)
+        metrics['test/ece'].add_batch(ece_probs, label=ece_labels)
         metrics['test/acc'].update_state(ece_labels, pred_labels)
         metrics['test/acc_weighted'].update_state(
             ece_labels, pred_labels, sample_weight=sample_weight)
@@ -361,8 +361,8 @@ def main(argv):
             labels, auc_probs)
         metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece_{}'.format(dataset_name)].update_state(
-            ece_labels, ece_probs)
+        metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            ece_probs, label=ece_labels)
         metrics['test/acc_{}'.format(dataset_name)].update_state(
             ece_labels, pred_labels)
         metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
@@ -404,6 +404,12 @@ def main(argv):
     logging.info(message)
 
   total_results = {name: metric.result() for name, metric in metrics.items()}
+  # Metrics from Robustness Metrics (like ECE) will return a dict with a
+  # single key/value, instead of a scalar.
+  total_results = {
+      k: (list(v.values())[0] if isinstance(v, dict) else v)
+      for k, v in total_results.items()
+  }
   logging.info('Metrics: %s', total_results)
 
 

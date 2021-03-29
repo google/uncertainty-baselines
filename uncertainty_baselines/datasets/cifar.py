@@ -15,7 +15,7 @@
 
 """CIFAR{10,100} dataset builders."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from robustness_metrics.common import types
 import tensorflow.compat.v2 as tf
@@ -64,6 +64,7 @@ class _CifarDataset(base.BaseDataset):
       name: str,
       fingerprint_key: str,
       split: str,
+      seed: Optional[Union[int, tf.Tensor]] = None,
       validation_percent: float = 0.0,
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
@@ -87,6 +88,7 @@ class _CifarDataset(base.BaseDataset):
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
+      seed: the seed used as a source of randomness.
       validation_percent: the percent of the training set to use as a validation
         set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
@@ -121,12 +123,14 @@ class _CifarDataset(base.BaseDataset):
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,
+        seed=seed,
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         drop_remainder=drop_remainder,
         fingerprint_key=fingerprint_key,
-        download_data=download_data)
+        download_data=download_data,
+        cache=True)
 
     self._use_bfloat16 = use_bfloat16
     if aug_params is None:
@@ -150,8 +154,19 @@ class _CifarDataset(base.BaseDataset):
         # Expand the image by 2 pixels, then crop back down to 32x32.
         image = tf.image.resize_with_crop_or_pad(
             image, image_shape[0] + 4, image_shape[1] + 4)
-        image = tf.image.random_crop(image, [image_shape[0], image_shape[0], 3])
-        image = tf.image.random_flip_left_right(image)
+        # Note that self._seed will already be shape (2,), as is required for
+        # stateless random ops.
+        per_example_step_seed = tf.random.experimental.stateless_fold_in(
+            self._seed, example[self._enumerate_id_key])
+        per_example_step_seeds = tf.random.experimental.stateless_split(
+            per_example_step_seed, num=2)
+        image = tf.image.stateless_random_crop(
+            image,
+            (image_shape[0], image_shape[0], 3),
+            seed=per_example_step_seeds[0])
+        image = tf.image.stateless_random_flip_left_right(
+            image,
+            seed=per_example_step_seeds[1])
 
         # Only random augment for now.
         if self._aug_params.get('random_augment', False):

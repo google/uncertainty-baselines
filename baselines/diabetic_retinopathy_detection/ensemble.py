@@ -139,7 +139,8 @@ def main(argv):
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
-      'test/auc': tf.keras.metrics.AUC()
+      'test/auprc': tf.keras.metrics.AUC(curve='PR'),
+      'test/auroc': tf.keras.metrics.AUC(curve='ROC')
   }
 
   for i in range(ensemble_size):
@@ -182,7 +183,8 @@ def main(argv):
     metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
     metrics['test/accuracy'].update_state(labels, probs)
     metrics['test/ece'].update_state(labels, probs)
-    metrics['test/auc'].update_state(labels, probs)
+    metrics['test/auprc'].update_state(labels, probs)
+    metrics['test/auroc'].update_state(labels, probs)
 
     for i in range(ensemble_size):
       member_probs = per_probs[i]

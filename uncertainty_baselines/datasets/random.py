@@ -184,11 +184,12 @@ class RandomGaussianImageDataset(_RandomNoiseDataset):
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
-    def _example_parser(range_val: int) -> Dict[str, tf.Tensor]:
+    def _example_parser(
+        range_val: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Parses a single range integer into stateless image Tensors."""
       seed = [
           self._split_seed[self._split],
-          self._split_seed[self._split] + range_val
+          self._split_seed[self._split] + range_val['features'],
       ]
       image = tf.random.stateless_normal(
           self._image_shape,
@@ -213,11 +214,12 @@ class RandomRademacherImageDataset(_RandomNoiseDataset):
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
-    def _example_parser(range_val: int) -> Dict[str, tf.Tensor]:
+    def _example_parser(
+        range_val: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Parses a single range integer into stateless image Tensors."""
       seed = [
           self._split_seed[self._split],
-          self._split_seed[self._split] + range_val
+          self._split_seed[self._split] + range_val['features'],
       ]
       image = tf.random.stateless_categorical(
           tf.math.log([[0.5, 0.5]]),

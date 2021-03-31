@@ -13,31 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SNGP+BatchEnsemble Wide ResNet 28-10 on CIFAR-10 and CIFAR-100.
+"""Wide ResNet 28-10 on CIFAR-10/100 trained with maximum likelihood.
 
-Spectral-normalized neural GP (SNGP) [1] is a simple method to improve
-a deterministic neural network's uncertainty by applying spectral
-normalization to the hidden layers, and then replace the dense output layer
-with a Gaussian process layer.
-
-## Combining with BatchEnsemble [3]:
-
-BatchEnsemble layers capture a multimodal representation of NN weight
-distributions that has proven to improve both the calibration and OOD
-generalization of single (deterministic) models.
-
-## References:
-
-[1]: Jeremiah Liu et al. Simple and Principled Uncertainty Estimation with
-     Deterministic Deep Learning via Distance Awareness.
-     _arXiv preprint arXiv:2006.10108_, 2020.
-     https://arxiv.org/abs/2006.10108
-[2]: Zhiyun Lu, Eugene Ie, Fei Sha. Uncertainty Estimation with Infinitesimal
-     Jackknife.  _arXiv preprint arXiv:2006.07584_, 2020.
-     https://arxiv.org/abs/2006.07584
-[3]: Yeming Wen, Dustin Tran, Jimmy Ba. BatchEnsemble: an Alternative
-     Approach to Efficient Ensemble and Lifelong Learning.
-     _arXiv preprint arXiv:2002.06715_, 2020.
+Hyperparameters differ slightly from the original paper's code
+(https://github.com/szagoruyko/wide-residual-networks) as TensorFlow uses, for
+example, l2 instead of weight decay, and a different parameterization for SGD's
+momentum.
 """
 
 import os
@@ -45,37 +26,61 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-import robustness_metrics as rm
+
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-from tensorboard.plugins.hparams import api as hp
+import uncertainty_metrics as um
 
-flags.DEFINE_integer('per_core_batch_size', 64,
-                     'Batch size per TPU core/GPU. The number of new '
-                     'datapoints gathered per batch is this number divided by '
-                     'ensemble_size (we tile the batch by that # of times).')
-flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_float('train_proportion', default=1.0,
-                   help='only use a proportion of training set.')
+flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float('base_learning_rate', 0.1,
-                   'Base learning rate when total training batch size is 128.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+                   'Base learning rate when total batch size is 128. It is '
+                   'scaled by the ratio of the total batch size to 128.')
 flags.DEFINE_integer('lr_warmup_epochs', 1,
                      'Number of epochs for a linear warmup to the initial '
                      'learning rate. Use 0 to do no warmup.')
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['80', '160', '180'],
+flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
                   'Epochs to decay learning rate by.')
-flags.DEFINE_float('l2', 3e-4, 'L2 coefficient.')
+flags.DEFINE_float(
+    'train_proportion', 1.,
+    'Only a fraction (between 0 and 1) of the train set is used for training. '
+    'The remainder can be used for validation.')
+flags.register_validator('train_proportion',
+                         lambda tp: tp > 0.0 and tp <= 1.0,
+                         message='--train_proportion must be in (0, 1].')
+
+flags.DEFINE_float('l2', 2e-4, 'L2 regularization coefficient.')
+flags.DEFINE_float('label_smoothing', 0., 'Label smoothing parameter in [0,1].')
+flags.register_validator('label_smoothing',
+                         lambda ls: ls >= 0.0 and ls <= 1.0,
+                         message='--label_smoothing must be in [0, 1].')
+
+# Fine-grained specification of the hyperparameters (used when FLAGS.l2 is None)
+flags.DEFINE_float('bn_l2', None, 'L2 reg. coefficient for batch-norm layers.')
+flags.DEFINE_float('input_conv_l2', None,
+                   'L2 reg. coefficient for the input conv layer.')
+flags.DEFINE_float('group_1_conv_l2', None,
+                   'L2 reg. coefficient for the 1st group of conv layers.')
+flags.DEFINE_float('group_2_conv_l2', None,
+                   'L2 reg. coefficient for the 2nd group of conv layers.')
+flags.DEFINE_float('group_3_conv_l2', None,
+                   'L2 reg. coefficient for the 3rd group of conv layers.')
+flags.DEFINE_float('dense_kernel_l2', None,
+                   'L2 reg. coefficient for the kernel of the dense layer.')
+flags.DEFINE_float('dense_bias_l2', None,
+                   'L2 reg. coefficient for the bias of the dense layer.')
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
-
 flags.DEFINE_string('cifar100_c_path', None,
                     'Path to the TFRecords files for CIFAR-100-C. Only valid '
                     '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_string('data_dir', None,
+                    'data_dir to be used for tfds dataset construction.'
+                    'It is required when training with cloud TPUs')
 flags.DEFINE_integer('corruptions_interval', -1,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
@@ -83,10 +88,10 @@ flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/cifar',
-                    'The directory where the model weights and '
-                    'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
+flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
+flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
+flags.DEFINE_bool('collect_profile', False,
+                  'Whether to trace a profile with tensorboard')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -94,110 +99,77 @@ flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
 
-# BatchEnsemble flags.
-flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
-flags.DEFINE_float('random_sign_init', -0.5,
-                   'Use random sign init for fast weights. See [3] for detail')
-flags.DEFINE_float('fast_weight_lr_multiplier', 1.0,
-                   'fast weights lr multiplier.')
-
-# Spectral normalization flags.
-flags.DEFINE_bool('use_spec_norm', True,
-                  'Whether to apply spectral normalization.')
-flags.DEFINE_integer(
-    'spec_norm_iteration', 1,
-    'Number of power iterations to perform for estimating '
-    'the spectral norm of weight matrices.')
-flags.DEFINE_float('spec_norm_bound', 6.,
-                   'Upper bound to spectral norm of weight matrices.')
-
-# Gaussian process flags.
-flags.DEFINE_bool('use_gp_layer', True,
-                  'Whether to use Gaussian process as the output layer.')
-flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
-flags.DEFINE_float(
-    'gp_scale', 2.,
-    'The length-scale parameter for the RBF kernel of the GP layer.')
-flags.DEFINE_integer(
-    'gp_input_dim', 128,
-    'The dimension to reduce the neural network input for the GP layer '
-    '(via random Gaussian projection which preserves distance by the '
-    ' Johnson-Lindenstrauss lemma). If -1, no dimension reduction.')
-flags.DEFINE_integer(
-    'gp_hidden_dim', 1024,
-    'The hidden dimension of the GP layer, which corresponds to the number of '
-    'random features used for the approximation.')
-flags.DEFINE_bool(
-    'gp_input_normalization', True,
-    'Whether to normalize the input using LayerNorm for GP layer.'
-    'This is similar to automatic relevance determination (ARD) in the classic '
-    'GP learning.')
-flags.DEFINE_float('gp_cov_ridge_penalty', 1e-3,
-                   'Ridge penalty parameter for GP posterior covariance.')
-flags.DEFINE_float(
-    'gp_cov_discount_factor', 0.999,
-    'The discount factor to compute the moving average of precision matrix.')
-flags.DEFINE_float(
-    'gp_mean_field_factor', 0.001,
-    'The tunable multiplicative factor used in the mean-field approximation '
-    'for the posterior mean of softmax Gaussian process. If -1 then use '
-    'posterior mode instead of posterior mean. See [2] for detail.')
+# Heteroscedastic flags.
+flags.DEFINE_integer('num_factors', 6,
+                     'Num factors to approximate full rank covariance matrix.')
+flags.DEFINE_float('temperature', 1.3,
+                   'Temperature for heteroscedastic head.')
+flags.DEFINE_integer('num_mc_samples', 10000,
+                     'Num MC samples for heteroscedastic layer.')
 
 FLAGS = flags.FLAGS
 
 
-def mean_field_logits(logits, covmat, mean_field_factor=1.):
-  """Adjust the predictive logits so its softmax approximates posterior mean."""
-  # TODO(jereliu): Maybe move to ed2 library or ed2.experimental.sngp.
-  logits_scale = tf.sqrt(1. + tf.linalg.diag_part(covmat) * mean_field_factor)
-  if mean_field_factor > 0:
-    logits = logits / tf.expand_dims(logits_scale, axis=-1)
-
-  return logits
+def _extract_hyperparameter_dictionary():
+  """Create the dictionary of hyperparameters from FLAGS."""
+  flags_as_dict = FLAGS.flag_values_dict()
+  hp_keys = ub.models.models.wide_resnet.HP_KEYS
+  hps = {k: flags_as_dict[k] for k in hp_keys}
+  return hps
 
 
 def main(argv):
+  fmt = '[%(filename)s:%(lineno)s] %(message)s'
+  formatter = logging.PythonFormatter(fmt)
+  logging.get_absl_handler().setFormatter(formatter)
   del argv  # unused arg
+
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
-  ds_info = tfds.builder(FLAGS.dataset).info
-  per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
-  batch_size = per_core_batch_size * FLAGS.num_cores
-  # Train_proportion is a float so need to convert steps_per_epoch to int.
-  steps_per_epoch = int((ds_info.splits['train'].num_examples *
-                         FLAGS.train_proportion) // batch_size)
-  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
-  num_classes = ds_info.features['label'].num_classes
-
+  data_dir = None
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
   else:
     logging.info('Use TPU at %s',
                  FLAGS.tpu if FLAGS.tpu is not None else 'local')
+    data_dir = FLAGS.data_dir
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
+  ds_info = tfds.builder(FLAGS.dataset).info
+  batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
+  train_dataset_size = (
+      ds_info.splits['train'].num_examples * FLAGS.train_proportion)
+  steps_per_epoch = int(train_dataset_size / batch_size)
+  logging.info('Steps per epoch %s', steps_per_epoch)
+  logging.info('Size of the dataset %s', ds_info.splits['train'].num_examples)
+  logging.info('Train proportion %s', FLAGS.train_proportion)
+  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
+  num_classes = ds_info.features['label'].num_classes
+
   train_dataset = ub.datasets.get(
       FLAGS.dataset,
       split=tfds.Split.TRAIN,
-      validation_percent=1. - FLAGS.train_proportion).load(
+      download_data=True,
+      validation_percent=1. - FLAGS.train_proportion,
+      data_dir=data_dir).load(
           batch_size=batch_size)
   clean_test_dataset = ub.datasets.get(
       FLAGS.dataset,
-      split=tfds.Split.TEST).load(batch_size=batch_size)
+      split=tfds.Split.TEST,
+      data_dir=data_dir).load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
-    extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
-      extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
+      data_dir = FLAGS.cifar100_c_path
     corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
     for corruption_type in corruption_types:
       for severity in range(1, 6):
@@ -206,7 +178,7 @@ def main(argv):
             corruption_type=corruption_type,
             severity=severity,
             split=tfds.Split.TEST,
-            **extra_kwargs).load(batch_size=batch_size)
+            data_dir=data_dir).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -214,28 +186,18 @@ def main(argv):
       os.path.join(FLAGS.output_dir, 'summaries'))
 
   with strategy.scope():
-    logging.info('Building Keras model')
-    model = ub.models.wide_resnet_sngp_be(
+    logging.info('Building ResNet model')
+    model = ub.models.wide_resnet_heteroscedastic(
         input_shape=ds_info.features['image'].shape,
-        batch_size=batch_size,
         depth=28,
         width_multiplier=10,
         num_classes=num_classes,
-        ensemble_size=FLAGS.ensemble_size,
-        random_sign_init=FLAGS.random_sign_init,
         l2=FLAGS.l2,
-        use_gp_layer=FLAGS.use_gp_layer,
-        gp_input_dim=FLAGS.gp_input_dim,
-        gp_hidden_dim=FLAGS.gp_hidden_dim,
-        gp_scale=FLAGS.gp_scale,
-        gp_bias=FLAGS.gp_bias,
-        gp_input_normalization=FLAGS.gp_input_normalization,
-        gp_cov_discount_factor=FLAGS.gp_cov_discount_factor,
-        gp_cov_ridge_penalty=FLAGS.gp_cov_ridge_penalty,
-        use_spec_norm=FLAGS.use_spec_norm,
-        spec_norm_iteration=FLAGS.spec_norm_iteration,
-        spec_norm_bound=FLAGS.spec_norm_bound)
-
+        hps=_extract_hyperparameter_dictionary(),
+        version=2,
+        temperature=FLAGS.temperature,
+        num_factors=FLAGS.num_factors,
+        num_mc_samples=FLAGS.num_mc_samples)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -250,24 +212,24 @@ def main(argv):
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=1.0 - FLAGS.one_minus_momentum,
+                                        momentum=0.9,
                                         nesterov=True)
     metrics = {
-        'train/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
-        'test/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
-        'test/stddev': tf.keras.metrics.Mean(),
+        'train/negative_log_likelihood':
+            tf.keras.metrics.Mean(),
+        'train/accuracy':
+            tf.keras.metrics.SparseCategoricalAccuracy(),
+        'train/loss':
+            tf.keras.metrics.Mean(),
+        'train/ece':
+            um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/negative_log_likelihood':
+            tf.keras.metrics.Mean(),
+        'test/accuracy':
+            tf.keras.metrics.SparseCategoricalAccuracy(),
+        'test/ece':
+            um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
-    for i in range(FLAGS.ensemble_size):
-      metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
-      metrics['test/accuracy_member_{}'.format(i)] = (
-          tf.keras.metrics.SparseCategoricalAccuracy())
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
@@ -278,9 +240,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
-          corrupt_metrics['test/stddev_{}'.format(dataset_name)] = (
-              tf.keras.metrics.Mean())
+              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
@@ -299,38 +259,28 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
-      labels = tf.tile(labels, [FLAGS.ensemble_size])
-
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
-        if isinstance(logits, (list, tuple)):
-          # If model returns a tuple of (logits, covmat), extract logits
-          logits, _ = logits
-        negative_log_likelihood = tf.reduce_mean(
-            tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                            logits,
-                                                            from_logits=True))
+        if FLAGS.label_smoothing == 0.:
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.sparse_categorical_crossentropy(labels,
+                                                              logits,
+                                                              from_logits=True))
+        else:
+          one_hot_labels = tf.one_hot(tf.cast(labels, tf.int32), num_classes)
+          negative_log_likelihood = tf.reduce_mean(
+              tf.keras.losses.categorical_crossentropy(
+                  one_hot_labels,
+                  logits,
+                  from_logits=True,
+                  label_smoothing=FLAGS.label_smoothing))
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
       grads = tape.gradient(scaled_loss, model.trainable_variables)
-      # Separate learning rate implementation.
-      if FLAGS.fast_weight_lr_multiplier != 1.0:
-        grads_and_vars = []
-        for grad, var in zip(grads, model.trainable_variables):
-          # Apply different learning rate on the fast weight approximate
-          # posterior/prior parameters. This is excludes BN and slow weights,
-          # but pay caution to the naming scheme.
-          if ('batch_norm' not in var.name and 'kernel' not in var.name):
-            grads_and_vars.append((grad * FLAGS.fast_weight_lr_multiplier, var))
-          else:
-            grads_and_vars.append((grad, var))
-        optimizer.apply_gradients(grads_and_vars)
-      else:
-        optimizer.apply_gradients(zip(grads, model.trainable_variables))
+      optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
       probs = tf.nn.softmax(logits)
       metrics['train/ece'].add_batch(probs, label=labels)
@@ -349,52 +299,16 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-
-      logits_list = []
-      stddev_list = []
-
-      for i in range(FLAGS.ensemble_size):
-        logits = model(images, training=False)
-        if isinstance(logits, (list, tuple)):
-          # If model returns a tuple of (logits, covmat), extract both
-          logits, covmat = logits
-        else:
-          covmat = tf.eye(FLAGS.per_core_batch_size)
-        logits = mean_field_logits(
-            logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
-        stddev = tf.sqrt(tf.linalg.diag_part(covmat))
-
-        stddev_list.append(stddev)
-        logits_list.append(logits)
-
-        member_probs = tf.nn.softmax(logits)
-        member_loss = tf.keras.losses.sparse_categorical_crossentropy(
-            labels, member_probs)
-        metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
-        metrics['test/accuracy_member_{}'.format(i)].update_state(labels,
-                                                                  member_probs)
-      # Logits dimension is (num_samples, batch_size, num_classes).
-      logits_list = tf.stack(logits_list, axis=0)
-      stddev_list = tf.stack(stddev_list, axis=0)
-
-      stddev = tf.reduce_mean(stddev_list, axis=0)
-      probs_list = tf.nn.softmax(logits_list)
-      probs = tf.reduce_mean(probs_list, axis=0)
-
-      labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.ensemble_size, labels.shape[0]])
-      log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
-          labels_broadcasted, logits_list, from_logits=True)
+      logits = model(images, training=False)
+      probs = tf.nn.softmax(logits)
       negative_log_likelihood = tf.reduce_mean(
-          -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
-          tf.math.log(float(FLAGS.ensemble_size)))
+          tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
 
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
-        metrics['test/stddev'].update_state(stddev)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -402,19 +316,29 @@ def main(argv):
             labels, probs)
         corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
             probs, label=labels)
-        corrupt_metrics['test/stddev_{}'.format(dataset_name)].update_state(
-            stddev)
 
     for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
+  metrics.update({'train/ms_per_example': tf.keras.metrics.Mean()})
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
+  tb_callback = None
+  if FLAGS.collect_profile:
+    tb_callback = tf.keras.callbacks.TensorBoard(
+        profile_batch=(100, 102),
+        log_dir=os.path.join(FLAGS.output_dir, 'logs'))
+    tb_callback.set_model(model)
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
+    if tb_callback:
+      tb_callback.on_epoch_begin(epoch)
+    train_start_time = time.time()
     train_step(train_iterator)
+    ms_per_example = (time.time() - train_start_time) * 1e6 / batch_size
+    metrics['train/ms_per_example'].update_state(ms_per_example)
 
     current_step = (epoch + 1) * steps_per_epoch
     max_steps = steps_per_epoch * FLAGS.train_epochs
@@ -430,7 +354,8 @@ def main(argv):
                    eta_seconds / 60,
                    time_elapsed / 60))
     logging.info(message)
-
+    if tb_callback:
+      tb_callback.on_epoch_end(epoch)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
@@ -458,10 +383,6 @@ def main(argv):
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)
-    for i in range(FLAGS.ensemble_size):
-      logging.info('Member %d Test Loss: %.4f, Accuracy: %.2f%%',
-                   i, metrics['test/nll_member_{}'.format(i)].result(),
-                   metrics['test/accuracy_member_{}'.format(i)].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
     # Metrics from Robustness Metrics (like ECE) will return a dict with a
@@ -486,19 +407,6 @@ def main(argv):
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'))
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
-  with summary_writer.as_default():
-    hp.hparams({
-        'base_learning_rate': FLAGS.base_learning_rate,
-        'one_minus_momentum': FLAGS.one_minus_momentum,
-        'l2': FLAGS.l2,
-        'gp_mean_field_factor': FLAGS.gp_mean_field_factor,
-        'gp_input_dim': FLAGS.gp_input_dim,
-        'gp_scale': FLAGS.gp_scale,
-        'gp_hidden_dim': FLAGS.gp_hidden_dim,
-        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
-        'random_sign_init': FLAGS.random_sign_init,
-    })
-
 
 if __name__ == '__main__':
   app.run(main)

@@ -26,6 +26,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -144,9 +145,10 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
       'test/auprc': tf.keras.metrics.AUC(curve='PR'),
-      'test/auroc': tf.keras.metrics.AUC(curve='ROC')
+      'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
+      'test/ece': rm.metrics.ExpectedCalibrationError(
+          num_bins=FLAGS.num_bins)
   }
 
   for i in range(ensemble_size):
@@ -188,9 +190,9 @@ def main(argv):
         negative_log_likelihood)
     metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
     metrics['test/accuracy'].update_state(labels, probs)
-    metrics['test/ece'].update_state(labels, probs)
     metrics['test/auprc'].update_state(labels, probs)
     metrics['test/auroc'].update_state(labels, probs)
+    metrics['test/ece'].add_batch(probs, label=labels)
 
     for i in range(ensemble_size):
       member_probs = per_probs[i]
@@ -204,6 +206,12 @@ def main(argv):
       test_diversity['test/' + k].update_state(v)
 
   total_results = {name: metric.result() for name, metric in metrics.items()}
+  # Metrics from Robustness Metrics (like ECE) will return a dict with a
+  # single key/value, instead of a scalar.
+  total_results = {
+      k: (list(v.values())[0] if isinstance(v, dict) else v)
+      for k, v in total_results.items()
+  }
   logging.info('Metrics: %s', total_results)
 
 

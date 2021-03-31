@@ -22,6 +22,7 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
+import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
@@ -31,6 +32,7 @@ from uncertainty_baselines.models import hyperbatchensemble_e_factory as e_facto
 from uncertainty_baselines.models import HyperBatchEnsembleLambdaConfig as LambdaConfig
 from uncertainty_baselines.models import wide_resnet_hyperbatchensemble
 import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 # General model, training, and evaluation flags
 flags.DEFINE_integer('seed', 42, 'Random seed.')
@@ -38,6 +40,7 @@ flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float('base_learning_rate', 0.1,
                    'Base learning rate when total batch size is 128. It is '
                    'scaled by the ratio of the total batch size to 128.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_integer('lr_warmup_epochs', 1,
                      'Number of epochs for a linear warmup to the initial '
                      'learning rate. Use 0 to do no warmup.')
@@ -364,7 +367,7 @@ def main(argv):
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=0.9,
+                                        momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
 
     # tuner used for optimizing lambda_parameters
@@ -374,13 +377,15 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'train/disagreement': tf.keras.metrics.Mean(),
         'train/average_kl': tf.keras.metrics.Mean(),
         'train/cosine_similarity': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/gibbs_nll': tf.keras.metrics.Mean(),
         'test/gibbs_accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/disagreement': tf.keras.metrics.Mean(),
@@ -405,7 +410,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     checkpoint = tf.train.Checkpoint(
         model=model, lambda_parameters=lambda_parameters, optimizer=optimizer)
@@ -473,7 +478,7 @@ def main(argv):
       per_probs = tf.split(
           probs, num_or_size_splits=FLAGS.ensemble_size, axis=0)
       per_probs_stacked = tf.stack(per_probs, axis=0)
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
@@ -596,14 +601,14 @@ def main(argv):
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            probs, label=labels)
 
       if dataset_name == 'clean':
         per_probs_stacked = tf.stack(per_probs, axis=0)
@@ -684,6 +689,12 @@ def main(argv):
     total_results.update(
         {name: metric.result() for name, metric in corrupt_metrics.items()})
     total_results.update(corrupt_results)
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -701,6 +712,15 @@ def main(argv):
       with tf.io.gfile.GFile(filepath, 'wb') as fp:
         pickle.dump(lambdas_cf, fp, protocol=pickle.HIGHEST_PROTOCOL)
       logging.info('Saved checkpoint to %s', checkpoint_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'random_sign_init': FLAGS.random_sign_init,
+        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
+    })
+
 
 if __name__ == '__main__':
   app.run(main)

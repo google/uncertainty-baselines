@@ -126,7 +126,8 @@ def create_optimizer(
     epochs: int,
     warmup_proportion: float,
     end_lr: float = 0.0,
-    optimizer_type: str = 'adamw') -> tf.keras.optimizers.Optimizer:
+    optimizer_type: str = 'adamw',
+    beta_1: float = 0.9) -> tf.keras.optimizers.Optimizer:
   """Creates a BERT optimizer with learning rate schedule."""
   num_train_steps = steps_per_epoch * epochs
   num_warmup_steps = int(num_train_steps * warmup_proportion)
@@ -135,7 +136,8 @@ def create_optimizer(
       num_train_steps,
       num_warmup_steps,
       end_lr=end_lr,
-      optimizer_type=optimizer_type)
+      optimizer_type=optimizer_type,
+      beta_1=beta_1)
 
 
 def resolve_bert_ckpt_and_config_dir(bert_model_type, bert_dir, bert_config_dir,

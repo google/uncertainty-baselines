@@ -21,12 +21,12 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 # ~312.78 steps per epoch for 4x4 TPU; per_core_batch_size=128; 350 epochs;
 
@@ -44,6 +44,7 @@ flags.DEFINE_float('random_sign_init', -0.5,
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.016,
                    'Base learning rate when train batch size is 256.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('fast_weight_lr_multiplier', 0.5,
                    'fast weights lr multiplier.')
 flags.DEFINE_float('l2', 5e-6, 'L2 coefficient.')
@@ -141,16 +142,21 @@ def main(argv):
     learning_rate = ub.schedules.AddWarmupDecaySchedule(
         lr_schedule, warmup_step)
     optimizer = tf.keras.optimizers.RMSprop(
-        learning_rate, rho=0.9, momentum=0.9, epsilon=0.001)
+        learning_rate,
+        rho=0.9,
+        momentum=1.0 - FLAGS.one_minus_momentum,
+        epsilon=0.001)
 
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'train/loss': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
     }
     logging.info('Finished building %s model', FLAGS.model_name)
 
@@ -220,7 +226,7 @@ def main(argv):
     metrics['train/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['train/accuracy'].update_state(labels, logits)
-    metrics['train/ece'].update_state(sparse_labels, probs)
+    metrics['train/ece'].add_batch(probs, label=sparse_labels)
 
     step_info = {
         'loss/negative_log_likelihood': negative_log_likelihood / num_replicas,
@@ -246,7 +252,7 @@ def main(argv):
     metrics['test/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['test/accuracy'].update_state(labels, probs)
-    metrics['test/ece'].update_state(sparse_labels, probs)
+    metrics['test/ece'].add_batch(probs, label=sparse_labels)
 
   @tf.function
   def epoch_fn(should_eval):
@@ -303,6 +309,12 @@ def main(argv):
       total_results = {name: metric.result()
                        for name, metric in total_metrics.items()}
       total_results.update({'lr': learning_rate(optimizer.iterations)})
+      # Metrics from Robustness Metrics (like ECE) will return a dict with a
+      # single key/value, instead of a scalar.
+      total_results = {
+          k: (list(v.values())[0] if isinstance(v, dict) else v)
+          for k, v in total_results.items()
+      }
       with summary_writer.as_default():
         for name, result in total_results.items():
           if should_eval or 'test' not in name:
@@ -316,6 +328,14 @@ def main(argv):
         checkpoint_name = checkpoint.save(os.path.join(
             FLAGS.output_dir, 'checkpoint'))
         logging.info('Saved checkpoint to %s', checkpoint_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'random_sign_init': FLAGS.random_sign_init,
+        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
+    })
 
 
 if __name__ == '__main__':

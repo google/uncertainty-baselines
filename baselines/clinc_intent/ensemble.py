@@ -27,6 +27,7 @@ from absl import flags
 from absl import logging
 
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 import uncertainty_baselines as ub
 import bert_utils  # local file import
@@ -156,7 +157,8 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.ExpectedCalibrationError(
+          num_bins=FLAGS.num_bins),
   }
 
   for dataset_name, test_dataset in test_datasets.items():
@@ -167,7 +169,7 @@ def main(argv):
           'test/accuracy_{}'.format(dataset_name):
               tf.keras.metrics.SparseCategoricalAccuracy(),
           'test/ece_{}'.format(dataset_name):
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
       })
 
   # Finally, define OOD metrics for the combined IND and OOD dataset.
@@ -202,13 +204,13 @@ def main(argv):
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
       else:
         metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)
         metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
-        metrics['test/ece_{}'.format(name)].update_state(labels, probs)
+        metrics['test/ece_{}'.format(name)].add_batch(probs, label=labels)
 
       if dataset_name == 'all':
         ood_labels = tf.cast(labels == 150, labels.dtype)
@@ -223,6 +225,12 @@ def main(argv):
     logging.info(message)
 
   total_results = {name: metric.result() for name, metric in metrics.items()}
+  # Metrics from Robustness Metrics (like ECE) will return a dict with a
+  # single key/value, instead of a scalar.
+  total_results = {
+      k: (list(v.values())[0] if isinstance(v, dict) else v)
+      for k, v in total_results.items()
+  }
   logging.info('Metrics: %s', total_results)
 
 

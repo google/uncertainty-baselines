@@ -28,6 +28,7 @@ from absl import app
 from absl import flags
 from absl import logging
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow_addons import metrics as tfa_metrics
 
@@ -172,7 +173,8 @@ def main(argv):
       'test/aupr': tf.keras.metrics.AUC(curve='PR'),
       'test/brier': tf.keras.metrics.MeanSquaredError(),
       'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.ExpectedCalibrationError(
+          num_bins=FLAGS.num_bins),
       'test/acc': tf.keras.metrics.Accuracy(),
       'test/acc_weighted': tf.keras.metrics.Accuracy(),
       'test/precision': tf.keras.metrics.Precision(),
@@ -201,7 +203,7 @@ def main(argv):
           'test/brier_weighted_{}'.format(dataset_name):
               tf.keras.metrics.MeanSquaredError(),
           'test/ece_{}'.format(dataset_name):
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
           'test/acc_weighted_{}'.format(dataset_name):
               tf.keras.metrics.Accuracy(),
           'test/acc_{}'.format(dataset_name):
@@ -295,13 +297,13 @@ def main(argv):
         metrics['test/brier'].update_state(labels, auc_probs)
         metrics['test/brier_weighted'].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece'].update_state(ece_labels, ece_probs)
+        metrics['test/ece'].add_batch(ece_probs, label=ece_labels)
         metrics['test/acc'].update_state(ece_labels, pred_labels)
         metrics['test/acc_weighted'].update_state(
             ece_labels, pred_labels, sample_weight=sample_weight)
-        metrics['test/precision'].updated_state(ece_labels, pred_labels)
-        metrics['test/recall'].updated_state(ece_labels, pred_labels)
-        metrics['test/f1'].updated_state(one_hot_labels, ece_probs)
+        metrics['test/precision'].update_state(ece_labels, pred_labels)
+        metrics['test/recall'].update_state(ece_labels, pred_labels)
+        metrics['test/f1'].update_state(one_hot_labels, ece_probs)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
               fraction)].update_state(ece_labels, ece_probs)
@@ -316,8 +318,8 @@ def main(argv):
             labels, auc_probs)
         metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
             tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece_{}'.format(dataset_name)].update_state(
-            ece_labels, ece_probs)
+        metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            ece_probs, label=ece_labels)
         metrics['test/acc_{}'.format(dataset_name)].update_state(
             ece_labels, pred_labels)
         metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
@@ -359,6 +361,12 @@ def main(argv):
     logging.info(message)
 
   total_results = {name: metric.result() for name, metric in metrics.items()}
+  # Metrics from Robustness Metrics (like ECE) will return a dict with a
+  # single key/value, instead of a scalar.
+  total_results = {
+      k: (list(v.values())[0] if isinstance(v, dict) else v)
+      for k, v in total_results.items()
+  }
   logging.info('Metrics: %s', total_results)
 
 

@@ -33,12 +33,13 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('kl_annealing_epochs', 90,
                      'Number of epochs over which to anneal the KL term to 1.')
@@ -61,6 +62,7 @@ flags.DEFINE_float('random_sign_init', 0.75,
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.1,
                    'Base learning rate when train batch size is 256.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('dropout_rate', 1e-3,
                    'Dropout rate. Only used if alpha/gamma initializers are, '
                    'e.g., trainable normal with a fixed stddev.')
@@ -190,7 +192,7 @@ def main(argv):
         decay_epochs=decay_epochs,
         warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
-                                        momentum=0.9,
+                                        momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
@@ -199,17 +201,18 @@ def main(argv):
         'train/elbo': tf.keras.metrics.Mean(),
         'train/loss': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/kl': tf.keras.metrics.Mean(),
         'test/elbo': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/member_accuracy_mean': (
             tf.keras.metrics.SparseCategoricalAccuracy()),
-        'test/member_ece_mean': um.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins)
-
+        'test/member_ece_mean': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
@@ -225,7 +228,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     test_diversity = {}
     training_diversity = {}
@@ -333,12 +336,13 @@ def main(argv):
       metrics['train/elbo'].update_state(elbo)
       metrics['train/loss'].update_state(loss)
       metrics['train/accuracy'].update_state(labels, logits)
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       if FLAGS.ensemble_size > 1:
         for k, v in diversity_results.items():
           training_diversity['train/' + k].update_state(v)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -394,7 +398,7 @@ def main(argv):
         metrics['test/kl'].update_state(kl)
         metrics['test/elbo'].update_state(elbo)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -402,34 +406,33 @@ def main(argv):
         corrupt_metrics['test/elbo_{}'.format(dataset_name)].update_state(elbo)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            probs, label=labels)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
 
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps,
+                   epoch + 1,
+                   FLAGS.train_epochs,
+                   steps_per_sec,
+                   eta_seconds / 60,
+                   time_elapsed / 60))
+    logging.info(message)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
@@ -438,11 +441,8 @@ def main(argv):
     for dataset_name, test_dataset in datasets_to_evaluate.items():
       logging.info('Testing on dataset %s', dataset_name)
       test_iterator = iter(test_dataset)
-      for step in range(steps_per_eval):
-        if step % 20 == 0:
-          logging.info('Starting to run eval step %s of epoch: %s', step,
-                       epoch)
-        test_step(test_iterator, dataset_name)
+      logging.info('Starting to run eval at epoch: %s', epoch)
+      test_step(test_iterator, dataset_name)
       logging.info('Done with testing on %s', dataset_name)
 
     corrupt_results = {}
@@ -470,6 +470,12 @@ def main(argv):
     total_results = {name: metric.result()
                      for name, metric in total_metrics.items()}
     total_results.update(corrupt_results)
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -486,6 +492,15 @@ def main(argv):
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'))
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
+        'num_eval_samples': FLAGS.num_eval_samples,
+    })
+
 
 if __name__ == '__main__':
   app.run(main)

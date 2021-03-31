@@ -78,16 +78,11 @@ def dropout_predict(
   # Get shapes of data
   B, _, _, _ = x.shape
 
-  # print('x', x)
-
   # Monte Carlo samples from different dropout mask at test time
   # See note in docstring regarding `training` mode
   mc_samples = np.asarray([
     model(x, training=training_setting) for _ in range(num_samples)
   ]).reshape(-1, B)
-
-  # print('mc_samples', mc_samples)
-  # print('mc_samples_shape', mc_samples.shape)
 
   # Bernoulli output distribution
   dist = bernoulli(mc_samples.mean(axis=0))
@@ -465,7 +460,11 @@ def update_metrics_keras(
     for metric_key, metric_fn in test_metric_fns.items():
       retain_metric_key = f'test_retain_{retain_fraction}/{metric_key}'
 
-      if metric_fn is None:
+      # Special treatment for rm.metrics.ExpectedCalibrationError
+      if metric_key == 'ece':
+        metrics_dict[retain_metric_key].add_batch(
+          y_pred_frac, label=y_true_frac)
+      elif metric_fn is None:
         metrics_dict[retain_metric_key].update_state(
           y_true_frac, y_pred_frac)
       else:

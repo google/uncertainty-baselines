@@ -40,6 +40,7 @@ flags.DEFINE_string(
     'you should specify an output_dir name that includes the random seed to '
     'avoid overwriting.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
+flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
 
 # Learning rate / SGD flags.
 flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
@@ -124,14 +125,25 @@ def main(argv):
   dataset_train_builder = ub.datasets.get(
       'diabetic_retinopathy_detection', split='train', data_dir=data_dir)
   dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
-  dataset_train = strategy.experimental_distribute_dataset(dataset_train)
 
   dataset_validation_builder = ub.datasets.get(
-      'diabetic_retinopathy_detection', split='validation', data_dir=data_dir)
+      'diabetic_retinopathy_detection',
+      split='validation',
+      data_dir=data_dir,
+      is_training=not FLAGS.use_validation)
+  validation_batch_size = (
+      eval_batch_size if FLAGS.use_validation else train_batch_size)
   dataset_validation = dataset_validation_builder.load(
-      batch_size=eval_batch_size)
-  dataset_validation = strategy.experimental_distribute_dataset(
-      dataset_validation)
+      batch_size=validation_batch_size)
+  if FLAGS.use_validation:
+    dataset_validation = strategy.experimental_distribute_dataset(
+        dataset_validation)
+  else:
+    # Note that this will not create any mixed batches of train and validation
+    # images.
+    dataset_train = dataset_train.concatenate(dataset_validation)
+
+  dataset_train = strategy.experimental_distribute_dataset(dataset_train)
 
   dataset_test_builder = ub.datasets.get(
       'diabetic_retinopathy_detection', split='test', data_dir=data_dir)
@@ -177,7 +189,9 @@ def main(argv):
     optimizer = tf.keras.optimizers.SGD(
         lr_schedule, momentum=1.0 - FLAGS.one_minus_momentum, nesterov=True)
     metrics = utils.get_diabetic_retinopathy_base_metrics(
-        use_tpu=use_tpu, num_bins=FLAGS.num_bins)
+        use_tpu=use_tpu,
+        num_bins=FLAGS.num_bins,
+        use_validation=FLAGS.use_validation)
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
@@ -191,7 +205,8 @@ def main(argv):
   # Define metrics outside the accelerator scope for CPU eval.
   # This will cause an error on TPU.
   if not use_tpu:
-    metrics.update(utils.get_diabetic_retinopathy_cpu_metrics())
+    metrics.update(utils.get_diabetic_retinopathy_cpu_metrics(
+      use_validation=FLAGS.use_validation))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
@@ -240,12 +255,13 @@ def main(argv):
       metrics['train/auroc'].update_state(labels, probs)
 
       if not use_tpu:
-        metrics['train/ece'].update_state(labels, probs)
+        metrics['train/ece'].add_batch(probs, label=labels)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_split):
+  def test_step(iterator, dataset_split, num_steps):
     """Evaluation step function."""
 
     def step_fn(inputs):
@@ -270,50 +286,50 @@ def main(argv):
       metrics[dataset_split + '/auroc'].update_state(labels, probs)
 
       if not use_tpu:
-        metrics[dataset_split + '/ece'].update_state(labels, probs)
+        metrics[dataset_split + '/ece'].add_batch(probs, label=labels)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   start_time = time.time()
 
   train_iterator = iter(dataset_train)
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch + 1)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps, epoch + 1, FLAGS.train_epochs,
-                     steps_per_sec, eta_seconds / 60, time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps, epoch + 1, FLAGS.train_epochs,
+                   steps_per_sec, eta_seconds / 60, time_elapsed / 60))
+    logging.info(message)
 
-    validation_iterator = iter(dataset_validation)
-    for step in range(steps_per_validation_eval):
-      if step % 20 == 0:
-        logging.info('Starting to run validation eval step %s of epoch: %s',
-                     step, epoch + 1)
-      test_step(validation_iterator, 'validation')
+    if FLAGS.use_validation:
+      validation_iterator = iter(dataset_validation)
+      logging.info('Starting to run validation eval at epoch: %s', epoch + 1)
+      test_step(validation_iterator, 'validation', steps_per_validation_eval)
 
     test_iterator = iter(dataset_test)
-    for step in range(steps_per_test_eval):
-      if step % 20 == 0:
-        logging.info('Starting to run test eval step %s of epoch: %s', step,
-                     epoch + 1)
-      test_start_time = time.time()
-      test_step(test_iterator, 'test')
-      ms_per_example = (time.time() - test_start_time) * 1e6 / eval_batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+    logging.info('Starting to run test eval at epoch: %s', epoch + 1)
+    test_start_time = time.time()
+    test_step(test_iterator, 'test', steps_per_test_eval)
+    ms_per_example = (time.time() - test_start_time) * 1e6 / eval_batch_size
+    metrics['test/ms_per_example'].update_state(ms_per_example)
 
     # Log and write to summary the epoch metrics
     utils.log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
     total_results = {name: metric.result() for name, metric in metrics.items()}
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)

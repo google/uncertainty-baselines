@@ -246,10 +246,6 @@ def main(argv):
     if step % 100 == 0:
       logging.info(f'Evaluated {step}/{steps_per_test_eval} batches.')
 
-    if step > 100:
-      logging.info('Breaking, remove this!')
-      break
-
     test_start_time = time.time()
     inputs = next(test_iterator)  # pytype: disable=attribute-error
     images = inputs['features']

@@ -166,7 +166,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
       try_gcs: bool = False,
       download_data: bool = False,
       is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      **unused_kwargs: Dict[str, Any]):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -243,7 +243,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
       """Preprocesses sentences as well as toxicity and other labels."""
       if self._data_dir:
-        return tf.io.parse_example(example, self.feature_spec)
+        return tf.io.parse_example(example['features'], self.feature_spec)
       else:
         label = example['toxicity']
         feature = example['text']

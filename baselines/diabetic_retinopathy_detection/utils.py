@@ -20,9 +20,9 @@ import os
 from functools import partial
 from typing import List, Dict, Optional, Union
 
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow.keras.backend as K
-import uncertainty_metrics as um
 
 from deferred_prediction import negative_log_likelihood_metric
 
@@ -179,7 +179,7 @@ def get_diabetic_retinopathy_test_metric_classes(use_tpu: bool, num_bins: int):
     })
   else:
     test_metric_classes.update({
-      'ece': partial(um.ExpectedCalibrationError, num_bins=num_bins)
+      'ece': partial(rm.metrics.ExpectedCalibrationError, num_bins=num_bins)
     })
 
   return test_metric_classes
@@ -227,7 +227,7 @@ def get_diabetic_retinopathy_base_test_metrics(
 
 
 def get_diabetic_retinopathy_base_metrics(
-    use_tpu: bool, num_bins: int,
+    use_tpu: bool, num_bins: int, use_validation: bool = True,
         deferred_prediction_fractions: Optional[List[float]] = None):
   """Initialize base metrics for non-ensemble Diabetic Retinopathy predictors.
 
@@ -243,6 +243,7 @@ def get_diabetic_retinopathy_base_metrics(
   Args:
     use_tpu: bool, is run using TPU.
     num_bins: int, number of ECE bins.
+    use_validation: whether to use a validation split.
     deferred_prediction_fractions: Optional[List[float]], create a copy of each
       metric for each of the specified fractions. Each metric will be evaluated
       at each deferral percentage, i.e., using an uncertainty score to defer
@@ -250,6 +251,7 @@ def get_diabetic_retinopathy_base_metrics(
       the remaining "retained" X% of points.
       If default (None), just create one copy of each metric for evaluation
         on full test set (no deferral).
+
   Returns:
     dict, metrics
   """
@@ -257,24 +259,34 @@ def get_diabetic_retinopathy_base_metrics(
       'train/negative_log_likelihood': tf.keras.metrics.Mean(),
       'train/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'train/loss': tf.keras.metrics.Mean(),  # NLL + L2
-      'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
-      'validation/accuracy': tf.keras.metrics.BinaryAccuracy()
   }
+  if use_validation:
+    metrics.update({
+        'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'validation/accuracy': tf.keras.metrics.BinaryAccuracy(),
+    })
 
   if use_tpu:
     # AUC does not yet work within GPU strategy scope, but does for TPU
     metrics.update({
       'train/auprc': tf.keras.metrics.AUC(curve='PR'),
-      'validation/auprc': tf.keras.metrics.AUC(curve='PR'),
       'train/auroc': tf.keras.metrics.AUC(curve='ROC'),
-      'validation/auroc': tf.keras.metrics.AUC(curve='ROC')
     })
+    if use_validation:
+      metrics.update({
+        'validation/auprc': tf.keras.metrics.AUC(curve='PR'),
+        'validation/auroc': tf.keras.metrics.AUC(curve='ROC')
+      })
   else:
     # ECE does not yet work on TPU
     metrics.update({
-        'train/ece': um.ExpectedCalibrationError(num_bins=num_bins),
-        'validation/ece': um.ExpectedCalibrationError(num_bins=num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(num_bins=num_bins),
     })
+    if use_validation:
+      metrics.update({
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=num_bins)
+      })
 
   # Retrieve unitialized test metric classes
   test_metric_classes = get_diabetic_retinopathy_test_metric_classes(
@@ -323,13 +335,15 @@ def get_diabetic_retinopathy_cpu_test_metrics(
 
 
 def get_diabetic_retinopathy_cpu_metrics(
-      deferred_prediction_fractions: Optional[List[float]] = None):
+  use_validation: bool = True,
+  deferred_prediction_fractions: Optional[List[float]] = None):
   """Initialize metrics for non-ensemble Diabetic Retinopathy predictors
   that must be initialized outside of the accelerator scope for CPU evaluation.
 
   Note that this method will cause an error on TPU.
 
   Args:
+    use_validation: whether to use a validation split.
     deferred_prediction_fractions: Optional[List[float]], create a copy of each
       metric for each of the specified fractions. Each metric will be evaluated
       at each deferral percentage, i.e., using an uncertainty score to defer
@@ -343,9 +357,14 @@ def get_diabetic_retinopathy_cpu_metrics(
   """
   metrics = {
     'train/auprc': tf.keras.metrics.AUC(curve='PR'),
-    'validation/auprc': tf.keras.metrics.AUC(curve='PR'),
-    'train/auroc': tf.keras.metrics.AUC(curve='ROC'),
-    'validation/auroc': tf.keras.metrics.AUC(curve='ROC')}
+    'train/auroc': tf.keras.metrics.AUC(curve='ROC')
+  }
+
+  if use_validation:
+    metrics.update({
+      'validation/auprc': tf.keras.metrics.AUC(curve='PR'),
+      'validation/auroc': tf.keras.metrics.AUC(curve='ROC')
+    })
 
   # Do not yet instantiate the test metrics -
   # this must be done for each fraction in deferred prediction
@@ -473,7 +492,6 @@ def get_latest_checkpoint(file_names):
     except ValueError:
       raise Exception('Expected Keras checkpoint directory path of format '
                       'gs://path_to_checkpoint/keras_model_{checkpoint_epoch}/')
-    print(checkpoint_epoch)
     checkpoint_epoch = int(checkpoint_epoch)
     checkpoint_epoch_and_file_name.append((checkpoint_epoch, file_name))
 

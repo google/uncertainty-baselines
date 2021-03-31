@@ -220,7 +220,7 @@ class Cifar100CorruptedDataset(base.BaseDataset):
     def _example_parser(example: types.Features) -> types.Features:
       """A pre-process function to return images in [0, 1]."""
       features = tf.io.parse_single_example(
-          example,
+          example['features'],
           features={
               'image': tf.io.FixedLenFeature([], tf.string),
               'label': tf.io.FixedLenFeature([], tf.int64),

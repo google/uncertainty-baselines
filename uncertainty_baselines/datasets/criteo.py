@@ -215,10 +215,10 @@ class CriteoDataset(base.BaseDataset):
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
-    def _example_parser(example: tf.Tensor) -> Dict[str, tf.Tensor]:
+    def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
       features_spec = _make_features_spec()
-      features = tf.io.parse_example(example, features_spec)
+      features = tf.io.parse_example(example['features'], features_spec)
       features = {k: tf.squeeze(v, axis=0) for k, v in features.items()}
       labels = tf.cast(features.pop('clicked'), tf.int32)
 

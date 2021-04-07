@@ -40,6 +40,9 @@ models (e.g. PyTorch ResNet50) -- users should alter their model or pass
 training_setting = True in this case.
 """
 
+import datetime
+import os
+from collections import defaultdict
 from functools import partial
 from typing import Tuple, Callable, Dict, Text, Sequence, Union
 
@@ -470,3 +473,88 @@ def update_metrics_keras(
       else:
         mean = metric_fn(y_true_frac, y_pred_frac)
         metrics_dict[retain_metric_key].update_state(mean)
+
+
+def store_keras_metrics(
+    metrics_dict: Dict, model_type: str, model_results_path: str,
+        train_seed: int, eval_seed: int, return_parsed_dict: bool = True):
+  """Parses a dict of metrics for values obtained at various retain
+  proportions. Stores results to a DataFrame at the specified path (or
+   updates a DataFrame that already exists at the path).
+
+ Optionally, returns a dict with retain proportions separated,
+  which allows for more natural logging of tf.Summary values and downstream
+  TensorBoard visualization.
+
+  Args:
+    metrics_dict: `Dict`, metrics computed through deferred prediction
+      evaluation, e.g., through `run_deferred_prediction.py`.
+    model_type: `str`, type of model that was evaluated (e.g., 'deterministic').
+      See run_deferred_prediction.py.
+    model_results_path: `str`, path at which model results DataFrame should be
+      stored.
+    train_seed: `int`, seed used for training the model currently being
+      evaluated.
+    eval_seed: `int`, seed used in evaluating the current model (e.g., for
+      MC dropout mask sampling).
+    return_parsed_dict: `bool`, will return a dict with retain proportions
+      separated, which is easier to use for logging to TensorBoard.
+
+  Returns:
+    `Optional[Dict]`
+  """
+  results = []
+  if return_parsed_dict:
+    parsed_dict = defaultdict(list)
+
+  for name, metric in metrics_dict.items():
+    prefix, metric_name = name.split('/')
+
+    # Only consider metrics collected at each deferred prediction fraction
+    if prefix.endswith('test'):
+      continue
+
+    retain_proportion = float(prefix.split('_')[-1])
+    metric_tensor = metric.result()
+    metric_scalar = metric_tensor.numpy()
+    results.append((metric_name, retain_proportion, metric_scalar))
+
+    if return_parsed_dict:
+      parsed_dict[metric_name].append((retain_proportion, metric_tensor))
+
+  new_results_df = pd.DataFrame(
+    results, columns=['metric', 'retain_proportion', 'value'])
+
+  # Add metadata
+  new_results_df['model_type'] = model_type
+  new_results_df['train_seed'] = train_seed
+  new_results_df['eval_seed'] = eval_seed
+  new_results_df['run_datetime'] = datetime.datetime.now()
+  new_results_df['run_datetime'] = pd.to_datetime(
+    new_results_df['run_datetime'])
+
+  model_results_path = os.path.join(model_results_path, 'results.tsv')
+
+  # Update or initialize results DataFrame
+  try:
+    with tf.io.gfile.GFile(model_results_path, 'r') as f:
+      previous_results_df = pd.read_csv(f, sep='\t')
+    results_df = pd.concat([previous_results_df, new_results_df])
+    action_str = 'updated'
+  except (FileNotFoundError, tf.errors.NotFoundError):
+    print(f'No previous results found at path {model_results_path}. '
+          f'Storing a new results dataframe.')
+    results_df = new_results_df
+    action_str = 'stored initial'
+
+  # Store to file
+  with tf.io.gfile.GFile(model_results_path, 'w') as f:
+    results_df.to_csv(path_or_buf=f, sep='\t', index=False)
+
+  print(f'Successfully {action_str} results dataframe at {model_results_path}.')
+
+  if return_parsed_dict:
+    for metric_name in parsed_dict.keys():
+      # Sort by ascending retain proportion
+      parsed_dict[metric_name] = sorted(parsed_dict[metric_name])
+    return parsed_dict

@@ -16,7 +16,7 @@
 """Evaluates the Deferred Prediction task using specified model
 on the Diabetic Retinopathy dataset.
 
-This script works with the following models:
+This script currently supports the following models:
 (1) `deterministic`: see deterministic.py
 (2) `dropout`: MC Dropout (Gal and Ghahramani 2016), see dropout.py
 (3) `radial`: Radial Bayesian Neural Networks (Farquhar et al. 2020),
@@ -25,6 +25,10 @@ This script works with the following models:
 (5) `ensemble`: Deep Ensembles, see ensemble.py
 (6) `dropoutensemble`: Ensembles of MC Dropout models (Gal and Ghahramani 2016,
   Smith and Gal 2018), see dropoutensemble.py
+
+Extension to a new model is simple: just implement a wrapper function to obtain
+model uncertainty estimates for each input datum, and make minor edits to the
+script below. See examples of uncertainty estimation in deferred_prediction.py.
 
 Our hyperparameters in this script default to MC Dropout. In order to run
 the script for another model, the user should set the following hyperparameters
@@ -69,6 +73,7 @@ Real-World Relevance:
 """
 
 import os
+import pprint
 import time
 
 import numpy as np
@@ -82,6 +87,10 @@ import deferred_prediction  # local file import
 import uncertainty_baselines as ub
 import utils  # local file import
 
+DEFERRED_PREDICTION_MODEL_TYPES = [
+  'deterministic', 'dropout', 'radial', 'variational_inference',
+  'ensemble', 'dropoutensemble']
+
 # Data load / output flags.
 flags.DEFINE_string(
   'model_type', 'dropout',
@@ -93,13 +102,22 @@ flags.DEFINE_string(
     'The directory from which the trained model weights are retrieved.')
 flags.DEFINE_string(
     'output_dir',
-    '/tmp/diabetic_retinopathy_detection/dropout_deferred_prediction',
+    '/tmp/diabetic_retinopathy_detection/deferred_prediction_results',
     'The directory where the evaluation summaries are stored.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')
 
 # General model flags.
-flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer(
+  'train_seed', None,
+  'Random seed used to train the model (i.e., through its model-specific '
+  'train script). This is used in storing results, to simplify aggregating '
+  'results across model seeds. By default, we also use this seed for '
+  'evaluation, e.g., sampling MC Dropout masks at test time.')
+flags.mark_flag_as_required('train_seed')
+flags.DEFINE_integer(
+  'eval_seed', None,
+  'Random seed for evaluation. If not set, will default to the train seed.')
 flags.DEFINE_integer('eval_batch_size', 32,
                      'The per-core validation/test batch size.')
 
@@ -135,7 +153,9 @@ def main(argv):
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info(
     'Saving Deferred Prediction evaluation summary to %s', FLAGS.output_dir)
-  tf.random.set_seed(FLAGS.seed)
+  train_seed = FLAGS.train_seed
+  eval_seed = FLAGS.eval_seed if FLAGS.eval_seed is not None else train_seed
+  tf.random.set_seed(eval_seed)
 
   if FLAGS.num_cores > 1:
     raise ValueError('Only a single accelerator is currently supported.')
@@ -178,9 +198,6 @@ def main(argv):
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
     tf.keras.mixed_precision.experimental.set_policy(policy)
-
-  summary_path = os.path.join(FLAGS.output_dir, 'summaries')
-  summary_writer = tf.summary.create_file_writer(summary_path)
 
   logging.info(f'Building Keras ResNet-50 {model_type} model.')
 
@@ -281,17 +298,36 @@ def main(argv):
     metrics_dict=metrics, test_metric_fns=test_metric_fns,
     fractions=deferred_prediction_fractions)
 
-  # Write evaluation metrics to summary
+  # Print evaluation metrics
   total_results = {name: metric.result() for name, metric in metrics.items()}
-  import pprint
   pprint.pprint(total_results)
 
-  with summary_writer.as_default():
-    for name, result in total_results.items():
-      # Note that the step parameter must be set, but is meaningless here.
-      tf.summary.scalar(name, result, step=0)
+  # Store results as DataFrame, for easy downstream plotting
+  model_results_path = os.path.join(FLAGS.output_dir, model_type)
+  if not tf.io.gfile.isdir(model_results_path):
+    tf.io.gfile.mkdir(model_results_path)
 
-  logging.info(f'Wrote results to {summary_path}.')
+  parsed_results_dict = deferred_prediction.store_keras_metrics(
+    metrics_dict=metrics, model_type=model_type,
+    model_results_path=model_results_path,
+    train_seed=train_seed, eval_seed=eval_seed, return_parsed_dict=True)
+
+  # Use parsed results for logging tf.Summary
+  summary_path = os.path.join(
+    model_results_path,
+    f'summaries__trainseed_{train_seed}__evalseed_{eval_seed}')
+  summary_writer = tf.summary.create_file_writer(summary_path)
+
+  with summary_writer.as_default():
+    for metric_name in parsed_results_dict.keys():
+      for retain_proportion, result in parsed_results_dict[metric_name]:
+        # step param only tolerates ints, so we multiply by 100 to give
+        # the retain percentage
+        tf.summary.scalar(
+          metric_name, result,
+          step=tf.constant(int(retain_proportion * 100), dtype=tf.int64))
+
+  logging.info(f'Wrote tf.Summary results to {summary_path}.')
 
 
 if __name__ == '__main__':

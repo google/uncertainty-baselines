@@ -32,7 +32,9 @@ setup(
         'tensorflow-datasets>=1.3.0',
         # https://github.com/tensorflow/tensorflow/issues/44146 is reproducible
         # with tf-nightly
-        'gast==0.3.3'
+        'gast==0.3.3',
+        'fsspec',
+        'gcsfs'
     ],
     extras_require={
         'experimental': [

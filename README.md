@@ -77,6 +77,7 @@ Supported datasets include:
 - Civil Comments Toxicity Classification, [download](https://www.tensorflow.org/datasets/catalog/civil_comments)
 - CLINC Intent Detection, [download](https://github.com/clinc/oos-eval/blob/master/data/data_full.json)
 - Criteo Ads, [download](https://www.kaggle.com/c/criteo-display-ad-challenge/data)
+- Diabetic Retinopathy Detection, [download](https://www.kaggle.com/c/diabetic-retinopathy-detection/data)
 - GLUE, [download](https://gluebenchmark.com/)
 - ImageNet
 - MNIST

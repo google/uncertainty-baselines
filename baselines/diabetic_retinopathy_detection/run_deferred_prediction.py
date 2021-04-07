@@ -87,10 +87,6 @@ import deferred_prediction  # local file import
 import uncertainty_baselines as ub
 import utils  # local file import
 
-DEFERRED_PREDICTION_MODEL_TYPES = [
-  'deterministic', 'dropout', 'radial', 'variational_inference',
-  'ensemble', 'dropoutensemble']
-
 # Data load / output flags.
 flags.DEFINE_string(
   'model_type', 'dropout',
@@ -103,7 +99,8 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'output_dir',
     '/tmp/diabetic_retinopathy_detection/deferred_prediction_results',
-    'The directory where the evaluation summaries are stored.')
+    'The directory where the evaluation summaries and DataFrame results '
+    'are stored.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.mark_flag_as_required('data_dir')
 
@@ -152,7 +149,7 @@ def main(argv):
   del argv  # unused arg
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info(
-    'Saving Deferred Prediction evaluation summary to %s', FLAGS.output_dir)
+    'Saving Deferred Prediction evaluation results to %s', FLAGS.output_dir)
   train_seed = FLAGS.train_seed
   eval_seed = FLAGS.eval_seed if FLAGS.eval_seed is not None else train_seed
   tf.random.set_seed(eval_seed)

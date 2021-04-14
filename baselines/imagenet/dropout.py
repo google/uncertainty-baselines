@@ -107,26 +107,26 @@ def main(argv):
       'adaptive_mixup': FLAGS.adaptive_mixup,
       'num_classes': NUM_CLASSES,
   }
-  train_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                      one_hot=(FLAGS.mixup_alpha > 0),
-                                      use_bfloat16=FLAGS.use_bfloat16,
-                                      mixup_params=mixup_params)
-  test_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                     use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = train_builder.as_dataset(split=tfds.Split.TRAIN,
-                                           batch_size=batch_size)
-  clean_test_dataset = test_builder.as_dataset(split=tfds.Split.TEST,
-                                               batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      one_hot=(FLAGS.mixup_alpha > 0),
+      use_bfloat16=FLAGS.use_bfloat16,
+      mixup_params=mixup_params)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
+  clean_test_dataset = test_builder.load(
+      batch_size=batch_size, strategy=strategy)
   test_datasets = {
-      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
+      'clean': clean_test_dataset,
   }
   if FLAGS.adaptive_mixup:
-    imagenet_confidence_dataset = test_builder.as_dataset(
+    imagenet_confidence_dataset = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
-        batch_size=batch_size)
-    imagenet_confidence_dataset = (
-        strategy.experimental_distribute_dataset(imagenet_confidence_dataset))
+        run_mixup=True,
+        use_bfloat16=FLAGS.use_bfloat16).load(
+            batch_size=batch_size, strategy=strategy)
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
     for name in corruption_types:
@@ -212,7 +212,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
         if FLAGS.use_bfloat16:
@@ -261,7 +262,8 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
 
       logits_list = []
       if dataset_name == 'confidence_validation':
@@ -355,24 +357,18 @@ def main(argv):
             class_pred_labels == focus_class, tf.float32), axis=-1)
         return accuracy - confidence
 
-      calibration_per_class = [compute_acc_conf(
-          predictions, labels, i) for i in range(NUM_CLASSES)]
+      calibration_per_class = [
+          compute_acc_conf(predictions, labels, i) for i in range(NUM_CLASSES)]
       calibration_per_class = tf.stack(calibration_per_class, axis=1)
-      logging.info('calibration per class')
-      logging.info(calibration_per_class)
       mixup_coeff = tf.where(calibration_per_class > 0, 1.0, FLAGS.mixup_alpha)
       mixup_coeff = tf.clip_by_value(mixup_coeff, 0, 1)
-      logging.info('mixup coeff')
-      logging.info(mixup_coeff)
       mixup_params['mixup_coeff'] = mixup_coeff
-      builder = utils.ImageNetInput(
-          data_dir=FLAGS.data_dir,
+      builder = ub.datasets.ImageNetDataset(
+          split=tfds.Split.TRAIN,
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
           mixup_params=mixup_params)
-      train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                         batch_size=batch_size)
-      train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+      train_dataset = builder.load(batch_size=batch_size, strategy=strategy)
       train_iterator = iter(train_dataset)
 
     if (epoch + 1) % FLAGS.eval_interval == 0:

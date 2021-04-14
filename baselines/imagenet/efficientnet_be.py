@@ -25,7 +25,6 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
 # ~312.78 steps per epoch for 4x4 TPU; per_core_batch_size=128; 350 epochs;
@@ -100,19 +99,23 @@ def main(argv):
 
   width_coefficient, depth_coefficient, input_image_size, dropout_rate = (
       ub.models.efficientnet_utils.efficientnet_params(FLAGS.model_name))
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=FLAGS.use_bfloat16,
-                                image_size=input_image_size,
-                                normalize_input=True,
-                                one_hot=True)
-  train_dataset = builder.as_dataset(
+  train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
-      batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores)
-  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                          batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+      use_bfloat16=FLAGS.use_bfloat16,
+      image_size=input_image_size,
+      normalize_input=True,
+      one_hot=True)
+  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16,
+      image_size=input_image_size,
+      normalize_input=True,
+      one_hot=True)
+  clean_test_dataset = test_builder.load(
+      batch_size=batch_size, strategy=strategy)
   test_datasets = {
-      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
+      'clean': clean_test_dataset,
   }
   train_iterator = iter(train_dataset)
   test_iterator = iter(test_datasets['clean'])
@@ -172,7 +175,8 @@ def main(argv):
 
   def train_step(inputs):
     """Build `step_fn` for efficientnet learning."""
-    images, labels = inputs
+    images = inputs['features']
+    labels = inputs['labels']
     images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
     labels = tf.tile(labels, [FLAGS.ensemble_size, 1])
 
@@ -236,7 +240,8 @@ def main(argv):
 
   def eval_step(inputs):
     """A single step."""
-    images, labels = inputs
+    images = inputs['features']
+    labels = inputs['labels']
     images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
     logits = model(images, training=False)
     logits = tf.cast(logits, tf.float32)

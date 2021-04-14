@@ -82,8 +82,14 @@ class SvhnDataset(base.BaseDataset):
       image = tf.image.convert_image_dtype(image, tf.float32)
       label = tf.cast(example['label'], tf.int32)
       if self._normalize_by_cifar:
+        # We use the convention of mean = np.mean(train_images, axis=(0,1,2))
+        # and std = np.std(train_images, axis=(0,1,2)).
         mean = tf.constant([0.4914, 0.4822, 0.4465])
-        std = tf.constant([0.2023, 0.1994, 0.2010])
+        std = tf.constant([0.2470, 0.2435, 0.2616])
+        # Previously, std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
+        # which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype).
+        # However, we change convention to use the std over the entire training
+        # set instead.
         image = (image - mean) / std
       parsed_example = {
           'features': image,

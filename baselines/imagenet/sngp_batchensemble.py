@@ -171,15 +171,17 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                     batch_size=batch_size)
-  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                          batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  clean_test_dataset = test_builder.load(
+      batch_size=batch_size, strategy=strategy)
   test_datasets = {
-      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
+      'clean': clean_test_dataset,
   }
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
@@ -298,7 +300,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       labels = tf.tile(labels, [FLAGS.ensemble_size])
       with tf.GradientTape() as tape:
@@ -357,7 +360,8 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
 
       logits_list = []
       stddev_list = []
@@ -387,7 +391,7 @@ def main(argv):
             labels, member_probs)
         metrics['test/member_accuracy_mean'].update_state(
             labels, member_probs)
-        metrics['test/member_ece_mean'].update_state(labels, member_probs)
+        metrics['test/member_ece_mean'].add_batch(member_probs, label=labels)
 
       # Logits dimension is (num_samples, batch_size, num_classes).
       logits_list = tf.stack(logits_list, axis=0)

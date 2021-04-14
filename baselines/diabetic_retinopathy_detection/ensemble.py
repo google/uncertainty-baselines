@@ -139,9 +139,9 @@ def main(argv):
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/gibbs_cross_entropy': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
-      'test/ece': rm.metrics.ExpectedCalibrationError(
-          num_bins=FLAGS.num_bins),
-      'test/auc': tf.keras.metrics.AUC()
+      'test/auprc': tf.keras.metrics.AUC(curve='PR'),
+      'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
+      'test/ece': rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
   }
 
   for i in range(ensemble_size):
@@ -183,8 +183,9 @@ def main(argv):
         negative_log_likelihood)
     metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
     metrics['test/accuracy'].update_state(labels, probs)
+    metrics['test/auprc'].update_state(labels, probs)
+    metrics['test/auroc'].update_state(labels, probs)
     metrics['test/ece'].add_batch(probs, label=labels)
-    metrics['test/auc'].update_state(labels, probs)
 
     for i in range(ensemble_size):
       member_probs = per_probs[i]
@@ -193,7 +194,9 @@ def main(argv):
       metrics['test/accuracy_member_{}'.format(i)].update_state(
           labels, member_probs)
 
-    diversity_results = um.average_pairwise_diversity(per_probs, ensemble_size)
+    diversity = rm.metrics.AveragePairwiseDiversity()
+    diversity.add_batch(per_probs, num_models=ensemble_size)
+    diversity_results = diversity.result()
     for k, v in diversity_results.items():
       test_diversity['test/' + k].update_state(v)
 

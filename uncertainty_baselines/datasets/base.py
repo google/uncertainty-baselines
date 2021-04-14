@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Abstract base classes which defines interfaces for datasets."""
 
 import logging
@@ -153,8 +152,10 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # Stateless random ops require a (2,) shaped seed.
     if seed is None:
       self._seed = tf.random.uniform((2,), maxval=int(1e10), dtype=tf.int32)
-    else:
+    elif isinstance(seed, int):
       self._seed = (seed, seed + 1)
+    else:
+      self._seed = seed
 
     self._num_parallel_parser_calls = num_parallel_parser_calls
     self._drop_remainder = drop_remainder
@@ -260,11 +261,10 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       return example
     return _add_example_id
 
-  # TODO(znado): rename to as_dataset.
-  def load(self,
-           *,
-           preprocess_fn: PreProcessFn = None,
-           batch_size: int = -1) -> tf.data.Dataset:
+  def _load(self,
+            *,
+            preprocess_fn: Optional[PreProcessFn] = None,
+            batch_size: int = -1) -> tf.data.Dataset:
     """Transforms the dataset from builder.as_dataset() to batch, repeat, etc.
 
     Note that we do not handle replication/sharding here, because the
@@ -344,7 +344,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
 
     process_batch_fn = self._create_process_batch_fn(batch_size)  # pylint: disable=assignment-from-none
-    if self._create_process_batch_fn(batch_size):
+    if process_batch_fn:
       dataset = dataset.map(
           process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
@@ -353,9 +353,10 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
+    # The AutoSharding policy in DistributionStrategy defaults to AUTO, which
+    # will fallback to DATA if it can, which is safe to do but possibly
+    # wasteful compared to `distribute_datasets_from_function`.
     options = tf.data.Options()
-    options.experimental_distribute.auto_shard_policy = (
-        tf.data.experimental.AutoShardPolicy.OFF)
     # Optimize dataset performance.
     # Keep commented out, unclear if will always improve performance.
     # options.experimental_optimization.parallel_batch = True
@@ -366,6 +367,55 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     options.experimental_threading.max_intra_op_parallelism = 1
     dataset = dataset.with_options(options)
     return dataset
+
+  def load(
+      self,
+      *,
+      preprocess_fn: Optional[PreProcessFn] = None,
+      batch_size: int = -1,
+      strategy: Optional[tf.distribute.Strategy] = None) -> tf.data.Dataset:
+    """Function definition to support multi-host dataset sharding.
+
+    This is preferred over strategy.experimental_distribute_dataset(...) because
+    not all datasets will have enough input files to have >=1 per host, which
+    will result in an error unless the auto_shard_policy is set to
+    tf.data.experimental.AutoShardPolicy.OFF. However, if auto sharding is OFF,
+    then each host will process the same set of files, in the same order, which
+    will be the same as using a single host. To correctly distribute across
+    multiple hosts, we must either shard the input files across hosts, or
+    shuffle the data in a different order on each host. In order to get a
+    per-host id to fold into the shuffle RNG, we use
+    strategy.distribute_datasets_from_function to get a
+    tf.distribute.InputContext. This is preferrred over AutoShardPolicy.DATA
+    because DATA will prepare and throw out (n - 1)/n elements of data, where n
+    is the number of devices (DATA also relies on the data files being in the
+    same ordering across hosts, which may be a fair assumption). On an ImageNet
+    test run on a TPUv2-32, we saw a 37% slowdown using DATA instead of
+    `distribute_datasets_from_function`. See this documentation for more info
+    https://www.tensorflow.org/tutorials/distribute/input#sharding.
+
+
+    Args:
+      preprocess_fn: see `load()`.
+      batch_size: the *global* batch size to use. This should equal
+        `per_replica_batch_size * num_replica_in_sync`.
+      strategy: the DistributionStrategy used to shard the dataset. Note that
+        this is only required if TensorFlow for training, otherwise it can be
+        ignored.
+    Returns:
+      A sharded dataset, with its seed combined with the per-host id.
+    """
+    if strategy:
+      def _load_distributed(ctx: tf.distribute.InputContext):
+        self._seed = tf.random.experimental.stateless_fold_in(
+            self._seed, ctx.input_pipeline_id)
+        per_replica_batch_size = ctx.get_per_replica_batch_size(batch_size)
+        return self._load(
+            preprocess_fn=preprocess_fn, batch_size=per_replica_batch_size)
+
+      return strategy.distribute_datasets_from_function(_load_distributed)
+    else:
+      return self._load(preprocess_fn=preprocess_fn, batch_size=batch_size)
 
 
 _BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]

@@ -204,8 +204,9 @@ def main(argv):
           metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
           metrics['test/accuracy_member_{}'.format(i)].update_state(
               labels, member_probs)
-        diversity_results = um.average_pairwise_diversity(
-            per_probs, ensemble_size)
+          diversity = rm.metrics.AveragePairwiseDiversity()
+          diversity.add_batch(per_probs, num_models=ensemble_size)
+          diversity_results = diversity.result()
         for k, v in diversity_results.items():
           test_diversity['test/' + k].update_state(v)
       else:

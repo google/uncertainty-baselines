@@ -53,6 +53,13 @@ flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
 
 # General model flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_string(
+    'class_reweight_mode', None,
+    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,'
+    'test respectively). `None` (default) will not perform any loss reweighting. '
+    '`constant` will use the train proportions to reweight the binary cross '
+    'entropy loss. `minibatch` will use the proportions of each minibatch to '
+    'reweight the loss.')
 flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
@@ -108,6 +115,13 @@ def main(argv):
   else:
     eval_batch_size = (FLAGS.eval_batch_size *
                        FLAGS.num_cores) // FLAGS.num_dropout_samples_eval
+
+  # Reweighting loss for class imbalance
+  class_reweight_mode = FLAGS.class_reweight_mode
+  if class_reweight_mode == 'constant':
+    class_weights = utils.get_diabetic_retinopathy_class_balance_weights()
+  else:
+    class_weights = None
 
   # As per the Kaggle challenge, we have split sizes:
   # train: 35,126
@@ -196,15 +210,15 @@ def main(argv):
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
 
-  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
+  # Define metrics outside the accelerator scope for CPU eval.
   # This will cause an error on TPU.
   if not use_tpu:
-    metrics.update({
-        'train/auc': tf.keras.metrics.AUC(),
-        'test/auc': tf.keras.metrics.AUC()
-    })
-    if FLAGS.use_validation:
-      metrics.update({'validation/auc': tf.keras.metrics.AUC()})
+    metrics.update(
+        utils.get_diabetic_retinopathy_cpu_metrics(
+            use_validation=FLAGS.use_validation))
+  # Initialize loss function based on class reweighting setting
+  loss_fn = utils.get_diabetic_retinopathy_loss_fn(
+      class_reweight_mode=class_reweight_mode, class_weights=class_weights)
 
   @tf.function
   def train_step(iterator):
@@ -215,13 +229,19 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
 
+      # For minibatch class reweighting, initialize per-batch loss function
+      if class_reweight_mode == 'minibatch':
+        batch_loss_fn = utils.get_minibatch_reweighted_loss_fn(labels=labels)
+      else:
+        batch_loss_fn = loss_fn
+
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
         negative_log_likelihood = tf.reduce_mean(
-            tf.keras.losses.binary_crossentropy(
+            batch_loss_fn(
                 y_true=tf.expand_dims(labels, axis=-1),
                 y_pred=logits,
                 from_logits=True))
@@ -239,7 +259,8 @@ def main(argv):
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, probs)
-      metrics['train/auc'].update_state(labels, probs)
+      metrics['train/auprc'].update_state(labels, probs)
+      metrics['train/auroc'].update_state(labels, probs)
 
       if not use_tpu:
         metrics['train/ece'].add_batch(probs, label=labels)
@@ -279,7 +300,8 @@ def main(argv):
       metrics[dataset_split + '/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics[dataset_split + '/accuracy'].update_state(labels, probs)
-      metrics[dataset_split + '/auc'].update_state(labels, probs)
+      metrics[dataset_split + '/auprc'].update_state(labels, probs)
+      metrics[dataset_split + '/auroc'].update_state(labels, probs)
 
       if not use_tpu:
         metrics[dataset_split + '/ece'].add_batch(probs, label=labels)

@@ -58,6 +58,26 @@ flags.DEFINE_float('label_smoothing', 0., 'Label smoothing parameter in [0,1].')
 flags.register_validator('label_smoothing',
                          lambda ls: ls >= 0.0 and ls <= 1.0,
                          message='--label_smoothing must be in [0, 1].')
+flags.DEFINE_bool(
+    'download_data', False,
+    'Whether to download data locally when initializing the dataset.')
+
+# Data Augmentation flags.
+flags.DEFINE_bool('augmix', False,
+                  'Whether to perform AugMix [4] on the input data.')
+flags.DEFINE_integer('aug_count', 1,
+                     'Number of augmentation operations in AugMix to perform '
+                     'on the input image. In the simgle model context, it'
+                     'should be 1. In the ensembles context, it should be'
+                     'ensemble_size if we perform random_augment only; It'
+                     'should be (ensemble_size - 1) if we perform augmix.')
+flags.DEFINE_float('augmix_prob_coeff', 0.5, 'Augmix probability coefficient.')
+flags.DEFINE_integer('augmix_depth', -1,
+                     'Augmix depth, -1 meaning sampled depth. This corresponds'
+                     'to line 7 in the Algorithm box in [4].')
+flags.DEFINE_integer('augmix_width', 3,
+                     'Augmix width. This corresponds to the k in line 5 in the'
+                     'Algorithm box in [4].')
 
 # Fine-grained specification of the hyperparameters (used when FLAGS.l2 is None)
 flags.DEFINE_float('bn_l2', None, 'L2 reg. coefficient for batch-norm layers.')
@@ -144,26 +164,51 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
+  aug_params = {
+      'augmix': FLAGS.augmix,
+      'aug_count': FLAGS.aug_count,
+      'augmix_depth': FLAGS.augmix_depth,
+      'augmix_prob_coeff': FLAGS.augmix_prob_coeff,
+      'augmix_width': FLAGS.augmix_width,
+  }
+
   # Note that stateless_{fold_in,split} may incur a performance cost, but a
   # quick side-by-side test seemed to imply this was minimal.
   seeds = tf.random.experimental.stateless_split(
       [FLAGS.seed, FLAGS.seed + 1], 2)[:, 0]
-  train_dataset = ub.datasets.get(
+  train_builder = ub.datasets.get(
       FLAGS.dataset,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
-      download_data=True,
       seed=seeds[0],
+      aug_params=aug_params,
       validation_percent=1. - FLAGS.train_proportion,
-      data_dir=data_dir).load(
-          batch_size=batch_size)
-  clean_test_dataset = ub.datasets.get(
+      data_dir=data_dir)
+  train_dataset = train_builder.load(batch_size=batch_size)
+  validation_dataset = None
+  steps_per_validation = 0
+  if FLAGS.train_proportion < 1.0:
+    validation_builder = ub.datasets.get(
+        FLAGS.dataset,
+        split=tfds.Split.VALIDATION,
+        validation_percent=1. - FLAGS.train_proportion,
+        data_dir=data_dir)
+    validation_dataset = validation_builder.load(batch_size=batch_size)
+    validation_dataset = strategy.experimental_distribute_dataset(
+        validation_dataset)
+    steps_per_validation = validation_builder.num_examples // batch_size
+  clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
       split=tfds.Split.TEST,
-      data_dir=data_dir).load(batch_size=batch_size)
+      data_dir=data_dir)
+  clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
+  steps_per_epoch = train_builder.num_examples // batch_size
+  steps_per_eval = clean_test_builder.num_examples // batch_size
+  num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar100':
       data_dir = FLAGS.cifar100_c_path
@@ -185,7 +230,7 @@ def main(argv):
   with strategy.scope():
     logging.info('Building ResNet model')
     model = ub.models.wide_resnet(
-        input_shape=ds_info.features['image'].shape,
+        input_shape=(32, 32, 3),
         depth=28,
         width_multiplier=10,
         num_classes=num_classes,
@@ -225,6 +270,13 @@ def main(argv):
         'test/ece':
             rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
+    if validation_dataset:
+      metrics.update({
+          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=FLAGS.num_bins),
+      })
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
@@ -254,6 +306,11 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+
+      if FLAGS.augmix and FLAGS.aug_count >= 1:
+        # Index 0 at augmix processing is the unperturbed image.
+        # We take just 1 augmented image from the returned augmented images.
+        images = images[:, 1, ...]
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
         if FLAGS.label_smoothing == 0.:
@@ -288,7 +345,7 @@ def main(argv):
       strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_split, dataset_name, num_steps):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
@@ -300,10 +357,10 @@ def main(argv):
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
 
       if dataset_name == 'clean':
-        metrics['test/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
             negative_log_likelihood)
-        metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].add_batch(probs, label=labels)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -312,7 +369,7 @@ def main(argv):
         corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
             probs, label=labels)
 
-    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
@@ -351,6 +408,11 @@ def main(argv):
     logging.info(message)
     if tb_callback:
       tb_callback.on_epoch_end(epoch)
+
+    if validation_dataset:
+      validation_iterator = iter(validation_dataset)
+      test_step(
+          validation_iterator, 'validation', 'clean', steps_per_validation)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
@@ -360,7 +422,7 @@ def main(argv):
       logging.info('Testing on dataset %s', dataset_name)
       logging.info('Starting to run eval at epoch: %s', epoch)
       test_start_time = time.time()
-      test_step(test_iterator, dataset_name)
+      test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
       metrics['test/ms_per_example'].update_state(ms_per_example)
 

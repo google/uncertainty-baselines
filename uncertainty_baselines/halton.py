@@ -13,7 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Hyperparameter sweeps with Halton sequences of quasi-random numbers."""
+"""Hyperparameter sweeps with Halton sequences of quasi-random numbers.
+
+Based off the algorithms described in https://arxiv.org/abs/1706.03200.
+"""
 
 import functools
 import itertools

@@ -25,7 +25,6 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('ensemble_size', 3, 'Size of ensemble.')
@@ -52,6 +51,10 @@ flags.DEFINE_list('lr_decay_epochs', ['80', '160', '180'],
 flags.DEFINE_float('l2', 3e-4, 'L2 coefficient.')
 flags.DEFINE_enum(
     'dataset', 'cifar10', enum_values=['cifar10', 'cifar100'], help='Dataset.')
+flags.DEFINE_float(
+    'train_proportion', 1.,
+    'Only a fraction (between 0 and 1) of the train set is used for training. '
+    'The remainder can be used for validation.')
 flags.DEFINE_string(
     'cifar100_c_path', None,
     'Path to the TFRecords files for CIFAR-100-C. Only valid '
@@ -103,16 +106,33 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // test_batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  train_dataset = ub.datasets.get(
+  train_builder = ub.datasets.get(
       FLAGS.dataset,
-      split=tfds.Split.TRAIN).load(batch_size=train_batch_size)
-  clean_test_dataset = ub.datasets.get(
+      split=tfds.Split.TRAIN,
+      validation_percent=1. - FLAGS.train_proportion)
+  train_dataset = train_builder.load(batch_size=train_batch_size)
+  validation_dataset = None
+  steps_per_validation = 0
+  if FLAGS.train_proportion < 1.0:
+    validation_builder = ub.datasets.get(
+        FLAGS.dataset,
+        split=tfds.Split.VALIDATION,
+        validation_percent=1. - FLAGS.train_proportion)
+    validation_dataset = validation_builder.load(batch_size=test_batch_size)
+    validation_dataset = strategy.experimental_distribute_dataset(
+        validation_dataset)
+    steps_per_validation = validation_builder.num_examples // test_batch_size
+  clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
-      split=tfds.Split.TEST).load(batch_size=test_batch_size)
+      split=tfds.Split.TEST)
+  clean_test_dataset = clean_test_builder.load(batch_size=test_batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
+  steps_per_epoch = train_builder.num_examples // train_batch_size
+  steps_per_eval = clean_test_builder.num_examples // test_batch_size
+  num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
   if FLAGS.corruptions_interval > 0:
     extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
@@ -167,6 +187,20 @@ def main(argv):
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
     }
+    eval_dataset_splits = ['test']
+    if validation_dataset:
+      metrics.update({
+          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=FLAGS.num_bins),
+      })
+      eval_dataset_splits += ['validation']
+    for i in range(FLAGS.ensemble_size):
+      for dataset_split in eval_dataset_splits:
+        metrics[f'{dataset_split}/nll_member_{i}'] = tf.keras.metrics.Mean()
+        metrics[f'{dataset_split}/accuracy_member_{i}'] = (
+            tf.keras.metrics.SparseCategoricalAccuracy())
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
@@ -257,7 +291,7 @@ def main(argv):
       strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_split, dataset_name, num_steps):
     """Evaluation StepFn."""
 
     def step_fn(inputs):
@@ -271,8 +305,9 @@ def main(argv):
 
       if dataset_name == 'clean':
         per_probs = tf.transpose(probs, perm=[1, 0, 2])
-        diversity_results = um.average_pairwise_diversity(
-            per_probs, FLAGS.ensemble_size)
+        diversity = rm.metrics.AveragePairwiseDiversity()
+        diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
+        diversity_results = diversity.result()
         for k, v in diversity_results.items():
           test_diversity['test/' + k].update_state(v)
 
@@ -280,8 +315,8 @@ def main(argv):
         member_probs = probs[:, i]
         member_loss = tf.keras.losses.sparse_categorical_crossentropy(
             labels, member_probs)
-        metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
-        metrics['test/accuracy_member_{}'.format(i)].update_state(
+        metrics[f'{dataset_split}/nll_member_{i}'].update_state(member_loss)
+        metrics[f'{dataset_split}/accuracy_member_{i}'].update_state(
             labels, member_probs)
 
       # Negative log marginal likelihood computed in a numerically-stable way.
@@ -295,10 +330,10 @@ def main(argv):
       probs = tf.math.reduce_mean(probs, axis=1)  # marginalize
 
       if dataset_name == 'clean':
-        metrics['test/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
             negative_log_likelihood)
-        metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].add_batch(probs, label=labels)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -307,7 +342,7 @@ def main(argv):
         corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
             probs, label=labels)
 
-    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
@@ -329,6 +364,10 @@ def main(argv):
                    steps_per_sec, eta_seconds / 60, time_elapsed / 60))
     logging.info(message)
 
+    if validation_dataset:
+      validation_iterator = iter(validation_dataset)
+      test_step(
+          validation_iterator, 'validation', 'clean', steps_per_validation)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
@@ -338,7 +377,7 @@ def main(argv):
       logging.info('Testing on dataset %s', dataset_name)
       logging.info('Starting to run eval at epoch: %s', epoch)
       test_start_time = time.time()
-      test_step(test_iterator, dataset_name)
+      test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / test_batch_size
       metrics['test/ms_per_example'].update_state(ms_per_example)
       logging.info('Done with testing on %s', dataset_name)

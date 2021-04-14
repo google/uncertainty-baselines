@@ -199,6 +199,8 @@ def main(argv):
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
+  # Split the seed into a 2-tuple, for passing into dataset builder.
+  dataset_seed = (FLAGS.seed, FLAGS.seed + 1)
 
   if FLAGS.use_gpu:
     logging.info('Use GPU')
@@ -235,14 +237,14 @@ def main(argv):
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
       aug_params=aug_params,
-      validation_percent=validation_proportion)
+      validation_percent=validation_proportion,
+      seed=dataset_seed)
   train_dataset = train_dataset_builder.load(batch_size=batch_size)
   train_sample_size = train_dataset_builder.num_examples
   if validation_proportion > 0.:
     validation_dataset_builder = dataset_builder_class(
         split=tfds.Split.VALIDATION,
         use_bfloat16=FLAGS.use_bfloat16,
-        aug_params=aug_params,
         validation_percent=validation_proportion)
     validation_dataset = validation_dataset_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
@@ -378,7 +380,7 @@ def main(argv):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
 
   @tf.function
-  def train_step(iterator):
+  def train_step(iterator, step):
     """Training StepFn."""
 
     def step_fn(inputs, step):
@@ -437,8 +439,7 @@ def main(argv):
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    for step in tf.range(tf.cast(steps_per_eval, tf.int32)):
-      strategy.run(step_fn, args=(next(iterator), step))
+    strategy.run(step_fn, args=(next(iterator), step))
 
   @tf.function
   def test_step(iterator, dataset_name):
@@ -504,32 +505,38 @@ def main(argv):
         corrupt_metrics['test/stddev_{}'.format(dataset_name)].update_state(
             stddev)
 
-    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
+  step_variable = tf.Variable(0, dtype=tf.int32)
   train_iterator = iter(train_dataset)
   start_time = time.time()
 
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    train_step(train_iterator)
+    for step in range(steps_per_epoch):
+      step_variable.assign(step)
+      # Pass `step` as a tf.Variable to train_step to prevent the tf.function
+      # train_step() re-compiling itself at each function call.
+      train_step(train_iterator, step_variable)
 
-    current_step = (epoch + 1) * steps_per_epoch
-    max_steps = steps_per_epoch * FLAGS.train_epochs
-    time_elapsed = time.time() - start_time
-    steps_per_sec = float(current_step) / time_elapsed
-    eta_seconds = (max_steps - current_step) / steps_per_sec
-    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                   current_step / max_steps,
-                   epoch + 1,
-                   FLAGS.train_epochs,
-                   steps_per_sec,
-                   eta_seconds / 60,
-                   time_elapsed / 60))
-    logging.info(message)
+      current_step = epoch * steps_per_epoch + (step + 1)
+      max_steps = steps_per_epoch * FLAGS.train_epochs
+      time_elapsed = time.time() - start_time
+      steps_per_sec = float(current_step) / time_elapsed
+      eta_seconds = (max_steps - current_step) / steps_per_sec
+      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                     current_step / max_steps,
+                     epoch + 1,
+                     FLAGS.train_epochs,
+                     steps_per_sec,
+                     eta_seconds / 60,
+                     time_elapsed / 60))
+      if step % 20 == 0:
+        logging.info(message)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if use_validation_set:

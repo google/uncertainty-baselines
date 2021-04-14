@@ -24,6 +24,14 @@ from uncertainty_baselines.datasets import augment_utils
 from uncertainty_baselines.datasets import augmix
 from uncertainty_baselines.datasets import base
 
+# We use the convention of using mean = np.mean(train_images, axis=(0,1,2))
+# and std = np.std(train_images, axis=(0,1,2)).
+CIFAR10_MEAN = tf.constant([0.4914, 0.4822, 0.4465])
+CIFAR10_STD = tf.constant([0.2470, 0.2435, 0.2616])
+# Previously we used std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
+# which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype), however
+# we change convention to use the std over the entire training set instead.
+
 
 def _tuple_dict_fn_converter(fn, *args):
 
@@ -32,28 +40,6 @@ def _tuple_dict_fn_converter(fn, *args):
     return {'features': images, 'labels': labels}
 
   return dict_fn
-
-
-def normalize_convert_image(input_image, dtype):
-  input_image = tf.image.convert_image_dtype(input_image, dtype)
-  mean = tf.constant([0.4914, 0.4822, 0.4465], dtype=dtype)
-  std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype)
-  return (input_image - mean) / std
-
-
-def _augmix(image, params, augmenter, dtype):
-  """Apply augmix augmentation to image."""
-  depth = params['augmix_depth']
-  width = params['augmix_width']
-  prob_coeff = params['augmix_prob_coeff']
-  count = params['aug_count']
-
-  augmented = [
-      augmix.augment_and_mix(image, depth, width, prob_coeff, augmenter, dtype)
-      for _ in range(count)
-  ]
-  image = normalize_convert_image(image, dtype)
-  return tf.stack([image] + augmented, 0)
 
 
 class _CifarDataset(base.BaseDataset):
@@ -155,11 +141,14 @@ class _CifarDataset(base.BaseDataset):
         image = tf.image.resize_with_crop_or_pad(
             image, image_shape[0] + 4, image_shape[1] + 4)
         # Note that self._seed will already be shape (2,), as is required for
-        # stateless random ops.
+        # stateless random ops, and so will per_example_step_seed.
         per_example_step_seed = tf.random.experimental.stateless_fold_in(
             self._seed, example[self._enumerate_id_key])
+        # per_example_step_seeds will be of size (num, 3).
+        # First for random_crop, second for flip, third optionally for
+        # RandAugment, and foruth optionally for Augmix.
         per_example_step_seeds = tf.random.experimental.stateless_split(
-            per_example_step_seed, num=2)
+            per_example_step_seed, num=4)
         image = tf.image.stateless_random_crop(
             image,
             (image_shape[0], image_shape[0], 3),
@@ -171,19 +160,28 @@ class _CifarDataset(base.BaseDataset):
         # Only random augment for now.
         if self._aug_params.get('random_augment', False):
           count = self._aug_params['aug_count']
+          augment_seeds = tf.random.experimental.stateless_split(
+              per_example_step_seeds[2], num=count)
           augmenter = augment_utils.RandAugment()
-          augmented = [augmenter.distort(image) for _ in range(count)]
+          augmented = [
+              augmenter.distort(image, seed=augment_seeds[c])
+              for c in range(count)
+          ]
           image = tf.stack(augmented)
 
         if use_augmix:
           augmenter = augment_utils.RandAugment()
-          image = _augmix(image, self._aug_params, augmenter, image_dtype)
+          image = augmix.do_augmix(
+              image, self._aug_params, augmenter, image_dtype,
+              mean=CIFAR10_MEAN, std=CIFAR10_STD,
+              seed=per_example_step_seeds[3])
 
       # The image has values in the range [0, 1].
       # Optionally normalize by the dataset statistics.
       if not use_augmix:
         if self._normalize:
-          image = normalize_convert_image(image, image_dtype)
+          image = augmix.normalize_convert_image(
+              image, image_dtype, mean=CIFAR10_MEAN, std=CIFAR10_STD)
         else:
           image = tf.image.convert_image_dtype(image, image_dtype)
       parsed_example = example.copy()

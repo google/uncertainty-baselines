@@ -35,6 +35,7 @@ from tensorflow_addons import metrics as tfa_metrics
 import uncertainty_baselines as ub
 # import toxic_comments.deterministic to inherit its flags
 import deterministic  # pylint:disable=unused-import  # local file import
+import metrics as tc_metrics  # local file import
 import utils  # local file import
 from uncertainty_baselines.datasets import toxic_comments as ds
 import uncertainty_metrics as um
@@ -91,6 +92,21 @@ def main(argv):
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
+  if FLAGS.prediction_mode and FLAGS.identity_prediction:
+    for dataset_name in utils.IDENTITY_LABELS:
+      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
+        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
+            split='test',
+            data_dir=os.path.join(
+                FLAGS.identity_specific_dataset_dir, dataset_name),
+            shuffle_buffer_size=data_buffer_size)
+    for dataset_name in utils.IDENTITY_TYPES:
+      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
+        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
+            split='test',
+            data_dir=os.path.join(
+                FLAGS.identity_type_dataset_dir, dataset_name),
+            shuffle_buffer_size=data_buffer_size)
 
   class_weight = utils.create_class_weight(
       test_dataset_builders=test_dataset_builders)
@@ -106,8 +122,12 @@ def main(argv):
   for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.load(
         batch_size=test_batch_size)
-    steps_per_eval[dataset_name] = (
-        dataset_builder.num_examples // test_batch_size)
+    if dataset_name in ['ind', 'ood', 'ood_identity']:
+      steps_per_eval[dataset_name] = (
+          dataset_builder.num_examples // test_batch_size)
+    else:
+      steps_per_eval[dataset_name] = (
+          utils.NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
 
   logging.info('Building %s model', FLAGS.model_family)
 
@@ -168,27 +188,51 @@ def main(argv):
       logging.info(message)
 
   metrics = {
-      'test/negative_log_likelihood': tf.keras.metrics.Mean(),
-      'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
-      'test/aupr': tf.keras.metrics.AUC(curve='PR'),
-      'test/brier': tf.keras.metrics.MeanSquaredError(),
-      'test/brier_weighted': tf.keras.metrics.MeanSquaredError(),
-      'test/ece': rm.metrics.ExpectedCalibrationError(
-          num_bins=FLAGS.num_bins),
-      'test/acc': tf.keras.metrics.Accuracy(),
-      'test/acc_weighted': tf.keras.metrics.Accuracy(),
-      'test/precision': tf.keras.metrics.Precision(),
-      'test/recall': tf.keras.metrics.Recall(),
-      'test/f1': tfa_metrics.F1Score(
-          num_classes=num_classes, average='micro',
-          threshold=FLAGS.ece_label_threshold)
+      'test/negative_log_likelihood':
+          tf.keras.metrics.Mean(),
+      'test/auroc':
+          tf.keras.metrics.AUC(curve='ROC'),
+      'test/aupr':
+          tf.keras.metrics.AUC(curve='PR'),
+      'test/brier':
+          tf.keras.metrics.MeanSquaredError(),
+      'test/brier_weighted':
+          tf.keras.metrics.MeanSquaredError(),
+      'test/ece':
+          rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/acc':
+          tf.keras.metrics.Accuracy(),
+      'test/acc_weighted':
+          tf.keras.metrics.Accuracy(),
+      'test/precision':
+          tf.keras.metrics.Precision(),
+      'test/recall':
+          tf.keras.metrics.Recall(),
+      'test/f1':
+          tfa_metrics.F1Score(
+              num_classes=num_classes,
+              average='micro',
+              threshold=FLAGS.ece_label_threshold),
+      'test/calibration_auroc':
+          tc_metrics.CalibrationAUC(curve='ROC'),
+      'test/calibration_auprc':
+          tc_metrics.CalibrationAUC(curve='PR')
   }
   for fraction in FLAGS.fractions:
     metrics.update({
         'test_collab_acc/collab_acc_{}'.format(fraction):
-            um.OracleCollaborativeAccuracy(
+            rm.metrics.OracleCollaborativeAccuracy(
                 fraction=float(fraction), num_bins=FLAGS.num_bins)
     })
+    metrics.update({
+        'test_abstain_prec/abstain_prec_{}'.format(fraction):
+            tc_metrics.AbstainPrecision(abstain_fraction=float(fraction))
+    })
+    metrics.update({
+        'test_abstain_recall/abstain_recall_{}'.format(fraction):
+            tc_metrics.AbstainRecall(abstain_fraction=float(fraction))
+    })
+
   for dataset_name, test_dataset in test_datasets.items():
     if dataset_name != 'ind':
       metrics.update({
@@ -214,14 +258,29 @@ def main(argv):
               tf.keras.metrics.Recall(),
           'test/f1_{}'.format(dataset_name):
               tfa_metrics.F1Score(
-                  num_classes=num_classes, average='micro',
-                  threshold=FLAGS.ece_label_threshold)
+                  num_classes=num_classes,
+                  average='micro',
+                  threshold=FLAGS.ece_label_threshold),
+          'test/calibration_auroc_{}'.format(dataset_name):
+              tc_metrics.CalibrationAUC(curve='ROC'),
+          'test/calibration_auprc_{}'.format(dataset_name):
+              tc_metrics.CalibrationAUC(curve='PR'),
       })
       for fraction in FLAGS.fractions:
         metrics.update({
             'test_collab_acc/collab_acc_{}_{}'.format(fraction, dataset_name):
-                um.OracleCollaborativeAccuracy(
+                rm.metrics.OracleCollaborativeAccuracy(
                     fraction=float(fraction), num_bins=FLAGS.num_bins)
+        })
+        metrics.update({
+            'test_abstain_prec/abstain_prec_{}_{}'.format(
+                fraction, dataset_name):
+                tc_metrics.AbstainPrecision(abstain_fraction=float(fraction))
+        })
+        metrics.update({
+            'test_abstain_recall/abstain_recall_{}_{}'.format(
+                fraction, dataset_name):
+                tc_metrics.AbstainRecall(abstain_fraction=float(fraction))
         })
 
   @tf.function
@@ -256,7 +315,7 @@ def main(argv):
     additional_labels_dict = collections.OrderedDict()
     for step in range(steps_per_eval[dataset_name]):
       try:
-        inputs = next(test_iterator)  # type: Mapping[Text, tf.Tensor]
+        inputs = next(test_iterator)  # type: Mapping[Text, tf.Tensor]  # pytype: disable=annotation-type-mismatch
       except StopIteration:
         continue
       features, labels, additional_labels = (
@@ -275,6 +334,11 @@ def main(argv):
       ece_probs = tf.concat([1. - probs, probs], axis=1)
       pred_labels = tf.math.argmax(ece_probs, axis=-1)
       auc_probs = tf.squeeze(probs, axis=1)
+
+      # Use normalized binary predictive variance as the confidence score.
+      # Since the prediction variance p*(1-p) is within range (0, 0.25),
+      # normalize it by maximum value so the confidence is between (0, 1).
+      calib_confidence = 1. - probs * (1. - probs) / .25
 
       texts_list.append(inputs['input_ids'])
       logits_list.append(logits)
@@ -304,9 +368,18 @@ def main(argv):
         metrics['test/precision'].update_state(ece_labels, pred_labels)
         metrics['test/recall'].update_state(ece_labels, pred_labels)
         metrics['test/f1'].update_state(one_hot_labels, ece_probs)
+        metrics['test/calibration_auroc'].update_state(ece_labels, pred_labels,
+                                                       calib_confidence)
+        metrics['test/calibration_auprc'].update_state(ece_labels, pred_labels,
+                                                       calib_confidence)
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}'.format(
-              fraction)].update_state(ece_labels, ece_probs)
+              fraction)].add_batch(ece_probs, label=ece_labels)
+          metrics['test_abstain_prec/abstain_prec_{}'.format(
+              fraction)].update_state(ece_labels, pred_labels, calib_confidence)
+          metrics['test_abstain_recall/abstain_recall_{}'.format(
+              fraction)].update_state(ece_labels, pred_labels, calib_confidence)
+
       else:
         metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -330,9 +403,20 @@ def main(argv):
             ece_labels, pred_labels)
         metrics['test/f1_{}'.format(dataset_name)].update_state(
             one_hot_labels, ece_probs)
+        metrics['test/calibration_auroc_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels, calib_confidence)
+        metrics['test/calibration_auprc_{}'.format(dataset_name)].update_state(
+            ece_labels, pred_labels, calib_confidence)
+
         for fraction in FLAGS.fractions:
           metrics['test_collab_acc/collab_acc_{}_{}'.format(
-              fraction, dataset_name)].update_state(ece_labels, ece_probs)
+              fraction, dataset_name)].add_batch(ece_probs, label=ece_labels)
+          metrics['test_abstain_prec/abstain_prec_{}_{}'.format(
+              fraction, dataset_name)].update_state(ece_labels, pred_labels,
+                                                    calib_confidence)
+          metrics['test_abstain_recall/abstain_recall_{}_{}'.format(
+              fraction, dataset_name)].update_state(ece_labels, pred_labels,
+                                                    calib_confidence)
 
     texts_all = tf.concat(texts_list, axis=0)
     logits_all = tf.concat(logits_list, axis=1)

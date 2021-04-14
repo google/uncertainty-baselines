@@ -21,8 +21,13 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
 
+# We use the convention of using mean = np.mean(train_images, axis=(0,1,2))
+# and std = np.std(train_images, axis=(0,1,2)).
 CIFAR10_MEAN = np.array([0.4914, 0.4822, 0.4465])
-CIFAR10_STD = np.array([0.2023, 0.1994, 0.2010])
+CIFAR10_STD = np.array([0.2470, 0.2435, 0.2616])
+# Previously we used std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
+# which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype), however
+# we change convention to use the std over the entire training set instead.
 
 
 def normalize_convert_image(input_image,
@@ -42,29 +47,46 @@ def augment_and_mix(image,
                     augmenter,
                     dtype,
                     mean=CIFAR10_MEAN,
-                    std=CIFAR10_STD):
+                    std=CIFAR10_STD,
+                    seed=None):
   """Apply mixture of augmentations to image."""
+  if seed is None:
+    seed = tf.random.uniform((2,), maxval=int(1e10), dtype=tf.int32)
+  # We need three seeds, one for sampling from the Beta distribution, one for
+  # sampling from the Dirichlet distribution, one for sampling the depth, and a
+  # fourth seed to split for each individual RandAugment augmentation.
+  augment_seeds = tf.cast(tf.random.experimental.stateless_split(seed, num=4),
+                          tf.int32)
 
-  mix_weight = tf.squeeze(tfd.Beta([prob_coeff], [prob_coeff]).sample([1]))
+  # If seed is (2,), then sample returns a deterministically random sample.
+  mix_weight = tf.squeeze(tfd.Beta([prob_coeff], [prob_coeff]).sample(
+      [1], seed=augment_seeds[0]))
 
   if width > 1:
-    branch_weights = tf.squeeze(tfd.Dirichlet([prob_coeff] * width).sample([1]))
+    branch_weights = tf.squeeze(tfd.Dirichlet([prob_coeff] * width).sample(
+        [1], seed=augment_seeds[1]))
   else:
     branch_weights = tf.constant([1.])
 
   if depth < 0:
-    depth = tf.random.uniform([width],
-                              minval=1,
-                              maxval=4,
-                              dtype=tf.dtypes.int32)
+    depth = tf.random.stateless_uniform([width],
+                                        augment_seeds[2],
+                                        minval=1,
+                                        maxval=4,
+                                        dtype=tf.dtypes.int32)
   else:
     depth = tf.constant([depth] * width)
 
   mix = tf.cast(tf.zeros_like(image), tf.float32)
+  # Generate width * sum(depth) seeds for each individual augmentation.
+  distort_seeds = tf.random.experimental.stateless_split(
+      seed, num=width * tf.reduce_sum(depth))
+  seed_count = 0
   for i in tf.range(width):
     branch_img = tf.identity(image)
     for _ in tf.range(depth[i]):
-      branch_img = augmenter.distort(branch_img)
+      branch_img = augmenter.distort(branch_img, distort_seeds[seed_count])
+      seed_count += 1
     branch_img = normalize_convert_image(branch_img, dtype, mean, std)
     mix += branch_weights[i] * branch_img
 
@@ -77,16 +99,20 @@ def do_augmix(image,
               augmenter,
               dtype,
               mean=CIFAR10_MEAN,
-              std=CIFAR10_STD):
+              std=CIFAR10_STD,
+              seed=None):
   """Apply augmix augmentation to image."""
   depth = params['augmix_depth']
   width = params['augmix_width']
   prob_coeff = params['augmix_prob_coeff']
   count = params['aug_count']
+  if seed is None:
+    seed = tf.random.uniform((2,), maxval=int(1e10), dtype=tf.int32)
+  augment_seeds = tf.random.experimental.stateless_split(seed, num=count)
 
   augmented = [
       augment_and_mix(image, depth, width, prob_coeff, augmenter, dtype, mean,
-                      std) for _ in range(count)
+                      std, seed=augment_seeds[c]) for c in range(count)
   ]
   image = normalize_convert_image(image, dtype, mean, std)
   return tf.stack([image] + augmented, 0)
@@ -213,6 +239,7 @@ def adaptive_mixup(batch_size, aug_params, images, labels):
   mix_weight = tf.maximum(mix_weight, 1. - mix_weight)
   images_mix_weight = tf.reshape(mix_weight,
                                  [ensemble_size * batch_size, 1, 1, 1])
+  images_mix_weight = tf.cast(images_mix_weight, images.dtype)
   # Mixup on a single batch is implemented by taking a weighted sum with the
   # same batch in reverse.
   if augmix:

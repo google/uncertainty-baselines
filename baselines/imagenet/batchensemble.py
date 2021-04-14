@@ -26,7 +26,6 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
@@ -110,27 +109,29 @@ def main(argv):
       'adaptive_mixup': FLAGS.adaptive_mixup,
       'num_classes': NUM_CLASSES,
   }
-  train_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                      one_hot=(FLAGS.mixup_alpha > 0),
-                                      use_bfloat16=FLAGS.use_bfloat16,
-                                      mixup_params=mixup_params,
-                                      ensemble_size=FLAGS.ensemble_size)
-  test_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                     use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = train_builder.as_dataset(split=tfds.Split.TRAIN,
-                                           batch_size=batch_size)
-  clean_test_dataset = test_builder.as_dataset(split=tfds.Split.TEST,
-                                               batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      one_hot=(FLAGS.mixup_alpha > 0),
+      use_bfloat16=FLAGS.use_bfloat16,
+      mixup_params=mixup_params,
+      ensemble_size=FLAGS.ensemble_size)
+  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  clean_test_dataset = test_builder.load(
+      batch_size=batch_size, strategy=strategy)
   test_datasets = {
-      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
+      'clean': clean_test_dataset,
   }
   if FLAGS.adaptive_mixup:
-    imagenet_confidence_dataset = test_builder.as_dataset(
+    validation_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
-        batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores)
-    imagenet_confidence_dataset = (
-        strategy.experimental_distribute_dataset(imagenet_confidence_dataset))
+        run_mixup=True,
+        use_bfloat16=FLAGS.use_bfloat16)
+    imagenet_confidence_dataset = validation_builder.load(
+        batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores,
+        strategy=strategy)
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
     for name in corruption_types:
@@ -245,7 +246,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       if FLAGS.adaptive_mixup:
         images = tf.identity(images)
       else:
@@ -266,8 +268,9 @@ def main(argv):
         probs = tf.nn.softmax(logits)
         per_probs = tf.reshape(
             probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-        diversity_results = um.average_pairwise_diversity(
-            per_probs, FLAGS.ensemble_size)
+        diversity = rm.metrics.AveragePairwiseDiversity()
+        diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
+        diversity_results = diversity.result()
 
         if FLAGS.mixup_alpha > 0:
           negative_log_likelihood = tf.reduce_mean(
@@ -328,7 +331,8 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:
@@ -338,8 +342,9 @@ def main(argv):
       if dataset_name == 'clean':
         per_probs_tensor = tf.reshape(
             probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-        diversity_results = um.average_pairwise_diversity(
-            per_probs_tensor, FLAGS.ensemble_size)
+        diversity = rm.metrics.AveragePairwiseDiversity()
+        diversity.add_batch(per_probs_tensor, num_models=FLAGS.ensemble_size)
+        diversity_results = diversity.result()
         for k, v in diversity_results.items():
           test_diversity['test/' + k].update_state(v)
 
@@ -360,12 +365,12 @@ def main(argv):
               labels, member_probs)
           metrics['test/member_accuracy_mean'].update_state(
               labels, member_probs)
-          metrics['test/member_ece_mean'].update_state(labels, member_probs)
+          metrics['test/member_ece_mean'].add_batch(member_probs, label=labels)
         elif dataset_name != 'confidence_validation':
           corrupt_metrics['test/member_acc_mean_{}'.format(
               dataset_name)].update_state(labels, member_probs)
           corrupt_metrics['test/member_ece_mean_{}'.format(
-              dataset_name)].update_state(labels, member_probs)
+              dataset_name)].add_batch(member_probs, label=labels)
 
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
@@ -383,10 +388,7 @@ def main(argv):
       if dataset_name == 'confidence_validation':
         return tf.stack(per_probs, 0), labels
 
-    if dataset_name == 'confidence_validation':
-      return strategy.run(step_fn, args=(next(iterator),))
-    else:
-      strategy.run(step_fn, args=(next(iterator),))
+    return strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
@@ -445,14 +447,13 @@ def main(argv):
       logging.info('mixup coeff')
       logging.info(mixup_coeff)
       mixup_params['mixup_coeff'] = mixup_coeff
-      builder = utils.ImageNetInput(
-          data_dir=FLAGS.data_dir,
+      train_builder = ub.datasets.ImageNetDataset(
+          split=tfds.Split.TRAIN,
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
           mixup_params=mixup_params)
-      train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                         batch_size=batch_size)
-      train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+      train_dataset = train_builder.load(
+          batch_size=batch_size, strategy=strategy)
       train_iterator = iter(train_dataset)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}

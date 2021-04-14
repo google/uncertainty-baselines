@@ -19,6 +19,8 @@
 | Heteroscedastic | 0.898 / 77.5% / 0.033 | - | - | - | - | - | - | 7.5 (32 TPUv2 cores) | 7.5 / 1.28 (32 TPUv2 cores) | 58.4M |
 | Heteroscedastic with Mixup | 0.854 / 78.9% / 0.043 | - | - | - | - | - | - | 12.5 (32 TPUv2 cores) | 12.5 / 1.28 (32 TPUv2 cores) | 58.4M |
 | Heteroscedastic Ensemble (size=4) | 0.790 / 79.5% / 0.015 | 2.93 / 44.9% / 0.048 (69.6%) | - | - | - | - | - | - | - | 233.6M |
+| Heteroscedastic with MIMO | 0.851 / 78% / 0.019 | - | - | - | - | - | - | - | - | 93.2M |
+| Heteroscedastic with Rank-1 BNN | 0.862 / 78.1% / 0.0197 | - | - | - | - | - | - | - | - | 59.0M |
 
 ## EfficientNet
 

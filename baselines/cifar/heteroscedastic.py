@@ -27,11 +27,11 @@ from absl import app
 from absl import flags
 from absl import logging
 
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
 
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
@@ -152,21 +152,37 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
-  train_dataset = ub.datasets.get(
+  train_builder = ub.datasets.get(
       FLAGS.dataset,
       split=tfds.Split.TRAIN,
       download_data=True,
       validation_percent=1. - FLAGS.train_proportion,
-      data_dir=data_dir).load(
-          batch_size=batch_size)
-  clean_test_dataset = ub.datasets.get(
+      data_dir=data_dir)
+  train_dataset = train_builder.load(batch_size=batch_size)
+  validation_dataset = None
+  steps_per_validation = 0
+  if FLAGS.train_proportion < 1.0:
+    validation_builder = ub.datasets.get(
+        FLAGS.dataset,
+        split=tfds.Split.VALIDATION,
+        validation_percent=1. - FLAGS.train_proportion,
+        data_dir=data_dir)
+    validation_dataset = validation_builder.load(batch_size=batch_size)
+    validation_dataset = strategy.experimental_distribute_dataset(
+        validation_dataset)
+    steps_per_validation = validation_builder.num_examples // batch_size
+  clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
       split=tfds.Split.TEST,
-      data_dir=data_dir).load(batch_size=batch_size)
+      data_dir=data_dir)
+  clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
+  steps_per_epoch = train_builder.num_examples // batch_size
+  steps_per_eval = clean_test_builder.num_examples // batch_size
+  num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar100':
       data_dir = FLAGS.cifar100_c_path
@@ -188,7 +204,7 @@ def main(argv):
   with strategy.scope():
     logging.info('Building ResNet model')
     model = ub.models.wide_resnet_heteroscedastic(
-        input_shape=ds_info.features['image'].shape,
+        input_shape=(32, 32, 3),
         depth=28,
         width_multiplier=10,
         num_classes=num_classes,
@@ -222,14 +238,21 @@ def main(argv):
         'train/loss':
             tf.keras.metrics.Mean(),
         'train/ece':
-            um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood':
             tf.keras.metrics.Mean(),
         'test/accuracy':
             tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece':
-            um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
     }
+    if validation_dataset:
+      metrics.update({
+          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=FLAGS.num_bins),
+      })
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
@@ -240,7 +263,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
@@ -293,7 +316,7 @@ def main(argv):
       strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_split, dataset_name, num_steps):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
@@ -305,10 +328,10 @@ def main(argv):
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
 
       if dataset_name == 'clean':
-        metrics['test/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
             negative_log_likelihood)
-        metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].add_batch(probs, label=labels)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -317,7 +340,7 @@ def main(argv):
         corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
             probs, label=labels)
 
-    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
@@ -356,6 +379,11 @@ def main(argv):
     logging.info(message)
     if tb_callback:
       tb_callback.on_epoch_end(epoch)
+
+    if validation_dataset:
+      validation_iterator = iter(validation_dataset)
+      test_step(
+          validation_iterator, 'validation', 'clean', steps_per_validation)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
@@ -365,7 +393,7 @@ def main(argv):
       logging.info('Testing on dataset %s', dataset_name)
       logging.info('Starting to run eval at epoch: %s', epoch)
       test_start_time = time.time()
-      test_step(test_iterator, dataset_name)
+      test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
       metrics['test/ms_per_example'].update_state(ms_per_example)
 

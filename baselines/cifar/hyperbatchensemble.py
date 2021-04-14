@@ -31,7 +31,6 @@ import utils  # local file import
 from uncertainty_baselines.models import hyperbatchensemble_e_factory as e_factory
 from uncertainty_baselines.models import HyperBatchEnsembleLambdaConfig as LambdaConfig
 from uncertainty_baselines.models import wide_resnet_hyperbatchensemble
-import uncertainty_metrics as um
 from tensorboard.plugins.hparams import api as hp
 
 # General model, training, and evaluation flags
@@ -483,8 +482,9 @@ def main(argv):
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
-      diversity_results = um.average_pairwise_diversity(
-          per_probs_stacked, FLAGS.ensemble_size)
+      diversity = rm.metrics.AveragePairwiseDiversity()
+      diversity.add_batch(per_probs_stacked, num_models=FLAGS.ensemble_size)
+      diversity_results = diversity.result()
       for k, v in diversity_results.items():
         metrics['train/' + k].update_state(v)
 
@@ -612,8 +612,9 @@ def main(argv):
 
       if dataset_name == 'clean':
         per_probs_stacked = tf.stack(per_probs, axis=0)
-        diversity_results = um.average_pairwise_diversity(
-            per_probs_stacked, ensemble_size)
+        diversity = rm.metrics.AveragePairwiseDiversity()
+        diversity.add_batch(per_probs_stacked, num_models=ensemble_size)
+        diversity_results = diversity.result()
         for k, v in diversity_results.items():
           metrics['test/' + k].update_state(v)
 

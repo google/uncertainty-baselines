@@ -80,10 +80,10 @@ def main(argv):
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=False)
-  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                          batch_size=batch_size)
+  builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=False)
+  clean_test_dataset = builder.load(batch_size=batch_size)
   test_datasets = {'clean': clean_test_dataset}
   corruption_types, max_intensity = utils.load_corrupted_test_info()
   for name in corruption_types:

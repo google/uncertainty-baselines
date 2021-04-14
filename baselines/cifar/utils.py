@@ -81,8 +81,14 @@ def load_cifar10_c(corruption_name,
   def preprocess(image, label):
     image = tf.image.convert_image_dtype(image, dtype)
     if normalize:
+      # We use the convention of mean = np.mean(train_images, axis=(0,1,2))
+      # and std = np.std(train_images, axis=(0,1,2)).
       mean = tf.constant([0.4914, 0.4822, 0.4465], dtype=dtype)
-      std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype)
+      std = tf.constant([0.2470, 0.2435, 0.2616], dtype=dtype)
+      # Previously, std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
+      # which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype).
+      # However, we change convention to use the std over the entire training
+      # set instead.
       image = (image - mean) / std
     label = tf.cast(label, dtype)
     return image, label

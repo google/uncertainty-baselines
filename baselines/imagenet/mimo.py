@@ -25,8 +25,6 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
-import uncertainty_metrics as um
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('ensemble_size', 2, 'Size of ensemble.')
@@ -97,14 +95,16 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                     batch_size=train_batch_size)
-  test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                    batch_size=test_batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
-  test_dataset = strategy.experimental_distribute_dataset(test_dataset)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.load(
+      batch_size=train_batch_size, strategy=strategy)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  test_dataset = test_builder.load(
+      batch_size=test_batch_size, strategy=strategy)
 
   if FLAGS.use_bfloat16:
     policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
@@ -177,7 +177,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       batch_size = tf.shape(images)[0]
       main_shuffle = tf.random.shuffle(tf.tile(
           tf.range(batch_size), [FLAGS.batch_repetitions]))
@@ -235,7 +236,8 @@ def main(argv):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       images = tf.tile(
           tf.expand_dims(images, 1), [1, FLAGS.ensemble_size, 1, 1, 1])
       logits = model(images, training=False)
@@ -244,8 +246,9 @@ def main(argv):
       probs = tf.nn.softmax(logits)
 
       per_probs = tf.transpose(probs, perm=[1, 0, 2])
-      diversity_results = um.average_pairwise_diversity(
-          per_probs, FLAGS.ensemble_size)
+      diversity = rm.metrics.AveragePairwiseDiversity()
+      diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
+      diversity_results = diversity.result()
       for k, v in diversity_results.items():
         test_diversity['test/' + k].update_state(v)
 

@@ -211,7 +211,7 @@ def main(argv):
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(
-        lr_schedule, momentum=0.9, nesterov=True)
+        lr_schedule, momentum=1.0 - FLAGS.one_minus_momentum, nesterov=True)
     metrics = utils.get_diabetic_retinopathy_base_metrics(
         use_tpu=use_tpu,
         num_bins=FLAGS.num_bins,

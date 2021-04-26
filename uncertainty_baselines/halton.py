@@ -18,6 +18,7 @@
 Based off the algorithms described in https://arxiv.org/abs/1706.03200.
 """
 
+import collections
 import functools
 import itertools
 import math
@@ -236,14 +237,17 @@ def _generate_discrete_point(
   return name, feasible_points[index]
 
 
+_DiscretePoints = collections.namedtuple('_DiscretePoints', 'feasible_points')
+
+
 def categorical(feasible_points: Any) -> Sequence[Any]:
   if not isinstance(feasible_points, (list, tuple)):
     feasible_points = [feasible_points]
-  return feasible_points
+  return _DiscretePoints(feasible_points)
 
 
 def discrete(feasible_points: Sequence[Any]) -> Sequence[Any]:
-  return feasible_points
+  return _DiscretePoints(feasible_points)
 
 
 def interval(start: int, end: int) -> Tuple[int, int]:
@@ -256,8 +260,14 @@ def loguniform(name: Text, range_endpoints: Tuple[int, int]) -> _GeneratorFn:
       _generate_double_point, name, min_val, max_val, 'log')
 
 
-def uniform(name: Text, range_endpoints: Tuple[int, int]) -> _GeneratorFn:
-  min_val, max_val = range_endpoints
+def uniform(
+    name: Text,
+    search_points: Union[_DiscretePoints, Tuple[int, int]]) -> _GeneratorFn:
+  if isinstance(search_points, _DiscretePoints):
+    return functools.partial(
+        _generate_discrete_point, name, search_points.feasible_points)
+
+  min_val, max_val = search_points
   return functools.partial(
       _generate_double_point, name, min_val, max_val, 'linear')
 
@@ -276,8 +286,8 @@ def product(sweeps: Sequence[_SweepSequence]) -> _SweepSequence:
   return list(map(dict, itertools.product(*hyperparameter_sweep)))
 
 
-def sweep(name, feasible_points: Sequence[Any]) -> _SweepSequence:
-  return [{name: x} for x in feasible_points]
+def sweep(name, feasible_points: _DiscretePoints) -> _SweepSequence:
+  return [{name: x} for x in feasible_points.feasible_points]
 
 
 def zipit(

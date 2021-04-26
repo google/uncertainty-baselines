@@ -28,21 +28,6 @@ import uncertainty_baselines as ub
 import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
-flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
-flags.DEFINE_float(
-    'base_learning_rate', 0.1,
-    'Base learning rate when total batch size is 128. It is '
-    'scaled by the ratio of the total batch size to 128.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
-flags.DEFINE_integer(
-    'lr_warmup_epochs', 1,
-    'Number of epochs for a linear warmup to the initial '
-    'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
-                  'Epochs to decay learning rate by.')
-flags.DEFINE_float('l2', 3e-4, 'L2 regularization coefficient.')
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
 flags.DEFINE_integer('num_dropout_samples', 1,
                      'Number of dropout samples to use for prediction.')
@@ -57,35 +42,8 @@ flags.DEFINE_bool(
     'in the original paper.'
     'Otherwise dropout is applied after every layer.')
 
-flags.DEFINE_enum(
-    'dataset', 'cifar10', enum_values=['cifar10', 'cifar100'], help='Dataset.')
-flags.DEFINE_float(
-    'train_proportion', 1.,
-    'Only a fraction (between 0 and 1) of the train set is used for training. '
-    'The remainder can be used for validation.')
-# TODO(ghassen): consider adding CIFAR-100-C to TFDS.
-flags.DEFINE_string(
-    'cifar100_c_path', None,
-    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer(
-    'corruptions_interval', -1,
-    'Number of epochs between evaluating on the corrupted '
-    'test data. Use -1 to never evaluate.')
-flags.DEFINE_integer(
-    'checkpoint_interval', -1,
-    'Number of epochs between saving checkpoints. Use -1 to '
-    'never save checkpoints.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
-flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
-
 # Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
 
 # CondConv Flags
 flags.DEFINE_integer('num_experts', 4, 'Number of experts to aggregate over.')
@@ -128,10 +86,10 @@ flags.DEFINE_enum(
     ],
     help='Type of pooling to apply to the inputs of the routing functions.')
 flags.DEFINE_integer('top_k', -1, 'The number of experts to select from.')
-
 flags.DEFINE_integer('resnet_width_multiplier', 5,
                      'WideResNet width multiplier.')
-
+# Redefining default values
+flags.FLAGS.set_default('l2', 3e-4)
 FLAGS = flags.FLAGS
 
 
@@ -141,6 +99,7 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
+  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -160,6 +119,8 @@ def main(argv):
   else:
     dataset_builder_class = ub.datasets.Cifar100Dataset
   train_builder = dataset_builder_class(
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
       validation_percent=1. - FLAGS.train_proportion)
@@ -170,6 +131,7 @@ def main(argv):
   steps_per_validation = 0
   if FLAGS.train_proportion < 1.0:
     validation_builder = dataset_builder_class(
+        data_dir=data_dir,
         split=tfds.Split.VALIDATION,
         use_bfloat16=FLAGS.use_bfloat16,
         validation_percent=1. - FLAGS.train_proportion)
@@ -179,6 +141,7 @@ def main(argv):
     steps_per_validation = validation_builder.num_examples // batch_size
 
   clean_test_dataset_builder = dataset_builder_class(
+      data_dir=data_dir,
       split=tfds.Split.TEST,
       use_bfloat16=FLAGS.use_bfloat16)
   clean_test_dataset = clean_test_dataset_builder.load(

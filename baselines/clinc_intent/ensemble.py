@@ -34,7 +34,6 @@ import bert_utils  # local file import
 # import clinc_intent.deterministic to inhere its flags
 import deterministic  # pylint:disable=unused-import  # local file import
 import deterministic_model_textcnn as cnn_model  # local file import
-import uncertainty_metrics as um
 
 # TODO(trandustin): We inherit
 # FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This
@@ -195,11 +194,16 @@ def main(argv):
           inputs, feature_size, model_family=FLAGS.model_family)
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
       labels = tf.cast(labels, tf.int32)
-      negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
+      negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()
+      negative_log_likelihood_metric.add_batch(logits, labels=labels)
+      negative_log_likelihood = list(
+          negative_log_likelihood_metric.result().values())[0]
       per_probs = tf.nn.softmax(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
       if name == 'clean':
-        gibbs_ce = um.gibbs_cross_entropy(labels, logits)
+        gibbs_ce_metric = rm.metrics.GibbsCrossEntropy()
+        gibbs_ce_metric.add_batch(logits, labels=labels)
+        gibbs_ce = list(gibbs_ce_metric.result().values())[0]
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)

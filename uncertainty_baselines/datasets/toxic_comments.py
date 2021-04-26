@@ -286,8 +286,7 @@ class CivilCommentsDataset(_JigsawToxicityDataset):
   """Data loader for Civil Comments datasets."""
 
   def __init__(self, **kwargs):
-    super(CivilCommentsDataset, self).__init__(
-        name='civil_comments:1.0.1', **kwargs)
+    super(CivilCommentsDataset, self).__init__(name='civil_comments', **kwargs)
 
 
 class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
@@ -295,6 +294,6 @@ class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
 
   def __init__(self, **kwargs):
     super(CivilCommentsIdentitiesDataset, self).__init__(
-        name='civil_comments/CivilCommentsIdentities:1.0.1',
+        name='civil_comments/CivilCommentsIdentities',
         additional_labels=_TOXICITY_SUBTYPE_NAMES + _IDENTITY_LABELS,
         **kwargs)

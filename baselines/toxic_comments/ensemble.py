@@ -22,7 +22,7 @@ seeds.
 
 import collections
 import os
-from typing import Mapping, Text  # pylint:disable=unused-import
+from typing import Dict
 
 from absl import app
 from absl import flags
@@ -38,7 +38,6 @@ import deterministic  # pylint:disable=unused-import  # local file import
 import metrics as tc_metrics  # local file import
 import utils  # local file import
 from uncertainty_baselines.datasets import toxic_comments as ds
-import uncertainty_metrics as um
 
 
 # TODO(trandustin): We inherit
@@ -199,7 +198,7 @@ def main(argv):
       'test/brier_weighted':
           tf.keras.metrics.MeanSquaredError(),
       'test/ece':
-          rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+          rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins),
       'test/acc':
           tf.keras.metrics.Accuracy(),
       'test/acc_weighted':
@@ -212,26 +211,40 @@ def main(argv):
           tfa_metrics.F1Score(
               num_classes=num_classes,
               average='micro',
-              threshold=FLAGS.ece_label_threshold),
-      'test/calibration_auroc':
-          tc_metrics.CalibrationAUC(curve='ROC'),
-      'test/calibration_auprc':
-          tc_metrics.CalibrationAUC(curve='PR')
+              threshold=FLAGS.ece_label_threshold)
   }
-  for fraction in FLAGS.fractions:
+
+  for policy in ('uncertainty', 'toxicity'):
     metrics.update({
-        'test_collab_acc/collab_acc_{}'.format(fraction):
-            rm.metrics.OracleCollaborativeAccuracy(
-                fraction=float(fraction), num_bins=FLAGS.num_bins)
+        'test_{}/calibration_auroc'.format(policy):
+            tc_metrics.CalibrationAUC(curve='ROC'),
+        'test_{}/calibration_auprc'.format(policy):
+            tc_metrics.CalibrationAUC(curve='PR')
     })
-    metrics.update({
-        'test_abstain_prec/abstain_prec_{}'.format(fraction):
-            tc_metrics.AbstainPrecision(abstain_fraction=float(fraction))
-    })
-    metrics.update({
-        'test_abstain_recall/abstain_recall_{}'.format(fraction):
-            tc_metrics.AbstainRecall(abstain_fraction=float(fraction))
-    })
+
+    for fraction in FLAGS.fractions:
+      metrics.update({
+          'test_{}/collab_acc_{}'.format(policy, fraction):
+              rm.metrics.OracleCollaborativeAccuracy(
+                  fraction=float(fraction), num_bins=FLAGS.num_approx_bins),
+          'test_{}/abstain_prec_{}'.format(policy, fraction):
+              tc_metrics.AbstainPrecision(
+                  abstain_fraction=float(fraction),
+                  num_approx_bins=FLAGS.num_approx_bins),
+          'test_{}/abstain_recall_{}'.format(policy, fraction):
+              tc_metrics.AbstainRecall(
+                  abstain_fraction=float(fraction),
+                  num_approx_bins=FLAGS.num_approx_bins),
+          'test_{}/collab_auroc_{}'.format(policy, fraction):
+              tc_metrics.OracleCollaborativeAUC(
+                  oracle_fraction=float(fraction),
+                  num_bins=FLAGS.num_approx_bins),
+          'test_{}/collab_auprc_{}'.format(policy, fraction):
+              tc_metrics.OracleCollaborativeAUC(
+                  oracle_fraction=float(fraction),
+                  curve='PR',
+                  num_bins=FLAGS.num_approx_bins),
+      })
 
   for dataset_name, test_dataset in test_datasets.items():
     if dataset_name != 'ind':
@@ -247,7 +260,7 @@ def main(argv):
           'test/brier_weighted_{}'.format(dataset_name):
               tf.keras.metrics.MeanSquaredError(),
           'test/ece_{}'.format(dataset_name):
-              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins),
           'test/acc_weighted_{}'.format(dataset_name):
               tf.keras.metrics.Accuracy(),
           'test/acc_{}'.format(dataset_name):
@@ -260,28 +273,44 @@ def main(argv):
               tfa_metrics.F1Score(
                   num_classes=num_classes,
                   average='micro',
-                  threshold=FLAGS.ece_label_threshold),
-          'test/calibration_auroc_{}'.format(dataset_name):
-              tc_metrics.CalibrationAUC(curve='ROC'),
-          'test/calibration_auprc_{}'.format(dataset_name):
-              tc_metrics.CalibrationAUC(curve='PR'),
+                  threshold=FLAGS.ece_label_threshold)
       })
-      for fraction in FLAGS.fractions:
+
+      for policy in ('uncertainty', 'toxicity'):
         metrics.update({
-            'test_collab_acc/collab_acc_{}_{}'.format(fraction, dataset_name):
-                rm.metrics.OracleCollaborativeAccuracy(
-                    fraction=float(fraction), num_bins=FLAGS.num_bins)
+            'test_{}/calibration_auroc_{}'.format(policy, dataset_name):
+                tc_metrics.CalibrationAUC(curve='ROC'),
+            'test_{}/calibration_auprc_{}'.format(policy, dataset_name):
+                tc_metrics.CalibrationAUC(curve='PR'),
         })
-        metrics.update({
-            'test_abstain_prec/abstain_prec_{}_{}'.format(
-                fraction, dataset_name):
-                tc_metrics.AbstainPrecision(abstain_fraction=float(fraction))
-        })
-        metrics.update({
-            'test_abstain_recall/abstain_recall_{}_{}'.format(
-                fraction, dataset_name):
-                tc_metrics.AbstainRecall(abstain_fraction=float(fraction))
-        })
+
+        for fraction in FLAGS.fractions:
+          metrics.update({
+              'test_{}/collab_acc_{}_{}'.format(policy, fraction, dataset_name):
+                  rm.metrics.OracleCollaborativeAccuracy(
+                      fraction=float(fraction), num_bins=FLAGS.num_approx_bins),
+              'test_{}/abstain_prec_{}_{}'.format(policy, fraction,
+                                                  dataset_name):
+                  tc_metrics.AbstainPrecision(
+                      abstain_fraction=float(fraction),
+                      num_approx_bins=FLAGS.num_approx_bins),
+              'test_{}/abstain_recall_{}_{}'.format(policy, fraction,
+                                                    dataset_name):
+                  tc_metrics.AbstainRecall(
+                      abstain_fraction=float(fraction),
+                      num_approx_bins=FLAGS.num_approx_bins),
+              'test_{}/collab_auroc_{}_{}'.format(policy, fraction,
+                                                  dataset_name):
+                  tc_metrics.OracleCollaborativeAUC(
+                      oracle_fraction=float(fraction),
+                      num_bins=FLAGS.num_approx_bins),
+              'test_{}/collab_auprc_{}_{}'.format(policy, fraction,
+                                                  dataset_name):
+                  tc_metrics.OracleCollaborativeAUC(
+                      oracle_fraction=float(fraction),
+                      curve='PR',
+                      num_bins=FLAGS.num_approx_bins),
+          })
 
   @tf.function
   def generate_sample_weight(labels, class_weight, label_threshold=0.7):
@@ -315,15 +344,18 @@ def main(argv):
     additional_labels_dict = collections.OrderedDict()
     for step in range(steps_per_eval[dataset_name]):
       try:
-        inputs = next(test_iterator)  # type: Mapping[Text, tf.Tensor]  # pytype: disable=annotation-type-mismatch
+        inputs: Dict[str, tf.Tensor] = next(test_iterator)  # pytype: disable=annotation-type-mismatch
       except StopIteration:
         continue
       features, labels, additional_labels = (
           utils.create_feature_and_label(inputs))
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
       loss_logits = tf.squeeze(logits, axis=-1)
-      negative_log_likelihood = um.ensemble_cross_entropy(
-          labels, loss_logits, binary=True)
+      negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy(
+          binary=True)
+      negative_log_likelihood_metric.add_batch(loss_logits, labels=labels)
+      negative_log_likelihood = list(
+          negative_log_likelihood_metric.result().values())[0]
 
       per_probs = tf.nn.sigmoid(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
@@ -368,17 +400,34 @@ def main(argv):
         metrics['test/precision'].update_state(ece_labels, pred_labels)
         metrics['test/recall'].update_state(ece_labels, pred_labels)
         metrics['test/f1'].update_state(one_hot_labels, ece_probs)
-        metrics['test/calibration_auroc'].update_state(ece_labels, pred_labels,
-                                                       calib_confidence)
-        metrics['test/calibration_auprc'].update_state(ece_labels, pred_labels,
-                                                       calib_confidence)
-        for fraction in FLAGS.fractions:
-          metrics['test_collab_acc/collab_acc_{}'.format(
-              fraction)].add_batch(ece_probs, label=ece_labels)
-          metrics['test_abstain_prec/abstain_prec_{}'.format(
-              fraction)].update_state(ece_labels, pred_labels, calib_confidence)
-          metrics['test_abstain_recall/abstain_recall_{}'.format(
-              fraction)].update_state(ece_labels, pred_labels, calib_confidence)
+
+        for policy in ('uncertainty', 'toxicity'):
+          # calib_confidence or decreasing toxicity score.
+          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
+          binning_confidence = tf.squeeze(confidence)
+
+          metrics['test_{}/calibration_auroc'.format(policy)].update_state(
+              ece_labels, pred_labels, confidence)
+          metrics['test_{}/calibration_auprc'.format(policy)].update_state(
+              ece_labels, pred_labels, confidence)
+
+          for fraction in FLAGS.fractions:
+            metrics['test_{}/collab_acc_{}'.format(policy, fraction)].add_batch(
+                ece_probs,
+                label=ece_labels,
+                custom_binning_score=binning_confidence)
+            metrics['test_{}/abstain_prec_{}'.format(
+                policy, fraction)].update_state(ece_labels, pred_labels,
+                                                confidence)
+            metrics['test_{}/abstain_recall_{}'.format(
+                policy, fraction)].update_state(ece_labels, pred_labels,
+                                                confidence)
+            metrics['test_{}/collab_auroc_{}'.format(
+                policy, fraction)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
+            metrics['test_{}/collab_auprc_{}'.format(
+                policy, fraction)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
 
       else:
         metrics['test/nll_{}'.format(dataset_name)].update_state(
@@ -403,20 +452,37 @@ def main(argv):
             ece_labels, pred_labels)
         metrics['test/f1_{}'.format(dataset_name)].update_state(
             one_hot_labels, ece_probs)
-        metrics['test/calibration_auroc_{}'.format(dataset_name)].update_state(
-            ece_labels, pred_labels, calib_confidence)
-        metrics['test/calibration_auprc_{}'.format(dataset_name)].update_state(
-            ece_labels, pred_labels, calib_confidence)
 
-        for fraction in FLAGS.fractions:
-          metrics['test_collab_acc/collab_acc_{}_{}'.format(
-              fraction, dataset_name)].add_batch(ece_probs, label=ece_labels)
-          metrics['test_abstain_prec/abstain_prec_{}_{}'.format(
-              fraction, dataset_name)].update_state(ece_labels, pred_labels,
-                                                    calib_confidence)
-          metrics['test_abstain_recall/abstain_recall_{}_{}'.format(
-              fraction, dataset_name)].update_state(ece_labels, pred_labels,
-                                                    calib_confidence)
+        for policy in ('uncertainty', 'toxicity'):
+          # calib_confidence or decreasing toxicity score.
+          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
+          binning_confidence = tf.squeeze(confidence)
+
+          metrics['test_{}/calibration_auroc_{}'.format(
+              policy, dataset_name)].update_state(ece_labels, pred_labels,
+                                                  confidence)
+          metrics['test_{}/calibration_auprc_{}'.format(
+              policy, dataset_name)].update_state(ece_labels, pred_labels,
+                                                  confidence)
+
+          for fraction in FLAGS.fractions:
+            metrics['test_{}/collab_acc_{}_{}'.format(
+                policy, fraction, dataset_name)].add_batch(
+                    ece_probs,
+                    label=ece_labels,
+                    custom_binning_score=binning_confidence)
+            metrics['test_{}/abstain_prec_{}_{}'.format(
+                policy, fraction,
+                dataset_name)].update_state(ece_labels, pred_labels, confidence)
+            metrics['test_{}/abstain_recall_{}_{}'.format(
+                policy, fraction,
+                dataset_name)].update_state(ece_labels, pred_labels, confidence)
+            metrics['test_{}/collab_auroc_{}_{}'.format(
+                policy, fraction, dataset_name)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
+            metrics['test_{}/collab_auprc_{}_{}'.format(
+                policy, fraction, dataset_name)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
 
     texts_all = tf.concat(texts_list, axis=0)
     logits_all = tf.concat(logits_list, axis=1)

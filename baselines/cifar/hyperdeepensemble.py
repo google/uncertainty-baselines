@@ -33,7 +33,6 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
 
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.'
@@ -43,31 +42,14 @@ flags.DEFINE_string('checkpoint_dir', None,
                     ' checkpoint_dir/SOME_NAME_MODEL_N/.../../checkpoint*.index'
                     'In particular, the depth of the subdir can be arbitrary.')
 flags.mark_flag_as_required('checkpoint_dir')
-flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
-flags.DEFINE_enum('dataset', 'cifar10',
-                  enum_values=['cifar10', 'cifar100'],
-                  help='Dataset.')
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
 flags.DEFINE_enum('greedy_objective', 'nll',
                   enum_values=['nll', 'acc', 'nll-acc'],
                   help='Objective that drives the greedy selection.')
-flags.DEFINE_float(
-    'train_proportion', 0.95,
-    'Only a fraction (between 0 and 1) of the train set is used for training. '
-    'The remainder can be used for validation.')
 flags.register_validator('train_proportion',
                          lambda tp: tp > 0.0 and tp <= 1.0,
                          message='--train_proportion must be in (0, 1].')
-flags.DEFINE_string('cifar100_c_path', None,
-                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-                    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
-
-# Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+flags.FLAGS.set_default('train_proportion', 0.95)
 FLAGS = flags.FLAGS
 
 
@@ -120,7 +102,10 @@ def greedy_selection(val_logits, val_labels, max_ens_size, objective='nll'):
     best_model_id = None
     for model_id, logits in enumerate(val_logits):
       acc = _ensemble_accuracy(val_labels, current_val_logits + [logits])
-      nll = um.ensemble_cross_entropy(val_labels, current_val_logits + [logits])
+      negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()
+      negative_log_likelihood_metric.add_batch(
+          current_val_logits + [logits], labels=val_labels)
+      nll = list(negative_log_likelihood_metric.result().values())[0]
       obj = get_objective(acc, nll)
       if obj < best_objective:
         best_acc = acc
@@ -148,12 +133,17 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
+  data_dir = utils.get_data_dir_from_flags(FLAGS)
   dataset = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TEST).load(batch_size=batch_size)
   validation_percent = 1. - FLAGS.train_proportion
   val_dataset = ub.datasets.get(
       dataset_name=FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.VALIDATION,
       validation_percent=validation_percent,
       drop_remainder=False).load(batch_size=batch_size)
@@ -161,18 +151,17 @@ def main(argv):
                            validation_percent) // batch_size
 
   test_datasets = {'clean': dataset}
-  extra_kwargs = {}
   if FLAGS.dataset == 'cifar100':
-    extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
+    data_dir = FLAGS.cifar100_c_path
   corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
   for corruption_type in corruption_types:
     for severity in range(1, 6):
       dataset = ub.datasets.get(
           f'{FLAGS.dataset}_corrupted',
           corruption_type=corruption_type,
+          data_dir=data_dir,
           severity=severity,
-          split=tfds.Split.TEST,
-          **extra_kwargs).load(batch_size=batch_size)
+          split=tfds.Split.TEST).load(batch_size=batch_size)
       test_datasets[f'{corruption_type}_{severity}'] = dataset
 
   model = ub.models.wide_resnet(
@@ -309,11 +298,16 @@ def main(argv):
       labels = next(test_iterator)['labels']  # pytype: disable=unsupported-operands
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
-      negative_log_likelihood = um.ensemble_cross_entropy(labels, logits)
+      negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()
+      negative_log_likelihood_metric.add_batch(logits, labels=labels)
+      negative_log_likelihood = list(
+          negative_log_likelihood_metric.result().values())[0]
       per_probs = tf.nn.softmax(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
       if name == 'clean':
-        gibbs_ce = um.gibbs_cross_entropy(labels, logits)
+        gibbs_ce_metric = rm.metrics.GibbsCrossEntropy()
+        gibbs_ce_metric.add_batch(logits, labels=labels)
+        gibbs_ce = list(gibbs_ce_metric.result().values())[0]
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)

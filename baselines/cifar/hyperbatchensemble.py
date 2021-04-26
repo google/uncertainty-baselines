@@ -34,44 +34,10 @@ from uncertainty_baselines.models import wide_resnet_hyperbatchensemble
 from tensorboard.plugins.hparams import api as hp
 
 # General model, training, and evaluation flags
-flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
-flags.DEFINE_float('base_learning_rate', 0.1,
-                   'Base learning rate when total batch size is 128. It is '
-                   'scaled by the ratio of the total batch size to 128.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
-flags.DEFINE_integer('lr_warmup_epochs', 1,
-                     'Number of epochs for a linear warmup to the initial '
-                     'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-# this correpsonds to [80, 160, 180] stretched by 250/200 epochs
-flags.DEFINE_list('lr_decay_epochs', ['100', '200', '225'],
-                  'Epochs to decay learning rate by.')
-flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
-flags.DEFINE_integer(
-    'checkpoint_interval', 25,
-    'Number of epochs between saving checkpoints. Use -1 to '
-    'never save checkpoints.')
 flags.DEFINE_boolean('restore_checkpoint', False,
                      'Start training from latest checkpoint.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/wide_resnet', 'Output directory.')
 
 # Data flags
-flags.DEFINE_enum(
-    'dataset', 'cifar10', enum_values=['cifar10', 'cifar100'], help='Dataset.')
-flags.DEFINE_float(
-    'train_proportion', 0.95,
-    'Only a fraction (between 0 and 1) of the train set is used for training. '
-    'The remainder can be used for validation.')
-flags.DEFINE_string(
-    'cifar100_c_path', None,
-    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', -1,
-                     'Number of epochs between evaluating on the corrupted '
-                     'test data. Use -1 to never evaluate.')
-
 # Hyper-batchensemble flags
 flags.DEFINE_bool('e_model_use_bias', False, 'Whether to use bias in e models.')
 flags.DEFINE_float('min_l2_range', 1e-1, 'Min value of l2 range.')
@@ -87,7 +53,6 @@ flags.DEFINE_float('ens_init_delta_bounds', 0.2,
                    'determines the spread of the log-uniform distribution'
                    'around it (used by ens_init: random, default).')
 flags.DEFINE_float('init_emodels_stddev', 1e-4, 'Init e_models weights.')
-
 flags.DEFINE_integer('ensemble_size', 4, 'Size of the ensemble.')
 flags.DEFINE_float('lr_tuning', 1e-3, 'Learning rate for hparam tuning.')
 flags.DEFINE_float('tau', 1e-3,
@@ -112,12 +77,10 @@ flags.DEFINE_integer(
     'If >=0, we take num_eval_samples + the mean of lambdas.'
     '(by default, notice that when = 0, predictions are with the mean only)'
     'If < 0, we take -num_eval_samples, without including the mean of lambdas.')
-# Accelerator flags
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
-
+# Redefining default values
+flags.FLAGS.set_default('lr_decay_epochs', ['100', '200', '225'])
+flags.FLAGS.set_default('train_epochs', 250)
+flags.FLAGS.set_default('train_proportion', 0.95)
 FLAGS = flags.FLAGS
 
 
@@ -203,6 +166,7 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
+  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -228,16 +192,22 @@ def main(argv):
   validation_percent = 1 - FLAGS.train_proportion
   train_dataset = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
       validation_percent=validation_percent).load(batch_size=batch_size)
   validation_dataset = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.VALIDATION,
       validation_percent=validation_percent,
       drop_remainder=drop_remainder_validation).load(batch_size=batch_size)
   validation_dataset = validation_dataset.repeat()
   clean_test_dataset = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TEST).load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   validation_dataset = strategy.experimental_distribute_dataset(
@@ -246,18 +216,17 @@ def main(argv):
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
   if FLAGS.corruptions_interval > 0:
-    extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
-      extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
+      data_dir = FLAGS.cifar100_c_path
     corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
     for corruption_type in corruption_types:
       for severity in range(1, 6):
         dataset = ub.datasets.get(
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
+            data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST,
-            **extra_kwargs).load(batch_size=batch_size)
+            split=tfds.Split.TEST).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 

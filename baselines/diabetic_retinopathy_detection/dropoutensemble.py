@@ -30,7 +30,6 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import uncertainty_metrics.tensorflow as um
 import utils  # local file import
 
 # Data load / output flags.
@@ -179,12 +178,17 @@ def main(argv):
                                                          eval_batch_size)]
     labels = tf.cast(labels, tf.float32)
     logits = tf.cast(logits, tf.float32)
-    negative_log_likelihood = um.ensemble_cross_entropy(
-        tf.expand_dims(labels, axis=-1), logits, binary=True)
+    negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy(
+        binary=True)
+    negative_log_likelihood_metric.add_batch(
+        logits, labels=tf.expand_dims(labels, axis=-1))
+    negative_log_likelihood = list(
+        negative_log_likelihood_metric.result().values())[0]
     per_probs = tf.nn.sigmoid(logits)
     probs = tf.reduce_mean(per_probs, axis=0)
-    gibbs_ce = um.gibbs_cross_entropy(
-        tf.expand_dims(labels, axis=-1), logits, binary=True)
+    gibbs_ce_metric = rm.metrics.GibbsCrossEntropy(binary=True)
+    gibbs_ce_metric.add_batch(logits, labels=tf.expand_dims(labels, axis=-1))
+    gibbs_ce = list(gibbs_ce_metric.result().values())[0]
     metrics['test/negative_log_likelihood'].update_state(
         negative_log_likelihood)
     metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)

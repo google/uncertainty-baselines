@@ -52,48 +52,6 @@ import uncertainty_baselines as ub
 import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
-flags.DEFINE_integer('per_core_batch_size', 64,
-                     'Batch size per TPU core/GPU. The number of new '
-                     'datapoints gathered per batch is this number divided by '
-                     'ensemble_size (we tile the batch by that # of times).')
-flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_float('train_proportion', default=1.0,
-                   help='only use a proportion of training set.')
-flags.DEFINE_float('base_learning_rate', 0.1,
-                   'Base learning rate when total training batch size is 128.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
-flags.DEFINE_integer('lr_warmup_epochs', 1,
-                     'Number of epochs for a linear warmup to the initial '
-                     'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['80', '160', '180'],
-                  'Epochs to decay learning rate by.')
-flags.DEFINE_float('l2', 3e-4, 'L2 coefficient.')
-flags.DEFINE_enum('dataset', 'cifar10',
-                  enum_values=['cifar10', 'cifar100'],
-                  help='Dataset.')
-
-flags.DEFINE_string('cifar100_c_path', None,
-                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-                    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', -1,
-                     'Number of epochs between evaluating on the corrupted '
-                     'test data. Use -1 to never evaluate.')
-flags.DEFINE_integer('checkpoint_interval', 25,
-                     'Number of epochs between saving checkpoints. Use -1 to '
-                     'never save checkpoints.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/cifar',
-                    'The directory where the model weights and '
-                    'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
-
-# Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
-
 # BatchEnsemble flags.
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
 flags.DEFINE_float('random_sign_init', -0.5,
@@ -143,6 +101,10 @@ flags.DEFINE_float(
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
 
+# Redefining default values
+flags.FLAGS.set_default('lr_decay_epochs', ['80', '160', '180'])
+flags.FLAGS.set_default('l2', 3e-4)
+flags.FLAGS.set_default('train_epochs', 250)
 FLAGS = flags.FLAGS
 
 
@@ -171,6 +133,7 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
+  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -184,6 +147,8 @@ def main(argv):
 
   train_builder = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
       validation_percent=1. - FLAGS.train_proportion)
   train_dataset = train_builder.load(batch_size=batch_size)
@@ -192,6 +157,8 @@ def main(argv):
   if FLAGS.train_proportion < 1.0:
     validation_builder = ub.datasets.get(
         FLAGS.dataset,
+        data_dir=data_dir,
+        download_data=FLAGS.download_data,
         split=tfds.Split.VALIDATION,
         validation_percent=1. - FLAGS.train_proportion)
     validation_dataset = validation_builder.load(batch_size=batch_size)
@@ -200,6 +167,8 @@ def main(argv):
     steps_per_validation = validation_builder.num_examples // batch_size
   clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TEST)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
@@ -212,13 +181,14 @@ def main(argv):
   if FLAGS.corruptions_interval > 0:
     extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
-      extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
+      data_dir = FLAGS.cifar100_c_path
     corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
     for corruption_type in corruption_types:
       for severity in range(1, 6):
         dataset = ub.datasets.get(
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
+            data_dir=data_dir,
             severity=severity,
             split=tfds.Split.TEST,
             **extra_kwargs).load(batch_size=batch_size)

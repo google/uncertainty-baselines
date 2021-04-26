@@ -206,11 +206,14 @@ Contributors (past and present):
 * Jeremiah Liu
 * Jeremy Nixon
 * Jie Ren
+* Josip Djolonga
 * Marton Havasi
 * Michael W. Dusenberry
 * Neil Band
 * Rodolphe Jenatton
+* Sebastian Farquhar
 * Shreyas Padhy
+* Tim G. J. Rudner
 * Yarin Gal
 * Yeming Wen
 * Zachary Nado

@@ -37,7 +37,6 @@ setup(
     extras_require={
         'experimental': [
             'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
-            'uncertainty_metrics[tensorflow]',
         ],
         'models': [
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.

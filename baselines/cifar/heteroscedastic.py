@@ -33,26 +33,9 @@ import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
 
-flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
-flags.DEFINE_float('base_learning_rate', 0.1,
-                   'Base learning rate when total batch size is 128. It is '
-                   'scaled by the ratio of the total batch size to 128.')
-flags.DEFINE_integer('lr_warmup_epochs', 1,
-                     'Number of epochs for a linear warmup to the initial '
-                     'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
-                  'Epochs to decay learning rate by.')
-flags.DEFINE_float(
-    'train_proportion', 1.,
-    'Only a fraction (between 0 and 1) of the train set is used for training. '
-    'The remainder can be used for validation.')
 flags.register_validator('train_proportion',
                          lambda tp: tp > 0.0 and tp <= 1.0,
                          message='--train_proportion must be in (0, 1].')
-
-flags.DEFINE_float('l2', 2e-4, 'L2 regularization coefficient.')
 flags.DEFINE_float('label_smoothing', 0., 'Label smoothing parameter in [0,1].')
 flags.register_validator('label_smoothing',
                          lambda ls: ls >= 0.0 and ls <= 1.0,
@@ -72,32 +55,8 @@ flags.DEFINE_float('dense_kernel_l2', None,
                    'L2 reg. coefficient for the kernel of the dense layer.')
 flags.DEFINE_float('dense_bias_l2', None,
                    'L2 reg. coefficient for the bias of the dense layer.')
-flags.DEFINE_enum('dataset', 'cifar10',
-                  enum_values=['cifar10', 'cifar100'],
-                  help='Dataset.')
-flags.DEFINE_string('cifar100_c_path', None,
-                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-                    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_string('data_dir', None,
-                    'data_dir to be used for tfds dataset construction.'
-                    'It is required when training with cloud TPUs')
-flags.DEFINE_integer('corruptions_interval', -1,
-                     'Number of epochs between evaluating on the corrupted '
-                     'test data. Use -1 to never evaluate.')
-flags.DEFINE_integer('checkpoint_interval', 25,
-                     'Number of epochs between saving checkpoints. Use -1 to '
-                     'never save checkpoints.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
-flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
 flags.DEFINE_bool('collect_profile', False,
                   'Whether to trace a profile with tensorboard')
-
-# Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
 
 # Heteroscedastic flags.
 flags.DEFINE_integer('num_factors', 6,
@@ -128,14 +87,13 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
-  data_dir = None
+  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
   else:
     logging.info('Use TPU at %s',
                  FLAGS.tpu if FLAGS.tpu is not None else 'local')
-    data_dir = FLAGS.data_dir
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=FLAGS.tpu)
     tf.config.experimental_connect_to_cluster(resolver)
     tf.tpu.experimental.initialize_tpu_system(resolver)
@@ -154,27 +112,27 @@ def main(argv):
 
   train_builder = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
-      download_data=True,
-      validation_percent=1. - FLAGS.train_proportion,
-      data_dir=data_dir)
+      validation_percent=1. - FLAGS.train_proportion)
   train_dataset = train_builder.load(batch_size=batch_size)
   validation_dataset = None
   steps_per_validation = 0
   if FLAGS.train_proportion < 1.0:
     validation_builder = ub.datasets.get(
         FLAGS.dataset,
+        data_dir=data_dir,
         split=tfds.Split.VALIDATION,
-        validation_percent=1. - FLAGS.train_proportion,
-        data_dir=data_dir)
+        validation_percent=1. - FLAGS.train_proportion)
     validation_dataset = validation_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
     steps_per_validation = validation_builder.num_examples // batch_size
   clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
-      split=tfds.Split.TEST,
-      data_dir=data_dir)
+      data_dir=data_dir,
+      split=tfds.Split.TEST)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
@@ -192,9 +150,9 @@ def main(argv):
         dataset = ub.datasets.get(
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
+            data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST,
-            data_dir=data_dir).load(batch_size=batch_size)
+            split=tfds.Split.TEST).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 

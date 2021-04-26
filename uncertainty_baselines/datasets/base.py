@@ -154,6 +154,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       self._seed = tf.random.uniform((2,), maxval=int(1e10), dtype=tf.int32)
     elif isinstance(seed, int):
       self._seed = (seed, seed + 1)
+    elif isinstance(seed, tf.Tensor) and tf.shape(seed).shape == 0:
+      self._seed = tf.stack([seed, seed+1])
     else:
       self._seed = seed
 

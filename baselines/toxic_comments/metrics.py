@@ -297,18 +297,12 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
                                self.binned_false_positives,
                                self.binned_false_negatives)
 
-    threshold_zeros = tf.zeros((self.num_thresholds,), dtype=self.dtype)
-    confusion_matrix = (self.true_positives, self.true_negatives,
-                        self.false_positives, self.false_negatives)
-
     tf.keras.backend.batch_set_value([
         (v, threshold_bin_zeros) for v in binned_confusion_matrix
     ])
-    # We can't call the parent's reset_state method here because it tries to
-    # reset *everything* in self.variables to np.zeros((self.num_thresholds,)).
-    tf.keras.backend.batch_set_value([
-        (v, threshold_zeros) for v in confusion_matrix
-    ])
+
+    # Reset AUC confusion matrix variables from parent class.
+    super().reset_state()
 
   def result(self):
     """Returns the approximate Oracle-Collaborative AUC.

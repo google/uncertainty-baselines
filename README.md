@@ -210,7 +210,9 @@ Contributors (past and present):
 * Michael W. Dusenberry
 * Neil Band
 * Rodolphe Jenatton
+* Sebastian Farquhar
 * Shreyas Padhy
+* Tim G. J. Rudner
 * Yarin Gal
 * Yeming Wen
 * Zachary Nado

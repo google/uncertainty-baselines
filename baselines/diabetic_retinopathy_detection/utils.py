@@ -420,7 +420,7 @@ def log_epoch_metrics(metrics, use_tpu):
         metrics['train/accuracy'].result() * 100,
         metrics['train/auprc'].result() * 100,
         metrics['train/auroc'].result() * 100,
-        metrics['train/ece'].result() * 100)
+        metrics['train/ece'].result()['ece'] * 100)
     logging.info(
         'Test NLL: %.4f, Accuracy: %.2f%%, '
         'AUPRC: %.2f%%, AUROC: %.2f%%, ECE: %.2f%%',
@@ -428,7 +428,7 @@ def log_epoch_metrics(metrics, use_tpu):
         metrics['test/accuracy'].result() * 100,
         metrics['test/auprc'].result() * 100,
         metrics['test/auroc'].result() * 100,
-        metrics['test/ece'].result() * 100)
+        metrics['test/ece'].result()['ece'] * 100)
 
 
 # Checkpoint write/load.

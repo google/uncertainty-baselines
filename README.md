@@ -12,13 +12,13 @@ __Motivation.__ There are many uncertainty implementations across GitHub. Howeve
 
 All of our baselines are (so far) in TF2 Keras Models with tf.data pipelines. We welcome Jax and PyTorch users to use our datasets, for example via Python for loops:
 
-```
+```python
 for batch in tfds.as_numpy(ds):
   train_step(batch)
 ```
 Although note that `tfds.as_numpy` calls `tensor.numpy()` which invokes an unnecessary copy compared to `tensor._numpy()`:
 
-```
+```python
 for batch in iter(ds):
   train_step(jax.tree_map(lambda y: y._numpy(), batch))
 ```

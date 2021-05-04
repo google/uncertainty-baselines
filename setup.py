@@ -32,7 +32,15 @@ setup(
         'tensorflow-datasets>=1.3.0',
         # https://github.com/tensorflow/tensorflow/issues/44146 is reproducible
         # with tf-nightly
-        'gast==0.3.3'
+        'gast==0.3.3',
+        'astunparse',
+        'opt_einsum',
+        'astunparse',
+        'flatbuffers',
+        'zipp',
+        'urllib3',
+        'chardet',
+        'idna'
     ],
     extras_require={
         'experimental': [
@@ -43,6 +51,8 @@ setup(
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
             'tensorflow-probability',
             'edward2 @ git+https://github.com/google/edward2.git#egg=edward2[tf-nightly]',
+            'pandas',
+            'scipy'
         ],
         'tests': ['pylint>=1.9.0'],
     },

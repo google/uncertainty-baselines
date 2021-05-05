@@ -363,7 +363,6 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # Keep commented out, unclear if will always improve performance.
     # options.experimental_optimization.parallel_batch = True
     options.experimental_optimization.map_fusion = True
-    options.experimental_optimization.map_vectorization.enabled = True
     options.experimental_optimization.map_parallelization = True
     options.experimental_threading.private_threadpool_size = 48
     options.experimental_threading.max_intra_op_parallelism = 1

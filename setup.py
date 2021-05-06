@@ -27,12 +27,9 @@ setup(
     install_requires=[
         'absl-py>=0.8.1',
         'numpy>=1.7',
+        'tb-nightly',
         'tf-nightly',
-        'tensorboard',
-        'tensorflow-datasets>=1.3.0',
-        # https://github.com/tensorflow/tensorflow/issues/44146 is reproducible
-        # with tf-nightly
-        'gast==0.3.3',
+        'tensorflow-datasets',
         'astunparse',
         'opt_einsum',
         'astunparse',
@@ -40,18 +37,17 @@ setup(
         'zipp',
         'urllib3',
         'chardet',
-        'idna'
+        'idna',
     ],
     extras_require={
-        'experimental': [
-            'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
-        ],
+        'experimental': [],
         'models': [
+            'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
             'tensorflow-probability',
             'edward2 @ git+https://github.com/google/edward2.git#egg=edward2[tf-nightly]',
             'pandas',
-            'scipy'
+            'scipy',
         ],
         'tests': ['pylint>=1.9.0'],
     },

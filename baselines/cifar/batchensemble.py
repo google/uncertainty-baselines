@@ -20,57 +20,23 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
-flags.DEFINE_integer('per_core_batch_size', 64,
-                     'Batch size per TPU core/GPU. The number of new '
-                     'datapoints gathered per batch is this number divided by '
-                     'ensemble_size (we tile the batch by that # of times).')
 flags.DEFINE_float('random_sign_init', -0.5,
                    'Use random sign init for fast weights.')
-flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('fast_weight_lr_multiplier', 0.5,
                    'fast weights lr multiplier.')
-flags.DEFINE_float('train_proportion', default=1.0,
-                   help='only use a proportion of training set.')
-flags.DEFINE_float('base_learning_rate', 0.1,
-                   'Base learning rate when total training batch size is 128.')
-flags.DEFINE_integer('lr_warmup_epochs', 1,
-                     'Number of epochs for a linear warmup to the initial '
-                     'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['80', '160', '180'],
-                  'Epochs to decay learning rate by.')
-flags.DEFINE_float('l2', 3e-4, 'L2 coefficient.')
-flags.DEFINE_enum('dataset', 'cifar10',
-                  enum_values=['cifar10', 'cifar100'],
-                  help='Dataset.')
-flags.DEFINE_string('cifar100_c_path', None,
-                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-                    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', -1,
-                     'Number of epochs between evaluating on the corrupted '
-                     'test data. Use -1 to never evaluate.')
-flags.DEFINE_integer('checkpoint_interval', 25,
-                     'Number of epochs between saving checkpoints. Use -1 to '
-                     'never save checkpoints.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/cifar',
-                    'The directory where the model weights and '
-                    'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 250, 'Number of training epochs.')
 
-# Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
+# Redefining default values
+flags.FLAGS.set_default('l2', 3e-4)
+flags.FLAGS.set_default('lr_decay_epochs', ['80', '160', '180'])
+flags.FLAGS.set_default('train_epochs', 250)
 FLAGS = flags.FLAGS
 
 
@@ -80,15 +46,10 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
-  ds_info = tfds.builder(FLAGS.dataset).info
   per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
   batch_size = per_core_batch_size * FLAGS.num_cores
-  # Train_proportion is a float so need to convert steps_per_epoch to int.
-  steps_per_epoch = int((ds_info.splits['train'].num_examples *
-                         FLAGS.train_proportion) // batch_size)
-  steps_per_eval = ds_info.splits['test'].num_examples // batch_size
-  num_classes = ds_info.features['label'].num_classes
 
+  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -100,31 +61,51 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  train_dataset = ub.datasets.get(
+  train_builder = ub.datasets.get(
       FLAGS.dataset,
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
-      validation_percent=1. - FLAGS.train_proportion).load(
-          batch_size=batch_size)
-  clean_test_dataset = ub.datasets.get(
-      FLAGS.dataset,
-      split=tfds.Split.TEST).load(batch_size=batch_size)
+      validation_percent=1. - FLAGS.train_proportion)
+  train_dataset = train_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+
+  validation_dataset = None
+  steps_per_validation = 0
+  if FLAGS.train_proportion < 1.0:
+    validation_builder = ub.datasets.get(
+        FLAGS.dataset,
+        data_dir=data_dir,
+        split=tfds.Split.VALIDATION,
+        validation_percent=1. - FLAGS.train_proportion)
+    validation_dataset = validation_builder.load(batch_size=batch_size)
+    validation_dataset = strategy.experimental_distribute_dataset(
+        validation_dataset)
+    steps_per_validation = validation_builder.num_examples // batch_size
+
+  clean_test_builder = ub.datasets.get(
+      FLAGS.dataset,
+      data_dir=data_dir,
+      split=tfds.Split.TEST)
+  clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
+  steps_per_epoch = train_builder.num_examples // batch_size
+  steps_per_eval = clean_test_builder.num_examples // batch_size
+  num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
   if FLAGS.corruptions_interval > 0:
-    extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
-      extra_kwargs['data_dir'] = FLAGS.cifar100_c_path
+      data_dir = FLAGS.cifar100_c_path
     corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
     for corruption_type in corruption_types:
       for severity in range(1, 6):
         dataset = ub.datasets.get(
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
+            data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST,
-            **extra_kwargs).load(batch_size=batch_size)
+            split=tfds.Split.TEST).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -134,7 +115,7 @@ def main(argv):
   with strategy.scope():
     logging.info('Building Keras model')
     model = ub.models.wide_resnet_batchensemble(
-        input_shape=ds_info.features['image'].shape,
+        input_shape=(32, 32, 3),
         depth=28,
         width_multiplier=10,
         num_classes=num_classes,
@@ -148,28 +129,40 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = utils.LearningRateSchedule(
+    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=0.9,
+                                        momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
     }
+    eval_dataset_splits = ['test']
+    if validation_dataset:
+      metrics.update({
+          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=FLAGS.num_bins),
+      })
+      eval_dataset_splits += ['validation']
     for i in range(FLAGS.ensemble_size):
-      metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
-      metrics['test/accuracy_member_{}'.format(i)] = (
-          tf.keras.metrics.SparseCategoricalAccuracy())
+      for dataset_split in eval_dataset_splits:
+        metrics[f'{dataset_split}/nll_member_{i}'] = tf.keras.metrics.Mean()
+        metrics[f'{dataset_split}/accuracy_member_{i}'] = (
+            tf.keras.metrics.SparseCategoricalAccuracy())
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
@@ -180,7 +173,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
@@ -231,16 +224,17 @@ def main(argv):
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
       probs = tf.nn.softmax(logits)
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_split, dataset_name, num_steps):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
@@ -256,27 +250,28 @@ def main(argv):
         member_probs = per_probs[i]
         member_loss = tf.keras.losses.sparse_categorical_crossentropy(
             labels, member_probs)
-        metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
-        metrics['test/accuracy_member_{}'.format(i)].update_state(labels,
-                                                                  member_probs)
+        metrics[f'{dataset_split}/nll_member_{i}'].update_state(member_loss)
+        metrics[f'{dataset_split}/accuracy_member_{i}'].update_state(
+            labels, member_probs)
 
       probs = tf.reduce_mean(per_probs, axis=0)
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
       if dataset_name == 'clean':
-        metrics['test/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
             negative_log_likelihood)
-        metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            probs, label=labels)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
@@ -284,25 +279,27 @@ def main(argv):
   start_time = time.time()
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps,
+                   epoch + 1,
+                   FLAGS.train_epochs,
+                   steps_per_sec,
+                   eta_seconds / 60,
+                   time_elapsed / 60))
+    logging.info(message)
 
+    if validation_dataset:
+      validation_iterator = iter(validation_dataset)
+      test_step(
+          validation_iterator, 'validation', 'clean', steps_per_validation)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
@@ -310,14 +307,11 @@ def main(argv):
     for dataset_name, test_dataset in datasets_to_evaluate.items():
       test_iterator = iter(test_dataset)
       logging.info('Testing on dataset %s', dataset_name)
-      for step in range(steps_per_eval):
-        if step % 20 == 0:
-          logging.info('Starting to run eval step %s of epoch: %s', step,
-                       epoch)
-        test_start_time = time.time()
-        test_step(test_iterator, dataset_name)
-        ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-        metrics['test/ms_per_example'].update_state(ms_per_example)
+      logging.info('Starting to run eval at epoch: %s', epoch)
+      test_start_time = time.time()
+      test_step(test_iterator, 'test', dataset_name, steps_per_eval)
+      ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
+      metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
 
@@ -339,6 +333,12 @@ def main(argv):
                    metrics['test/accuracy_member_{}'.format(i)].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -355,6 +355,15 @@ def main(argv):
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'))
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'random_sign_init': FLAGS.random_sign_init,
+        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
+    })
+
 
 if __name__ == '__main__':
   app.run(main)

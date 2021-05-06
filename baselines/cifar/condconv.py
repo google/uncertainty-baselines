@@ -21,27 +21,13 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
-flags.DEFINE_integer('seed', 42, 'Random seed.')
-flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
-flags.DEFINE_float(
-    'base_learning_rate', 0.1,
-    'Base learning rate when total batch size is 128. It is '
-    'scaled by the ratio of the total batch size to 128.')
-flags.DEFINE_integer(
-    'lr_warmup_epochs', 1,
-    'Number of epochs for a linear warmup to the initial '
-    'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
-                  'Epochs to decay learning rate by.')
-flags.DEFINE_float('l2', 3e-4, 'L2 regularization coefficient.')
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
 flags.DEFINE_integer('num_dropout_samples', 1,
                      'Number of dropout samples to use for prediction.')
@@ -56,31 +42,8 @@ flags.DEFINE_bool(
     'in the original paper.'
     'Otherwise dropout is applied after every layer.')
 
-flags.DEFINE_enum(
-    'dataset', 'cifar10', enum_values=['cifar10', 'cifar100'], help='Dataset.')
-# TODO(ghassen): consider adding CIFAR-100-C to TFDS.
-flags.DEFINE_string(
-    'cifar100_c_path', None,
-    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer(
-    'corruptions_interval', -1,
-    'Number of epochs between evaluating on the corrupted '
-    'test data. Use -1 to never evaluate.')
-flags.DEFINE_integer(
-    'checkpoint_interval', -1,
-    'Number of epochs between saving checkpoints. Use -1 to '
-    'never save checkpoints.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
-flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
-
 # Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
 
 # CondConv Flags
 flags.DEFINE_integer('num_experts', 4, 'Number of experts to aggregate over.')
@@ -123,10 +86,10 @@ flags.DEFINE_enum(
     ],
     help='Type of pooling to apply to the inputs of the routing functions.')
 flags.DEFINE_integer('top_k', -1, 'The number of experts to select from.')
-
 flags.DEFINE_integer('resnet_width_multiplier', 5,
                      'WideResNet width multiplier.')
-
+# Redefining default values
+flags.FLAGS.set_default('l2', 3e-4)
 FLAGS = flags.FLAGS
 
 
@@ -136,6 +99,7 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
+  data_dir = utils.get_data_dir_from_flags(FLAGS)
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -147,27 +111,47 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  ds_info = tfds.builder(FLAGS.dataset).info
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  steps_per_epoch = ds_info.splits['train'].num_examples // batch_size
-  steps_per_eval = ds_info.splits['test'].num_examples // test_batch_size
-  num_classes = ds_info.features['label'].num_classes
 
-  train_dataset = utils.load_dataset(
+  if FLAGS.dataset == 'cifar10':
+    dataset_builder_class = ub.datasets.Cifar10Dataset
+  else:
+    dataset_builder_class = ub.datasets.Cifar100Dataset
+  train_builder = dataset_builder_class(
+      data_dir=data_dir,
+      download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
-      name=FLAGS.dataset,
-      batch_size=batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
-  clean_test_dataset = utils.load_dataset(
-      split=tfds.Split.TEST,
-      name=FLAGS.dataset,
-      batch_size=test_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
+      use_bfloat16=FLAGS.use_bfloat16,
+      validation_percent=1. - FLAGS.train_proportion)
+  train_dataset = train_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+
+  validation_dataset = None
+  steps_per_validation = 0
+  if FLAGS.train_proportion < 1.0:
+    validation_builder = dataset_builder_class(
+        data_dir=data_dir,
+        split=tfds.Split.VALIDATION,
+        use_bfloat16=FLAGS.use_bfloat16,
+        validation_percent=1. - FLAGS.train_proportion)
+    validation_dataset = validation_builder.load(batch_size=batch_size)
+    validation_dataset = strategy.experimental_distribute_dataset(
+        validation_dataset)
+    steps_per_validation = validation_builder.num_examples // batch_size
+
+  clean_test_dataset_builder = dataset_builder_class(
+      data_dir=data_dir,
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  clean_test_dataset = clean_test_dataset_builder.load(
+      batch_size=test_batch_size)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
+  steps_per_epoch = train_builder.num_examples // batch_size
+  steps_per_eval = clean_test_dataset_builder.num_examples // batch_size
+  num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar10':
       load_c_dataset = utils.load_cifar10_c
@@ -196,7 +180,7 @@ def main(argv):
   with strategy.scope():
     logging.info('Building ResNet model')
     model = ub.models.wide_resnet_condconv(
-        input_shape=ds_info.features['image'].shape,
+        input_shape=(32, 32, 3),
         depth=28,
         width_multiplier=FLAGS.resnet_width_multiplier,
         num_classes=num_classes,
@@ -220,53 +204,65 @@ def main(argv):
     base_lr = FLAGS.base_learning_rate * batch_size / 128
     lr_decay_epochs = [(int(start_epoch_str) * FLAGS.train_epochs) // 200
                        for start_epoch_str in FLAGS.lr_decay_epochs]
-    lr_schedule = utils.LearningRateSchedule(
+    lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
         steps_per_epoch,
         base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(
-        lr_schedule, momentum=0.9, nesterov=True)
+        lr_schedule, momentum=1.0 - FLAGS.one_minus_momentum, nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
     }
-    if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
+    eval_dataset_splits = ['test']
+    if validation_dataset:
       metrics.update({
-          'test/nll_poe':
-              tf.keras.metrics.Mean(),
-          'test/nll_moe':
-              tf.keras.metrics.Mean(),
-          'test/nll_unweighted_poe':
-              tf.keras.metrics.Mean(),
-          'test/nll_unweighted_moe':
-              tf.keras.metrics.Mean(),
-          'test/unweighted_gibbs_ce':
-              tf.keras.metrics.Mean(),
-          'test/ece_unweighted_moe':
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
-          'test/accuracy_unweighted_moe':
-              tf.keras.metrics.SparseCategoricalAccuracy(),
-          'test/ece_poe':
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
-          'test/accuracy_poe':
-              tf.keras.metrics.SparseCategoricalAccuracy(),
-          'test/ece_unweighted_poe':
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
-          'test/accuracy_unweighted_poe':
-              tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=FLAGS.num_bins),
       })
-      for idx in range(FLAGS.num_experts):
-        metrics['test/dense_routing_weight_{}'.format(
-            idx)] = tf.keras.metrics.Mean()
-        metrics['test/dense_routing_weight_normalized_{}'.format(
-            idx)] = tf.keras.metrics.Mean()
+      eval_dataset_splits += ['validation']
+    if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
+      for dataset_split in eval_dataset_splits:
+        metrics.update({
+            f'{dataset_split}/nll_poe':
+                tf.keras.metrics.Mean(),
+            f'{dataset_split}/nll_moe':
+                tf.keras.metrics.Mean(),
+            f'{dataset_split}/nll_unweighted_poe':
+                tf.keras.metrics.Mean(),
+            f'{dataset_split}/nll_unweighted_moe':
+                tf.keras.metrics.Mean(),
+            f'{dataset_split}/unweighted_gibbs_ce':
+                tf.keras.metrics.Mean(),
+            f'{dataset_split}/ece_unweighted_moe':
+                rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            f'{dataset_split}/accuracy_unweighted_moe':
+                tf.keras.metrics.SparseCategoricalAccuracy(),
+            f'{dataset_split}/ece_poe':
+                rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            f'{dataset_split}/accuracy_poe':
+                tf.keras.metrics.SparseCategoricalAccuracy(),
+            f'{dataset_split}/ece_unweighted_poe':
+                rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+            f'{dataset_split}/accuracy_unweighted_poe':
+                tf.keras.metrics.SparseCategoricalAccuracy(),
+        })
+        for idx in range(FLAGS.num_experts):
+          metrics[f'{dataset_split}/dense_routing_weight_{idx}'] = (
+              tf.keras.metrics.Mean())
+          metrics[f'{dataset_split}/dense_routing_weight_normalized_{idx}'] = (
+              tf.keras.metrics.Mean())
 
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
@@ -278,14 +274,14 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
           corrupt_metrics['test/nll_weighted_moe_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
           corrupt_metrics['test/accuracy_weighted_moe_{}'.format(
               dataset_name)] = (
                   tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_weighted_moe_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
@@ -387,13 +383,14 @@ def main(argv):
 
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         # if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
-        if not isinstance(logits, tuple):
+        if not isinstance(logits, (list, tuple)):
           raise ValueError('Logits are not a tuple.')
         # logits is a `Tensor` of shape [batch_size, num_experts, num_classes]
         logits, all_routing_weights = logits
@@ -417,25 +414,27 @@ def main(argv):
       grads = tape.gradient(scaled_loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, probs)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_split, dataset_name, num_steps):
     """Evaluation StepFn."""
 
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
-      if not isinstance(logits, tuple):
+      if not isinstance(logits, (list, tuple)):
         raise ValueError('Logits not a tuple')
       # logits is a `Tensor` of shape [batch_size, num_experts, num_classes]
       # routing_weights is a `Tensor` of shape [batch_size, num_experts]
@@ -450,47 +449,48 @@ def main(argv):
 
       if dataset_name == 'clean':
         if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
-          metrics['test/nll_poe'].update_state(results['nll_poe'])
-          metrics['test/nll_moe'].update_state(results['nll_moe'])
-          metrics['test/nll_unweighted_poe'].update_state(
+          metrics[f'{dataset_split}/nll_poe'].update_state(results['nll_poe'])
+          metrics[f'{dataset_split}/nll_moe'].update_state(results['nll_moe'])
+          metrics[f'{dataset_split}/nll_unweighted_poe'].update_state(
               results['nll_unweighted_poe'])
-          metrics['test/nll_unweighted_moe'].update_state(
+          metrics[f'{dataset_split}/nll_unweighted_moe'].update_state(
               results['nll_unweighted_moe'])
-          metrics['test/unweighted_gibbs_ce'].update_state(
+          metrics[f'{dataset_split}/unweighted_gibbs_ce'].update_state(
               results['unweighted_gibbs_ce'])
-          metrics['test/negative_log_likelihood'].update_state(
+          metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
               results['weighted_gibbs_ce'])
-          metrics['test/ece'].update_state(labels, results['weighted_probs'])
-          metrics['test/accuracy'].update_state(labels,
-                                                results['weighted_probs'])
-          metrics['test/ece_unweighted_moe'].update_state(
+          metrics[f'{dataset_split}/ece'].add_batch(
+              results['weighted_probs'], label=labels)
+          metrics[f'{dataset_split}/accuracy'].update_state(
+              labels, results['weighted_probs'])
+          metrics[f'{dataset_split}/ece_unweighted_moe'].add_batch(
+              results['unweighted_probs'], label=labels)
+          metrics[f'{dataset_split}/accuracy_unweighted_moe'].update_state(
               labels, results['unweighted_probs'])
-          metrics['test/accuracy_unweighted_moe'].update_state(
-              labels, results['unweighted_probs'])
-          metrics['test/ece_poe'].update_state(labels,
-                                               results['weighted_logits'])
-          metrics['test/accuracy_poe'].update_state(labels,
-                                                    results['weighted_logits'])
-          metrics['test/ece_unweighted_poe'].update_state(
-              labels, results['unweighted_logits'])
-          metrics['test/accuracy_unweighted_poe'].update_state(
+          metrics[f'{dataset_split}/ece_poe'].add_batch(
+              results['weighted_logits'], label=labels)
+          metrics[f'{dataset_split}/accuracy_poe'].update_state(
+              labels, results['weighted_logits'])
+          metrics[f'{dataset_split}/ece_unweighted_poe'].add_batch(
+              results['unweighted_logits'], label=labels)
+          metrics[f'{dataset_split}/accuracy_unweighted_poe'].update_state(
               labels, results['unweighted_logits'])
           # TODO(ghassen): summarize all routing weights not only last layer's.
           average_routing_weights = tf.math.reduce_mean(routing_weights, axis=0)
           routing_weights_sum = tf.math.reduce_sum(average_routing_weights)
           for idx in range(FLAGS.num_experts):
-            metrics['test/dense_routing_weight_{}'.format(idx)].update_state(
+            metrics[f'{dataset_split}/dense_routing_weight_{idx}'].update_state(
                 average_routing_weights[idx])
-            metrics['test/dense_routing_weight_normalized_{}'.format(
-                idx)].update_state(average_routing_weights[idx] /
-                                   routing_weights_sum)
+            key = f'{dataset_split}/dense_routing_weight_normalized_{idx}'
+            metrics[key].update_state(
+                average_routing_weights[idx] / routing_weights_sum)
           # TODO(ghassen): add more metrics for expert utilization,
           # load loss and importance/balance loss.
         else:
-          metrics['test/negative_log_likelihood'].update_state(
+          metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
               negative_log_likelihood)
-          metrics['test/accuracy'].update_state(labels, probs)
-          metrics['test/ece'].update_state(labels, probs)
+          metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+          metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         # TODO(ghassen): figure out how to aggregate probs for the OOD case.
         if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
@@ -498,24 +498,25 @@ def main(argv):
               results['unweighted_gibbs_ce'])
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
               labels, results['unweighted_probs'])
-          corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-              labels, results['unweighted_probs'])
+          corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+              results['unweighted_probs'], label=labels)
 
           corrupt_metrics['test/nll_weighted_moe{}'.format(
               dataset_name)].update_state(results['weighted_gibbs_ce'])
           corrupt_metrics['test/accuracy_weighted_moe_{}'.format(
               dataset_name)].update_state(labels, results['weighted_probs'])
           corrupt_metrics['test/ece_weighted_moe{}'.format(
-              dataset_name)].update_state(labels, results['weighted_probs'])
+              dataset_name)].add_batch(results['weighted_probs'], label=labels)
         else:
           corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
               negative_log_likelihood)
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
               labels, probs)
-          corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-              labels, probs)
+          corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+              probs, label=labels)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
@@ -523,21 +524,23 @@ def main(argv):
   start_time = time.time()
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps, epoch + 1, FLAGS.train_epochs,
-                     steps_per_sec, eta_seconds / 60, time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps, epoch + 1, FLAGS.train_epochs,
+                   steps_per_sec, eta_seconds / 60, time_elapsed / 60))
+    logging.info(message)
 
+    if validation_dataset:
+      validation_iterator = iter(validation_dataset)
+      test_step(
+          validation_iterator, 'validation', 'clean', steps_per_validation)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
@@ -545,13 +548,11 @@ def main(argv):
     for dataset_name, test_dataset in datasets_to_evaluate.items():
       test_iterator = iter(test_dataset)
       logging.info('Testing on dataset %s', dataset_name)
-      for step in range(steps_per_eval):
-        if step % 20 == 0:
-          logging.info('Starting to run eval step %s of epoch: %s', step, epoch)
-        test_start_time = time.time()
-        test_step(test_iterator, dataset_name)
-        ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-        metrics['test/ms_per_example'].update_state(ms_per_example)
+      logging.info('Starting to run eval at epoch: %s', epoch)
+      test_start_time = time.time()
+      test_step(test_iterator, 'test', dataset_name, steps_per_eval)
+      ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
+      metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
 
@@ -570,6 +571,12 @@ def main(argv):
                  metrics['test/accuracy'].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -585,6 +592,15 @@ def main(argv):
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'))
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'dropout_rate': FLAGS.dropout_rate,
+        'num_dropout_samples': FLAGS.num_dropout_samples,
+        'num_dropout_samples_training': FLAGS.num_dropout_samples_training,
+    })
 
 
 if __name__ == '__main__':

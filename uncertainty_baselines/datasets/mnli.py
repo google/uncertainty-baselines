@@ -38,7 +38,7 @@ See https://cims.nyu.edu/~sbowman/multinli/ and corpus paper for further detail.
     https://www.aclweb.org/anthology/N18-1101/
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -57,6 +57,7 @@ class MnliDataset(base.BaseDataset):
       mode: str = 'matched',
       try_gcs: bool = False,
       download_data: bool = False,
+      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create an Genomics OOD tf.data.Dataset builder.
 
@@ -75,12 +76,19 @@ class MnliDataset(base.BaseDataset):
         files. Currently unsupported.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      is_training: Whether or not the given `split` is the training split. Only
+        required when the passed split is not one of ['train', 'validation',
+        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     if mode not in ('matched', 'mismatched'):
       raise ValueError('"mode" must be either "matched" or "mismatched".'
                        'Got {}'.format(mode))
     if mode == 'mismatched' and split == tfds.Split.TRAIN:
       raise ValueError('No training data for mismatched domains.')
+
+    if is_training is None:
+      is_training = split in ['train', tfds.Split.TRAIN]
+
     if split == tfds.Split.VALIDATION:
       split = 'validation_' + mode
     if split == tfds.Split.TEST:
@@ -92,6 +100,7 @@ class MnliDataset(base.BaseDataset):
         name=name,
         dataset_builder=dataset_builder,
         split=split,
+        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         fingerprint_key='idx',

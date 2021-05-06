@@ -16,7 +16,7 @@
 """Genomics OOD dataset builder."""
 
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -141,6 +141,7 @@ class GenomicsOodDataset(base.BaseDataset):
       eval_filter_class_id: int = -1,
       data_mode: str = 'ind',
       data_dir: str = None,
+      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create an Genomics OOD tf.data.Dataset builder.
 
@@ -157,6 +158,9 @@ class GenomicsOodDataset(base.BaseDataset):
         data or out-of-domain data.
       data_dir: path to a directory containing the Genomics OOD dataset, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
+      is_training: Whether or not the given `split` is the training split. Only
+        required when the passed split is not one of ['train', 'validation',
+        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     if data_dir is None:
       builder = tfds.builder('genomics_ood')
@@ -166,6 +170,7 @@ class GenomicsOodDataset(base.BaseDataset):
         name='genomics_ood',
         dataset_builder=_GenomicsOodDatasetBuilder(data_dir, data_mode),
         split=split,
+        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=False)
@@ -182,7 +187,7 @@ class GenomicsOodDataset(base.BaseDataset):
       # NCBI accession number, and the position where it was sampled from.
       # domain: if the bacteria is in-distribution (in), or OOD (ood)
       features = tf.io.parse_single_example(
-          example,
+          example['features'],
           features={
               'seq': tf.io.FixedLenFeature([], tf.string),
               'label': tf.io.FixedLenFeature([], tf.int64),

@@ -33,12 +33,12 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('kl_annealing_epochs', 90,
                      'Number of epochs over which to anneal the KL term to 1.')
@@ -61,6 +61,7 @@ flags.DEFINE_float('random_sign_init', 0.75,
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.1,
                    'Base learning rate when train batch size is 256.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('dropout_rate', 1e-3,
                    'Dropout rate. Only used if alpha/gamma initializers are, '
                    'e.g., trainable normal with a fixed stddev.')
@@ -92,7 +93,7 @@ flags.DEFINE_integer('num_eval_samples', 1,
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', True, 'Whether to use mixed precision.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 32, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
@@ -103,10 +104,6 @@ APPROX_IMAGENET_TRAIN_IMAGES = 1281167
 # Number of images in eval dataset.
 IMAGENET_VALIDATION_IMAGES = 50000
 NUM_CLASSES = 1000
-
-_LR_SCHEDULE = [    # (multiplier, epoch to start) tuples
-    (1.0, 5), (0.1, 30), (0.01, 60), (0.001, 80)
-]
 
 
 def main(argv):
@@ -131,15 +128,17 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                     batch_size=batch_size)
-  clean_test_dataset = builder.as_dataset(split=tfds.Split.TEST,
-                                          batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      use_bfloat16=FLAGS.use_bfloat16)
+  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  clean_test_dataset = test_builder.load(
+      batch_size=batch_size, strategy=strategy)
   test_datasets = {
-      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
+      'clean': clean_test_dataset
   }
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
@@ -182,12 +181,19 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               _LR_SCHEDULE)
+    decay_epochs = [
+        (FLAGS.train_epochs * 30) // 90,
+        (FLAGS.train_epochs * 60) // 90,
+        (FLAGS.train_epochs * 80) // 90,
+    ]
+    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
+        steps_per_epoch=steps_per_epoch,
+        base_learning_rate=base_lr,
+        decay_ratio=0.1,
+        decay_epochs=decay_epochs,
+        warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
-                                        momentum=0.9,
+                                        momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
@@ -196,17 +202,18 @@ def main(argv):
         'train/elbo': tf.keras.metrics.Mean(),
         'train/loss': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/kl': tf.keras.metrics.Mean(),
         'test/elbo': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/member_accuracy_mean': (
             tf.keras.metrics.SparseCategoricalAccuracy()),
-        'test/member_ece_mean': um.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins)
-
+        'test/member_ece_mean': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
@@ -222,7 +229,7 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     test_diversity = {}
     training_diversity = {}
@@ -273,7 +280,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       if FLAGS.ensemble_size > 1:
         images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
         labels = tf.tile(labels, [FLAGS.ensemble_size])
@@ -287,8 +295,9 @@ def main(argv):
         if FLAGS.ensemble_size > 1:
           per_probs = tf.reshape(
               probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-          diversity_results = um.average_pairwise_diversity(
-              per_probs, FLAGS.ensemble_size)
+          diversity = rm.metrics.AveragePairwiseDiversity()
+          diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
+          diversity_results = diversity.result()
 
         negative_log_likelihood = tf.reduce_mean(
             tf.keras.losses.sparse_categorical_crossentropy(labels,
@@ -330,19 +339,21 @@ def main(argv):
       metrics['train/elbo'].update_state(elbo)
       metrics['train/loss'].update_state(loss)
       metrics['train/accuracy'].update_state(labels, logits)
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       if FLAGS.ensemble_size > 1:
         for k, v in diversity_results.items():
           training_diversity['train/' + k].update_state(v)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
   def test_step(iterator, dataset_name):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       if FLAGS.ensemble_size > 1:
         images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       logits = tf.reshape(
@@ -371,8 +382,9 @@ def main(argv):
       if dataset_name == 'clean':
         if FLAGS.ensemble_size > 1:
           per_probs = tf.reduce_mean(all_probs, axis=0)  # marginalize samples
-          diversity_results = um.average_pairwise_diversity(
-              per_probs, FLAGS.ensemble_size)
+          diversity = rm.metrics.AveragePairwiseDiversity()
+          diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
+          diversity_results = diversity.result()
           for k, v in diversity_results.items():
             test_diversity['test/' + k].update_state(v)
           for i in range(FLAGS.ensemble_size):
@@ -384,14 +396,15 @@ def main(argv):
                 labels, member_probs)
             metrics['test/member_accuracy_mean'].update_state(
                 labels, member_probs)
-            metrics['test/member_ece_mean'].update_state(labels, member_probs)
+            metrics['test/member_ece_mean'].add_batch(
+                member_probs, label=labels)
 
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/kl'].update_state(kl)
         metrics['test/elbo'].update_state(elbo)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -399,34 +412,33 @@ def main(argv):
         corrupt_metrics['test/elbo_{}'.format(dataset_name)].update_state(elbo)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            probs, label=labels)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
 
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps,
+                   epoch + 1,
+                   FLAGS.train_epochs,
+                   steps_per_sec,
+                   eta_seconds / 60,
+                   time_elapsed / 60))
+    logging.info(message)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
@@ -435,11 +447,8 @@ def main(argv):
     for dataset_name, test_dataset in datasets_to_evaluate.items():
       logging.info('Testing on dataset %s', dataset_name)
       test_iterator = iter(test_dataset)
-      for step in range(steps_per_eval):
-        if step % 20 == 0:
-          logging.info('Starting to run eval step %s of epoch: %s', step,
-                       epoch)
-        test_step(test_iterator, dataset_name)
+      logging.info('Starting to run eval at epoch: %s', epoch)
+      test_step(test_iterator, dataset_name)
       logging.info('Done with testing on %s', dataset_name)
 
     corrupt_results = {}
@@ -467,6 +476,12 @@ def main(argv):
     total_results = {name: metric.result()
                      for name, metric in total_metrics.items()}
     total_results.update(corrupt_results)
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -483,6 +498,15 @@ def main(argv):
   final_checkpoint_name = checkpoint.save(
       os.path.join(FLAGS.output_dir, 'checkpoint'))
   logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
+        'num_eval_samples': FLAGS.num_eval_samples,
+    })
+
 
 if __name__ == '__main__':
   app.run(main)

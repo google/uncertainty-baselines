@@ -13,11 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Abstract base classes which defines interfaces for datasets."""
 
 import logging
-from typing import Callable, Optional, Sequence, Type, TypeVar, Union
+from typing import Callable, Dict, Optional, Sequence, Type, TypeVar, Union
 
 from robustness_metrics.common import ops
 from robustness_metrics.common import types
@@ -31,6 +30,11 @@ import tensorflow_datasets as tfds
 # Dict[Text, tf.Tensor] (types.Features), for Criteo they are a tf.Tensor.
 PreProcessFn = Callable[
     [Union[int, tf.Tensor, Sequence[tf.Tensor], types.Features]],
+    types.Features]
+
+# Same as PreProcessFn except also takes an integer first argument.
+_EnumeratedPreProcessFn = Callable[
+    [int, Union[int, tf.Tensor, Sequence[tf.Tensor], types.Features]],
     types.Features]
 
 
@@ -97,11 +101,15 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       name: str,
       dataset_builder: tfds.core.DatasetBuilder,
       split: Union[float, str, tfds.Split],
+      seed: Optional[Union[int, tf.Tensor]] = None,
+      is_training: Optional[bool] = None,
       shuffle_buffer_size: int = None,
-      num_parallel_parser_calls: int = 64,
+      num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
       drop_remainder: bool = True,
       fingerprint_key: Optional[str] = None,
-      download_data: bool = False):
+      download_data: bool = False,
+      decoders: Optional[Dict[str, tfds.decode.Decoder]] = None,
+      cache: bool = False):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -113,6 +121,14 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         names. For Criteo it can also be a float to represent the level of data
         augmentation. For speech commands it can be a tuple of a string and
         float for shifted data splits.
+      seed: the seed used as a source of randomness.
+      is_training: whether or not `split` is the training split. This is
+        necessary because tf.data subsplits can sometimes be derived from the
+        training split, such as when using part of the training split as a
+        validation set, and this complicates calculating `is_training`
+        in these cases. Only required when the passed split is not one of
+        ['train', 'validation', 'test', tfds.Split.TRAIN, tfds.Split.VALIDATION,
+        tfds.Split.TEST], otherwise it is set automatically.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
@@ -125,17 +141,43 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         then `ds.enumerate()` is added before the `ds.map(preprocessing_fn)` is
         called and an `id` field is added to the example Dict.
       download_data: Whether or not to download data before loading.
+      decoders: Optional TFDS decoders to provide to
+        `dataset_builder.as_dataset`, the same as passed to `tfds.load`.
+      cache: Whether or not to cache the dataset after it is returned from
+        dataset_builder.as_dataset(...) (before preprocessing is applied).
     """
     self.name = name
     self._split = split
+
+    # Stateless random ops require a (2,) shaped seed.
+    if seed is None:
+      self._seed = tf.random.uniform((2,), maxval=int(1e10), dtype=tf.int32)
+    elif isinstance(seed, int):
+      self._seed = (seed, seed + 1)
+    elif isinstance(seed, tf.Tensor) and tf.shape(seed).shape == 0:
+      self._seed = tf.stack([seed, seed+1])
+    else:
+      self._seed = seed
+
     self._num_parallel_parser_calls = num_parallel_parser_calls
     self._drop_remainder = drop_remainder
     self._download_data = download_data
+    self._decoders = decoders
+    self._cache = cache
 
-    self._is_training = split in [
-        'train', tfds.Split.TRAIN
-    ] or (isinstance(split, tfds.core.ReadInstruction) and
-          split._relative_instructions[0].splitname == 'train')
+    known_splits = [
+        'train', 'validation', 'test', tfds.Split.TRAIN, tfds.Split.VALIDATION,
+        tfds.Split.TEST
+    ]
+    if is_training is None:
+      if split in known_splits:
+        is_training = split in ['train', tfds.Split.TRAIN]
+      else:
+        raise ValueError(
+            'Received ambiguous split {}, must set is_training for splits other '
+            'than "train", "validation", "test".'.format(split))
+
+    self._is_training = is_training
     # TODO(znado): properly parse the number of train/validation/test examples
     # from the provided split, see `make_file_instructions(...)` in
     # tensorflow_datasets/core/tfrecords_reader.py.
@@ -149,10 +191,13 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         fingerprint_key=fingerprint_key,
         split=self._split,
         label_key='label')
-    self._add_enumerate = False
+
+    self._enumerate_id_key = '_enumerate_added_per_step_id'
+
+    self._add_fingerprint_key = False
     if self._fingerprint_key is None:
-      self._fingerprint_key = '_enumerate_added_id'
-      self._add_enumerate = True
+      self._fingerprint_key = '_enumerate_added_example_id'
+      self._add_fingerprint_key = True
 
   # This method can be overridden to add custom info via info.metadata.
   @property
@@ -186,8 +231,22 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     raise NotImplementedError(
         'Must override dataset _create_process_example_fn!')
 
+  def _create_process_batch_fn(self, batch_size: int) -> Optional[PreProcessFn]:
+    """Create a function to perform pre-processing on batches, such as mixup.
+
+    Args:
+      batch_size: the size of the batch to be processed.
+
+    Returns:
+      None if no processing is necessary. Otherwise, a function which takes as
+      inputs a batch of elements of the dataset (passed from dataset.batch()),
+      and returns a dict with keys 'features' and 'labels' and their
+      corresponding Tensor values.
+    """
+    return None
+
   def _create_element_id(self, features: types.Features) -> types.Features:
-    """Hash the element id to compute a unique id."""
+    """Hash element id for a unique id per data element (NOT per-step)."""
     if 'element_id' in features:
       raise ValueError(
           '`element_id` should not be already present in the feature set.')
@@ -195,21 +254,19 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     features['element_id'] = ops.fingerprint_int64(fingerprint_feature)
     return features
 
-  def _create_enumerate_preprocess_fn(
-      self,
-      preprocess_fn: PreProcessFn):
+  def _add_enumerate_id(self, enumerate_key: str) -> _EnumeratedPreProcessFn:
+    def _add_example_id(enumerate_id, example):
+      """Turn an id added by ds.enumerate() as a field in the example dict."""
+      if isinstance(example, tf.Tensor):
+        example = {'features': example}
+      example[enumerate_key] = enumerate_id
+      return example
+    return _add_example_id
 
-    def enumerated_preprocess_fn(example_id: int, x) -> types.Features:
-      features = preprocess_fn(x)
-      features[self._fingerprint_key] = example_id
-      return features
-    return enumerated_preprocess_fn
-
-  # TODO(znado): rename to as_dataset.
-  def load(self,
-           *,
-           preprocess_fn: PreProcessFn = None,
-           batch_size: int = -1) -> tf.data.Dataset:
+  def _load(self,
+            *,
+            preprocess_fn: Optional[PreProcessFn] = None,
+            batch_size: int = -1) -> tf.data.Dataset:
     """Transforms the dataset from builder.as_dataset() to batch, repeat, etc.
 
     Note that we do not handle replication/sharding here, because the
@@ -230,37 +287,57 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       raise ValueError(
           'Must provide a positive batch size, received {}.'.format(batch_size))
 
+    self._seed, self._shuffle_seed = tf.random.experimental.stateless_split(
+        self._seed, num=2)
+
     if self._download_data:
-      self._dataset_builder.download_and_prepare(
-          download_dir=self._dataset_builder.data_dir)
-    dataset = self._dataset_builder.as_dataset(self._split)
+      self._dataset_builder.download_and_prepare()
+    dataset = self._dataset_builder.as_dataset(
+        self._split, decoders=self._decoders)
 
-    # Map the parser over the dataset.
-    if preprocess_fn is None:
-      preprocess_fn = self._create_process_example_fn()
-    if self._add_enumerate:
-      # If necessary, enumerate the dataset to generate a unique per-example id,
-      # that is then added to the feature dict in
-      # `self._create_enumerate_preprocess_fn` with key `self._fingerprint_key`.
+    # Possibly cache the original dataset before preprocessing is applied.
+    if self._cache:
+      dataset = dataset.cache()
+
+    # This must be done *before* repeating the dataset so that each example has
+    # a unique and stable fingerprint key.
+    if self._add_fingerprint_key:
       dataset = dataset.enumerate()
-      enum_preprocess_fn = self._create_enumerate_preprocess_fn(preprocess_fn)
-
-      # Compose will not work with functions that have >1 arguments.
-      # pylint:disable=g-long-lambda
-      preprocess_fn = lambda id, x: self._create_element_id(
-          enum_preprocess_fn(id, x))
-      # pylint:enable=g-long-lambda
-    else:
-      preprocess_fn = ops.compose(preprocess_fn, self._create_element_id)
-
-    dataset = dataset.map(
-        preprocess_fn,
-        num_parallel_calls=self._num_parallel_parser_calls)
+      add_fingerprint_key_fn = self._add_enumerate_id(self._fingerprint_key)
+      dataset = dataset.map(
+          add_fingerprint_key_fn,
+          num_parallel_calls=self._num_parallel_parser_calls)
 
     # Shuffle and repeat only for the training split.
     if self._is_training:
-      dataset = dataset.shuffle(self._shuffle_buffer_size)
+      dataset = dataset.shuffle(
+          self._shuffle_buffer_size,
+          seed=tf.cast(self._shuffle_seed[0], tf.int64),
+          reshuffle_each_iteration=True)
       dataset = dataset.repeat()
+
+    # Enumerate the dataset to generate a unique per-example, per-step id, that
+    # is then added to the feature dict as `self._enumerate_id_key`.
+    # Note that this is distinct from just a per-example id that is used by
+    # Robustness Metrics to identify examples, because we want an id that is
+    # different for each step so that we can fold it into a source of randomness
+    # for deterministic random preprocessing.
+    # This must be done *after* repeating the dataset so that each example has a
+    # different key per-step.
+    dataset = dataset.enumerate()
+    add_per_step_id_key_fn = self._add_enumerate_id(self._enumerate_id_key)
+
+    if preprocess_fn is None:
+      preprocess_fn = self._create_process_example_fn()
+
+    # `self._create_element_id` must come before `preprocess_fn` so that we
+    # guarantee the field with key `self._fingerprint_key` is still present
+    # (many preprocess_fn's may not return it).
+    preprocess_fn = ops.compose(
+        add_per_step_id_key_fn, self._create_element_id, preprocess_fn)
+    dataset = dataset.map(
+        preprocess_fn,
+        num_parallel_calls=self._num_parallel_parser_calls)
 
     # Note that unless the default value of `drop_remainder=True` is overriden
     # in `__init__`, we always drop the last batch when the batch size does not
@@ -268,13 +345,79 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # TODO(znado): add padding to last partial eval batch.
     dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
 
-    dataset = dataset.prefetch(-1)
+    process_batch_fn = self._create_process_batch_fn(batch_size)  # pylint: disable=assignment-from-none
+    if process_batch_fn:
+      dataset = dataset.map(
+          process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
+    if not self._is_training:
+      dataset = dataset.cache()
+
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+
+    # The AutoSharding policy in DistributionStrategy defaults to AUTO, which
+    # will fallback to DATA if it can, which is safe to do but possibly
+    # wasteful compared to `distribute_datasets_from_function`.
     options = tf.data.Options()
-    options.experimental_distribute.auto_shard_policy = (
-        tf.data.experimental.AutoShardPolicy.OFF)
+    # Optimize dataset performance.
+    # Keep commented out, unclear if will always improve performance.
+    # options.experimental_optimization.parallel_batch = True
+    options.experimental_optimization.map_fusion = True
+    options.experimental_optimization.map_vectorization.enabled = True
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_threading.private_threadpool_size = 48
+    options.experimental_threading.max_intra_op_parallelism = 1
     dataset = dataset.with_options(options)
     return dataset
+
+  def load(
+      self,
+      *,
+      preprocess_fn: Optional[PreProcessFn] = None,
+      batch_size: int = -1,
+      strategy: Optional[tf.distribute.Strategy] = None) -> tf.data.Dataset:
+    """Function definition to support multi-host dataset sharding.
+
+    This is preferred over strategy.experimental_distribute_dataset(...) because
+    not all datasets will have enough input files to have >=1 per host, which
+    will result in an error unless the auto_shard_policy is set to
+    tf.data.experimental.AutoShardPolicy.OFF. However, if auto sharding is OFF,
+    then each host will process the same set of files, in the same order, which
+    will be the same as using a single host. To correctly distribute across
+    multiple hosts, we must either shard the input files across hosts, or
+    shuffle the data in a different order on each host. In order to get a
+    per-host id to fold into the shuffle RNG, we use
+    strategy.distribute_datasets_from_function to get a
+    tf.distribute.InputContext. This is preferrred over AutoShardPolicy.DATA
+    because DATA will prepare and throw out (n - 1)/n elements of data, where n
+    is the number of devices (DATA also relies on the data files being in the
+    same ordering across hosts, which may be a fair assumption). On an ImageNet
+    test run on a TPUv2-32, we saw a 37% slowdown using DATA instead of
+    `distribute_datasets_from_function`. See this documentation for more info
+    https://www.tensorflow.org/tutorials/distribute/input#sharding.
+
+
+    Args:
+      preprocess_fn: see `load()`.
+      batch_size: the *global* batch size to use. This should equal
+        `per_replica_batch_size * num_replica_in_sync`.
+      strategy: the DistributionStrategy used to shard the dataset. Note that
+        this is only required if TensorFlow for training, otherwise it can be
+        ignored.
+    Returns:
+      A sharded dataset, with its seed combined with the per-host id.
+    """
+    if strategy:
+      def _load_distributed(ctx: tf.distribute.InputContext):
+        self._seed = tf.random.experimental.stateless_fold_in(
+            self._seed, ctx.input_pipeline_id)
+        per_replica_batch_size = ctx.get_per_replica_batch_size(batch_size)
+        return self._load(
+            preprocess_fn=preprocess_fn, batch_size=per_replica_batch_size)
+
+      return strategy.distribute_datasets_from_function(_load_distributed)
+    else:
+      return self._load(preprocess_fn=preprocess_fn, batch_size=batch_size)
 
 
 _BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]

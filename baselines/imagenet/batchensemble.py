@@ -21,12 +21,12 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
-
+import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
 flags.DEFINE_integer('depth', 50, 'ResNet depth (50 or 101).')
@@ -36,6 +36,7 @@ flags.DEFINE_float('random_sign_init', -0.5,
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('base_learning_rate', 0.1,
                    'Base learning rate when train batch size is 256.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
 flags.DEFINE_float('fast_weight_lr_multiplier', 0.25,
                    'fast weights lr multiplier.')
@@ -108,27 +109,29 @@ def main(argv):
       'adaptive_mixup': FLAGS.adaptive_mixup,
       'num_classes': NUM_CLASSES,
   }
-  train_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                      one_hot=(FLAGS.mixup_alpha > 0),
-                                      use_bfloat16=FLAGS.use_bfloat16,
-                                      mixup_params=mixup_params,
-                                      ensemble_size=FLAGS.ensemble_size)
-  test_builder = utils.ImageNetInput(data_dir=FLAGS.data_dir,
-                                     use_bfloat16=FLAGS.use_bfloat16)
-  train_dataset = train_builder.as_dataset(split=tfds.Split.TRAIN,
-                                           batch_size=batch_size)
-  clean_test_dataset = test_builder.as_dataset(split=tfds.Split.TEST,
-                                               batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  train_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TRAIN,
+      one_hot=(FLAGS.mixup_alpha > 0),
+      use_bfloat16=FLAGS.use_bfloat16,
+      mixup_params=mixup_params,
+      ensemble_size=FLAGS.ensemble_size)
+  train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
+  test_builder = ub.datasets.ImageNetDataset(
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16)
+  clean_test_dataset = test_builder.load(
+      batch_size=batch_size, strategy=strategy)
   test_datasets = {
-      'clean': strategy.experimental_distribute_dataset(clean_test_dataset)
+      'clean': clean_test_dataset,
   }
   if FLAGS.adaptive_mixup:
-    imagenet_confidence_dataset = test_builder.as_dataset(
+    validation_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
-        batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores)
-    imagenet_confidence_dataset = (
-        strategy.experimental_distribute_dataset(imagenet_confidence_dataset))
+        run_mixup=True,
+        use_bfloat16=FLAGS.use_bfloat16)
+    imagenet_confidence_dataset = validation_builder.load(
+        batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores,
+        strategy=strategy)
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
     for name in corruption_types:
@@ -163,24 +166,33 @@ def main(argv):
     logging.info('Model number of weights: %s', model.count_params())
     # Scale learning rate and decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate * batch_size / 256
-    learning_rate = utils.LearningRateSchedule(steps_per_epoch,
-                                               base_lr,
-                                               FLAGS.train_epochs,
-                                               _LR_SCHEDULE)
+    decay_epochs = [
+        (FLAGS.train_epochs * 30) // 90,
+        (FLAGS.train_epochs * 60) // 90,
+        (FLAGS.train_epochs * 80) // 90,
+    ]
+    learning_rate = ub.schedules.WarmUpPiecewiseConstantSchedule(
+        steps_per_epoch=steps_per_epoch,
+        base_learning_rate=base_lr,
+        decay_ratio=0.1,
+        decay_epochs=decay_epochs,
+        warmup_epochs=5)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
-                                        momentum=0.9,
+                                        momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
         'test/member_accuracy_mean': (
             tf.keras.metrics.SparseCategoricalAccuracy()),
-        'test/member_ece_mean': um.ExpectedCalibrationError(
+        'test/member_ece_mean': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins)
     }
 
@@ -194,11 +206,11 @@ def main(argv):
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
           corrupt_metrics['test/member_acc_mean_{}'.format(dataset_name)] = (
               tf.keras.metrics.SparseCategoricalAccuracy())
           corrupt_metrics['test/member_ece_mean_{}'.format(dataset_name)] = (
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
     test_diversity = {}
     training_diversity = {}
@@ -234,7 +246,8 @@ def main(argv):
     """Training StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       if FLAGS.adaptive_mixup:
         images = tf.identity(images)
       else:
@@ -255,8 +268,9 @@ def main(argv):
         probs = tf.nn.softmax(logits)
         per_probs = tf.reshape(
             probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-        diversity_results = um.average_pairwise_diversity(
-            per_probs, FLAGS.ensemble_size)
+        diversity = rm.metrics.AveragePairwiseDiversity()
+        diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
+        diversity_results = diversity.result()
 
         if FLAGS.mixup_alpha > 0:
           negative_log_likelihood = tf.reduce_mean(
@@ -301,7 +315,7 @@ def main(argv):
 
       if FLAGS.mixup_alpha > 0:
         labels = tf.argmax(labels, axis=-1)
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
@@ -309,14 +323,16 @@ def main(argv):
       for k, v in diversity_results.items():
         training_diversity['train/' + k].update_state(v)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
   def test_step(iterator, dataset_name):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
-      images, labels = inputs
+      images = inputs['features']
+      labels = inputs['labels']
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       logits = model(images, training=False)
       if FLAGS.use_bfloat16:
@@ -326,8 +342,9 @@ def main(argv):
       if dataset_name == 'clean':
         per_probs_tensor = tf.reshape(
             probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-        diversity_results = um.average_pairwise_diversity(
-            per_probs_tensor, FLAGS.ensemble_size)
+        diversity = rm.metrics.AveragePairwiseDiversity()
+        diversity.add_batch(per_probs_tensor, num_models=FLAGS.ensemble_size)
+        diversity_results = diversity.result()
         for k, v in diversity_results.items():
           test_diversity['test/' + k].update_state(v)
 
@@ -348,33 +365,30 @@ def main(argv):
               labels, member_probs)
           metrics['test/member_accuracy_mean'].update_state(
               labels, member_probs)
-          metrics['test/member_ece_mean'].update_state(labels, member_probs)
+          metrics['test/member_ece_mean'].add_batch(member_probs, label=labels)
         elif dataset_name != 'confidence_validation':
           corrupt_metrics['test/member_acc_mean_{}'.format(
               dataset_name)].update_state(labels, member_probs)
           corrupt_metrics['test/member_ece_mean_{}'.format(
-              dataset_name)].update_state(labels, member_probs)
+              dataset_name)].add_batch(member_probs, label=labels)
 
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
       elif dataset_name != 'confidence_validation':
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        corrupt_metrics['test/ece_{}'.format(dataset_name)].update_state(
-            labels, probs)
+        corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            probs, label=labels)
 
       if dataset_name == 'confidence_validation':
         return tf.stack(per_probs, 0), labels
 
-    if dataset_name == 'confidence_validation':
-      return strategy.run(step_fn, args=(next(iterator),))
-    else:
-      strategy.run(step_fn, args=(next(iterator),))
+    return strategy.run(step_fn, args=(next(iterator),))
 
   metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
 
@@ -382,24 +396,22 @@ def main(argv):
   start_time = time.time()
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps,
+                   epoch + 1,
+                   FLAGS.train_epochs,
+                   steps_per_sec,
+                   eta_seconds / 60,
+                   time_elapsed / 60))
+    logging.info(message)
 
     if FLAGS.adaptive_mixup:
       confidence_set_iterator = iter(imagenet_confidence_dataset)
@@ -435,14 +447,13 @@ def main(argv):
       logging.info('mixup coeff')
       logging.info(mixup_coeff)
       mixup_params['mixup_coeff'] = mixup_coeff
-      builder = utils.ImageNetInput(
-          data_dir=FLAGS.data_dir,
+      train_builder = ub.datasets.ImageNetDataset(
+          split=tfds.Split.TRAIN,
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
           mixup_params=mixup_params)
-      train_dataset = builder.as_dataset(split=tfds.Split.TRAIN,
-                                         batch_size=batch_size)
-      train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+      train_dataset = train_builder.load(
+          batch_size=batch_size, strategy=strategy)
       train_iterator = iter(train_dataset)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
@@ -487,6 +498,12 @@ def main(argv):
     total_results = {name: metric.result()
                      for name, metric in total_metrics.items()}
     total_results.update(corrupt_results)
+    # Metrics from Robustness Metrics (like ECE) will return a dict with a
+    # single key/value, instead of a scalar.
+    total_results = {
+        k: (list(v.values())[0] if isinstance(v, dict) else v)
+        for k, v in total_results.items()
+    }
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
@@ -503,6 +520,15 @@ def main(argv):
   final_save_name = os.path.join(FLAGS.output_dir, 'model')
   model.save(final_save_name)
   logging.info('Saved model to %s', final_save_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'random_sign_init': FLAGS.random_sign_init,
+        'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
+    })
+
 
 if __name__ == '__main__':
   app.run(main)

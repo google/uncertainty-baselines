@@ -21,6 +21,7 @@ import logging
 from typing import Any, List, Tuple, Union
 import warnings
 
+import tensorflow as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
@@ -112,10 +113,14 @@ def get(
   Raises:
     ValueError: If dataset_name is unrecognized.
   """
+  hyperparameters_py = {
+      k: (v.numpy().tolist() if isinstance(v, tf.Tensor) else v)
+      for k, v in hyperparameters.items()
+  }
   logging.info(
       'Building dataset %s with additional kwargs:\n%s',
       dataset_name,
-      json.dumps(hyperparameters, indent=2, sort_keys=True))
+      json.dumps(hyperparameters_py, indent=2, sort_keys=True))
   if dataset_name not in DATASETS:
     raise ValueError('Unrecognized dataset name: {!r}'.format(dataset_name))
 

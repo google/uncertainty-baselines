@@ -17,7 +17,7 @@
 """Data loader for the Criteo dataset."""
 
 import os.path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -178,6 +178,7 @@ class CriteoDataset(base.BaseDataset):
       shuffle_buffer_size: int = None,
       num_parallel_parser_calls: int = 64,
       data_dir: str = None,
+      is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a Criteo tf.data.Dataset builder.
 
@@ -192,6 +193,9 @@ class CriteoDataset(base.BaseDataset):
         preprocessing in tf.data.Dataset.map().
       data_dir: path to a directory containing the Criteo datasets, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
+      is_training: Whether or not the given `split` is the training split. Only
+        required when the passed split is not one of ['train', 'validation',
+        'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     # If receive a corruption level as a split, load the test set and save the
     # corruption level for use in preprocessing.
@@ -204,16 +208,17 @@ class CriteoDataset(base.BaseDataset):
         name='criteo',
         dataset_builder=_CriteoDatasetBuilder(data_dir=data_dir),
         split=split,
+        is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=False)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
-    def _example_parser(example: tf.Tensor) -> Dict[str, tf.Tensor]:
+    def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
       features_spec = _make_features_spec()
-      features = tf.io.parse_example(example, features_spec)
+      features = tf.io.parse_example(example['features'], features_spec)
       features = {k: tf.squeeze(v, axis=0) for k, v in features.items()}
       labels = tf.cast(features.pop('clicked'), tf.int32)
 

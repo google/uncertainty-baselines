@@ -21,16 +21,28 @@ from absl import logging
 
 _IMPORTS = [
     'datasets',
+    'halton',
     'models',
     'optimizers',
+    'schedules',
     'strategy_utils',
     'utils',
 ]
 
 
 def _lazy_import(name):
+  """Load a submodule named `name`."""
+  if name not in _IMPORTS:
+    raise AttributeError(
+        'module uncertainty_baselines has no attribute {}'.format(name))
   module = importlib.import_module(__name__)
-  imported = importlib.import_module('.' + name, 'uncertainty_baselines')
+  try:
+    imported = importlib.import_module('.' + name, 'uncertainty_baselines')
+  except AttributeError:
+    logging.warning(
+        'Submodule %s was found, but will not be loaded due to AttributeError '
+        'within it while importing.', name)
+    return
   setattr(module, name, imported)
   return imported
 

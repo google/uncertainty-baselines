@@ -127,7 +127,7 @@ def create_model(
     dropout_rate: float = 0.2,
     l2_weight: float = 0.001,
     premade_embedding_arr: np.ndarray = None,
-    **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
+    **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:  # pytype: disable=annotation-type-mismatch
   """Builds TextCNN model.
 
   Args:

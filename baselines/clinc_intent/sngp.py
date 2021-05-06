@@ -38,11 +38,12 @@ from absl import flags
 from absl import logging
 
 import edward2 as ed
+import robustness_metrics as rm
 import tensorflow as tf
 
 import uncertainty_baselines as ub
 import bert_utils  # local file import
-import uncertainty_metrics as um
+from tensorboard.plugins.hparams import api as hp
 
 # Data flags
 flags.DEFINE_string(
@@ -106,7 +107,7 @@ flags.DEFINE_float(
     'gp_cov_discount_factor', 0.999,
     'The discount factor to compute the moving average of precision matrix.')
 flags.DEFINE_float(
-    'gp_mean_field_factor', 1e-4,
+    'gp_mean_field_factor', 1e-1,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
@@ -120,6 +121,7 @@ flags.DEFINE_float(
     'base_learning_rate', 5e-5,
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_integer(
     'checkpoint_interval', 40,
     'Number of epochs between saving checkpoints. Use -1 to '
@@ -207,7 +209,8 @@ def main(argv):
       'all': all_dataset_builder
   }
 
-  train_dataset = train_dataset_builder.load(batch_size=batch_size)
+  train_dataset = train_dataset_builder.load(
+      batch_size=FLAGS.per_core_batch_size)
 
   ds_info = train_dataset_builder.tfds_info
   feature_size = ds_info.metadata['feature_size']
@@ -265,11 +268,13 @@ def main(argv):
         use_layer_norm_att=FLAGS.use_layer_norm_att,
         use_layer_norm_ffn=FLAGS.use_layer_norm_ffn,
         use_spec_norm_plr=FLAGS.use_spec_norm_plr)
+    # Create an AdamW optimizer with beta_2=0.999, epsilon=1e-6.
     optimizer = bert_utils.create_optimizer(
         FLAGS.base_learning_rate,
         steps_per_epoch=steps_per_epoch,
         epochs=FLAGS.train_epochs,
-        warmup_proportion=FLAGS.warmup_proportion)
+        warmup_proportion=FLAGS.warmup_proportion,
+        beta_1=1.0 - FLAGS.one_minus_momentum)
 
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
@@ -279,7 +284,8 @@ def main(argv):
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'train/ece': rm.metrics.ExpectedCalibrationError(
+            num_bins=FLAGS.num_bins),
     }
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
@@ -303,7 +309,8 @@ def main(argv):
   metrics.update({
       'test/negative_log_likelihood': tf.keras.metrics.Mean(),
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-      'test/ece': um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/ece': rm.metrics.ExpectedCalibrationError(
+          num_bins=FLAGS.num_bins),
       'test/stddev': tf.keras.metrics.Mean(),
   })
   for dataset_name, test_dataset in test_datasets.items():
@@ -314,7 +321,7 @@ def main(argv):
           'test/accuracy_{}'.format(dataset_name):
               tf.keras.metrics.SparseCategoricalAccuracy(),
           'test/ece_{}'.format(dataset_name):
-              um.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
           'test/stddev_{}'.format(dataset_name):
               tf.keras.metrics.Mean(),
       })
@@ -336,7 +343,7 @@ def main(argv):
         # Set learning phase to enable dropout etc during training.
         logits = model(features, training=True)
 
-        if isinstance(logits, tuple):
+        if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract logits
           logits, _ = logits
         if FLAGS.use_bfloat16:
@@ -354,16 +361,17 @@ def main(argv):
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
       probs = tf.nn.softmax(logits)
-      metrics['train/ece'].update_state(labels, probs)
+      metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
 
-    strategy.run(step_fn, args=(next(iterator),))
+    for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def test_step(iterator, dataset_name):
+  def test_step(iterator, dataset_name, num_steps):
     """Evaluation StepFn."""
 
     def step_fn(inputs):
@@ -377,7 +385,7 @@ def main(argv):
       for _ in range(FLAGS.num_mc_samples):
         logits = model(features, training=False)
 
-        if isinstance(logits, tuple):
+        if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract both.
           logits, covmat = logits
         else:
@@ -414,14 +422,15 @@ def main(argv):
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
         metrics['test/accuracy'].update_state(labels, probs)
-        metrics['test/ece'].update_state(labels, probs)
+        metrics['test/ece'].add_batch(probs, label=labels)
         metrics['test/stddev'].update_state(stddev)
       else:
         metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         metrics['test/accuracy_{}'.format(dataset_name)].update_state(
             labels, probs)
-        metrics['test/ece_{}'.format(dataset_name)].update_state(labels, probs)
+        metrics['test/ece_{}'.format(dataset_name)].add_batch(
+            probs, label=labels)
         metrics['test/stddev_{}'.format(dataset_name)].update_state(stddev)
 
       if dataset_name == 'all':
@@ -432,36 +441,32 @@ def main(argv):
         metrics['test/auprc_{}'.format(dataset_name)].update_state(
             ood_labels, ood_probs)
 
-    step_fn(next(iterator))
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
+      step_fn(next(iterator))
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      train_step(train_iterator)
+    train_step(train_iterator)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps, epoch + 1, FLAGS.train_epochs,
-                     steps_per_sec, eta_seconds / 60, time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+    current_step = (epoch + 1) * steps_per_epoch
+    max_steps = steps_per_epoch * FLAGS.train_epochs
+    time_elapsed = time.time() - start_time
+    steps_per_sec = float(current_step) / time_elapsed
+    eta_seconds = (max_steps - current_step) / steps_per_sec
+    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                   current_step / max_steps, epoch + 1, FLAGS.train_epochs,
+                   steps_per_sec, eta_seconds / 60, time_elapsed / 60))
+    logging.info(message)
 
     if epoch % FLAGS.evaluation_interval == 0:
       for dataset_name, test_dataset in test_datasets.items():
         test_iterator = iter(test_dataset)
         logging.info('Testing on dataset %s', dataset_name)
-        for step in range(steps_per_eval[dataset_name]):
-          if step % 20 == 0:
-            logging.info('Starting to run eval step %s of epoch: %s', step,
-                         epoch)
-          test_step(test_iterator, dataset_name)
+        logging.info('Starting to run eval at epoch: %s', epoch)
+        test_step(test_iterator, dataset_name, steps_per_eval[dataset_name])
         logging.info('Done with testing on %s', dataset_name)
 
       logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
@@ -472,6 +477,12 @@ def main(argv):
                    metrics['test/accuracy'].result() * 100)
       total_results = {
           name: metric.result() for name, metric in metrics.items()
+      }
+      # Metrics from Robustness Metrics (like ECE) will return a dict with a
+      # single key/value, instead of a scalar.
+      total_results = {
+          k: (list(v.values())[0] if isinstance(v, dict) else v)
+          for k, v in total_results.items()
       }
       with summary_writer.as_default():
         for name, result in total_results.items():
@@ -485,6 +496,12 @@ def main(argv):
       checkpoint_name = checkpoint.save(
           os.path.join(FLAGS.output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
+  with summary_writer.as_default():
+    hp.hparams({
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'gp_mean_field_factor': FLAGS.gp_mean_field_factor,
+    })
 
 
 if __name__ == '__main__':

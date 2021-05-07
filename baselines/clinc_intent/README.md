@@ -5,13 +5,13 @@ Task-oriented dialog systems need to know when a query falls outside their range
 
 ## BERT-base (12 layer, 768 unit)
 
-| Method | Train/Test NLL | Train/Test Accuracy | Train/Test Cal. Error | cNLL/cAcc/cECE | OOD AUROC/AUPRC | Train Runtime (hours) | # Parameters |
+| Method | Test NLL | Test Accuracy | Test Cal. Error | cNLL/cAcc/cECE | OOD AUROC/AUPRC | Train Runtime (hours) | # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- |
-| Determinisitic | 0.003 / 0.186 | 99.9% / 96.5% | 3e-4 / 0.0218 | 1.803 / 77.6% / 0.142 | 0.942 / 0.853 | 0.8 (8 TPUv3 cores) | 110M |
-| Monte Carlo Dropout (Size=10) | 0.003 / 0.171 | 99.9% / 96.5% | 3e-3 / 0.0170 | 1.717 / 77.7% / 0.126 | 0.951 / 0.861 | 0.8 (80 TPUv3 cores) | 110M |
-| SNGP | 0.012 / 0.139 | 99.8% / 96.9% | 6e-3 / 0.0104 | 1.576 / 78.0% / 0.080 | 0.969 / 0.908 | 0.4 (80 TPUv3 cores) | 110M |
-| SNGP Ensemble (Size=10) | - / 0.118 | - / 97.4% | - / 0.0094 | 1.424 / 79.5% / 0.064 | 0.973 / 0.910 | 0.8 (80 TPUv3 cores) | 1100M |
-| Ensemble (Size=10) | - / 0.169 | - / 97.5% | - / 0.0128 | 1.600 / 79.1% / 0.098 | 0.958 / 0.862 | 0.8 (80 TPUv3 cores) | 1100M |
+| Determinisitic | 0.186 | 96.5% | 0.0218 | 1.803 / 77.6% / 0.142 | 0.942 / 0.853 | 0.8 (8 TPUv3 cores) | 110M |
+| Monte Carlo Dropout (Size=10) | 0.171 | 96.5% | 0.0170 | 1.717 / 77.7% / 0.126 | 0.951 / 0.861 | 0.8 (80 TPUv3 cores) | 110M |
+| SNGP | 0.139 | 96.9% | 0.0104 | 1.576 / 78.0% / 0.080 | 0.969 / 0.908 | 0.4 (80 TPUv3 cores) | 110M |
+| SNGP Ensemble (Size=10) | 0.118 | 97.4% | 0.0094 | 1.424 / 79.5% / 0.064 | 0.973 / 0.910 | 0.8 (80 TPUv3 cores) | 1100M |
+| Ensemble (Size=10) |  0.169 | 97.5% | 0.0128 | 1.600 / 79.1% / 0.098 | 0.958 / 0.862 | 0.8 (80 TPUv3 cores) | 1100M |
 
 ## Metrics
 

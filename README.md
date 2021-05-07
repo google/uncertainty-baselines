@@ -158,14 +158,14 @@ Supported methods include:
 We define metrics used across datasets below. All results are reported by roughly 3 significant digits and averaged over 10 runs.
 
 1. __# Parameters.__ Number of parameters in the model to make predictions after training.
-2. __Train/Test Accuracy.__ Accuracy over the train and test sets respectively. For a dataset of `N` input-output pairs `(xn, yn)` where the label `yn` takes on 1 of `K` values, the accuracy is
+2. __Test Accuracy.__ Accuracy over the test set. For a dataset of `N` input-output pairs `(xn, yn)` where the label `yn` takes on 1 of `K` values, the accuracy is
 
     ```sh
     1/N \sum_{n=1}^N 1[ \argmax{ p(yn | xn) } = yn ],
     ```
 
     where `1` is the indicator function that is 1 when the model's predicted class is equal to the label and 0 otherwise.
-3. __Train/Test Cal. Error.__ Expected calibration error (ECE) over the train and test sets respectively ([Naeini et al., 2015](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4410090)). ECE discretizes the probability interval `[0, 1]` under equally spaced bins and assigns each predicted probability to the bin that encompasses it. The calibration error is the difference between the fraction of predictions in the bin that are correct (accuracy) and the mean of the probabilities in the bin (confidence). The expected calibration error averages across bins.
+3. __Test Cal. Error.__ Expected calibration error (ECE) over the test set ([Naeini et al., 2015](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4410090)). ECE discretizes the probability interval `[0, 1]` under equally spaced bins and assigns each predicted probability to the bin that encompasses it. The calibration error is the difference between the fraction of predictions in the bin that are correct (accuracy) and the mean of the probabilities in the bin (confidence). The expected calibration error averages across bins.
 
     For a dataset of `N` input-output pairs `(xn, yn)` where the label `yn` takes on 1 of `K` values, ECE computes a weighted average
 
@@ -174,7 +174,7 @@ We define metrics used across datasets below. All results are reported by roughl
     ```
 
     where `B` is the number of bins, `n_b` is the number of predictions in bin `b`, and `acc(b)` and `conf(b)` is the accuracy and confidence of bin `b` respectively.
-4. __Train/Test NLL.__ Negative log-likelihood over the train and test sets respectively (measured in nats). For a dataset of `N` input-output pairs `(xn, yn)`, the negative log-likelihood is
+4. __Test NLL.__ Negative log-likelihood over the test set (measured in nats). For a dataset of `N` input-output pairs `(xn, yn)`, the negative log-likelihood is
 
     ```sh
     -1/N \sum_{n=1}^N \log p(yn | xn).

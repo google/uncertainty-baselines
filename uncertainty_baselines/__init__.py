@@ -24,6 +24,7 @@ _IMPORTS = [
     'halton',
     'models',
     'optimizers',
+    'plotting',
     'schedules',
     'strategy_utils',
     'utils',

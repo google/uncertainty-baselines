@@ -191,8 +191,7 @@ def main(argv):
         num_classes=num_classes,
         l2=FLAGS.l2,
         hps=_extract_hyperparameter_dictionary(),
-        seed=seeds[1],
-        version=2)
+        seed=seeds[1])
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())

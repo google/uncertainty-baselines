@@ -68,5 +68,12 @@ try:
 except ImportError as e:
   warnings.warn(f'Skipped due to ImportError: {e}')
 except tf.errors.NotFoundError as e:
-  warnings.warn(f'Skipped dur to NotFoundError: {e}')
+  warnings.warn(f'Skipped due to NotFoundError: {e}')
+
+# This is necessary because we cannot depend on torch internally, so the torch
+# model modules cannot be imported at all, so we cannot just wrap the imports in
+# a try/except.
+import_torch = True
+if import_torch:
+  from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
 # pylint: enable=g-import-not-at-top

@@ -48,6 +48,8 @@ setup(
             'edward2',
             'pandas',
             'scipy',
+            'torch',
+            'torchvision',
         ],
         'tests': ['pylint>=1.9.0'],
     },

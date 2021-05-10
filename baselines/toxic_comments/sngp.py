@@ -955,7 +955,7 @@ def main(argv):
 
         logging.info('Train Loss: %.4f, ECE: %.2f, Accuracy: %.2f',
                      metrics['train/loss'].result(),
-                     metrics['train/ece'].result(),
+                     metrics['train/ece'].result()['ece'],
                      metrics['train/accuracy'].result())
 
         total_results = {

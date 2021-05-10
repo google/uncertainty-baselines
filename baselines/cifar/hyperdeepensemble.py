@@ -169,8 +169,7 @@ def main(argv):
       depth=28,
       width_multiplier=10,
       num_classes=num_classes,
-      l2=0.,
-      version=2)
+      l2=0.)
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)
   logging.info('Model number of weights: %s', model.count_params())

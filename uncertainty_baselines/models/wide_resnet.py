@@ -148,7 +148,7 @@ def wide_resnet(
     width_multiplier: int,
     num_classes: int,
     l2: float,
-    version: int,
+    version: int = 2,
     seed: int = 42,
     hps: Dict[str, float] = None) -> tf.keras.models.Model:
   """Builds Wide ResNet.
@@ -238,7 +238,7 @@ def create_model(
     input_shape: Iterable[int] = (32, 32, 3),
     num_classes: int = 10,
     l2_weight: float = 0.0,
-    version: int = 1,
+    version: int = 2,
     **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
   """Creates model."""
   del batch_size  # unused arg

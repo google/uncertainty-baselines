@@ -20,6 +20,15 @@ improve a deterministic neural network's uncertainty. It simply applies spectral
 normalization to the hidden layers, and then replace the dense output layer
 with a Gaussian process layer.
 
+## Note:
+
+Different from the paper, this implementation computes the posterior using the
+Laplace approximation based on the Gaussian likelihood (i.e., squared loss)
+rather than that based on cross-entropy loss. As a result, the logits for all
+classes share the same covariance. In the experiments, this approach is shown to
+perform better and computationally more scalable when the number of output
+classes are large.
+
 ## References:
 
 [1]: Jeremiah Liu et al. Simple and Principled Uncertainty Estimation with

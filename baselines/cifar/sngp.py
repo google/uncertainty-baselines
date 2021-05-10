@@ -38,6 +38,15 @@ SNGP by setting `use_mc_dropout=True`, setting `num_dropout_samples=10`
 individual models (in this case single SNGPs) can sometimes lead to
 under-confidence [3].
 
+## Note:
+
+Different from the paper, this implementation computes the posterior using the
+Laplace approximation based on the Gaussian likelihood (i.e., squared loss)
+rather than that based on cross-entropy loss. As a result, the logits for all
+classes share the same covariance. In the experiments, this approach is shown to
+perform better and computationally more scalable when the number of output
+classes are large.
+
 ## References:
 
 [1]: Jeremiah Liu et al. Simple and Principled Uncertainty Estimation with

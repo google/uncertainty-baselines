@@ -4,47 +4,47 @@
 
 | Method | Test NLL | Test Accuracy | Test Cal. Error | cNLL/cA/cCE | Train Runtime (hours) | Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- |
-| Deterministic | 0.159 | 96.0% | 0.0231 | 1.05 / 76.1% / 0.153 | 1.2 (8 TPUv2 cores) | 0.079 (8 TPUv2 cores) | 36.5M |
-| BatchEnsemble (size=4) | 0.136 | 96.3% | 0.0177 | 0.97 / 77.8% / 0.124 | 5.4 (8 TPUv2 cores) | 0.319 (8 TPUv2 cores) | 36.6M |
-| Hyper-BatchEnsemble (size=4) | 0.126 | 96.3% | 0.009  |- |  - |  - | 73.1M |
-| MIMO | 0.123 | 96.4% | 0.010 | 0.927 / 76.6% / 0.112 | - | 0.080 | 36.5M |
-| Rank-1 BNN (Gaussian, size=4) | 0.128 | 96.3% |  0.008 | 0.84 / 76.7% / 0.080 | 7.3 (8 TPUv2 cores) | - | 36.6M |
-| Rank-1 BNN (Cauchy, size=4, 4 samples) | 0.120 | 96.5% |  0.009 | 0.74 / 80.5% / 0.090 | 7.3 (8 TPUv2 cores) | - | 36.6M |
-| SNGP | 0.134 | 96.0% | 0.007 | 0.74 / 78.5% / 0.078 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| SNGP, with AugMix| 0.103 | 96.9% | 0.0045 | 0.33 / 89.1% / 0.015 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| SNGP, with MC Dropout (size=10) | 0.131 | 95.9% | 0.008 | 0.76 / 77.7% / 0.082 | 4.5 (8 TPUv2 cores) | 2.846 (8 TPUv2 cores) | 36.5M |
-| SNGP, with BatchEnsemble (size=4) | 0.127 | 96.2% | 0.006 | 0.75 / 78.1% / 0.080 | - (8 TPUv2 cores) | - | -M |
-| SNGP Ensemble (size=4) | 0.109 | 96.7% | 0.005 | 0.72 / 79.2% / 0.074 | 2.6 (32 TPUv2 cores) | 1.199 (8 TPUv2 cores) | 146M |
-| Monte Carlo Dropout (size=1) |0.160 | 95.9% | 0.0241 | 1.27 / 68.8% / 0.166 | 1.2 (8 TPUv2 cores) | 0.082 (8 TPUv2 cores) | 36.5M |
-| Monte Carlo Dropout (size=30) | 0.145 | 96.1% | 0.019 | 1.27 / 70.0% / 0.167 | 1.2 (8 TPUv2 cores) | 2.457  (8 TPUv2 cores) | 36.5M |
-| Monte Carlo Dropout, improved (size=30)<sup>11</sup> | 0.116 | 96.2% | 0.005 | 0.69 / 79.6% / 0.068 | 4.8 (8 TPUv2 cores) | 2.387  (8 TPUv2 cores)  | 36.5M |
-| Ensemble (size=4) | 0.114 | 96.6% | 0.010 | 0.81 / 77.9% / 0.087 | 1.2 (32 TPUv2 cores) | 0.317  (8 TPUv2 cores) | 146M |
-| Hyper-deep ensemble (size=4)<sup>12</sup> | 0.118 | 96.4% | 0.008 | 0.83 / 76.8% / 0.079 | 1.2 (32 TPUv2 cores) | 20.7 / 0.317  (8 TPUv2 cores) | 146M |
-| Variational inference (sample=1) | 0.211 | 94.7% | 0.029 | 1.46 / 71.3% / 0.181 | 5.5 (8 TPUv2 cores) | 0.220 (8 TPUv2 cores) | 73M |
+| [Deterministic](deterministic.py) | 0.159 | 96.0% | 0.0231 | 1.05 / 76.1% / 0.153 | 1.2 (8 TPUv2 cores) | 0.079 (8 TPUv2 cores) | 36.5M |
+| [BatchEnsemble (size=4)](batchensemble.py) | 0.136 | 96.3% | 0.0177 | 0.97 / 77.8% / 0.124 | 5.4 (8 TPUv2 cores) | 0.319 (8 TPUv2 cores) | 36.6M |
+| [Hyper-BatchEnsemble (size=4)](hyperbatchensemble.py) | 0.126 | 96.3% | 0.009  |- |  - |  - | 73.1M |
+| [MIMO](mimo.py) | 0.123 | 96.4% | 0.010 | 0.927 / 76.6% / 0.112 | - | 0.080 | 36.5M |
+| [Rank-1 BNN (Gaussian, size=4)](rank1_bnn.py) | 0.128 | 96.3% |  0.008 | 0.84 / 76.7% / 0.080 | 7.3 (8 TPUv2 cores) | - | 36.6M |
+| [Rank-1 BNN (Cauchy, size=4, 4 samples)](rank1_bnn.py) | [0.120 | 96.5% |  0.009 | 0.74 / 80.5% / 0.090 | 7.3 (8 TPUv2 cores) | - | 36.6M |
+| [SNGP](sngp.py) | 0.134 | 96.0% | 0.007 | 0.74 / 78.5% / 0.078 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
+| [SNGP, with AugMix](sngp.py)| 0.103 | 96.9% | 0.0045 | 0.33 / 89.1% / 0.015 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
+| [SNGP, with MC Dropout (size=10)](sngp.py) | 0.131 | 95.9% | 0.008 | 0.76 / 77.7% / 0.082 | 4.5 (8 TPUv2 cores) | 2.846 (8 TPUv2 cores) | 36.5M |
+| [SNGP, with BatchEnsemble (size=4)](sngp_batchensemble.py) | 0.127 | 96.2% | 0.006 | 0.75 / 78.1% / 0.080 | - (8 TPUv2 cores) | - | -M |
+| [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.109 | 96.7% | 0.005 | 0.72 / 79.2% / 0.074 | 2.6 (32 TPUv2 cores) | 1.199 (8 TPUv2 cores) | 146M |
+| [Monte Carlo Dropout (size=1)](dropout.py) |0.160 | 95.9% | 0.0241 | 1.27 / 68.8% / 0.166 | 1.2 (8 TPUv2 cores) | 0.082 (8 TPUv2 cores) | 36.5M |
+| [Monte Carlo Dropout (size=30)](dropout.py) | 0.145 | 96.1% | 0.019 | 1.27 / 70.0% / 0.167 | 1.2 (8 TPUv2 cores) | 2.457  (8 TPUv2 cores) | 36.5M |
+| [Monte Carlo Dropout, improved (size=30)](dropout.py)<sup>11</sup> | 0.116 | 96.2% | 0.005 | 0.69 / 79.6% / 0.068 | 4.8 (8 TPUv2 cores) | 2.387  (8 TPUv2 cores)  | 36.5M |
+| [Ensemble (size=4)](ensemble.py) | 0.114 | 96.6% | 0.010 | 0.81 / 77.9% / 0.087 | 1.2 (32 TPUv2 cores) | 0.317  (8 TPUv2 cores) | 146M |
+| [Hyper-deep ensemble (size=4)](hyperdeepensemble.py)<sup>12</sup> | 0.118 | 96.4% | 0.008 | 0.83 / 76.8% / 0.079 | 1.2 (32 TPUv2 cores) | 20.7 / 0.317  (8 TPUv2 cores) | 146M |
+| [Variational inference (sample=1)](variational_inference.py) | 0.211 | 94.7% | 0.029 | 1.46 / 71.3% / 0.181 | 5.5 (8 TPUv2 cores) | 0.220 (8 TPUv2 cores) | 73M |
 
 ## CIFAR-100
 
 | Method | Test NLL | Test Accuracy | Test Cal. Error | cNLL/cA/cCE | Train Runtime (hours) | Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- |
-| Deterministic<sup>10</sup> | 0.875 | 79.8% | 0.0857 | 2.70 / 51.37% / 0.239 | 1.1 (8 TPUv2 cores) | 0.079 (8 TPUv2 cores) | 36.5M |
-| BatchEnsemble (size=4) | 0.690 | 81.9% | 0.0265 | 2.56 / 53.1% / 0.149 | 5.5 (8 TPUv2 cores) | 0.319 (8 TPUv2 cores) | 36.6M |
-| Hyper-BatchEnsemble (size=4) | 0.678 | 81.9% | 0.020  | - | - | - |  | 73.2M |
-| MIMO | 0.690 | 82.0% | 0.022 | 2.28 / 53.7% / 0.129 | - | 0.080 | 36.5M |
-| Rank-1 BNN (Gaussian, size=4) | 0.692 | 81.3% |  0.018 | 2.24 / 53.8% / 0.117 | 7.3 (8 TPUv2 cores) | - | 36.6M |
-| Rank-1 BNN (Cauchy, size=4, 4 samples) | 0.689 | 82.4% |  0.012 | 2.04 / 57.8% / 0.142 | 7.3 (8 TPUv2 cores) | - | 36.6M |
-| SNGP | 0.805 | 80.2% | 0.020 | 2.02 / 54.6% / 0.092 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| SNGP, with AugMix | 0.755 | 80.6% | 0.024 | 1.44 / 65.9% / 0.054 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| SNGP, with MC Dropout (size=10) | 0.750 | 79.6% | 0.017 | 2.06 / 53.8% / 0.087 | 4.5 (8 TPUv2 cores) | 2.841 (8 TPUv2 cores) | 36.5M |
-| SNGP, with BatchEnsemble (size=4) | 0.755 | 81.4% |  0.032 | 2.03 / 55.2% / 0.112 | - (8 TPUv2 cores) | - | -M |
-| SNGP Ensemble (size=4) | 0.665 | 81.9% | 0.011 | 1.95 / 56.8% / 0.091 | 2.6 (32 TPUv2 cores) | 1.198 (8 TPUv2 cores) | 146M |
-| Monte Carlo Dropout (size=1) | 0.830 | 79.6% | 0.0501 | 2.90 / 42.63% / 0.202 | 1.1 (8 TPUv2 cores) | 0.082 (8 TPUv2 cores) | 36.5M |
-| Monte Carlo Dropout (size=30) | 0.785 | 80.7% | 0.0487 | 2.73 / 46.2 / 0.207 | 1.1 (8 TPUv2 cores) | 2.457 (8 TPUv2 cores) | 36.5M |
-| Monte Carlo Dropout, improved (size=30)<sup>11</sup> | 0.637 | 82.1% | 0.028 | 1.93 / 57.2% / 0.098 | 5.17 (8 TPUv2 cores) | 2.393 (8 TPUv2 cores) |  36.5M |
-| Ensemble (size=4) | 0.666 | 82.7% | 0.021 | 2.27 / 54.1% / 0.138 | 1.1 (32 TPUv2 cores) | 0.317 (8 TPUv2 cores) |  146M |
-| Hyper-deep ensemble (size=4)<sup>12</sup> | 0.654 | 83.0% | 0.022 | 2.26 / 53.2% / 0.128 | 1.2 (32 TPUv2 cores) | 0.317  (8 TPUv2 cores) | 146M |
-| Variational inference (sample=1) | 0.944 | 77.8% | 0.097 | 3.18 / 48.2% / 0.271 | 5.5 (8 TPUv2 cores) | 0.210 (8 TPUv2 cores) | 73M |
-| Heteroscedastic | 0.833 | 80.2% | 0.059 | 2.40 / 52.1% / 0.177 | 5 (8 TPUv2 cores) | 4 (8 TPUv2 cores) | 37M |
-| Heteroscedastic Ensemble (size=4) | 0.671 | 82.7% | 0.026 | 2.07 / 55.2% / 0.105 | - | - | 148M |
+| [Deterministic](deterministic.py)<sup>10</sup> | 0.875 | 79.8% | 0.0857 | 2.70 / 51.37% / 0.239 | 1.1 (8 TPUv2 cores) | 0.079 (8 TPUv2 cores) | 36.5M |
+| [BatchEnsemble (size=4)](batchensemble.py) | 0.690 | 81.9% | 0.0265 | 2.56 / 53.1% / 0.149 | 5.5 (8 TPUv2 cores) | 0.319 (8 TPUv2 cores) | 36.6M |
+| [Hyper-BatchEnsemble (size=4)](hyperbatchensemble.py) | 0.678 | 81.9% | 0.020  | - | - | - |  | 73.2M |
+| [MIMO](mimo.py) | 0.690 | 82.0% | 0.022 | 2.28 / 53.7% / 0.129 | - | 0.080 | 36.5M |
+| [Rank-1 BNN (Gaussian, size=4)](rank1_bnn.py) | 0.692 | 81.3% |  0.018 | 2.24 / 53.8% / 0.117 | 7.3 (8 TPUv2 cores) | - | 36.6M |
+| [Rank-1 BNN (Cauchy, size=4, 4 samples)](rank1_bnn.py) | 0.689 | 82.4% |  0.012 | 2.04 / 57.8% / 0.142 | 7.3 (8 TPUv2 cores) | - | 36.6M |
+| [SNGP](sngp.py) | 0.805 | 80.2% | 0.020 | 2.02 / 54.6% / 0.092 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
+| [SNGP, with AugMix](sngp.py) | 0.755 | 80.6% | 0.024 | 1.44 / 65.9% / 0.054 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
+| [SNGP, with MC Dropout (size=10)](sngp.py) | 0.750 | 79.6% | 0.017 | 2.06 / 53.8% / 0.087 | 4.5 (8 TPUv2 cores) | 2.841 (8 TPUv2 cores) | 36.5M |
+| [SNGP, with BatchEnsemble (size=4)](sngp_batchensemble.py) | 0.755 | 81.4% |  0.032 | 2.03 / 55.2% / 0.112 | - (8 TPUv2 cores) | - | -M |
+| [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.665 | 81.9% | 0.011 | 1.95 / 56.8% / 0.091 | 2.6 (32 TPUv2 cores) | 1.198 (8 TPUv2 cores) | 146M |
+| [Monte Carlo Dropout (size=1)](dropout.py) | 0.830 | 79.6% | 0.0501 | 2.90 / 42.63% / 0.202 | 1.1 (8 TPUv2 cores) | 0.082 (8 TPUv2 cores) | 36.5M |
+| [Monte Carlo Dropout (size=30)](dropout.py) | 0.785 | 80.7% | 0.0487 | 2.73 / 46.2 / 0.207 | 1.1 (8 TPUv2 cores) | 2.457 (8 TPUv2 cores) | 36.5M |
+| [Monte Carlo Dropout, improved (size=30)](dropout.py)<sup>11</sup> | 0.637 | 82.1% | 0.028 | 1.93 / 57.2% / 0.098 | 5.17 (8 TPUv2 cores) | 2.393 (8 TPUv2 cores) |  36.5M |
+| [Ensemble (size=4)](ensemble.py) | 0.666 | 82.7% | 0.021 | 2.27 / 54.1% / 0.138 | 1.1 (32 TPUv2 cores) | 0.317 (8 TPUv2 cores) |  146M |
+| [Hyper-deep ensemble (size=4)](hyperdeepensemble.py)<sup>12</sup> | 0.654 | 83.0% | 0.022 | 2.26 / 53.2% / 0.128 | 1.2 (32 TPUv2 cores) | 0.317  (8 TPUv2 cores) | 146M |
+| [Variational inference (sample=1)](variational_inference.py) | 0.944 | 77.8% | 0.097 | 3.18 / 48.2% / 0.271 | 5.5 (8 TPUv2 cores) | 0.210 (8 TPUv2 cores) | 73M |
+| [Heteroscedastic](heteroscedastic.py) | 0.833 | 80.2% | 0.059 | 2.40 / 52.1% / 0.177 | 5 (8 TPUv2 cores) | 4 (8 TPUv2 cores) | 37M |
+| [Heteroscedastic Ensemble (size=4)](het_ensemble.py) | 0.671 | 82.7% | 0.026 | 2.07 / 55.2% / 0.105 | - | - | 148M |
 
 ## Metrics
 

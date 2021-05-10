@@ -2,10 +2,10 @@
 
 | Method | Boston Housing | Concrete Strength | Energy Efficiency | kin8nm | Naval Propulsion | Power Plant | Protein Structure | Wine | Yacht Hydrodynamics | Train Runtime (mins) | # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- |
-| Deterministic<sup>1</sup> | 16.11 | 3.94 | 1.29 | -1.06 | -5.06 | 3.28 | 3.16 | 1.05 | 1.89 | - (1 P100 GPU) | 2K |
-| Ensemble (size=10)<sup>1</sup> | 6.11 | 3.20 | 0.61 | -1.17 | -5.17 | 3.18 | 3.12 | 0.97 | 0.73 | - (1 P100 GPU) | 20K |
-| Refined VI<sup>2</sup> | 2.94 | 3.08 | 0.75 | -1.06 | -6.33 | 2.83 | 2.92 | 0.97 | 1.68 | - (1 P100 GPU) | - |
-| Variational Inference<sup>2</sup> | 3.12 | 3.22 | 0.93 | -1.03 | -6.12 | 2.85 | 2.93 | 1.00 | 2.01 | - (1 P100 GPU) | - |
+| [Deterministic](deterministic.py)<sup>1</sup> | 16.11 | 3.94 | 1.29 | -1.06 | -5.06 | 3.28 | 3.16 | 1.05 | 1.89 | - (1 P100 GPU) | 2K |
+| [Ensemble (size=10)](deterministic.py)<sup>1</sup> | 6.11 | 3.20 | 0.61 | -1.17 | -5.17 | 3.18 | 3.12 | 0.97 | 0.73 | - (1 P100 GPU) | 20K |
+| [Refined VI](variational_inference.py)<sup>2</sup> | 2.94 | 3.08 | 0.75 | -1.06 | -6.33 | 2.83 | 2.92 | 0.97 | 1.68 | - (1 P100 GPU) | - |
+| [Variational Inference](variational_inference.py)<sup>2</sup> | 3.12 | 3.22 | 0.93 | -1.03 | -6.12 | 2.85 | 2.93 | 1.00 | 2.01 | - (1 P100 GPU) | - |
 | MC Dropout<sup>3</sup> | 2.40 | 2.93 | 1.21 | -1.14 | -4.45 | 2.80 | 2.87 | 0.93 | 1.25 | - | - |
 | Variational Matrix Gaussian<sup>4</sup> | 2.46 | 3.01 | 1.06 | -1.10 | -2.46 | 2.82 | 2.84 | 0.95 | 1.30 | - | - |
 | HS-BNN<sup>5</sup> | 2.54 | 3.09 | 2.66 | -1.12 | -5.52 | 2.81 | 2.89 | 0.95 | 2.33 | - | - |

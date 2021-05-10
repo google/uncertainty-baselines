@@ -6,16 +6,16 @@ The table below shows the predictive and uncertainty performance on the held-out
 
 | Method | AUROC/AUPRC/Acc | ECE/Brier Score | Calib AUROC (u/t) | Calib AUPRC (u/t) |
 | ----------- | ----------- | ----------- | ----------- | ----------- |
-| Deterministic                           | 0.9734/0.8019/0.9231 | 0.0245/0.0548 | 0.9230/0.9175 | 0.4053/0.3032 |
-| SNGP                                    | 0.9741/0.8029/0.9233 | 0.0280/0.0548 | 0.9238/0.9171 | 0.4063/0.3019 |
-| Monte Carlo Dropout                     | 0.9729/0.8006/0.9274 | 0.0198/0.0508 | 0.9282/0.9179 | 0.4020/0.2929 |
-| Ensemble<sup>1</sup> (size=10)          | 0.9738/0.8074/0.9231 | 0.0235/0.0544 | 0.9245/0.9172 | 0.4045/0.3025 |
-| SNGP Ensemble (size=10)                 | 0.9741/0.8045/0.9226 | 0.0281/0.0549 | 0.9249/0.9170 | 0.4158/0.3034 |
-| Deterministic + Focal Loss<sup>2</sup>  | 0.9730/0.8036/0.9476 | 0.1486/0.0628 | 0.9405/0.9123 | 0.3804/0.2223 |
-| SNGP + Focal Loss                       | 0.9736/0.8076/0.9455 | 0.0076/0.0388 | 0.9385/0.9142 | 0.3885/0.2319 |
-| Monte Carlo Dropout + Focal Loss        | 0.9741/0.8076/0.9472 | 0.1442/0.0622 | 0.9425/0.9146 | 0.3890/0.2277 |
-| Ensemble + Focal Loss (size=10)         | 0.9735/0.8077/0.9479 | 0.1536/0.0639 | 0.9418/0.9126 | 0.3840/0.2212 |
-| SNGP Ensemble + Focal Loss (size=10)    | 0.9742/0.8122/0.9467 | 0.0075/0.0379 | 0.9400/0.9140 | 0.3846/0.2271 |
+| [Deterministic](deterministic.py)                          | 0.9734/0.8019/0.9231 | 0.0245/0.0548 | 0.9230/0.9175 | 0.4053/0.3032 |
+| [SNGP](sngp.py)                                            | 0.9741/0.8029/0.9233 | 0.0280/0.0548 | 0.9238/0.9171 | 0.4063/0.3019 |
+| [Monte Carlo Dropout](dropout.py)                          | 0.9729/0.8006/0.9274 | 0.0198/0.0508 | 0.9282/0.9179 | 0.4020/0.2929 |
+| [Ensemble (size=10)](ensemble.py)<sup>1</sup>              | 0.9738/0.8074/0.9231 | 0.0235/0.0544 | 0.9245/0.9172 | 0.4045/0.3025 |
+| [SNGP Ensemble (size=10)](sngp_ensemble.py)                | 0.9741/0.8045/0.9226 | 0.0281/0.0549 | 0.9249/0.9170 | 0.4158/0.3034 |
+| [Deterministic + Focal Loss](deterministic.py)<sup>2</sup> | 0.9730/0.8036/0.9476 | 0.1486/0.0628 | 0.9405/0.9123 | 0.3804/0.2223 |
+| [SNGP + Focal Loss](sngp.py)                               | 0.9736/0.8076/0.9455 | 0.0076/0.0388 | 0.9385/0.9142 | 0.3885/0.2319 |
+| [Monte Carlo Dropout + Focal Loss](dropout.py)             | 0.9741/0.8076/0.9472 | 0.1442/0.0622 | 0.9425/0.9146 | 0.3890/0.2277 |
+| [Ensemble + Focal Loss (size=10)](ensemble.py)             | 0.9735/0.8077/0.9479 | 0.1536/0.0639 | 0.9418/0.9126 | 0.3840/0.2212 |
+| [SNGP Ensemble + Focal Loss (size=10)](sngp_ensemble.py)   | 0.9742/0.8122/0.9467 | 0.0075/0.0379 | 0.9400/0.9140 | 0.3846/0.2271 |
 
 | Method | CollabAcc (Uncertainty) | AbstainPrec (Uncertainty) | AbstainRecall (Uncertainty) | CollabAUROC (Uncertainty) | CollabAUPRC (Uncertainty) |
 | ----------- | ----------- | ----------- | ----------- | ----------- | ----------- |

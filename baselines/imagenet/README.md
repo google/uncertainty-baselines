@@ -4,23 +4,23 @@
 
 | Method | ImageNet | ImageNet-C | ImageNet-A | ImageNetV2 | ImageNet-Vid-Robust | YTBB-Robust | ObjectNet | Train Runtime (hours) | Test Runtime (ms / example)| # Parameters |
 | ----------- | ----------- | ----------- | ----------- | ----------- | -----------| ----------- | ----------- | ----------- | ----------- | ----------- |
-| Deterministic | 0.939 / 76.2% / 0.032 | 3.21 / 40.5% / 0.103 (75.4%) | 8.10 / 0.7% / 0.425 | 1.58 / 64.3% / 0.076 | 50.0% | 45.8% | 25.9% | 5 (32 TPUv2 cores) | 0.020 (32 TPUv2 cores) | 25.6M |
-| Mixup<sup>6</sup> | 0.888 / 77.7% / 0.028 | 2.78 / 47.1% / 0.109 (67.3%) | 7.10 / 2.28% / 0.431 | 1.51 / 65.9% / 0.071 | 52.2% | 47.0% | 28.3% | 6 (32 TPUv2 cores) | 0.020 (32 TPUv2 cores) | 25.6M |
-| BatchEnsemble | 0.922 / 76.8% / 0.037 | 3.09 / 41.9% / 0.089 (73.5%) | - | - | - | - | - | 17.5 (32 TPUv2 cores) | 0.081 (32 TPUv2 cores) | 25.8M |
-| MIMO | 0.887 / 77.5% / 0.037 | 3.03 / 43.3% / 0.106 (71.7%) | 7.84 / 1.4% / 0.437 | 1.53 / 65.4% / 0.088 | 52.3% | 47.1% | 28.1% | - | - | 27.7M |
-| Rank-1 BNN (Gaussian, size=4) | 0.886 / 77.3% / 0.0166 | 2.95 / 42.9% / 0.054 (72.12%) | - | - | - | - | - | 21.1 (32 TPUv2 cores) | - | 26.0M |
-| Rank-1 BNN (Cauchy, size=4, 4 samples) | 0.897 / 77.2% / 0.0192 | 2.98 / 42.5 / 0.059 (72.66%) | - | - | - | - | - | 21.1 (32 TPUv2 cores) | - | 26.0M |
-| Monte Carlo Dropout (size=10)  | 0.919 / 76.6% / 0.026 | 2.96 / 42.4% / 0.046 (72.9%) | 7.58 / 0.50% / 0.344 | 1.53 / 64.3% / 0.021 | 50.7% | 46.0% | 26.4% | 6 (32 TPUv2 cores) | 0.205 (32 TPUv2 cores) | 25.6M |
-| SNGP | 0.931 / 76.1% / 0.013 | 3.03 / 41.1% / 0.045 (74.6%) | 7.12 / 0.82% / 0.355 | 1.54 / 64.0% / 0.040 | 49.6% | 46.4% | 26.2% | 5 (32 TPUv3 cores) | 0.017 (32 TPUv3 cores) | 25.6M |
-| SNGP, with MC Dropout (size=10) | 0.913 / 76.6% / 0.020 | 3.05 / 41.2% / 0.058 (74.5%) | - | - | - | - | - | 5 (32 TPUv3 cores) | 0.126 (32 TPUv3 cores) | 25.6M |
-| SNGP, with BatchEnsemble (size=4) | 0.913 / 76.55% / 0.014 | 3.08 / 40.58% / 0.047 (75.2%) | - | - | - | - | - | - (32 TPUv3 cores) | - | - |
-| SNGP Ensemble (size=4) | 0.851 / 78.1% / 0.039 | 2.77 / 44.9% / 0.050 (69.73%) | - | - | - | - | - | 17.5 (128 TPUv3 cores) | 0.055 (32 TPUv3 cores) | 102.4M |
-| Ensemble (size=4) | 0.877 / 77.5% / 0.031 | 2.99 / 42.1% / 0.051 (73.3%) | - | - | - | - | - | 17.5 (128 TPUv2 cores) | 0.082 (32 TPUv2 cores) | 102.4M |
-| Heteroscedastic | 0.898 / 77.5% / 0.033 | - | - | - | - | - | - | 7.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
-| Heteroscedastic with Mixup | 0.854 / 78.9% / 0.043 | - | - | - | - | - | - | 12.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
-| Heteroscedastic Ensemble (size=4) | 0.790 / 79.5% / 0.015 | 2.93 / 44.9% / 0.048 (69.6%) | - | - | - | - | - | - | - | 233.6M |
-| Heteroscedastic with MIMO | 0.851 / 78% / 0.019 | - | - | - | - | - | - | - | - | 93.2M |
-| Heteroscedastic with Rank-1 BNN | 0.862 / 78.1% / 0.0197 | - | - | - | - | - | - | - | - | 59.0M |
+| [Deterministic](deterministic.py) | 0.939 / 76.2% / 0.032 | 3.21 / 40.5% / 0.103 (75.4%) | 8.10 / 0.7% / 0.425 | 1.58 / 64.3% / 0.076 | 50.0% | 45.8% | 25.9% | 5 (32 TPUv2 cores) | 0.020 (32 TPUv2 cores) | 25.6M |
+| [Mixup](deterministic.py)<sup>6</sup> | 0.888 / 77.7% / 0.028 | 2.78 / 47.1% / 0.109 (67.3%) | 7.10 / 2.28% / 0.431 | 1.51 / 65.9% / 0.071 | 52.2% | 47.0% | 28.3% | 6 (32 TPUv2 cores) | 0.020 (32 TPUv2 cores) | 25.6M |
+| [BatchEnsemble](batchensemble.py) | 0.922 / 76.8% / 0.037 | 3.09 / 41.9% / 0.089 (73.5%) | - | - | - | - | - | 17.5 (32 TPUv2 cores) | 0.081 (32 TPUv2 cores) | 25.8M |
+| [MIMO](mimo.py) | 0.887 / 77.5% / 0.037 | 3.03 / 43.3% / 0.106 (71.7%) | 7.84 / 1.4% / 0.437 | 1.53 / 65.4% / 0.088 | 52.3% | 47.1% | 28.1% | - | - | 27.7M |
+| [Rank-1 BNN (Gaussian, size=4)](rank1_bnn.py) | 0.886 / 77.3% / 0.0166 | 2.95 / 42.9% / 0.054 (72.12%) | - | - | - | - | - | 21.1 (32 TPUv2 cores) | - | 26.0M |
+| [Rank-1 BNN (Cauchy, size=4, 4 samples)](rank1_bnn.py) | 0.897 / 77.2% / 0.0192 | 2.98 / 42.5 / 0.059 (72.66%) | - | - | - | - | - | 21.1 (32 TPUv2 cores) | - | 26.0M |
+| [Monte Carlo Dropout (size=10)](dropout.py) | 0.919 / 76.6% / 0.026 | 2.96 / 42.4% / 0.046 (72.9%) | 7.58 / 0.50% / 0.344 | 1.53 / 64.3% / 0.021 | 50.7% | 46.0% | 26.4% | 6 (32 TPUv2 cores) | 0.205 (32 TPUv2 cores) | 25.6M |
+| [SNGP](sngp.py) | 0.931 / 76.1% / 0.013 | 3.03 / 41.1% / 0.045 (74.6%) | 7.12 / 0.82% / 0.355 | 1.54 / 64.0% / 0.040 | 49.6% | 46.4% | 26.2% | 5 (32 TPUv3 cores) | 0.017 (32 TPUv3 cores) | 25.6M |
+| [SNGP, with MC Dropout (size=10)](sngp.py) | 0.913 / 76.6% / 0.020 | 3.05 / 41.2% / 0.058 (74.5%) | - | - | - | - | - | 5 (32 TPUv3 cores) | 0.126 (32 TPUv3 cores) | 25.6M |
+| [SNGP, with BatchEnsemble (size=4)](sngp_batchensemble.py) | 0.913 / 76.55% / 0.014 | 3.08 / 40.58% / 0.047 (75.2%) | - | - | - | - | - | - (32 TPUv3 cores) | - | - |
+| [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.851 / 78.1% / 0.039 | 2.77 / 44.9% / 0.050 (69.73%) | - | - | - | - | - | 17.5 (128 TPUv3 cores) | 0.055 (32 TPUv3 cores) | 102.4M |
+| [Ensemble (size=4)](ensemble.py) | 0.877 / 77.5% / 0.031 | 2.99 / 42.1% / 0.051 (73.3%) | - | - | - | - | - | 17.5 (128 TPUv2 cores) | 0.082 (32 TPUv2 cores) | 102.4M |
+| [Heteroscedastic](heteroscedastic.py) | 0.898 / 77.5% / 0.033 | - | - | - | - | - | - | 7.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
+| [Heteroscedastic with Mixup](heteroscedastic.py) | 0.854 / 78.9% / 0.043 | - | - | - | - | - | - | 12.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
+| [Heteroscedastic Ensemble (size=4)](het_ensemble.py) | 0.790 / 79.5% / 0.015 | 2.93 / 44.9% / 0.048 (69.6%) | - | - | - | - | - | - | - | 233.6M |
+| [Heteroscedastic with MIMO](het_mimo.py) | 0.851 / 78% / 0.019 | - | - | - | - | - | - | - | - | 93.2M |
+| [Heteroscedastic with Rank-1 BNN](het_rank1_bnn.py) | 0.862 / 78.1% / 0.0197 | - | - | - | - | - | - | - | - | 59.0M |
 
 ## EfficientNet
 

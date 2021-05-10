@@ -133,7 +133,7 @@ class _CifarDataset(base.BaseDataset):
     def _example_parser(example: types.Features) -> types.Features:
       """A pre-process function to return images in [0, 1]."""
       image = example['image']
-      image_dtype = tf.bloat16 if self._use_bfloat16 else tf.float32
+      image_dtype = tf.bfloat16 if self._use_bfloat16 else tf.float32
       use_augmix = self._aug_params.get('augmix', False)
       if self._is_training:
         image_shape = tf.shape(image)

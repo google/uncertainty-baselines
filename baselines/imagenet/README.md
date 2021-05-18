@@ -15,7 +15,7 @@
 | [SNGP, with MC Dropout (size=10)](sngp.py) | 0.913 / 76.6% / 0.020 | 3.05 / 41.2% / 0.058 (74.5%) | - | - | - | - | - | 5 (32 TPUv3 cores) | 0.126 (32 TPUv3 cores) | 25.6M |
 | [SNGP, with BatchEnsemble (size=4)](sngp_batchensemble.py) | 0.913 / 76.55% / 0.014 | 3.08 / 40.58% / 0.047 (75.2%) | - | - | - | - | - | - (32 TPUv3 cores) | - | - |
 | [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.851 / 78.1% / 0.039 | 2.77 / 44.9% / 0.050 (69.73%) | - | - | - | - | - | 17.5 (128 TPUv3 cores) | 0.055 (32 TPUv3 cores) | 102.4M |
-| [Ensemble (size=4)](ensemble.py) | 0.877 / 77.5% / 0.031 | 2.99 / 42.1% / 0.051 (73.3%) | - | - | - | - | - | 17.5 (128 TPUv2 cores) | 0.082 (32 TPUv2 cores) | 102.4M |
+| Ensemble (size=4)<sup>7</sup> | 0.857 / 77.9% / 0.017 | 2.82 / 44.9% / 0.047 (69.5%) | 7.53 / 0.5% / 0.367 | 1.45 / 66.1% / 0.031 | 55.2% | 48.0% | 28.4% | 17.5 (128 TPUv2 cores) | 0.082 (32 TPUv2 cores) | 102.4M |
 | [Heteroscedastic](heteroscedastic.py) | 0.898 / 77.5% / 0.033 | - | - | - | - | - | - | 7.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
 | [Heteroscedastic with Mixup](heteroscedastic.py) | 0.854 / 78.9% / 0.043 | - | - | - | - | - | - | 12.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
 | [Heteroscedastic Ensemble (size=4)](het_ensemble.py) | 0.790 / 79.5% / 0.015 | 2.93 / 44.9% / 0.048 (69.6%) | - | - | - | - | - | - | - | 233.6M |
@@ -71,5 +71,6 @@ We note results in the literature below. Note there are differences in the setup
 4. Uses ResNet-18. Scales KL by an additional factor of 5.
 5. cSGHMC uses a total of 9 copies of the full size of weights for prediction. The authors use a T=1/200 temperature scaling on the log-posterior (see the newly added appendix I at https://openreview.net/forum?id=rkeS1RVtPS)
 6. Uses [standard mixup](https://arxiv.org/abs/1710.09412) combined with the rescaling of the logits proposed in [Carratino et al., 2020](https://arxiv.org/abs/2006.06049), which consistently improves all metrics. The reported results is for a training of 200 epochs on `deterministic.py`.
+7. Obtained by saving predictions from multiple `SavedModels` obtained by training the Deterministic baseline. We evaluate in [Robustness Metrics](https://github.com/google-research/robustness_metrics).
 
 TODO(trandustin): Add column for Checkpoints.

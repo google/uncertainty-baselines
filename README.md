@@ -211,6 +211,7 @@ Contributors (past and present):
 * Jasper Snoek
 * Josip Djolonga
 * Kevin Murphy
+* Mark Collier
 * Marton Havasi
 * Michael W. Dusenberry
 * Neil Band
@@ -220,6 +221,7 @@ Contributors (past and present):
 * Tim G. J. Rudner
 * Yarin Gal
 * Yeming Wen
+* Zelda Mariet
 * Zachary Nado
 
 ### Adding a Baseline

@@ -247,11 +247,11 @@ you're using specific datasets, models, or baselines, see below.
 
 ### Heteroscedastic
 ```
-@article{collier2020simple,
-  title={A Simple Probabilistic Method for Deep Classification under Input-Dependent Label Noise},
+@inproceedings{collier2021heteroscedastic,
+  title={Correlated Input-Dependent Label Noise in Large-Scale Image Classification},
   author={Collier, Mark and Mustafa, Basil and Kokiopoulou, Efi and Jenatton, Rodolphe and Berent, Jesse},
-  journal={arXiv preprint arXiv:2003.06778},
-  year={2020}
+  booktitle={Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition},
+  year={2021}
 }
 ```
 

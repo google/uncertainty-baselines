@@ -91,7 +91,9 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
 
   def __init__(self,
                oracle_fraction: float = 0.01,
-               num_bins: int = 15,
+               max_oracle_count: Optional[int] = None,
+               oracle_threshold: Optional[float] = None,
+               num_bins: int = 1000,
                num_thresholds: int = 200,
                curve: str = "ROC",
                summation_method: str = "interpolation",
@@ -101,10 +103,15 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
 
     Args:
       oracle_fraction: the fraction of total examples to send to the oracle.
+      max_oracle_count: if set, the maximum number of total examples to send to
+        the oracle.
+      oracle_threshold: (Optional) Threshold below which to send all predictions
+        to the oracle (less than or equal to), irrespective of oracle_fraction
+        and max_oracle_count (i.e. these arguments are unused).
       num_bins: Number of bins for the uncertainty score to maintain over the
         interval [0, 1].
-      num_thresholds: Number of thresholds to use in linearly interpolating the
-        ROC curve.
+      num_thresholds: (Optional) Number of thresholds to use in linearly
+        interpolating the AUC curve.
       curve: Name of the curve to be computed, either ROC (default) or PR
         (Precision-Recall).
       summation_method: Specifies the Riemann summation method. 'interpolation'
@@ -116,17 +123,33 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
       name: (Optional) Name of this metric.
       dtype: (Optional) Data type. Must be floating-point.  Currently only
         binary data is supported.
+
+    oracle_fraction and max_oracle_count place different limits on how many
+    examples can be sent to the oracle (scaling with the number of total
+    examples, and a constant limit independent of it, respectively). Both limits
+    are applied, i.e. the stricter of the two rules determines the total number.
     """
-    # Check inputs.
+    # Validate inputs.
     if not 0 <= oracle_fraction <= 1:
       raise ValueError("oracle_fraction must be between 0 and 1.")
+    if max_oracle_count and max_oracle_count < 0:
+      raise ValueError("max_oracle_count must be a non-negative integer.")
+    if oracle_threshold and not 0 <= oracle_fraction <= 1:
+      raise ValueError("oracle_threshold must be between 0 and 1.")
     if num_bins <= 1:
       raise ValueError("num_bins must be > 1.")
     if dtype and not dtype.is_floating:
       raise ValueError("dtype must be a float type.")
 
     self.oracle_fraction = oracle_fraction
+    self.max_oracle_count = max_oracle_count
     self.num_bins = num_bins
+    self.oracle_threshold = oracle_threshold
+
+    # If oracle_threshold is set, the examples sent to the oracle are computed
+    # differently; we only need two bins in this case.
+    if self.oracle_threshold is not None:
+      self.num_bins = 2
 
     super().__init__(
         num_thresholds=num_thresholds,
@@ -137,22 +160,22 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
 
     self.binned_true_positives = self.add_weight(
         "binned_true_positives",
-        shape=(num_thresholds, num_bins),
+        shape=(self.num_thresholds, self.num_bins),
         initializer=tf.zeros_initializer)
 
     self.binned_true_negatives = self.add_weight(
         "binned_true_negatives",
-        shape=(num_thresholds, num_bins),
+        shape=(self.num_thresholds, self.num_bins),
         initializer=tf.zeros_initializer)
 
     self.binned_false_positives = self.add_weight(
         "binned_false_positives",
-        shape=(num_thresholds, num_bins),
+        shape=(self.num_thresholds, self.num_bins),
         initializer=tf.zeros_initializer)
 
     self.binned_false_negatives = self.add_weight(
         "binned_false_negatives",
-        shape=(num_thresholds, num_bins),
+        shape=(self.num_thresholds, self.num_bins),
         initializer=tf.zeros_initializer)
 
   def update_state(self,
@@ -238,6 +261,10 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
       Dictionary of strings to entries of the confusion matrix
       ('true_positives', 'true_negatives', 'false_positives',
       'false_negatives'). Each entry is a tensor of shape [T, nbins].
+
+      If oracle_threshold was set, nbins=2, storing respectively the number of
+      examples below the oracle_threshold (i.e. sent to the oracle) and above it
+      (not sent to the oracle).
     """
     correct_preds = tf.math.equal(pred_labels, true_labels)
 
@@ -256,8 +283,17 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
     pred_false_positives = tf.cast(pred_false_positives, self.dtype)
     pred_false_negatives = tf.cast(pred_false_negatives, self.dtype)
 
+    histogram_value_range = tf.constant([0.0, 1.0], self.dtype)
+    if self.oracle_threshold is not None:
+      # All predictions with score <= oracle_threshold are sent to the oracle.
+      # With two bins, centering the value range on oracle_threshold yields a
+      # histogram with all examples sent to the oracle in the lower (left) bin.
+      histogram_value_range += self.oracle_threshold - 0.5
+      # Move the histogram center up by epsilon to ensure <= rather than <.
+      # By default, tf histogram gives [low, high); we want (low, high].
+      histogram_value_range += tf.keras.backend.epsilon()
     bin_indices = tf.histogram_fixed_width_bins(
-        binning_score, tf.constant([0.0, 1.0], self.dtype), nbins=self.num_bins)
+        binning_score, histogram_value_range, nbins=self.num_bins)
 
     binned_true_positives = self._map_unsorted_segment_sum(
         pred_true_positives, bin_indices)
@@ -318,8 +354,18 @@ class OracleCollaborativeAUC(tf.keras.metrics.AUC):
         axis=1)
     # The number of examples in each row is the same; choose the first.
     num_total_examples = cum_examples[0, -1]
-    num_oracle_examples = tf.cast(
+
+    num_relative_oracle_examples = tf.cast(
         tf.floor(num_total_examples * self.oracle_fraction), self.dtype)
+    num_absolute_oracle_examples = (
+        tf.cast(self.max_oracle_count, self.dtype)
+        if self.max_oracle_count else num_total_examples)
+    num_oracle_examples = tf.minimum(num_relative_oracle_examples,
+                                     num_absolute_oracle_examples)
+
+    # Send all examples below the threshold, i.e. all examples in the first bin.
+    if self.oracle_threshold is not None:
+      num_oracle_examples = cum_examples[0, 0]
 
     expected_true_positives = tf.zeros_like(self.true_positives)
     expected_true_negatives = tf.zeros_like(self.true_negatives)

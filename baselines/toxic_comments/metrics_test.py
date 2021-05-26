@@ -313,6 +313,202 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
     self.assertBetween(result06, minv=result03, maxv=result09)
     self.assertLessEqual(result09, 1.)
 
+  def test_oracle_fraction_and_max_count_both_set(self):
+    y_true = np.array([0., 0., 1., 1., 0., 1., 1., 0.])
+    y_pred = np.array([0.31, 0.33, 0.42, 0.58, 0.69, 0.76, 0.84, 0.87])
+
+    num_thresholds = 5  # -1e-7, 0.25, 0.5, 0.75, 1.0000001
+    num_bins = 3
+    curve = 'PR'
+    oracle_auc = metrics.OracleCollaborativeAUC(
+        oracle_fraction=0.9,  # floor(0.9 * 8) = 7 examples sent to oracle
+        max_oracle_count=5,  # 5 overrides the limit 7 set on the line above
+        num_thresholds=num_thresholds,
+        num_bins=num_bins,
+        curve=curve)
+
+    result = oracle_auc(y_true, y_pred)
+    self.assertAllClose(
+        oracle_auc.binned_true_positives,
+        # y_true's positives are 0.42, 0.58, 0.76, and 0.84 in y_pred.
+        np.array([
+            [0., 2., 2.],  # Threshold -1e-7; bins are unmodified
+            [2., 2., 0.],  # Threshold 0.25; bins [0, 0.58), [0.58, 0.91)
+            [2., 1., 0.],  # Threshold 0.5: 0.42 is now a false positive.
+            [2., 0., 0.],  # Threshold 0.75: only 0.76 and 0.84 are positive.
+            [0., 0., 0.],  # Threshold 1.0000001: no positives.
+        ]))
+    self.assertAllClose(
+        oracle_auc.binned_true_negatives,
+        # The possible true negatives are 0.31, 0.33, 0.69, and 0.87.
+        np.array([
+            [0., 0., 0.],  # There are no negatives for threshold -1e-7.
+            [0., 0., 0.],  # Threshold 0.25: still no negatives.
+            [2., 0., 0.],  # Threshold 0.5: 0.31 and 0.33 are negative.
+            [1., 2., 0.],  # Threshold 0.75: only 0.69 in first bin.
+            [2., 0., 2.],  # Threshold 1.0000001: 0.76 and 0.84 in first bin.
+        ]))
+    self.assertAllClose(
+        oracle_auc.binned_false_positives,
+        # Compare these values with oracle_auc.binned_true_negatives.
+        # For example, the total across their rows must always be 4.
+        np.array([
+            [2., 0., 2.],  # 0.76 and 0.84 in bin 3 (greater than -1e-7 + 0.66).
+            [2., 2., 0.],  # Threshold 0.25: 0.76 and 0.84 move to second bin.
+            [1., 1., 0.],  # Threshold 0.5: 0.76 (0.84) in first (second) bin.
+            [1., 0., 0.],  # Threshold 0.75: only 0.87 remains in first bin.
+            [0., 0., 0.],  # Threshold 1.0000001: no more positives.
+        ]))
+    self.assertAllClose(
+        oracle_auc.binned_false_negatives,
+        # Compare these values with oracle_auc.binned_true_positives.
+        np.array([
+            [0., 0., 0.],  # No negatives
+            [0., 0., 0.],  # No negatives
+            [1., 0., 0.],  # Threshold 0.5: only 0.42 is below threshold.
+            [2., 0., 0.],  # Threshold 0.75: 0.42 still in bin 1; 0.58 joins it.
+            [2., 2., 0.],  # Threshold 1.0000001: 0.42 and 0.58 in second bin.
+        ]))
+
+    # The first and last threshold are outside [0, 1] and are never corrected.
+    # Second threshold: 0.5 corrected from fp to tn
+    # Third threshold: 0.83 corrected from fp and fn each to tp and tn
+    # Fourth threshold: 0.83 corrected from fp->tn, 1.67 corrected from fn->tp
+    self.assertAllClose(oracle_auc.true_positives,
+                        np.array([4., 4., 3. + 5 / 6, 2. + 5 / 3, 0.]))
+    self.assertAllClose(oracle_auc.true_negatives,
+                        np.array([0., 2. + 0.5, 2. + 5 / 6, 3. + 5 / 6, 4.]))
+    self.assertAllClose(oracle_auc.false_positives,
+                        np.array([4., 2. - 0.5, 2. - 5 / 6, 1. - 5 / 6, 0.]))
+    self.assertAllClose(oracle_auc.false_negatives,
+                        np.array([0., 0., 1. - 5 / 6, 2. - 5 / 3, 4.]))
+
+    self.assertEqual(result, 0.9434595)
+
+  def test_oracle_threshold_zero_reduces_to_regular_auc(self):
+    num_thresholds = 5  # -1e-7, 0.25, 0.5, 0.75, 1.0000001
+    num_bins = 3  # setting oracle_threshold will override this to 2
+    curve = 'ROC'
+    oracle_auc = metrics.OracleCollaborativeAUC(
+        oracle_fraction=0.9,
+        max_oracle_count=5,
+        oracle_threshold=0.,
+        num_thresholds=num_thresholds,
+        num_bins=num_bins,
+        curve=curve)
+    regular_auc = tf.keras.metrics.AUC(num_thresholds=num_thresholds)
+
+    oracle_auc.update_state(self.y_true, self.y_pred)
+    regular_auc.update_state(self.y_true, self.y_pred)
+
+    self.assertEqual(oracle_auc.num_bins, 2)
+    self.assertAllClose(
+        tf.reduce_sum(oracle_auc.binned_true_positives, axis=1),
+        regular_auc.true_positives)
+    self.assertAllClose(
+        tf.reduce_sum(oracle_auc.binned_true_negatives, axis=1),
+        regular_auc.true_negatives)
+    self.assertAllClose(
+        tf.reduce_sum(oracle_auc.binned_false_positives, axis=1),
+        regular_auc.false_positives)
+    self.assertAllClose(
+        tf.reduce_sum(oracle_auc.binned_false_negatives, axis=1),
+        regular_auc.false_negatives)
+
+    oracle_auc_result = oracle_auc.result()
+    regular_auc_result = regular_auc.result()
+
+    self.assertAllClose(oracle_auc.true_positives, regular_auc.true_positives)
+    self.assertAllClose(oracle_auc.true_negatives, regular_auc.true_negatives)
+    self.assertAllClose(oracle_auc.false_positives, regular_auc.false_positives)
+    self.assertAllClose(oracle_auc.false_negatives, regular_auc.false_negatives)
+    self.assertEqual(oracle_auc_result, regular_auc_result)
+
+  def test_oracle_threshold_one_corrects_all_examples_perfect_auc(self):
+    num_thresholds = 5  # -1e-7, 0.25, 0.5, 0.75, 1.0000001
+    num_bins = 3  # setting oracle_threshold will override this to 2
+    curve = 'ROC'
+    oracle_auc = metrics.OracleCollaborativeAUC(
+        oracle_fraction=0.9,
+        max_oracle_count=5,
+        oracle_threshold=1.,
+        num_thresholds=num_thresholds,
+        num_bins=num_bins,
+        curve=curve)
+
+    result = oracle_auc(self.y_true, self.y_pred)
+
+    self.assertEqual(oracle_auc.num_bins, 2)
+    self.assertAllClose(oracle_auc.true_positives,
+                        [sum(self.y_true == 1)] * (num_thresholds - 1) + [0])
+    self.assertAllClose(oracle_auc.true_negatives,
+                        [0] + [sum(self.y_true == 0)] * (num_thresholds - 1))
+    self.assertAllClose(oracle_auc.false_positives,
+                        [sum(self.y_true == 0)] + [0] * (num_thresholds - 1))
+    self.assertAllClose(oracle_auc.false_negatives,
+                        [0] * (num_thresholds - 1) + [sum(self.y_true == 1)])
+
+    self.assertEqual(result, 1.)
+
+  def test_oracle_threshold_set(self):
+    y_true = np.array([1., 0., 1., 1., 0., 0.])
+    y_pred = np.array([0.5, 0.7, 0.2, 0.4, 0.3, 0.9])
+    certainty_score = np.linspace(0.6, 0.7, 6)  # 0.6, 0.62, 0.64, ..., 0.7
+
+    num_thresholds = 4  # -1e-7, 0.33, 0.67, 1.0000001
+    # Always send first three examples (0.5, 0.7, 0.2) to the oracle.
+    # Because of this, they'll always be in the left confusion matrix bin.
+    # Prediction 0.2 is included since its score is <= the oracle_threshold.
+    oracle_threshold = 0.64
+
+    oracle_auc = metrics.OracleCollaborativeAUC(
+        oracle_threshold=oracle_threshold,
+        num_thresholds=num_thresholds,
+        curve='PR')
+    result = oracle_auc(y_true, y_pred, custom_binning_score=certainty_score)
+
+    self.assertAllClose(
+        oracle_auc.binned_true_positives,
+        np.array([
+            [2., 1.],  # Threshold -1e-7. All examples above threshold.
+            [1., 1.],  # Threshold 0.33. 0.2 moves below threshold.
+            [0., 0.],  # Threshold 0.67. 0.5 moves below threshold.
+            [0., 0.],  # Threshold 1.0000001: no positives.
+        ]))
+    self.assertAllClose(
+        oracle_auc.binned_true_negatives,
+        np.array([
+            [0., 0.],  # Threshold -1e-7
+            [0., 1.],  # Threshold 0.33. 0.3 now a true negative.
+            [0., 1.],  # Threshold 0.67
+            [1., 2.],  # Threshold 1.0000001: no positives.
+        ]))
+    self.assertAllClose(
+        oracle_auc.binned_false_positives,
+        np.array([
+            [1., 2.],  # Threshold -1e-7
+            [1., 1.],  # Threshold 0.33
+            [1., 1.],  # Threshold 0.67
+            [0., 0.],  # Threshold 1.0000001: no positives.
+        ]))
+    self.assertAllClose(
+        oracle_auc.binned_false_negatives,
+        np.array([
+            [0., 0.],  # Threshold -1e-7
+            [1., 0.],  # Threshold 0.33
+            [2., 1.],  # Threshold 0.67
+            [2., 1.],  # Threshold 1.0000001: no positives.
+        ]))
+
+    # The first and last threshold are outside [0, 1] and are never corrected.
+    # Predictions 0.5, 0.7, and 0.2 are always sent to the oracle.
+    self.assertAllClose(oracle_auc.true_positives, np.array([3., 3., 2., 0.]))
+    self.assertAllClose(oracle_auc.true_negatives, np.array([0., 2., 2., 3.]))
+    self.assertAllClose(oracle_auc.false_positives, np.array([3., 1., 1., 0.]))
+    self.assertAllClose(oracle_auc.false_negatives, np.array([0., 0., 1., 3.]))
+
+    self.assertEqual(result, 0.68188375)
+
 
 class CalibrationAUCTest(tf.test.TestCase, parameterized.TestCase):
 

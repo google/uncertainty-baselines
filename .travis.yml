@@ -1,4 +1,3 @@
-sudo: required
 language: python
 git:
   depth: 10

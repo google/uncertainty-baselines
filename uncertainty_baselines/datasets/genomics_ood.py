@@ -136,11 +136,11 @@ class GenomicsOodDataset(base.BaseDataset):
   def __init__(
       self,
       split: str,
-      shuffle_buffer_size: int = None,
+      shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
       eval_filter_class_id: int = -1,
       data_mode: str = 'ind',
-      data_dir: str = None,
+      data_dir: Optional[str] = None,
       is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create an Genomics OOD tf.data.Dataset builder.

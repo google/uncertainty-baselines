@@ -23,17 +23,18 @@ A standard 1D CNN model for sentence classification.
      In _Empirical Methods in Natural Language Processing_, 2014.
      https://www.aclweb.org/anthology/D14-1181/
 """
-from typing import Any, Dict, Iterator
+from typing import Any, Dict, Iterator, Optional
 
 import numpy as np
 import tensorflow as tf
 
 
-def _embedding_block(inputs: tf.Tensor,
-                     vocab_size: int,
-                     feature_size: int,
-                     embed_size: int,
-                     premade_embedding_arr: np.ndarray = None) -> tf.Tensor:
+def _embedding_block(
+    inputs: tf.Tensor,
+    vocab_size: int,
+    feature_size: int,
+    embed_size: int,
+    premade_embedding_arr: Optional[np.ndarray] = None) -> tf.Tensor:
   """Creates an embedding layer converting sparse text input into dense vector.
 
   Args:
@@ -126,8 +127,9 @@ def create_model(
     filter_sizes: Iterator[int] = (3, 4, 5),
     dropout_rate: float = 0.2,
     l2_weight: float = 0.001,
-    premade_embedding_arr: np.ndarray = None,
-    **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:  # pytype: disable=annotation-type-mismatch
+    premade_embedding_arr: Optional[np.ndarray] = None,
+    **unused_kwargs: Dict[str, Any]
+) -> tf.keras.models.Model:  # pytype: disable=annotation-type-mismatch
   """Builds TextCNN model.
 
   Args:

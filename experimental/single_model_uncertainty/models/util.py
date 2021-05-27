@@ -32,8 +32,8 @@ _GP_HPARAM_LIST = [
 
 
 def make_conv2d_layer(num_filters: Optional[int] = None,
-                      kernel_size: Union[Tuple[int, int], int] = None,
-                      strides: Union[Tuple[int, int], int] = None,
+                      kernel_size: Optional[Union[Tuple[int, int], int]] = None,
+                      strides: Optional[Union[Tuple[int, int], int]] = None,
                       use_bias: Optional[bool] = True,
                       kernel_initializer: Optional[str] = 'glorot_uniform',
                       activation: Optional[str] = 'relu',
@@ -160,7 +160,7 @@ def apply_dropout(inputs: tf.Tensor,
                   dropout_rate: float,
                   use_mc_dropout: bool,
                   filter_wise_dropout: bool = False,
-                  name: str = None):
+                  name: Optional[str] = None):
   """Applies a filter-wise dropout layer to the inputs."""
   logging.info('apply_dropout input shape %s', inputs.shape)
   if filter_wise_dropout:

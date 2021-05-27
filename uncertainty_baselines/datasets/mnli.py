@@ -52,7 +52,7 @@ class MnliDataset(base.BaseDataset):
   def __init__(
       self,
       split: str,
-      shuffle_buffer_size: int = None,
+      shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
       mode: str = 'matched',
       try_gcs: bool = False,

@@ -175,9 +175,9 @@ class CriteoDataset(base.BaseDataset):
   def __init__(
       self,
       split: Union[float, str],
-      shuffle_buffer_size: int = None,
+      shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: str = None,
+      data_dir: Optional[str] = None,
       is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a Criteo tf.data.Dataset builder.

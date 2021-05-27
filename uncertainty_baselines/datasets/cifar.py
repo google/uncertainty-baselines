@@ -52,15 +52,15 @@ class _CifarDataset(base.BaseDataset):
       split: str,
       seed: Optional[Union[int, tf.Tensor]] = None,
       validation_percent: float = 0.0,
-      shuffle_buffer_size: int = None,
+      shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
       drop_remainder: bool = True,
       normalize: bool = True,
       try_gcs: bool = False,
       download_data: bool = False,
       use_bfloat16: bool = False,
-      aug_params: Dict[str, Any] = None,
-      data_dir: str = None,
+      aug_params: Optional[Dict[str, Any]] = None,
+      data_dir: Optional[str] = None,
       is_training: Optional[bool] = None,
       **unused_kwargs: Dict[str, Any]):
     """Create a CIFAR10 or CIFAR100 tf.data.Dataset builder.

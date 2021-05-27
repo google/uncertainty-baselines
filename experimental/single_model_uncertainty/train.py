@@ -132,8 +132,8 @@ def run_train_loop(
     strategy: tf.distribute.Strategy,
     metrics: Dict[str, Union[tf.keras.metrics.Metric, rm.metrics.KerasMetric]],
     hparams: Dict[str, Any],
-    ood_dataset_builder: ub.datasets.BaseDataset = None,
-    ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
+    ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
+    ood_metrics: Optional[Dict[str, tf.keras.metrics.Metric]] = None,
     focal_loss_gamma: float = 0.0,
     mean_field_factor: float = -1):
   """Train, possibly evaluate the model, and record metrics."""

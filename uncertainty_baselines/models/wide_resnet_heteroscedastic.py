@@ -136,7 +136,7 @@ def wide_resnet_heteroscedastic(
     num_mc_samples: int = 5000,
     multiclass: bool = True,
     eps: float = 1e-5,
-    hps: Dict[str, float] = None) -> tf.keras.models.Model:
+    hps: Optional[Dict[str, float]] = None) -> tf.keras.models.Model:
   """Builds Wide ResNet.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the

@@ -178,7 +178,7 @@ def run_eval_loop(
     strategy: tf.distribute.Strategy,
     metrics: Dict[str, Union[tf.keras.metrics.Metric, rm.metrics.KerasMetric]],
     checkpoint_step: int = -1,
-    hparams: Dict[str, Any] = None):
+    hparams: Optional[Dict[str, Any]] = None):
   """Evaluate the model on the validation and test splits and record metrics."""
   (val_fn,
    val_dataset,

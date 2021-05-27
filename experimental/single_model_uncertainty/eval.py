@@ -102,19 +102,19 @@ def run_eval_epoch(
     test_fn: EvalStepFn,
     test_dataset: tf.data.Dataset,
     test_summary_writer: tf.summary.SummaryWriter,
-    val_fn: EvalStepFn = None,
-    val_dataset: tf.data.Dataset = None,
-    val_summary_writer: tf.summary.SummaryWriter = None,
-    ood_fn: EvalStepFn = None,
-    ood_dataset: tf.data.Dataset = None,
-    ood_summary_writer: tf.summary.SummaryWriter = None,
-    hparams: Dict[str, Any] = None):
+    val_fn: Optional[EvalStepFn] = None,
+    val_dataset: Optional[tf.data.Dataset] = None,
+    val_summary_writer: Optional[tf.summary.SummaryWriter] = None,
+    ood_fn: Optional[EvalStepFn] = None,
+    ood_dataset: Optional[tf.data.Dataset] = None,
+    ood_summary_writer: Optional[tf.summary.SummaryWriter] = None,
+    hparams: Optional[Dict[str, Any]] = None):
   """Run one evaluation epoch on the test and optionally validation splits."""
   val_outputs_np = None
   if val_dataset:
     val_iterator = iter(val_dataset)
     val_outputs = val_fn(val_iterator)
-    with val_summary_writer.as_default():
+    with val_summary_writer.as_default():  # pytype: disable=attribute-error
       if hparams:
         hp.hparams(hparams)
       for name, metric in val_outputs.items():
@@ -125,7 +125,7 @@ def run_eval_epoch(
   if ood_dataset:
     ood_iterator = iter(ood_dataset)
     ood_outputs = ood_fn(ood_iterator)
-    with ood_summary_writer.as_default():
+    with ood_summary_writer.as_default():  # pytype: disable=attribute-error
       if hparams:
         hp.hparams(hparams)
       for name, metric in ood_outputs.items():
@@ -153,7 +153,7 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
                metrics: Dict[str, Union[tf.keras.metrics.Metric,
                                         rm.metrics.KerasMetric]],
                ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
-               ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
+               ood_metrics: Optional[Dict[str, tf.keras.metrics.Metric]] = None,
                mean_field_factor: float = -1) -> _EvalSetupResult:
   """Setup the test and optionally validation loggers, step fns and datasets."""
   test_dataset = test_dataset_builder.load(batch_size=batch_size)
@@ -230,9 +230,10 @@ def run_eval_loop(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
                   metrics: Dict[str, Union[tf.keras.metrics.Metric,
                                            rm.metrics.KerasMetric]],
                   checkpoint_step: int = -1,
-                  hparams: Dict[str, Any] = None,
-                  ood_dataset_builder: ub.datasets.BaseDataset = None,
-                  ood_metrics: Dict[str, tf.keras.metrics.Metric] = None,
+                  hparams: Optional[Dict[str, Any]] = None,
+                  ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
+                  ood_metrics: Optional[Dict[str,
+                                             tf.keras.metrics.Metric]] = None,
                   mean_field_factor: float = -1):
   """Evaluate the model on the validation and test splits and record metrics."""
   (test_fn, test_dataset, test_summary_writer, val_fn, val_dataset,

@@ -66,7 +66,7 @@ class ImageNetDataset(base.BaseDataset):
       resnet_preprocessing_resize_method: Optional[str] = None,
       ensemble_size: int = 1,
       one_hot: bool = False,
-      mixup_params: Dict[str, Any] = None,
+      mixup_params: Optional[Dict[str, Any]] = None,
       run_mixup: bool = False,
       **unused_kwargs: Dict[str, Any]):
     """Create an ImageNet tf.data.Dataset builder.

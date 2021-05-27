@@ -16,7 +16,7 @@
 """Corrupted Cifar100 Dataset."""
 
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from robustness_metrics.common import types
 import tensorflow.compat.v2 as tf
@@ -180,7 +180,7 @@ class Cifar100CorruptedDataset(base.BaseDataset):
       split: str,
       num_parallel_parser_calls: int = 64,
       drop_remainder: bool = True,
-      data_dir: str = None,
+      data_dir: Optional[str] = None,
       normalize: bool = True,
       download_data: bool = False,
       **unused_kwargs: Dict[str, Any]):

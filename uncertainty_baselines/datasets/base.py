@@ -103,7 +103,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       split: Union[float, str, tfds.Split],
       seed: Optional[Union[int, tf.Tensor]] = None,
       is_training: Optional[bool] = None,
-      shuffle_buffer_size: int = None,
+      shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
       drop_remainder: bool = True,
       fingerprint_key: Optional[str] = None,

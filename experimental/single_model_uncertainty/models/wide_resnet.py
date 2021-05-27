@@ -131,8 +131,8 @@ def wide_resnet(
     l2: float,
     dropout_rate: float,
     use_mc_dropout: bool,
-    spec_norm_hparams: Dict[str, Any] = None,
-    gp_layer_hparams: Dict[str, Any] = None):
+    spec_norm_hparams: Optional[Dict[str, Any]] = None,
+    gp_layer_hparams: Optional[Dict[str, Any]] = None):
   """Builds Wide ResNet.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the
@@ -239,8 +239,8 @@ def create_model(
     l2_weight: float = 0.0,
     dropout_rate: float = 0.0,
     use_mc_dropout: bool = False,
-    spec_norm_hparams: Dict[str, Any] = None,
-    gp_layer_hparams: Dict[str, Any] = None,
+    spec_norm_hparams: Optional[Dict[str, Any]] = None,
+    gp_layer_hparams: Optional[Dict[str, Any]] = None,
     **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
   """Return wide resnet model."""
   return wide_resnet(

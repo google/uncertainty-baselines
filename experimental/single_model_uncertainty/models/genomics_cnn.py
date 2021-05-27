@@ -32,7 +32,7 @@ sequence classification.
      arXiv:2006.10108 (2020).
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from absl import logging
 import tensorflow as tf
 import util as models_util  # local file import
@@ -92,8 +92,8 @@ def create_model(batch_size: int,
                  dropout_rate: float = 0.1,
                  before_conv_dropout: bool = False,
                  use_mc_dropout: bool = False,
-                 spec_norm_hparams: Dict[str, Any] = None,
-                 gp_layer_hparams: Dict[str, Any] = None,
+                 spec_norm_hparams: Optional[Dict[str, Any]] = None,
+                 gp_layer_hparams: Optional[Dict[str, Any]] = None,
                  **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
 
   """Builds Genomics CNN model.

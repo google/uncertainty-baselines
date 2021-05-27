@@ -150,7 +150,7 @@ def wide_resnet(
     l2: float,
     version: int = 2,
     seed: int = 42,
-    hps: Dict[str, float] = None) -> tf.keras.models.Model:
+    hps: Optional[Dict[str, float]] = None) -> tf.keras.models.Model:
   """Builds Wide ResNet.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the

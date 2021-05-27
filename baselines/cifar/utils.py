@@ -71,6 +71,7 @@ flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 
 
 def load_cifar100_c(corruption_name,

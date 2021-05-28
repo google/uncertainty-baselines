@@ -195,34 +195,27 @@ If you wish to upload to the *PUBLICLY READABLE* [tensorboard.dev](https://tenso
 tensorboard dev upload --logdir MODEL_DIR --plugins "scalars,graphs,hparams" --name "My experiment" --description "My experiment details"
 ```
 
-## Contributors
+## References
 
-Contributors (past and present):
+If you'd like to cite Uncertainty Baselines, use the following BibTeX entry.
 
-* Angelos Filos
-* Balaji Lakshminarayanan
-* D Sculley
-* Dustin Tran
-* Florian Wenzel
-* Ghassen Jerfel
-* Jeremiah Liu
-* Jeremy Nixon
-* Jie Ren
-* Jasper Snoek
-* Josip Djolonga
-* Kevin Murphy
-* Mark Collier
-* Marton Havasi
-* Michael W. Dusenberry
-* Neil Band
-* Rodolphe Jenatton
-* Sebastian Farquhar
-* Shreyas Padhy
-* Tim G. J. Rudner
-* Yarin Gal
-* Yeming Wen
-* Zelda Mariet
-* Zachary Nado
+> Z. Nado, N. Band, M. Collier, J. Djolonga, M. Dusenberry,
+> S. Farquhar, A. Filos, M. Havasi, R. Jenatton, G.
+> Jerfel, J. Liu, Z. Mariet, J. Nixon, S. Padhy, J. Ren, T.
+> Rudner, Y. Wen, F. Wenzel, K. Murphy, D. Sculley, B.
+> Lakshminarayanan, J. Snoek, Y. Gal, and D. Tran.
+> [Uncertainty Baselines:  Benchmarks for uncertainty & robustness in deep learning](https://github.com/google/uncertainty-baselines),
+> 2021.
+
+```
+@software{nado2021uncertainty,
+  author = {Zachary Nado and Neil Band and Mark Collier and Josip Djolonga and Michael Dusenberry and Sebastian Farquhar and Angelos Filos and Marton Havasi and Rodolphe Jenatton and Ghassen Jerfel and Jeremiah Liu and Zelda Mariet and Jeremy Nixon and Shreyas Padhy and Jie Ren and Tim Rudner and Yeming Wen and Florian Wenzel and Kevin Murphy and D. Sculley and Balaji Lakshminarayanan and Jasper Snoek and Yarin Gal and Dustin Tran},
+  title = {{Uncertainty Baselines}:  Benchmarks for Uncertainty \& Robustness in Deep Learning},
+  url = {https://github.com/google/uncertainty-baselines},
+  version = {0.0.7},
+  year = {2021},
+}
+```
 
 ### Adding a Baseline
 

@@ -19,6 +19,7 @@ import warnings
 import tensorflow as tf
 
 from uncertainty_baselines.models import efficientnet_utils
+from uncertainty_baselines.models import vit_batchensemble
 from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
 from uncertainty_baselines.models.efficientnet import create_model as EfficientNetBuilder
 from uncertainty_baselines.models.efficientnet_batch_ensemble import create_model as EfficientNetBatchEnsembleBuilder
@@ -42,6 +43,7 @@ from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_la
 from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
 from uncertainty_baselines.models.resnet50_variational import resnet50_variational
 from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
+from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
 from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
 from uncertainty_baselines.models.wide_resnet import wide_resnet
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble

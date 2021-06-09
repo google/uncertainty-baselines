@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""A config for pre-training on JFT-300m.
+r"""ViT-B/16.
 
 """
 # pylint: enable=line-too-long

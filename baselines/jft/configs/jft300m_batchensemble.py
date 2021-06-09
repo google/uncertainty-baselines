@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""A config to train MoE Transformers on JFT.
+r"""ViT + BatchEnsemble.
 
 """
 # pylint: enable=line-too-long

@@ -23,6 +23,7 @@ https://arxiv.org/abs/1906.02530 (which used (100 / 1024)% as a validation set).
 """
 from typing import Any, Dict, Optional, Union
 
+import numpy as np
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import augmix
@@ -33,8 +34,8 @@ from uncertainty_baselines.datasets import resnet_preprocessing
 
 # ImageNet statistics. Used to normalize the input to Efficientnet. Note that
 # these do NOT have `* 255.` after them.
-IMAGENET_MEAN = tf.constant([[[0.485, 0.456, 0.406]]], tf.float32)
-IMAGENET_STDDEV = tf.constant([[[0.229, 0.224, 0.225]]], tf.float32)
+IMAGENET_MEAN = np.array([[[0.485, 0.456, 0.406]]], dtype=np.float32)
+IMAGENET_STDDEV = np.array([[[0.229, 0.224, 0.225]]], dtype=np.float32)
 
 
 def _tuple_dict_fn_converter(fn, *args):

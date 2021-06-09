@@ -17,6 +17,7 @@
 
 from typing import Any, Dict, Optional, Union
 
+import numpy as np
 from robustness_metrics.common import types
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -26,8 +27,8 @@ from uncertainty_baselines.datasets import base
 
 # We use the convention of using mean = np.mean(train_images, axis=(0,1,2))
 # and std = np.std(train_images, axis=(0,1,2)).
-CIFAR10_MEAN = tf.constant([0.4914, 0.4822, 0.4465])
-CIFAR10_STD = tf.constant([0.2470, 0.2435, 0.2616])
+CIFAR10_MEAN = np.array([0.4914, 0.4822, 0.4465])
+CIFAR10_STD = np.array([0.2470, 0.2435, 0.2616])
 # Previously we used std = np.mean(np.std(train_images, axis=(1, 2)), axis=0)
 # which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype), however
 # we change convention to use the std over the entire training set instead.

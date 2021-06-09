@@ -204,15 +204,14 @@ If you'd like to cite Uncertainty Baselines, use the following BibTeX entry.
 > Jerfel, J. Liu, Z. Mariet, J. Nixon, S. Padhy, J. Ren, T.
 > Rudner, Y. Wen, F. Wenzel, K. Murphy, D. Sculley, B.
 > Lakshminarayanan, J. Snoek, Y. Gal, and D. Tran.
-> [Uncertainty Baselines:  Benchmarks for uncertainty & robustness in deep learning](https://github.com/google/uncertainty-baselines),
-> 2021.
+> [Uncertainty Baselines:  Benchmarks for uncertainty & robustness in deep learning](https://arxiv.org/abs/2106.04015),
+> _arXiv preprint arXiv:2106.04015_, 2021.
 
 ```
-@software{nado2021uncertainty,
+@article{nado2021uncertainty,
   author = {Zachary Nado and Neil Band and Mark Collier and Josip Djolonga and Michael Dusenberry and Sebastian Farquhar and Angelos Filos and Marton Havasi and Rodolphe Jenatton and Ghassen Jerfel and Jeremiah Liu and Zelda Mariet and Jeremy Nixon and Shreyas Padhy and Jie Ren and Tim Rudner and Yeming Wen and Florian Wenzel and Kevin Murphy and D. Sculley and Balaji Lakshminarayanan and Jasper Snoek and Yarin Gal and Dustin Tran},
   title = {{Uncertainty Baselines}:  Benchmarks for Uncertainty \& Robustness in Deep Learning},
-  url = {https://github.com/google/uncertainty-baselines},
-  version = {0.0.7},
+  journal = {arXiv preprint arXiv:2106.04015},
   year = {2021},
 }
 ```

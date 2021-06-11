@@ -104,7 +104,7 @@ def main(argv):
   tf.io.gfile.makedirs(FLAGS.output_dir)
 
   ds_info = tfds.builder(FLAGS.dataset).info
-  batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
+  batch_size = FLAGS.total_batch_size
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
@@ -132,7 +132,7 @@ def main(argv):
 
   model = ub.models.wide_resnet_sngp(
       input_shape=ds_info.features['image'].shape,
-      batch_size=FLAGS.per_core_batch_size,
+      batch_size=FLAGS.total_batch_size // FLAGS.num_cores,
       depth=28,
       width_multiplier=10,
       num_classes=num_classes,
@@ -184,7 +184,7 @@ def main(argv):
             # If model returns a tuple of (logits, covmat), extract both
             logits_member, covmat_member = logits_member
           else:
-            covmat_member = tf.eye(FLAGS.per_core_batch_size)
+            covmat_member = tf.eye(logits_member.shape[0])
           logits_member = ed.layers.utils.mean_field_logits(
               logits_member, covmat_member, FLAGS.gp_mean_field_factor_ensemble)
           logits.append(logits_member)

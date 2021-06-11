@@ -83,6 +83,11 @@ import uncertainty_baselines as ub
 import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
+flags.DEFINE_integer(
+    'total_batch_size',
+    256,
+    'The total train (and test) batch size, split across all devices.')
+
 # Data Augmentation flags.
 flags.DEFINE_bool('augmix', False,
                   'Whether to perform AugMix [4] on the input data.')
@@ -161,7 +166,7 @@ flags.DEFINE_float(
     'posterior mode instead of posterior mean. See [2] for detail.')
 
 # Redefining default values
-flags.FLAGS.set_default('base_learning_rate', 0.05)
+flags.FLAGS.set_default('base_learning_rate', 0.1)
 flags.FLAGS.set_default('l2', 3e-4)
 flags.FLAGS.set_default('train_epochs', 250)
 FLAGS = flags.FLAGS
@@ -187,9 +192,8 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
-  batch_size = (FLAGS.per_core_batch_size * FLAGS.num_cores
-                // FLAGS.num_dropout_samples_training)
-  test_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
+  batch_size = FLAGS.total_batch_size // FLAGS.num_dropout_samples_training
+  test_batch_size = FLAGS.total_batch_size
   num_classes = 10 if FLAGS.dataset == 'cifar10' else 100
 
   aug_params = {
@@ -439,7 +443,7 @@ def main(argv):
           # If model returns a tuple of (logits, covmat), extract both
           logits, covmat = logits
         else:
-          covmat = tf.eye(FLAGS.per_core_batch_size)
+          covmat = tf.eye(logits.shape[0])
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         logits = ed.layers.utils.mean_field_logits(

@@ -52,6 +52,11 @@ import uncertainty_baselines as ub
 import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
+flags.DEFINE_integer(
+    'total_batch_size',
+    256,
+    'The total train (and test) batch size, split across all devices.')
+
 # BatchEnsemble flags.
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
 flags.DEFINE_float('random_sign_init', -0.5,
@@ -125,8 +130,7 @@ def main(argv):
   tf.random.set_seed(FLAGS.seed)
 
   ds_info = tfds.builder(FLAGS.dataset).info
-  per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
-  batch_size = per_core_batch_size * FLAGS.num_cores
+  batch_size = FLAGS.total_batch_size // FLAGS.ensemble_size
   # Train_proportion is a float so need to convert steps_per_epoch to int.
   steps_per_epoch = int((ds_info.splits['train'].num_examples *
                          FLAGS.train_proportion) // batch_size)
@@ -355,7 +359,7 @@ def main(argv):
           # If model returns a tuple of (logits, covmat), extract both
           logits, covmat = logits
         else:
-          covmat = tf.eye(FLAGS.per_core_batch_size)
+          covmat = tf.eye(logits.shape[0])
         logits = mean_field_logits(
             logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
         stddev = tf.sqrt(tf.linalg.diag_part(covmat))

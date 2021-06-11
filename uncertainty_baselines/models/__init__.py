@@ -60,17 +60,30 @@ from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_var
 
 # pylint: disable=g-import-not-at-top
 try:
+  # Try to import models depending on dune.
   from uncertainty_baselines.models import vit_batchensemble
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
+except ImportError as e:
+  warnings.warn(f'Skipped ViT models due to ImportError: {e}')
+except tf.errors.NotFoundError as e:
+  warnings.warn(f'Skipped ViT models due to NotFoundError: {e}')
+try:
+  # Try to import models depending on tensorflow_models.official.nlp.
   from uncertainty_baselines.models.bert import create_model as BertBuilder
   from uncertainty_baselines.models.bert_dropout import create_model as DropoutBertBuilder
   from uncertainty_baselines.models.bert_sngp import create_model as SngpBertBuilder
+except ImportError as e:
+  warnings.warn(f'Skipped BERT models due to ImportError: {e}')
+except tf.errors.NotFoundError as e:
+  warnings.warn(f'Skipped BERT models due to NotFoundError: {e}')
+try:
+  # Try to import models depending on edward2.experimental.mimo.
   from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
   from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
 except ImportError as e:
-  warnings.warn(f'Skipped due to ImportError: {e}')
+  warnings.warn(f'Skipped MIMO models due to ImportError: {e}')
 except tf.errors.NotFoundError as e:
-  warnings.warn(f'Skipped due to NotFoundError: {e}')
+  warnings.warn(f'Skipped MIMO models due to NotFoundError: {e}')
 
 # This is necessary because we cannot depend on torch internally, so the torch
 # model modules cannot be imported at all, so we cannot just wrap the imports in

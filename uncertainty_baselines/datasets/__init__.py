@@ -54,6 +54,7 @@ from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitie
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
 
 try:
+  # Try to import datasets depending on librosa.
   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
 except ImportError as e:
-  warnings.warn(f'Skipped due to ImportError: {e}')
+  warnings.warn(f'Skipped Speech Commands dataset due to ImportError: {e}')

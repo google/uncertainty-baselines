@@ -19,13 +19,13 @@ import functools
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Tuple
 
 from absl import logging
+import edward2.jax as ed
 import flax
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy
-from uncertainty_baselines.models import jax_utils
 
 from dune.experts.jax import checkpoints_model
 from dune.experts.jax.nn import identity
@@ -59,25 +59,25 @@ class BatchEnsembleMlpBlock(nn.Module):
     dtype = self.dtype or inputs.dtype
     inputs = jnp.asarray(inputs, self.dtype)
     out_dim = self.out_dim or inputs.shape[-1]
-    x = jax_utils.DenseBatchEnsemble(
+    x = ed.nn.DenseBatchEnsemble(
         self.mlp_dim,
         self.ens_size,
         activation=None,
         use_ensemble_bias=self.use_bias,
-        alpha_init=jax_utils.make_sign_initializer(self.random_sign_init),
-        gamma_init=jax_utils.make_sign_initializer(self.random_sign_init),
+        alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
+        gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         kernel_init=self.kernel_init,
         bias_init=self.bias_init,
         dtype=dtype)(inputs)
     x = nn.gelu(x)
     x = nn.Dropout(rate=self.dropout_rate, deterministic=deterministic)(x)
-    output = jax_utils.DenseBatchEnsemble(
+    output = ed.nn.DenseBatchEnsemble(
         out_dim,
         self.ens_size,
         activation=None,
         use_ensemble_bias=self.use_bias,
-        alpha_init=jax_utils.make_sign_initializer(self.random_sign_init),
-        gamma_init=jax_utils.make_sign_initializer(self.random_sign_init),
+        alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
+        gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         kernel_init=self.kernel_init,
         bias_init=self.bias_init,
         dtype=dtype)(x)

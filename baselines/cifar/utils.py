@@ -364,10 +364,3 @@ def aggregate_corrupt_metrics(metrics,
     return fine_metrics_results
   else:
     return results
-
-
-def get_data_dir_from_flags(all_flags):
-  if all_flags.use_gpu:
-    return None
-  else:
-    return all_flags.data_dir

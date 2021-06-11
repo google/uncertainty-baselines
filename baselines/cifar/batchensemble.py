@@ -49,7 +49,7 @@ def main(argv):
   per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
   batch_size = per_core_batch_size * FLAGS.num_cores
 
-  data_dir = utils.get_data_dir_from_flags(FLAGS)
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()

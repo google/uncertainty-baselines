@@ -180,7 +180,7 @@ def main(argv):
   # Split the seed into a 2-tuple, for passing into dataset builder.
   dataset_seed = (FLAGS.seed, FLAGS.seed + 1)
 
-  data_dir = utils.get_data_dir_from_flags(FLAGS)
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()

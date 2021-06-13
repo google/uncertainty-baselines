@@ -85,13 +85,6 @@ except ImportError as e:
 except tf.errors.NotFoundError as e:
   warnings.warn(f'Skipped MIMO models due to NotFoundError: {e}')
 
-
-try:
-  from uncertainty_baselines.models import vit_batchensemble
-  from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
-except ImportError as e:
-  warnings.warn(f'Skipped importing Flax ViT models due to ImportError: {e}')
-
 # This is necessary because we cannot depend on torch internally, so the torch
 # model modules cannot be imported at all, so we cannot just wrap the imports in
 # a try/except.

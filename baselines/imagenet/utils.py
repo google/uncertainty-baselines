@@ -121,8 +121,9 @@ def aggregate_corrupt_metrics(metrics,
       else:
         member_acc[i] = 0.
       if 'test/member_ece_mean_{}'.format(dataset_name) in metrics.keys():
-        member_ece[i] = metrics['test/member_ece_mean_{}'.format(
-            dataset_name)].result()
+        member_ece[i] = list(metrics['test/member_ece_mean_{}'.format(
+            dataset_name)].result().values())[0]
+      else:
         member_ece[i] = 0.
       if fine_metrics:
         results['test/nll_{}'.format(dataset_name)] = nll[i]

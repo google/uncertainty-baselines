@@ -272,8 +272,9 @@ def aggregate_corrupt_metrics(metrics,
         member_acc[i] = 0.
       if '{0}/member_ece_mean_{1}'.format(prefix,
                                           dataset_name) in metrics.keys():
-        member_ece[i] = metrics['{0}/member_ece_mean_{1}'.format(
-            prefix, dataset_name)].result()
+        member_ece[i] = list(metrics['{0}/member_ece_mean_{1}'.format(
+            prefix, dataset_name)].result().values())[0]
+      else:
         member_ece[i] = 0.
       if corrupt_diversity is not None:
         disagreement[i] = (

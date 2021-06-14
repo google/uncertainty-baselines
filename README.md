@@ -13,8 +13,7 @@ is done in three ways:
    easily forkable without relying on other baselines and generic modules.
 3. Prescribe best practices for uncertainty and robustness benchmarking.
 
-__Motivation.__ There are many uncertainty and robustness implementations across
-GitHub. However, they are typically one-off experiments for a specific paper
+__Motivation.__ There are many uncertainty and robustness implementations acrossGitHub. However, they are typically one-off experiments for a specific paper
 (many papers don't even have code). There are no clear examples that uncertainty
 researchers can build on to quickly prototype their work. Everyone must
 implement their own baseline. In fact, even on standard tasks, every project

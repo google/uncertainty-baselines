@@ -29,6 +29,7 @@ setup(
         'astunparse',
         'chardet',
         'flatbuffers',
+        'google-cloud-storage',  # Required for the GCS launcher.
         'idna',
         'ml_collections',
         'numpy>=1.7',

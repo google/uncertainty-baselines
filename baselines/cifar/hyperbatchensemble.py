@@ -347,18 +347,14 @@ def main(argv):
         'train/loss': tf.keras.metrics.Mean(),
         'train/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
-        'train/disagreement': tf.keras.metrics.Mean(),
-        'train/average_kl': tf.keras.metrics.Mean(),
-        'train/cosine_similarity': tf.keras.metrics.Mean(),
+        'train/diversity': rm.metrics.AveragePairwiseDiversity(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
         'test/gibbs_nll': tf.keras.metrics.Mean(),
         'test/gibbs_accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/disagreement': tf.keras.metrics.Mean(),
-        'test/average_kl': tf.keras.metrics.Mean(),
-        'test/cosine_similarity': tf.keras.metrics.Mean(),
+        'test/diversity': rm.metrics.AveragePairwiseDiversity(),
         'validation/loss': tf.keras.metrics.Mean(),
         'validation/loss_entropy': tf.keras.metrics.Mean(),
         'validation/loss_ce': tf.keras.metrics.Mean()
@@ -451,11 +447,7 @@ def main(argv):
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
-      diversity = rm.metrics.AveragePairwiseDiversity()
-      diversity.add_batch(per_probs_stacked, num_models=FLAGS.ensemble_size)
-      diversity_results = diversity.result()
-      for k, v in diversity_results.items():
-        metrics['train/' + k].update_state(v)
+      metrics['train/diversity'].add_batch(per_probs_stacked)
 
       if grads_and_vars:
         grads, _ = zip(*grads_and_vars)
@@ -581,11 +573,7 @@ def main(argv):
 
       if dataset_name == 'clean':
         per_probs_stacked = tf.stack(per_probs, axis=0)
-        diversity = rm.metrics.AveragePairwiseDiversity()
-        diversity.add_batch(per_probs_stacked, num_models=ensemble_size)
-        diversity_results = diversity.result()
-        for k, v in diversity_results.items():
-          metrics['test/' + k].update_state(v)
+        metrics['test/diversity'].add_batch(per_probs_stacked)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -659,12 +647,8 @@ def main(argv):
     total_results.update(
         {name: metric.result() for name, metric in corrupt_metrics.items()})
     total_results.update(corrupt_results)
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
+    # Results from Robustness Metrics themselves return a dict, so flatten them.
+    total_results = utils.flatten_dictionary(total_results)
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)

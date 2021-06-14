@@ -697,3 +697,33 @@ def get_minibatch_reweighted_loss_fn(labels: tf.Tensor):
   batch_loss_fn = get_weighted_binary_cross_entropy(
       weights=minibatch_class_weights)
   return batch_loss_fn
+
+
+def flatten_dictionary(x):
+  """Flattens a dictionary where elements may itself be a dictionary.
+
+  This function is helpful when using a collection of metrics, some of which
+  include Robustness Metrics' metrics. Each metric in Robustness Metrics
+  returns a dictionary with potentially multiple elements. This function
+  flattens the dictionary of dictionaries.
+
+  Args:
+    x: Dictionary where keys are strings such as the name of each metric.
+
+  Returns:
+    Flattened dictionary.
+  """
+  outputs = {}
+  for k, v in x.items():
+    if isinstance(v, dict):
+      if len(v.values()) == 1:
+        # Collapse metric results like ECE's with dicts of len 1 into the
+        # original key.
+        outputs[k] = list(v.values())[0]
+      else:
+        # Flatten metric results like diversity's.
+        for v_k, v_v in v.items():
+          outputs[f'{k}/{v_k}'] = v_v
+    else:
+      outputs[k] = v
+  return outputs

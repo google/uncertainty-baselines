@@ -146,19 +146,14 @@ def main(argv):
       'test/accuracy': tf.keras.metrics.BinaryAccuracy(),
       'test/auprc': tf.keras.metrics.AUC(curve='PR'),
       'test/auroc': tf.keras.metrics.AUC(curve='ROC'),
-      'test/ece': rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins)
+      'test/ece': rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+      'test/diversity': rm.metrics.AveragePairwiseDiversity(),
   }
 
   for i in range(ensemble_size):
     metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
     metrics['test/accuracy_member_{}'.format(i)] = (
         tf.keras.metrics.BinaryAccuracy())
-  test_diversity = {
-      'test/disagreement': tf.keras.metrics.Mean(),
-      'test/average_kl': tf.keras.metrics.Mean(),
-      'test/cosine_similarity': tf.keras.metrics.Mean()
-  }
-  metrics.update(test_diversity)
 
   # Evaluate model predictions.
   logits_dataset = []
@@ -196,6 +191,7 @@ def main(argv):
     metrics['test/auprc'].update_state(labels, probs)
     metrics['test/auroc'].update_state(labels, probs)
     metrics['test/ece'].add_batch(probs, label=labels)
+    metrics['test/diversity'].add_batch(per_probs)
 
     for i in range(ensemble_size):
       member_probs = per_probs[i]
@@ -204,19 +200,9 @@ def main(argv):
       metrics['test/accuracy_member_{}'.format(i)].update_state(
           labels, member_probs)
 
-    diversity = rm.metrics.AveragePairwiseDiversity()
-    diversity.add_batch(per_probs, num_models=ensemble_size)
-    diversity_results = diversity.result()
-    for k, v in diversity_results.items():
-      test_diversity['test/' + k].update_state(v)
-
   total_results = {name: metric.result() for name, metric in metrics.items()}
-  # Metrics from Robustness Metrics (like ECE) will return a dict with a
-  # single key/value, instead of a scalar.
-  total_results = {
-      k: (list(v.values())[0] if isinstance(v, dict) else v)
-      for k, v in total_results.items()
-  }
+  # Results from Robustness Metrics themselves return a dict, so flatten them.
+  total_results = utils.flatten_dictionary(total_results)
   logging.info('Metrics: %s', total_results)
 
 

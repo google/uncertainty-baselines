@@ -155,6 +155,7 @@ def main(argv):
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
+        'test/diversity': rm.metrics.AveragePairwiseDiversity(),
     }
     eval_dataset_splits = ['test']
     if validation_dataset:
@@ -186,11 +187,6 @@ def main(argv):
       metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
       metrics['test/accuracy_member_{}'.format(i)] = (
           tf.keras.metrics.SparseCategoricalAccuracy())
-    test_diversity = {
-        'test/disagreement': tf.keras.metrics.Mean(),
-        'test/average_kl': tf.keras.metrics.Mean(),
-        'test/cosine_similarity': tf.keras.metrics.Mean(),
-    }
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
@@ -274,11 +270,7 @@ def main(argv):
 
       if dataset_name == 'clean':
         per_probs = tf.transpose(probs, perm=[1, 0, 2])
-        diversity = rm.metrics.AveragePairwiseDiversity()
-        diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
-        diversity_results = diversity.result()
-        for k, v in diversity_results.items():
-          test_diversity['test/' + k].update_state(v)
+        metrics['test/diversity'].add_batch(per_probs)
 
       for i in range(FLAGS.ensemble_size):
         member_probs = probs[:, i]
@@ -369,15 +361,10 @@ def main(argv):
           metrics['test/nll_member_{}'.format(i)].result(),
           metrics['test/accuracy_member_{}'.format(i)].result() * 100)
 
-    metrics.update(test_diversity)
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
+    # Results from Robustness Metrics themselves return a dict, so flatten them.
+    total_results = utils.flatten_dictionary(total_results)
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)

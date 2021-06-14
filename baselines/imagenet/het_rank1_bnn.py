@@ -226,12 +226,14 @@ def main(argv):
         'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'train/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
+        'train/diversity': rm.metrics.AveragePairwiseDiversity(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/kl': tf.keras.metrics.Mean(),
         'test/elbo': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
+        'test/diversity': rm.metrics.AveragePairwiseDiversity(),
         'test/member_accuracy_mean': (
             tf.keras.metrics.SparseCategoricalAccuracy()),
         'test/member_ece_mean': rm.metrics.ExpectedCalibrationError(
@@ -253,23 +255,11 @@ def main(argv):
           corrupt_metrics['test/ece_{}'.format(dataset_name)] = (
               rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins))
 
-    test_diversity = {}
-    training_diversity = {}
     if FLAGS.ensemble_size > 1:
       for i in range(FLAGS.ensemble_size):
         metrics['test/nll_member_{}'.format(i)] = tf.keras.metrics.Mean()
         metrics['test/accuracy_member_{}'.format(i)] = (
             tf.keras.metrics.SparseCategoricalAccuracy())
-      test_diversity = {
-          'test/disagreement': tf.keras.metrics.Mean(),
-          'test/average_kl': tf.keras.metrics.Mean(),
-          'test/cosine_similarity': tf.keras.metrics.Mean(),
-      }
-      training_diversity = {
-          'train/disagreement': tf.keras.metrics.Mean(),
-          'train/average_kl': tf.keras.metrics.Mean(),
-          'train/cosine_similarity': tf.keras.metrics.Mean(),
-      }
 
     logging.info('Finished building Keras ResNet-50 model')
 
@@ -317,9 +307,7 @@ def main(argv):
         if FLAGS.ensemble_size > 1:
           per_probs = tf.reshape(
               probs, tf.concat([[FLAGS.ensemble_size, -1], probs.shape[1:]], 0))
-          diversity = rm.metrics.AveragePairwiseDiversity()
-          diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
-          diversity_results = diversity.result()
+          metrics['train/diversity'].add_batch(per_probs)
 
         negative_log_likelihood = tf.reduce_mean(
             tf.keras.losses.sparse_categorical_crossentropy(labels,
@@ -362,9 +350,6 @@ def main(argv):
       metrics['train/loss'].update_state(loss)
       metrics['train/accuracy'].update_state(labels, logits)
       metrics['train/ece'].add_batch(probs, label=labels)
-      if FLAGS.ensemble_size > 1:
-        for k, v in diversity_results.items():
-          training_diversity['train/' + k].update_state(v)
 
     for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
@@ -404,11 +389,7 @@ def main(argv):
       if dataset_name == 'clean':
         if FLAGS.ensemble_size > 1:
           per_probs = tf.reduce_mean(all_probs, axis=0)  # marginalize samples
-          diversity = rm.metrics.AveragePairwiseDiversity()
-          diversity.add_batch(per_probs, num_models=FLAGS.ensemble_size)
-          diversity_results = diversity.result()
-          for k, v in diversity_results.items():
-            test_diversity['test/' + k].update_state(v)
+          metrics['test/diversity'].add_batch(per_probs)
           for i in range(FLAGS.ensemble_size):
             member_probs = per_probs[i]
             member_loss = tf.keras.losses.sparse_categorical_crossentropy(
@@ -492,23 +473,15 @@ def main(argv):
                    i, metrics['test/nll_member_{}'.format(i)].result(),
                    metrics['test/accuracy_member_{}'.format(i)].result() * 100)
 
-    total_metrics = metrics.copy()
-    total_metrics.update(training_diversity)
-    total_metrics.update(test_diversity)
-    total_results = {name: metric.result()
-                     for name, metric in total_metrics.items()}
+    total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
-    # Metrics from Robustness Metrics (like ECE) will return a dict with a
-    # single key/value, instead of a scalar.
-    total_results = {
-        k: (list(v.values())[0] if isinstance(v, dict) else v)
-        for k, v in total_results.items()
-    }
+    # Results from Robustness Metrics themselves return a dict, so flatten them.
+    total_results = utils.flatten_dictionary(total_results)
     with summary_writer.as_default():
       for name, result in total_results.items():
         tf.summary.scalar(name, result, step=epoch + 1)
 
-    for metric in total_metrics.values():
+    for metric in metrics.values():
       metric.reset_states()
 
     if (FLAGS.checkpoint_interval > 0 and

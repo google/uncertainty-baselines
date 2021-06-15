@@ -32,6 +32,7 @@ class SvhnDataset(base.BaseDataset):
       validation_percent: float = 0.0,
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
+      drop_remainder: bool = True,
       try_gcs: bool = False,
       download_data: bool = False,
       normalize_by_cifar: bool = False,
@@ -49,6 +50,9 @@ class SvhnDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      drop_remainder: whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size. This option
+        needs to be True for running on TPUs.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
@@ -72,6 +76,7 @@ class SvhnDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
+        drop_remainder=drop_remainder,
         download_data=download_data)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:

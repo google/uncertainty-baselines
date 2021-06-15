@@ -16,7 +16,7 @@
 # Lint as: python3
 """Kaggle diabetic retinopathy detection dataset builder."""
 
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -33,8 +33,7 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
     Args:

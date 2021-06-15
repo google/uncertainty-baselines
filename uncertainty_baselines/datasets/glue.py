@@ -74,8 +74,7 @@ class _GlueDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a GLUE tf.data.Dataset builder.
 
     Args:

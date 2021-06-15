@@ -15,7 +15,7 @@
 
 """Fashion-MNIST dataset builder."""
 
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -33,8 +33,7 @@ class FashionMnistDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a Fashion-MNIST tf.data.Dataset builder.
 
     Args:

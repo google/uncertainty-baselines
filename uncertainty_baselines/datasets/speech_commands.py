@@ -25,7 +25,7 @@ Reference:
   Recognition" https://arxiv.org/abs/1804.03209
 """
 
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Callable, Dict, Optional, Tuple, Union
 
 # TODO(znado): Add librosa as an extras_require in setup.py.
 import librosa
@@ -212,8 +212,7 @@ class SpeechCommandsDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a Speech commands tf.data.Dataset builder.
 
     Args:

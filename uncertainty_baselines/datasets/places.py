@@ -16,7 +16,7 @@
 # Lint as: python3
 """Places-365 dataset builder."""
 
-from typing import Any, Dict, Optional, Union
+from typing import Dict, Optional, Union
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -36,8 +36,7 @@ class Places365Dataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create an Places-365 tf.data.Dataset builder.
 
     Args:

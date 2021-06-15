@@ -57,8 +57,7 @@ class MnliDataset(base.BaseDataset):
       mode: str = 'matched',
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create an Genomics OOD tf.data.Dataset builder.
 
     Args:

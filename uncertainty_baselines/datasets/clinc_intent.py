@@ -47,7 +47,7 @@ Note:
 import json
 import os.path
 
-from typing import Any, Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -268,8 +268,7 @@ class ClincIntentDetectionDataset(base.BaseDataset):
       data_mode: str = 'ind',
       data_dir: Optional[str] = None,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a CLINC tf.data.Dataset builder.
 
     Args:

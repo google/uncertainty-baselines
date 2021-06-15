@@ -37,7 +37,7 @@ for Prediction of hERG Channel Inhibition in the Big Data Era.
 """
 import os.path
 
-from typing import Any, Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -243,8 +243,7 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
       data_dir: Optional[str] = None,
       download_data: bool = False,
       is_training: Optional[bool] = None,
-      drop_remainder: bool = True,
-      **unused_kwargs: Dict[str, Any]):
+      drop_remainder: bool = True):
     """Create a tf.data.Dataset builder.
 
     Args:

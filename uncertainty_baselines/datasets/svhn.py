@@ -16,7 +16,7 @@
 # Lint as: python3
 """SVHN dataset builder."""
 
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -36,8 +36,7 @@ class SvhnDataset(base.BaseDataset):
       try_gcs: bool = False,
       download_data: bool = False,
       normalize_by_cifar: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create an SVHN tf.data.Dataset builder.
 
     Args:

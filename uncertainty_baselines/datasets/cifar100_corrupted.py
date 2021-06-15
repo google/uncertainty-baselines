@@ -16,7 +16,7 @@
 """Corrupted Cifar100 Dataset."""
 
 import os
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from robustness_metrics.common import types
 import tensorflow.compat.v2 as tf
@@ -182,8 +182,7 @@ class Cifar100CorruptedDataset(base.BaseDataset):
       drop_remainder: bool = True,
       data_dir: Optional[str] = None,
       normalize: bool = True,
-      download_data: bool = False,
-      **unused_kwargs: Dict[str, Any]):
+      download_data: bool = False):
     """Create a CIFAR100-C tf.data.Dataset builder.
 
     Args:

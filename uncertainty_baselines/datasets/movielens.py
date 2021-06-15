@@ -16,7 +16,7 @@
 # Lint as: python3
 """Data loader for the MovieLens dataset."""
 
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
@@ -35,8 +35,7 @@ class MovieLensDataset(base.BaseDataset):
       normalize: bool = True,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a MovieLens tf.data.Dataset builder.
 
     Args:

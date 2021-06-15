@@ -68,8 +68,7 @@ class ImageNetDataset(base.BaseDataset):
       ensemble_size: int = 1,
       one_hot: bool = False,
       mixup_params: Optional[Dict[str, Any]] = None,
-      run_mixup: bool = False,
-      **unused_kwargs: Dict[str, Any]):
+      run_mixup: bool = False):
     """Create an ImageNet tf.data.Dataset builder.
 
     Args:

@@ -16,7 +16,7 @@
 """Genomics OOD dataset builder."""
 
 import os
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -141,8 +141,7 @@ class GenomicsOodDataset(base.BaseDataset):
       eval_filter_class_id: int = -1,
       data_mode: str = 'ind',
       data_dir: Optional[str] = None,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create an Genomics OOD tf.data.Dataset builder.
 
     Args:

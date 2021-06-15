@@ -17,7 +17,7 @@
 """Data loader for the Criteo dataset."""
 
 import os.path
-from typing import Any, Dict, Optional, Union
+from typing import Dict, Optional, Union
 
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -178,8 +178,7 @@ class CriteoDataset(base.BaseDataset):
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a Criteo tf.data.Dataset builder.
 
     Args:

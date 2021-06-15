@@ -21,16 +21,24 @@ import tensorflow as tf
 import uncertainty_baselines as ub
 
 
-class Cifar100CorruptedDatasetTest(ub.datasets.DatasetTest,
-                                   parameterized.TestCase):
+class Cifar100CorruptedDatasetTest(parameterized.TestCase):
 
   def testCifar100CorruptedDatasetShape(self):
-    super(Cifar100CorruptedDatasetTest, self)._testDatasetSize(
-        ub.datasets.Cifar100CorruptedDataset,
-        (32, 32, 3),
-        splits=['test'],
-        corruption_type='brightness',
-        severity=1)
+    batch_size_splits = {'test': 5}
+    for split, bs in batch_size_splits.items():
+      dataset_builder = ub.datasets.Cifar100CorruptedDataset(
+          split=split,
+          corruption_type='brightness',
+          severity=1)
+      dataset = dataset_builder.load(batch_size=bs).take(1)
+      element = next(iter(dataset))
+      features = element['features']
+      labels = element['labels']
+
+      features_shape = features.shape
+      labels_shape = labels.shape
+      self.assertEqual(features_shape, (bs, 32, 32, 3))
+      self.assertEqual(labels_shape, (bs,))
 
 
 if __name__ == '__main__':

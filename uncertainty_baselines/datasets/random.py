@@ -16,7 +16,7 @@
 # Lint as: python3
 """Random noise dataset builder."""
 
-from typing import Any, Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional
 
 import numpy as np
 import tensorflow.compat.v2 as tf
@@ -130,8 +130,7 @@ class _RandomNoiseDataset(base.BaseDataset):
       data_dir: Optional[str] = None,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a Random Image tf.data.Dataset builder.
 
     Args:

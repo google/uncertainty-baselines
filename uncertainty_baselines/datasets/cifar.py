@@ -62,8 +62,7 @@ class _CifarDataset(base.BaseDataset):
       use_bfloat16: bool = False,
       aug_params: Optional[Dict[str, Any]] = None,
       data_dir: Optional[str] = None,
-      is_training: Optional[bool] = None,
-      **unused_kwargs: Dict[str, Any]):
+      is_training: Optional[bool] = None):
     """Create a CIFAR10 or CIFAR100 tf.data.Dataset builder.
 
     Args:

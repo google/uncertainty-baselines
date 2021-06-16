@@ -40,6 +40,8 @@ from uncertainty_baselines.datasets.movielens import MovieLensDataset
 from uncertainty_baselines.datasets.places import Places365Dataset
 from uncertainty_baselines.datasets.random import RandomGaussianImageDataset
 from uncertainty_baselines.datasets.random import RandomRademacherImageDataset
+from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset
+from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset
 from uncertainty_baselines.datasets.svhn import SvhnDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
@@ -65,9 +67,11 @@ DATASETS = {
     'mnist': MnistDataset,
     'mnli': MnliDataset,
     'movielens': MovieLensDataset,
+    'multiwoz': MultiWoZDataset,
     'places365': Places365Dataset,
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,
+    'smcalflow': SMCalflowDataset,
     'speech_commands': SpeechCommandsDataset,
     'svhn_cropped': SvhnDataset,
     'glue/cola': GlueDatasets['glue/cola'],
@@ -87,10 +91,8 @@ def get_dataset_names() -> List[str]:
   return list(DATASETS.keys())
 
 
-def get(
-    dataset_name: str,
-    split: Union[Tuple[str, float], str, tfds.Split],
-    **hyperparameters: Any) -> BaseDataset:
+def get(dataset_name: str, split: Union[Tuple[str, float], str, tfds.Split],
+        **hyperparameters: Any) -> BaseDataset:
   """Gets a dataset builder by name.
 
   Note that the user still needs to call
@@ -99,9 +101,8 @@ def get(
 
   Args:
     dataset_name: Name of the dataset builder class.
-    split: a dataset split, either a custom tfds.Split or one of the
-      tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
-      names.
+    split: a dataset split, either a custom tfds.Split or one of the tfds.Split
+      enums [TRAIN, VALIDAITON, TEST] or their lowercase string names.
     **hyperparameters: dict of possible kwargs to be passed to the dataset
       constructor.
 
@@ -117,14 +118,10 @@ def get(
       k: (v.numpy().tolist() if isinstance(v, tf.Tensor) else v)
       for k, v in hyperparameters.items()
   }
-  logging.info(
-      'Building dataset %s with additional kwargs:\n%s',
-      dataset_name,
-      json.dumps(hyperparameters_py, indent=2, sort_keys=True))
+  logging.info('Building dataset %s with additional kwargs:\n%s', dataset_name,
+               json.dumps(hyperparameters_py, indent=2, sort_keys=True))
   if dataset_name not in DATASETS:
     raise ValueError('Unrecognized dataset name: {!r}'.format(dataset_name))
 
   dataset_class = DATASETS[dataset_name]
-  return dataset_class(
-      split=split,
-      **hyperparameters)
+  return dataset_class(split=split, **hyperparameters)

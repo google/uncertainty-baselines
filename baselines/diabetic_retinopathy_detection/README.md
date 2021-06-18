@@ -43,24 +43,28 @@ Below are links to [tensorboard.dev](tensorboard.dev) TensorBoards for each base
 Search space for the initial and final rounds of tuning on the deterministic method. We used a stepwise decay for the initial round but switched to a linear decay for the final round to alleviate overfitting, where we tuned the linear decay factor on the grid `[1e-3, 1e-2, 0.1]`.
 
 | | Learning Rate | 1 - momentum | L2 |
+|---|---|---|---|
 | Initial | [1e-3,0.1] | [1e-2,0.1] | [1e-5,1e-3] |
 | Final | [0.03, 0.5] | [5e-3, 0.05] | [1e-6, 2e-4] |
 
 Search space for the initial and final rounds of tuning on the Monte Carlo Dropout method.
 
 | | Learning Rate | 1 - momentum | L2 | dropout |
+|---|---|---|---|---|
 | Initial | [1e-3,0.1] | [1e-2,0.1] | [1e-5,1e-3] | [0.01, 0.25] |
 | Final | [1e-2,0.5] | [1e-2, 0.04] | [1e-5, 1e-3] | [0.01, 0.2]  |
 
 Search space for the initial and final rounds of tuning on the Radial BNN method.
 
 | | Learning Rate | 1 - momentum | L2 | stddev_mean_init | stddev_stddev_init |
+|---|---|---|---|---|---|
 | Initial | [1e-3,0.1] | [1e-2,0.1] | [1e-5,1e-3] | [1e-5,1e-1] | [1e-2,1] |
 | Final | [0.15,1] | [1e-2, 0.05] | [1e-4, 1e-3] | [1e-5, 2e-2] | [1e-2, 0.2] |
 
 Search space for the initial and final rounds of tuning on the Variational Inference method.
 
 | | Learning Rate | 1 - momentum | L2 | stddev_mean_init | stddev_stddev_init |
+|---|---|---|---|---|---|
 | Initial | [1e-3,0.1] | [1e-2,0.1] | [1e-5,1e-3] | [1e-5,1e-1] | [1e-2,1] |
 | Final | [0.02,5] | [0.02, 0.1] | [1e-5, 2e-4] | [1e-5, 2e-3] | [1e-2, 1] |
 

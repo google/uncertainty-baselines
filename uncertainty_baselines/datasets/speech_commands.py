@@ -27,7 +27,6 @@ Reference:
 
 from typing import Callable, Dict, Optional, Tuple, Union
 
-# TODO(znado): Add librosa as an extras_require in setup.py.
 import librosa
 import numpy as np
 from scipy import signal

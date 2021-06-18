@@ -44,7 +44,7 @@ setup(
     extras_require={
         'experimental': [],
         'models': [
-            'edward2',
+            'edward2 @ git+https://github.com/google/edward2.git#egg=edward2',
             'flax',
             'jax',
             'pandas',
@@ -54,6 +54,14 @@ setup(
             'tfp-nightly',
             'torch',
             'torchvision',
+        ],
+        'datasets': [
+            'librosa',  # Needed for speech_commands dataset
+            'scipy',  # Needed for speech_commands dataset
+            # TODO(dusenberrymw): Add these without causing a dependency
+            # resolution issue.
+            # 'seqio',  # Needed for smcalflow and multiwoz datasets
+            # 't5',  # Needed for smcalflow and multiwoz datasets
         ],
         'tests': ['pylint>=1.9.0'],
     },

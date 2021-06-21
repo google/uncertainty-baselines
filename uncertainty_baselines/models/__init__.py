@@ -19,14 +19,14 @@ import warnings
 import tensorflow as tf
 
 from uncertainty_baselines.models import efficientnet_utils
-from uncertainty_baselines.models.criteo_mlp import create_model as CriteoMlpBuilder
-from uncertainty_baselines.models.efficientnet import create_model as EfficientNetBuilder
-from uncertainty_baselines.models.efficientnet_batch_ensemble import create_model as EfficientNetBatchEnsembleBuilder
-from uncertainty_baselines.models.genomics_cnn import create_model as GenomicsCNNBuilder
+from uncertainty_baselines.models.criteo_mlp import criteo_mlp
+from uncertainty_baselines.models.efficientnet import efficientnet
+from uncertainty_baselines.models.efficientnet_batch_ensemble import efficientnet_batch_ensemble
+from uncertainty_baselines.models.genomics_cnn import genomics_cnn
 from uncertainty_baselines.models.models import get
-from uncertainty_baselines.models.movielens import create_model as MovieLensBuilder
-from uncertainty_baselines.models.resnet20 import create_model as ResNet20Builder
-from uncertainty_baselines.models.resnet50 import create_model as ResNet50Builder
+from uncertainty_baselines.models.movielens import movielens
+from uncertainty_baselines.models.resnet20 import resnet20
+from uncertainty_baselines.models.resnet50 import resnet50
 from uncertainty_baselines.models.resnet50_batchensemble import resnet101_batchensemble
 from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchensemble
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
@@ -41,8 +41,7 @@ from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_layer
 from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
 from uncertainty_baselines.models.resnet50_variational import resnet50_variational
-from uncertainty_baselines.models.textcnn import create_model as TextCNNBuilder
-from uncertainty_baselines.models.wide_resnet import create_model as WideResNetBuilder
+from uncertainty_baselines.models.textcnn import textcnn
 from uncertainty_baselines.models.wide_resnet import wide_resnet
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
 from uncertainty_baselines.models.wide_resnet_condconv import wide_resnet_condconv
@@ -67,15 +66,20 @@ except ImportError as e:
   warnings.warn(f'Skipped ViT models due to ImportError: {e}')
 except tf.errors.NotFoundError as e:
   warnings.warn(f'Skipped ViT models due to NotFoundError: {e}')
+
 try:
   # Try to import models depending on tensorflow_models.official.nlp.
-  from uncertainty_baselines.models.bert import create_model as BertBuilder
-  from uncertainty_baselines.models.bert_dropout import create_model as DropoutBertBuilder
-  from uncertainty_baselines.models.bert_sngp import create_model as SngpBertBuilder
+  from uncertainty_baselines.models import bert
+  from uncertainty_baselines.models.bert import bert_model
+  from uncertainty_baselines.models import bert_dropout
+  from uncertainty_baselines.models.bert_dropout import bert_dropout_model
+  from uncertainty_baselines.models import bert_sngp
+  from uncertainty_baselines.models.bert_sngp import bert_sngp_model
 except ImportError as e:
   warnings.warn(f'Skipped BERT models due to ImportError: {e}')
 except tf.errors.NotFoundError as e:
   warnings.warn(f'Skipped BERT models due to NotFoundError: {e}')
+
 try:
   # Try to import models depending on edward2.experimental.mimo.
   from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo

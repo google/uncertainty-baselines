@@ -51,7 +51,7 @@ class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
     }
 
   def testCreateModel(self):
-    model = genomics_cnn.create_model(
+    model = genomics_cnn.genomics_cnn(
         batch_size=self.params['batch_size'],
         len_seqs=self.params['seq_len'],
         num_classes=self.params['num_classes'],
@@ -68,7 +68,7 @@ class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
   @parameterized.named_parameters(('with_weight_decay', 1e-4),
                                   ('without_weight_decay', 0.0))
   def testCreateOptimizer(self, weight_decay):
-    model = genomics_cnn.create_model(
+    model = genomics_cnn.genomics_cnn(
         batch_size=self.params['batch_size'],
         len_seqs=self.params['seq_len'],
         num_classes=self.params['num_classes'],
@@ -125,7 +125,7 @@ class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
     else:
       gp_layer_hparams = None
 
-    model = genomics_cnn.create_model(
+    model = genomics_cnn.genomics_cnn(
         batch_size=self.params['batch_size'],
         len_seqs=self.params['seq_len'],
         num_classes=self.params['num_classes'],

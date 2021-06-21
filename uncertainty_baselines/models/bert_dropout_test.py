@@ -211,7 +211,7 @@ class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_create_model(self):
     """Integration test for create_model."""
-    bert_model, bert_encoder = ub.models.DropoutBertBuilder(
+    bert_model, bert_encoder = ub.models.bert_dropout_model(
         num_classes=self.num_classes,
         bert_config=self.bert_test_config,
         use_mc_dropout_mha=True,

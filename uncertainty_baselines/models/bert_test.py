@@ -46,8 +46,8 @@ class BERTTest(tf.test.TestCase):
         type_vocab_size=16,
         initializer_range=0.02)
 
-    _, bert_encoder = ub.models.BertBuilder(num_classes, max_seq_length,
-                                            bert_config_dict)
+    _, bert_encoder = ub.models.bert_model(num_classes, max_seq_length,
+                                           bert_config_dict)
     self.assertLen(bert_encoder.layers, 24)
 
 

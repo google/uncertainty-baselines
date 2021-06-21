@@ -21,13 +21,6 @@ import uncertainty_baselines as ub
 
 class WideResnetTest(tf.test.TestCase):
 
-  def testCreateModel(self):
-    batch_size = 31
-    model = ub.models.WideResNetBuilder(
-        batch_size, depth=28, width_multiplier=10)
-    logits = model(tf.random.uniform((batch_size, 32, 32, 3)))
-    self.assertEqual(logits.shape, (batch_size, 10))
-
   def testWideResnet(self):
     tf.random.set_seed(83922)
     dataset_size = 10

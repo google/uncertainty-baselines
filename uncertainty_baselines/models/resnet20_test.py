@@ -24,7 +24,7 @@ class ResNet20Test(tf.test.TestCase):
 
   def testCreateModel(self):
     batch_size = 31
-    model = ub.models.ResNet20Builder(batch_size)
+    model = ub.models.resnet20(batch_size)
     logits = model(tf.random.uniform((batch_size, 32, 32, 3)))
     self.assertEqual(logits.shape, (batch_size, 10))
 

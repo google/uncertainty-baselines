@@ -67,7 +67,7 @@ def _make_feature_columns() -> List[Any]:
   return categorical_feature_columns
 
 
-def create_model(
+def movielens(
     batch_size: int,
     **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
   """Creates a tf.keras.Model fully connected model for MovieLens."""

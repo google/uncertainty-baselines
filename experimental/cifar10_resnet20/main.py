@@ -107,7 +107,7 @@ def run(trial_dir: str):
         weight_decay=FLAGS.weight_decay)
 
     # Setup model.
-    model = ub.models.ResNet20Builder(
+    model = ub.models.resnet20(
         batch_size=FLAGS.batch_size, l2_weight=None)
     model.compile(
         optimizer=optimizer,

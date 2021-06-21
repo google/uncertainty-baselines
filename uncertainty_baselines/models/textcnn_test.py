@@ -28,10 +28,10 @@ class TextCNNTest(tf.test.TestCase):
     feature_size = 32
     vocab_size = 10000
 
-    model = ub.models.TextCNNBuilder(batch_size=batch_size,
-                                     num_classes=num_classes,
-                                     feature_size=feature_size,
-                                     vocab_size=vocab_size)
+    model = ub.models.textcnn(batch_size=batch_size,
+                              num_classes=num_classes,
+                              feature_size=feature_size,
+                              vocab_size=vocab_size)
     logits = model(tf.random.uniform((batch_size, feature_size)))
     self.assertEqual(logits.shape, (batch_size, num_classes))
 

@@ -70,7 +70,7 @@ def _conv_pooled_block(inputs: tf.Tensor, num_motifs: int, len_motifs: int,
   return out
 
 
-def create_model(
+def genomics_cnn(
     batch_size: int,
     num_motifs: int,
     len_motifs: int,

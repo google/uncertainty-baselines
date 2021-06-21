@@ -129,7 +129,7 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building %s model', FLAGS.model_name)
-    model = ub.models.EfficientNetBatchEnsembleBuilder(
+    model = ub.models.efficientnet_batch_ensemble(
         width_coefficient,
         depth_coefficient,
         dropout_rate,

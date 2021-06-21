@@ -23,7 +23,7 @@ import uncertainty_baselines as ub
 class CriteoMlpTest(tf.test.TestCase):
 
   def testCreateModel(self):
-    model = ub.models.CriteoMlpBuilder(31)
+    model = ub.models.criteo_mlp(31)
     self.assertLen(model.layers, 47)
 
 

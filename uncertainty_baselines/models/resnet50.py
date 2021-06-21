@@ -184,7 +184,7 @@ def _conv_block(
   return x
 
 
-def create_model(
+def resnet50(
     batch_size: int,
     batch_norm_momentum: float = 0.9,
     batch_norm_epsilon: float = 1e-5,

@@ -124,9 +124,9 @@ def main(argv):
 
   with strategy.scope():
     logging.info('Building %s model', FLAGS.model_name)
-    model = ub.models.EfficientNetBuilder(width_coefficient,
-                                          depth_coefficient,
-                                          dropout_rate)
+    model = ub.models.efficientnet(width_coefficient,
+                                   depth_coefficient,
+                                   dropout_rate)
 
     scaled_lr = FLAGS.base_learning_rate * (batch_size / 256.0)
     # Decay epoch is 2.4, warmup epoch is 5 according to the Efficientnet paper.

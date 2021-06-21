@@ -232,7 +232,7 @@ def main(argv):
         FLAGS.bert_model_type, FLAGS.bert_dir, FLAGS.bert_config_dir,
         FLAGS.bert_ckpt_dir)
     bert_config = utils.create_config(bert_config_dir)
-    model, bert_encoder = ub.models.BertBuilder(
+    model, bert_encoder = ub.models.bert_model(
         num_classes=num_classes,
         max_seq_length=feature_size,
         bert_config=bert_config)

@@ -569,16 +569,16 @@ class BertGaussianProcessClassifier(tf.keras.Model):
     super().__init__(inputs=inputs, outputs=predictions, **kwargs)
 
 
-def create_model(num_classes,
-                 bert_config,
-                 gp_layer_kwargs,
-                 spec_norm_kwargs,
-                 use_gp_layer=True,
-                 use_spec_norm_att=True,
-                 use_spec_norm_ffn=True,
-                 use_layer_norm_att=False,
-                 use_layer_norm_ffn=False,
-                 use_spec_norm_plr=False):
+def bert_sngp_model(num_classes,
+                    bert_config,
+                    gp_layer_kwargs,
+                    spec_norm_kwargs,
+                    use_gp_layer=True,
+                    use_spec_norm_att=True,
+                    use_spec_norm_ffn=True,
+                    use_layer_norm_att=False,
+                    use_layer_norm_ffn=False,
+                    use_spec_norm_plr=False):
   """Creates a BERT classifier model with MC dropout."""
   last_layer_initializer = tf.keras.initializers.TruncatedNormal(
       stddev=bert_config.initializer_range)

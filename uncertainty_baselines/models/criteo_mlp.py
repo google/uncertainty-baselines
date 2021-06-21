@@ -78,7 +78,7 @@ def _make_feature_columns() -> Tuple[List[Any], List[Any]]:
   return integer_feature_columns, categorical_feature_columns
 
 
-def create_model(
+def criteo_mlp(
     batch_size: int,
     **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
   """Creates a tf.keras.Model fully connected model for Criteo."""

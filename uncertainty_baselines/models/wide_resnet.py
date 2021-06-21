@@ -17,7 +17,7 @@
 """Wide Residual Network."""
 
 import functools
-from typing import Any, Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional
 
 import tensorflow as tf
 
@@ -229,22 +229,3 @@ def wide_resnet(
       inputs=inputs,
       outputs=x,
       name='wide_resnet-{}-{}'.format(depth, width_multiplier))
-
-
-def create_model(
-    batch_size: Optional[int],
-    depth: int,
-    width_multiplier: int,
-    input_shape: Iterable[int] = (32, 32, 3),
-    num_classes: int = 10,
-    l2_weight: float = 0.0,
-    version: int = 2,
-    **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
-  """Creates model."""
-  del batch_size  # unused arg
-  return wide_resnet(input_shape=input_shape,
-                     depth=depth,
-                     width_multiplier=width_multiplier,
-                     num_classes=num_classes,
-                     l2=l2_weight,
-                     version=version)

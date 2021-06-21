@@ -71,8 +71,9 @@ def create_optimizer(
       optimizer_type=optimizer_type)
 
 
-def create_model(
-    num_classes: int, max_seq_length: int,
+def bert_model(
+    num_classes: int,
+    max_seq_length: int,
     bert_config: configs.BertConfig) -> Tuple[tf.keras.Model, tf.keras.Model]:
   """BERT classifier model in functional API style.
 

@@ -261,7 +261,7 @@ def main(argv):
     bert_config = utils.create_config(bert_config_dir)
     bert_config.hidden_dropout_prob = FLAGS.dropout_rate
     bert_config.attention_probs_dropout_prob = FLAGS.dropout_rate
-    model, bert_encoder = ub.models.DropoutBertBuilder(
+    model, bert_encoder = ub.models.bert_dropout_model(
         num_classes=num_classes,
         bert_config=bert_config,
         use_mc_dropout_mha=FLAGS.use_mc_dropout_mha,

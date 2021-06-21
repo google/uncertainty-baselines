@@ -56,22 +56,15 @@ def get_model_names() -> List[str]:
 
 # TODO(znado): check into using Keras' deserialization functionality, similar to
 # edward2/tensorflow/initializers.py line 772.
-def get(
-    model_name: str,
-    batch_size: int,
-    **hyperparameters) -> tf.keras.Model:
+def get(model_name: str, **kwargs) -> tf.keras.Model:
   """Gets a model builder by name.
 
   Args:
     model_name: Name of the model builder class.
-    batch_size: the training batch size.
-    **hyperparameters: dict of possible kwargs to be passed to the model
-      constructor.
+    **kwargs: passed to the model constructor.
 
   Returns:
-    A model builder class with a method .build(split) which can be called to
-    get the tf.data.Dataset, which has elements that are a dict with keys
-    'features' and 'labels'.
+    A tf.keras.Model.
 
   Raises:
     ValueError: If model_name is unrecognized.
@@ -79,29 +72,29 @@ def get(
   logging.info(
       'Building model %s with additional kwargs:\n%s',
       model_name,
-      json.dumps(hyperparameters, indent=2, sort_keys=True))
+      json.dumps(kwargs, indent=2, sort_keys=True))
   if model_name not in get_model_names():
     raise ValueError('Unrecognized model type: {!r}'.format(model_name))
 
   if model_name == 'criteo_mlp':
-    return criteo_mlp.create_model(batch_size, **hyperparameters)
+    return criteo_mlp.criteo_mlp(**kwargs)
   if model_name == 'movielens':
-    return movielens.create_model(batch_size, **hyperparameters)
+    return movielens.movielens(**kwargs)
   if model_name == 'resnet20':
-    return resnet20.create_model(batch_size, **hyperparameters)
+    return resnet20.resnet20(**kwargs)
   if model_name == 'resnet50':
-    return resnet50.create_model(batch_size, **hyperparameters)
+    return resnet50.resnet50(**kwargs)
   if model_name == 'textcnn':
-    return textcnn.create_model(batch_size, **hyperparameters)
+    return textcnn.textcnn(**kwargs)
   if model_name == 'bert':
-    return bert.create_model(batch_size, **hyperparameters)
+    return bert.bert_model(**kwargs)
   if model_name == 'wide_resnet':
-    return wide_resnet.create_model(batch_size, **hyperparameters)
+    return wide_resnet.wide_resnet(**kwargs)
   if model_name == 'genomics_cnn':
-    return genomics_cnn.create_model(batch_size, **hyperparameters)
+    return genomics_cnn.genomics_cnn(**kwargs)
 
   # EfficientNet models don't take in the batch size.
   if model_name == 'efficientnet':
-    return efficientnet.create_model(**hyperparameters)
+    return efficientnet.efficientnet(**kwargs)
   if model_name == 'efficientnet_batch_ensemble':
-    return efficientnet_batch_ensemble.create_model(**hyperparameters)
+    return efficientnet_batch_ensemble.efficientnet_batch_ensemble(**kwargs)

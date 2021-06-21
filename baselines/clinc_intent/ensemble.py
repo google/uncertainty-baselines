@@ -105,9 +105,9 @@ def main(argv):
     bert_config_dir, _ = deterministic.resolve_bert_ckpt_and_config_dir(
         FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
     bert_config = bert_utils.create_config(bert_config_dir)
-    model, _ = ub.models.BertBuilder(num_classes=num_classes,
-                                     max_seq_length=feature_size,
-                                     bert_config=bert_config)
+    model, _ = ub.models.bert_model(num_classes=num_classes,
+                                    max_seq_length=feature_size,
+                                    bert_config=bert_config)
   else:
     raise ValueError('model_family ({}) can only be TextCNN or BERT.'.format(
         FLAGS.model_family))

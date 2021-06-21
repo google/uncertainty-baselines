@@ -214,7 +214,7 @@ def main(argv):
       bert_config_dir, bert_ckpt_dir = resolve_bert_ckpt_and_config_dir(
           FLAGS.bert_dir, FLAGS.bert_config_dir, FLAGS.bert_ckpt_dir)
       bert_config = bert_utils.create_config(bert_config_dir)
-      model, bert_encoder = ub.models.BertBuilder(
+      model, bert_encoder = ub.models.bert_model(
           num_classes=num_classes,
           max_seq_length=feature_size,
           bert_config=bert_config)

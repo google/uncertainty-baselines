@@ -61,7 +61,7 @@ def _resnet_layer(
   return x
 
 
-def create_model(
+def resnet20(
     batch_size: int,
     l2_weight: float = 0.0,
     **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:

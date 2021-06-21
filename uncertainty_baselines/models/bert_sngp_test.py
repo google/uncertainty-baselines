@@ -241,7 +241,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
     spec_norm_kwargs = dict(iteration=1,
                             norm_multiplier=self.sn_norm_multiplier)
 
-    bert_model, bert_encoder = ub.models.SngpBertBuilder(
+    bert_model, bert_encoder = ub.models.bert_sngp_model(
         num_classes=10,
         bert_config=self.bert_test_config,
         gp_layer_kwargs=self.gp_layer_kwargs,

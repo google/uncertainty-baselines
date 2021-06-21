@@ -353,15 +353,15 @@ def get_mc_dropout_transformer_encoder(bert_config,
       **kwargs)
 
 
-def create_model(num_classes,
-                 bert_config,
-                 use_mc_dropout_mha=False,
-                 use_mc_dropout_att=False,
-                 use_mc_dropout_ffn=False,
-                 use_mc_dropout_output=False,
-                 channel_wise_dropout_mha=False,
-                 channel_wise_dropout_att=False,
-                 channel_wise_dropout_ffn=False):
+def bert_dropout_model(num_classes,
+                       bert_config,
+                       use_mc_dropout_mha=False,
+                       use_mc_dropout_att=False,
+                       use_mc_dropout_ffn=False,
+                       use_mc_dropout_output=False,
+                       channel_wise_dropout_mha=False,
+                       channel_wise_dropout_att=False,
+                       channel_wise_dropout_ffn=False):
   """Creates a BERT classifier model with MC dropout."""
   last_layer_initializer = tf.keras.initializers.TruncatedNormal(
       stddev=bert_config.initializer_range)

@@ -117,7 +117,7 @@ def _conv_pooled_block(inputs: tf.Tensor, num_filters: int, filter_size: int,
   return maxpool_layer(conv)
 
 
-def create_model(
+def textcnn(
     batch_size: int,
     num_classes: int,
     feature_size: int,

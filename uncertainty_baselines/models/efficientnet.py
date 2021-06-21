@@ -435,5 +435,5 @@ class EfficientNetModel(tf.keras.Model):
     return outputs
 
 
-def create_model(*args, **kwargs):
+def efficientnet(*args, **kwargs):
   return EfficientNetModel(*args, **kwargs)

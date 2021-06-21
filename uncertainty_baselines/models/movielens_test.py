@@ -23,7 +23,7 @@ import uncertainty_baselines as ub
 class MovieLensTest(tf.test.TestCase):
 
   def testCreateModel(self):
-    model = ub.models.MovieLensBuilder(31)
+    model = ub.models.movielens(31)
     self.assertLen(model.layers, 8)
 
 

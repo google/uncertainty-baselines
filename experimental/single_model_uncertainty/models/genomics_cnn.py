@@ -80,7 +80,7 @@ def _input_embedding(inputs, vocab_size, one_hot=True, embed_size=None):
   return out
 
 
-def create_model(batch_size: int,
+def genomics_cnn(batch_size: int,
                  len_seqs: int,
                  num_motifs: int,
                  len_motifs: int,

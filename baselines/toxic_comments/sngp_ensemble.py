@@ -156,7 +156,7 @@ def main(argv):
       iteration=FLAGS.spec_norm_iteration,
       norm_multiplier=FLAGS.spec_norm_bound)
 
-  model, _ = ub.models.SngpBertBuilder(
+  model, _ = ub.models.bert_sngp_model(
       num_classes=num_classes,
       bert_config=bert_config,
       gp_layer_kwargs=gp_layer_kwargs,

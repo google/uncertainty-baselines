@@ -460,5 +460,5 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
     return outputs
 
 
-def create_model(*args, **kwargs):
+def efficientnet_batch_ensemble(*args, **kwargs):
   return EfficientNetBatchEnsembleModel(*args, **kwargs)

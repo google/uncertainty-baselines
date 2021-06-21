@@ -37,7 +37,7 @@ class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
         tf.math.log([[0.2, 0.3, 0.3, 0.2]]), batch_size * seq_len)
     rand_data = tf.reshape(rand_nums, (batch_size, seq_len))
 
-    model = ub.models.GenomicsCNNBuilder(
+    model = ub.models.genomics_cnn(
         batch_size=batch_size,
         num_classes=num_classes,
         num_motifs=num_motifs,

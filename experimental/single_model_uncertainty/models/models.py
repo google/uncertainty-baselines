@@ -47,13 +47,11 @@ def get_model_names() -> List[str]:
 # edward2/tensorflow/initializers.py line 772.
 def get(
     model_name: str,
-    batch_size: int,
     **hyperparameters) -> tf.keras.Model:
   """Gets a model builder by name.
 
   Args:
     model_name: Name of the model builder class.
-    batch_size: the training batch size.
     **hyperparameters: dict of possible kwargs to be passed to the model
       constructor.
 
@@ -74,18 +72,18 @@ def get(
 
   # load from single_model_uncertainty directory
   if model_name == 'genomics_cnn':
-    return genomics_cnn.create_model(batch_size, **hyperparameters)
+    return genomics_cnn.genomics_cnn(**hyperparameters)
   if model_name == 'wide_resnet':
-    return wide_resnet.create_model(batch_size, **hyperparameters)
+    return wide_resnet.wide_resnet(**hyperparameters)
 
   # load from uncertainty_baselines directory
   if model_name == 'criteo_mlp':
-    return criteo_mlp.create_model(batch_size, **hyperparameters)
+    return criteo_mlp.criteo_mlp(**hyperparameters)
   if model_name == 'resnet20':
-    return resnet20.create_model(batch_size, **hyperparameters)
+    return resnet20.resnet20(**hyperparameters)
   if model_name == 'resnet50':
-    return resnet50.create_model(batch_size, **hyperparameters)
+    return resnet50.resnet50(**hyperparameters)
   if model_name == 'textcnn':
-    return textcnn.create_model(batch_size, **hyperparameters)
+    return textcnn.textcnn(**hyperparameters)
   if model_name == 'bert':
-    return bert.create_model(batch_size, **hyperparameters)
+    return bert.bert_model(**hyperparameters)

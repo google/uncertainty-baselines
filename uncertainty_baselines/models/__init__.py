@@ -25,6 +25,7 @@ from uncertainty_baselines.models.efficientnet_batch_ensemble import efficientne
 from uncertainty_baselines.models.genomics_cnn import genomics_cnn
 from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.movielens import movielens
+from uncertainty_baselines.models.mpnn import mpnn
 from uncertainty_baselines.models.resnet20 import resnet20
 from uncertainty_baselines.models.resnet50 import resnet50
 from uncertainty_baselines.models.resnet50_batchensemble import resnet101_batchensemble

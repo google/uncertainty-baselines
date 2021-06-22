@@ -15,7 +15,7 @@
 
 """Uncertainty baseline training models."""
 
-import warnings
+from absl import logging
 import tensorflow as tf
 
 from uncertainty_baselines.models import efficientnet_utils
@@ -63,10 +63,10 @@ try:
   # Try to import models depending on dune.
   from uncertainty_baselines.models import vit_batchensemble
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
-except ImportError as e:
-  warnings.warn(f'Skipped ViT models due to ImportError: {e}')
-except tf.errors.NotFoundError as e:
-  warnings.warn(f'Skipped ViT models due to NotFoundError: {e}')
+except ImportError:
+  logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
+except tf.errors.NotFoundError:
+  logging.warning('Skipped ViT models due to NotFoundError.', exc_info=True)
 
 try:
   # Try to import models depending on tensorflow_models.official.nlp.
@@ -76,24 +76,29 @@ try:
   from uncertainty_baselines.models.bert_dropout import bert_dropout_model
   from uncertainty_baselines.models import bert_sngp
   from uncertainty_baselines.models.bert_sngp import bert_sngp_model
-except ImportError as e:
-  warnings.warn(f'Skipped BERT models due to ImportError: {e}')
-except tf.errors.NotFoundError as e:
-  warnings.warn(f'Skipped BERT models due to NotFoundError: {e}')
+except ImportError:
+  logging.warning('Skipped BERT models due to ImportError.', exc_info=True)
+except tf.errors.NotFoundError:
+  logging.warning('Skipped BERT models due to NotFoundError.', exc_info=True)
 
 try:
   # Try to import models depending on edward2.experimental.mimo.
   from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
   from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
-except ImportError as e:
-  warnings.warn(f'Skipped MIMO models due to ImportError: {e}')
-except tf.errors.NotFoundError as e:
-  warnings.warn(f'Skipped MIMO models due to NotFoundError: {e}')
+except ImportError:
+  logging.warning('Skipped MIMO models due to ImportError.', exc_info=True)
+except tf.errors.NotFoundError:
+  logging.warning('Skipped MIMO models due to NotFoundError.', exc_info=True)
 
 # This is necessary because we cannot depend on torch internally, so the torch
 # model modules cannot be imported at all, so we cannot just wrap the imports in
 # a try/except.
 import_torch = True
 if import_torch:
-  from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
+  try:
+    from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
+  except ImportError:
+    logging.warning(
+        'Skipped Torch ResNet-50 Dropout model due to ImportError.',
+        exc_info=True)
 # pylint: enable=g-import-not-at-top

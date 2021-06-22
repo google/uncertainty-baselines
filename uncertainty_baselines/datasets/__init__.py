@@ -15,7 +15,7 @@
 
 """Uncertainty baseline training datasets."""
 
-import warnings
+from absl import logging
 
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets import resnet_preprocessing
@@ -56,8 +56,10 @@ from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDatas
 try:
   # Try to import datasets depending on librosa.
   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
-except ImportError as e:
-  warnings.warn(f'Skipped Speech Commands dataset due to ImportError: {e}. Try '
-                'installing uncertainty baselines with the `datasets` extras.')
-except OSError as e:
-  warnings.warn(f'Skipped Speech Commands dataset due to OSError: {e}.')
+except ImportError:
+  logging.warning(
+      'Skipped Speech Commands dataset due to ImportError. Try installing '
+      'uncertainty baselines with the `datasets` extras.', exc_info=True)
+except OSError:
+  logging.warning(
+      'Skipped Speech Commands dataset due to OSError.', exc_info=True)

@@ -45,15 +45,11 @@ setup(
         'experimental': [],
         'models': [
             'edward2 @ git+https://github.com/google/edward2.git#egg=edward2',
-            'flax',
-            'jax',
             'pandas',
             'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
             'scipy',
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
             'tfp-nightly',
-            'torch',
-            'torchvision',
         ],
         'datasets': [
             'librosa',  # Needed for speech_commands dataset
@@ -63,7 +59,15 @@ setup(
             # 'seqio',  # Needed for smcalflow and multiwoz datasets
             # 't5',  # Needed for smcalflow and multiwoz datasets
         ],
+        'jax': [
+            'flax',
+            'jax',
+        ],
         'tests': ['pylint>=1.9.0'],
+        'torch': [
+            'torch',
+            'torchvision',
+        ],
     },
     classifiers=[
         'Development Status :: 3 - Alpha',

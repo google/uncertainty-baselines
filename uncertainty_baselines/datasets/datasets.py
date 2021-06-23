@@ -19,7 +19,7 @@
 import json
 import logging
 from typing import Any, List, Tuple, Union
-import warnings
+from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -49,9 +49,9 @@ try:
   from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
   from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
-except ImportError as e:
-  warnings.warn(f'Skipped due to ImportError: {e}. Try installing uncertainty '
-                'baselines with the `datasets` extras.')
+except ImportError:
+  logging.warning('Skipped due to ImportError: {e}. Try installing uncertainty '
+                  'baselines with the `datasets` extras.', exc_info=True)
   SpeechCommandsDataset = None
   MultiWoZDataset = None
   SMCalflowDataset = None

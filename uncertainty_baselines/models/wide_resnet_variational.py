@@ -15,14 +15,14 @@
 
 """Wide ResNet with variational Bayesian layers."""
 import functools
-import warnings
+from absl import logging
 import numpy as np
 import tensorflow as tf
 
 try:
   import edward2 as ed  # pylint: disable=g-import-not-at-top
-except ImportError as e:
-  warnings.warn(f'Skipped due to ImportError: {e}')
+except ImportError:
+  logging.warning('Skipped edward2 import due to ImportError.', exc_info=True)
 
 BatchNormalization = functools.partial(  # pylint: disable=invalid-name
     tf.keras.layers.BatchNormalization,

@@ -16,13 +16,13 @@
 """Hyper-BatchEnsemble for a Wide ResNet architecture."""
 
 import functools
-import warnings
+from absl import logging
 import tensorflow as tf
 
 try:
   import edward2 as ed  # pylint: disable=g-import-not-at-top
-except ImportError as err:
-  warnings.warn(f'Skipped due to ImportError: {err}')
+except ImportError:
+  logging.warning('Skipped edward2 import due to ImportError.', exc_info=True)
 
 
 ENCODING = ('proj_log', 'sigmoid')

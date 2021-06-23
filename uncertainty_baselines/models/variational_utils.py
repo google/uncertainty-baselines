@@ -16,12 +16,12 @@
 """Utilities for variational models."""
 
 import math
-import warnings
+from absl import logging
 
 try:
   import edward2 as ed  # pylint: disable=g-import-not-at-top
 except ImportError as e:
-  warnings.warn(f'Skipped due to ImportError: {e}')
+  logging.warning('Skipped edward2 import due to ImportError.', exc_info=True)
 
 
 def _compute_fans(shape):

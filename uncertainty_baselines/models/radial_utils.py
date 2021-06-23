@@ -15,7 +15,7 @@
 
 """Utils for Radial BNNs."""
 import math
-import warnings
+from absl import logging
 
 from edward2.tensorflow import constraints
 from edward2.tensorflow import generated_random_variables
@@ -228,7 +228,7 @@ class Radial(tfp.distributions.Distribution):
     return self._loc + self.scale * direction * distance
 
   def entropy(self):
-    warnings.warn(
+    logging.warning(
         'Entropy is correct only up to a constant, for optimization only.')
     return tf.math.log(tf.math.reduce_sum(self.scale))
 
@@ -273,7 +273,8 @@ def kl_radial_normal(p, q, n_samples=10, name=None):
           'KL-divergence between Radial and Multivariate Normals with'
           'different event shapes cannot be computed.')
 
-    warnings.warn('KL is correct only up to a constant, for optimization only.')
+    logging.warning(
+        'KL is correct only up to a constant, for optimization only.')
 
     # KL = Cross-Entropy - Entropy
     # We find cross-entropy by MC estimation

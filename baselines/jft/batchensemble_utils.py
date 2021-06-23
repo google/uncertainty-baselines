@@ -26,7 +26,7 @@ import flax.traverse_util
 import jax
 import jax.numpy as jnp
 
-from dune.experts.jax.core import jax as core
+from dune.experts.core import jax as core
 
 
 EvaluationOutput = Tuple[jnp.ndarray, ...]

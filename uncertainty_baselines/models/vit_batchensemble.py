@@ -27,9 +27,9 @@ import jax.numpy as jnp
 import numpy as np
 import scipy
 
-from dune.experts.jax import checkpoints_model
-from dune.experts.jax.nn import identity
-from dune.experts.jax.nn import patch_transformer as patch_transformer_lib
+from dune.experts import checkpoints_model
+from dune.experts.nn import identity
+from dune.experts.nn import patch_transformer as patch_transformer_lib
 
 DType = type(jnp.float32)
 InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]

@@ -38,17 +38,17 @@ import uncertainty_baselines as ub
 import batchensemble_utils  # local file import
 
 import dune.experimental.big_vision.utils as u
-from dune.experts.jax import ensemble
-from dune.experts.jax import input_pipeline as default_input_pipeline
-from dune.experts.jax import jft_latest_pipeline
-from dune.experts.jax import metric_writers
-from dune.experts.jax import partitioning
-from dune.experts.jax import train
-from dune.experts.jax import utils as experts_utils
-from dune.experts.jax import xprof
-from dune.experts.jax.core import jax as core
-from dune.experts.jax.nn.gating import metrics
-from dune.experts.jax.tools import ema
+from dune.experts import ensemble
+from dune.experts import input_pipeline as default_input_pipeline
+from dune.experts import jft_latest_pipeline
+from dune.experts import metric_writers
+from dune.experts import partitioning
+from dune.experts import train
+from dune.experts import utils as experts_utils
+from dune.experts import xprof
+from dune.experts.core import jax as core
+from dune.experts.nn.gating import metrics
+from dune.experts.tools import ema
 import dune.tools.components.preprocess.builder as pp_builder
 
 PartitionSpec = partitioning.PartitionSpec

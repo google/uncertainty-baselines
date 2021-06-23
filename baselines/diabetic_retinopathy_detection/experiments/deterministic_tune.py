@@ -43,12 +43,13 @@ def get_config():
       'checkpoint_interval': -1,
       'lr_schedule': 'step',
       'output_dir': output_dir,
+      'data_dir': 'gs://ub-data/retinopathy',
   }
   return config
 
 
 def get_sweep(hyper):
-  num_trials = 50
+  num_trials = 5
   return hyper.zipit([
       hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.1)),
       hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.1)),

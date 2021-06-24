@@ -20,7 +20,7 @@ r"""ViT-B/16.
 # pylint: enable=line-too-long
 
 import ml_collections
-from dune.experimental.big_vision.configs.common_fewshot import get_fewshot
+# TODO(dusenberrymw): Open-source remaining imports.
 
 
 def get_config():

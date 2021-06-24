@@ -37,23 +37,7 @@ import tensorflow as tf
 import uncertainty_baselines as ub
 import batchensemble_utils  # local file import
 
-import dune.experimental.big_vision.utils as u
-from dune.experts import ensemble
-from dune.experts import input_pipeline as default_input_pipeline
-from dune.experts import jft_latest_pipeline
-from dune.experts import metric_writers
-from dune.experts import partitioning
-from dune.experts import train
-from dune.experts import utils as experts_utils
-from dune.experts import xprof
-from dune.experts.core import jax as core
-from dune.experts.nn.gating import metrics
-from dune.experts.tools import ema
-import dune.tools.components.preprocess.builder as pp_builder
-
-PartitionSpec = partitioning.PartitionSpec
-
-BIG_VISION_DIR = "dune.experimental.big_vision"
+# TODO(dusenberrymw): Open-source remaining imports.
 
 
 config_flags.DEFINE_config_file(

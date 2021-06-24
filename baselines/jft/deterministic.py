@@ -34,17 +34,7 @@ import ml_collections
 import numpy as np
 from tensorflow.io import gfile
 
-import dune.experimental.big_vision.fewshot as fewshot
-import dune.experimental.big_vision.input_pipeline as input_pipeline
-import dune.experimental.big_vision.models.argus.pp_ops  # pylint: disable=unused-import
-
-import dune.experimental.big_vision.utils as u
-import dune.task_adapt.data.preprocess  # pylint: disable=unused-import
-import dune.tools.components.preprocess.builder as pp_builder
-
-
-# TODO(lbeyer): make nice and dynamic. Used for configurable imports.
-BASEDIR = "dune.experimental.big_vision"
+# TODO(dusenberrymw): Open-source remaining imports.
 
 
 ml_collections.config_flags.DEFINE_config_file(

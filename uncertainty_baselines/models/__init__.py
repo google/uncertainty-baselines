@@ -60,7 +60,7 @@ from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_var
 
 # pylint: disable=g-import-not-at-top
 try:
-  # Try to import models depending on dune.
+  # Try to import ViT models.
   from uncertainty_baselines.models import vit_batchensemble
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
 except ImportError:

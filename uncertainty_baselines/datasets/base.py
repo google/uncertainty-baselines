@@ -293,7 +293,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     if self._download_data:
       self._dataset_builder.download_and_prepare()
     dataset = self._dataset_builder.as_dataset(
-        self._split, decoders=self._decoders)
+        split=self._split, decoders=self._decoders)
 
     # Possibly cache the original dataset before preprocessing is applied.
     if self._cache:

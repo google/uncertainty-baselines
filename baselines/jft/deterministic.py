@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Training loop."""
+"""Deterministic ViT on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
 import importlib
@@ -29,13 +29,10 @@ from clu import periodic_actions
 import flax
 import flax.jax_utils as flax_utils
 import jax
-import jax.config
-import jax.nn
 import jax.numpy as jnp
-import jax.profiler
 import ml_collections
 import numpy as np
-import tensorflow as tf
+from tensorflow.io import gfile
 
 import dune.experimental.big_vision.fewshot as fewshot
 import dune.experimental.big_vision.input_pipeline as input_pipeline
@@ -67,11 +64,13 @@ def main(argv):
   config = FLAGS.config
   workdir = FLAGS.workdir
 
+  if config.get("dataset_dir"):
+    logging.info("data_dir=%s", config.dataset_dir)
   logging.info("Workdir: %s", workdir)
 
   save_checkpoint_path = None
   if config.get("checkpoint_steps"):
-    tf.io.gfile.makedirs(workdir)
+    gfile.makedirs(workdir)
     save_checkpoint_path = os.path.join(workdir, "checkpoint.npz")
 
   # The pool is used to perform misc operations such as logging in async way.
@@ -306,7 +305,7 @@ def main(argv):
   # 3. Initialize model from something, e,g, start a fine-tuning job.
   # 4. Train from scratch.
   resume_checkpoint_path = None
-  if save_checkpoint_path and tf.io.gfile.exists(save_checkpoint_path):
+  if save_checkpoint_path and gfile.exists(save_checkpoint_path):
     resume_checkpoint_path = save_checkpoint_path
   elif config.get("resume"):
     resume_checkpoint_path = fillin(config.resume)
@@ -340,6 +339,8 @@ def main(argv):
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   lr_fn = u.create_learning_rate_schedule(
       batch_size, total_steps, steps_per_epoch, **config.get("lr", {}))
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
   lr_iter = u.prefetch_scalar(map(lr_fn, range(first_step, total_steps)),
                               config.get("prefetch_to_device", 1))
 
@@ -355,6 +356,12 @@ def main(argv):
   rng, rng_loop = jax.random.split(rng, 2)
   rngs_loop = flax_utils.replicate(rng_loop)
   checkpoint_writer = None
+
+  # Note: we return the train loss, val loss, and fewshot best l2s for use in
+  # reproducibility unit tests.
+  train_loss = -jnp.inf
+  val_loss = -jnp.inf
+  best_l2 = {1: -jnp.inf}
 
   write_note(f"First step compilations...\n{chrono.note}")
   # Using a python integer for step here, because opt.state.step is allocated
@@ -376,6 +383,7 @@ def main(argv):
 
     # Checkpoint saving
     if u.itstime(step, config.get("checkpoint_steps"), total_steps, host=0):
+      write_note("Checkpointing...")
       chrono.pause()
       u.checkpointing_timeout(checkpoint_writer,
                               config.get("checkpoint_timeout", 1))
@@ -388,6 +396,7 @@ def main(argv):
       # Check whether we want to keep a copy of the current checkpoint.
       copy_step = None
       if u.itstime(step, config.get("keep_checkpoint_steps"), total_steps):
+        write_note("Keeping a checkpoint copy...")
         copy_step = step
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
@@ -399,6 +408,8 @@ def main(argv):
 
     # Report training progress
     if u.itstime(step, config.log_training_steps, total_steps, host=0):
+      write_note("Reporting training progress...")
+      train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       mw.measure("learning_rate", lr_repl[0])
       mw.measure("training_loss", loss_value[0])
       for name, value in extra_measurements.items():
@@ -407,6 +418,7 @@ def main(argv):
 
     # Report validation performance
     if u.itstime(step, config.log_eval_steps, total_steps):
+      write_note("Evaluating on the validation set...")
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_ds.items():
         ncorrect, loss, nseen = 0, 0, 0
@@ -420,8 +432,9 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
+        val_loss = loss / nseen  # Keep to return for reproducibility tests.
         mw.measure(f"{val_name}_prec@1", ncorrect / nseen)
-        mw.measure(f"{val_name}_loss", loss / nseen)
+        mw.measure(f"{val_name}_loss", val_loss)
       chrono.resume()
 
     if "fewshot" in config:
@@ -429,8 +442,10 @@ def main(argv):
       if u.itstime(step, config.fewshot.log_steps, total_steps):
         chrono.pause()
         write_note(f"Few-shot evaluation...\n{chrono.note}")
-        r = fewshotter.run_all(opt_repl.target, config.fewshot.datasets)
-        fewshotter.walk_results(mw.measure, *r)
+        # Keep `best_l2` to return for reproducibility tests.
+        results, best_l2 = fewshotter.run_all(opt_repl.target,
+                                              config.fewshot.datasets)
+        fewshotter.walk_results(mw.measure, results, best_l2)
         chrono.resume()
     mw.step_end()
 
@@ -438,6 +453,10 @@ def main(argv):
   pool.close()
   pool.join()
   mw.close()
+
+  # Return final training loss, validation loss, and fewshot best l2s for
+  # reproducibility test cases.
+  return train_loss, val_loss, best_l2
 
 
 if __name__ == "__main__":

@@ -120,7 +120,7 @@ comments from approximately 50 English-language news sites across the world.
 
 ## Metrics
 We define metrics specific to Toxic Comments below. For general metrics,
-see [`baselines/`](https://github.com/google/uncertainty-baselines/tree/master/baselines). For all metrics, we evaluate performance sending comments to an oracle or human moderator according to both uncertainty or toxicity scores (specifically, under the complement `1-p` of the toxicity score).  In our tables, we denote the results under these two policies by either "uncertainty" or "toxicity", or "u/t" for uncertainty and toxicity respectively.
+see [`baselines/`](https://github.com/google/uncertainty-baselines/tree/main/baselines). For all metrics, we evaluate performance sending comments to an oracle or human moderator according to both uncertainty or toxicity scores (specifically, under the complement `1-p` of the toxicity score).  In our tables, we denote the results under these two policies by either "uncertainty" or "toxicity", or "u/t" for uncertainty and toxicity respectively.
 
 1. __Oracle Collaborative Accuracy__. Accuracy after sending a certain fraction
 of examples that the model is not confident about to the human moderators. Here

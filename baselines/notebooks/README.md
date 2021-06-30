@@ -21,4 +21,4 @@ with a Gaussian process layer.
 Ensembles over neural network weights trained from different random initialization, known as deep ensembles, achieve state-of-the-art accuracy and calibration. The recently introduced batch ensembles provide a drop-in replacement that is more parameter efficient. We design ensembles not only over weights, but over hyperparameters to improve the state of the art in both settings. We propose two methods: *hyper-deep ensembles* and *hyper-batch ensembles*.
 
 * [Paper](https://arxiv.org/abs/2006.13570) 
-* [Notebook tutorial](https://github.com/google/uncertainty-baselines/blob/master/baselines/notebooks/Hyperparameter_Ensembles.ipynb)
+* [Notebook tutorial](https://github.com/google/uncertainty-baselines/blob/main/baselines/notebooks/Hyperparameter_Ensembles.ipynb)

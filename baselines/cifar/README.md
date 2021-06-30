@@ -48,7 +48,7 @@
 
 ## Metrics
 
-We define metrics specific to CIFAR below. For general metrics, see [`baselines/`](https://github.com/google/uncertainty-baselines/tree/master/baselines).
+We define metrics specific to CIFAR below. For general metrics, see [`baselines/`](https://github.com/google/uncertainty-baselines/tree/main/baselines).
 
 1. __cNLL/cA/cCE__. Negative-log-likelihood, accuracy, and calibration error on [CIFAR-10-C](https://arxiv.org/abs/1903.12261); we apply the same corruptions to produce a CIFAR-100-C. `c` stands for corrupted. Results take the mean across corruption intensities and corruption types.
 

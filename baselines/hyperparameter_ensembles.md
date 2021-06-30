@@ -2,9 +2,9 @@
 
 **Quick Links:**
 [Paper](https://arxiv.org/abs/2006.13570) |
-[Quick tutorial to hyper-deep ensembles (notebook)](https://github.com/google/uncertainty-baselines/blob/master/baselines/notebooks/Hyperparameter_Ensembles.ipynb) | 
-[Paper Experiments: hyper-deep ensembles](https://github.com/google/uncertainty-baselines/blob/master/baselines/cifar/hyperdeepensemble.py) | 
-[Paper Experiments: hyper-batch ensembles](https://github.com/google/uncertainty-baselines/blob/master/baselines/cifar/hyperbatchensemble.py)
+[Quick tutorial to hyper-deep ensembles (notebook)](https://github.com/google/uncertainty-baselines/blob/main/baselines/notebooks/Hyperparameter_Ensembles.ipynb) | 
+[Paper Experiments: hyper-deep ensembles](https://github.com/google/uncertainty-baselines/blob/main/baselines/cifar/hyperdeepensemble.py) | 
+[Paper Experiments: hyper-batch ensembles](https://github.com/google/uncertainty-baselines/blob/main/baselines/cifar/hyperbatchensemble.py)
 
 Ensembles over neural network weights trained from different random initialization, known as deep ensembles, achieve state-of-the-art accuracy and calibration. The recently introduced batch ensembles provide a drop-in replacement that is more parameter efficient. We design ensembles not only over weights, but over hyperparameters to improve the state of the art in both settings. We propose two methods: *hyper-deep ensembles* and *hyper-batch ensembles*.
 
@@ -21,7 +21,7 @@ over CIFAR-100.*
 ### Code
 **Quick intro:** Here is a [notebook](/notebooks/Hyperparameter_Ensembles.ipynb) that shows how easy hyper-deep ensembles can be implemented on top of an already existing deep neural network model. This is a great starting point if you want to play with hyper-batch ensembles yourself.
 
-**Paper experiments:** To reproduce the results in our paper (ResNet-20 and Wide ResNet 28-10 architectures) the code can be found as part of *uncertainty-baselines* [here](https://github.com/google/uncertainty-baselines/blob/master/baselines/cifar/hyperdeepensemble.py).
+**Paper experiments:** To reproduce the results in our paper (ResNet-20 and Wide ResNet 28-10 architectures) the code can be found as part of *uncertainty-baselines* [here](https://github.com/google/uncertainty-baselines/blob/main/baselines/cifar/hyperdeepensemble.py).
 
 ## Hyper-batch ensembles
 Hyper-deep ensembles involve using multiple models at training and test time which is sometimes too expensive. We further propose a parameter-efficient version, hyper-batch ensembles, which builds on the layer structure of batch ensembles (Wen et al., 2019) and self-tuning networks (Mackay et al., 2018). Hyper-batch ensembles amortize the behavior of hyper-deep ensembles within a single model, resulting in computational and memory costs notably lower than typical ensembles.
@@ -29,7 +29,7 @@ Hyper-deep ensembles involve using multiple models at training and test time whi
 ### Code
 **Edward2 Implementation:** We implement hyper-batch ensembles as new keras layer types that can be used as a drop-in replacement for your existing layers in a deep neural network model. An amortized version for convolutional layers `Conv2DHyperBatchEnsemble` can be found [here](https://github.com/google/edward2/blob/master/edward2/tensorflow/layers/convolutional.py) and for dense layers `DenseHyperBatchEnsemble` can be found [here](https://github.com/google/edward2/blob/master/edward2/tensorflow/layers/dense.py).
 
-**Paper experiments:** To reproduce the results in our paper (ResNet-20 and Wide ResNet 28-10 architectures) the code can be found as part of *uncertainty-baselines* [here](https://github.com/google/uncertainty-baselines/blob/master/baselines/cifar/hyperbatchensemble.py).
+**Paper experiments:** To reproduce the results in our paper (ResNet-20 and Wide ResNet 28-10 architectures) the code can be found as part of *uncertainty-baselines* [here](https://github.com/google/uncertainty-baselines/blob/main/baselines/cifar/hyperbatchensemble.py).
 
 ## For questions reach out to
 Florian Wenzel ([florianwenzel@google.com](mailto:florianwenzel@google.com)) \

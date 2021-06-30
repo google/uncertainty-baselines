@@ -38,10 +38,10 @@ All APIs are subject to change.
 ### Baselines
 
 The
-[`baselines/`](https://github.com/google/uncertainty-baselines/tree/master/baselines)
+[`baselines/`](https://github.com/google/uncertainty-baselines/tree/main/baselines)
 directory includes all the baselines, organized by their training dataset.
 For example,
-[`baselines/cifar/determinstic.py`](https://github.com/google/uncertainty-baselines/tree/master/baselines/cifar/deterministic.py)
+[`baselines/cifar/determinstic.py`](https://github.com/google/uncertainty-baselines/tree/main/baselines/cifar/deterministic.py)
 is a Wide ResNet 28-10 obtaining 96.0% test accuracy on CIFAR-10.
 
 __Launching with TPUs.__ You often need TPUs to reproduce baselines. There are three options:
@@ -91,7 +91,7 @@ create a virtual machine instance (details
 ### Datasets
 
 The
-[`ub.datasets`](https://github.com/google/uncertainty-baselines/tree/master/uncertainty_baselines/datasets)
+[`ub.datasets`](https://github.com/google/uncertainty-baselines/tree/main/uncertainty_baselines/datasets)
 module consists of datasets following the
 [TensorFlow Datasets](https://www.tensorflow.org/datasets) API.
 They add minimal logic such as default data preprocessing.
@@ -132,7 +132,7 @@ for batch in iter(ds):
 ### Models
 
 The
-[`ub.models`](https://github.com/google/uncertainty-baselines/tree/master/uncertainty_baselines/models)
+[`ub.models`](https://github.com/google/uncertainty-baselines/tree/main/uncertainty_baselines/models)
 module consists of models following the
 [`tf.keras.Model`](https://www.tensorflow.org/api_docs/python/tf/keras/Model)
 API.
@@ -224,7 +224,7 @@ If you'd like to cite Uncertainty Baselines, use the following BibTeX entry.
 
 ### Adding a Dataset
 
-1. Add the bibtex reference to [`references.md`](https://github.com/google/uncertainty-baselines/blob/master/references.md).
+1. Add the bibtex reference to [`references.md`](https://github.com/google/uncertainty-baselines/blob/main/references.md).
 2. Add the dataset definition to the datasets/ dir. Every file should have a subclass of `datasets.base.BaseDataset`, which at a minimum requires implementing a constructor, a `tfds.core.DatasetBuilder`, and `_create_process_example_fn`.
 3. Add a test that at a minimum constructs the dataset and checks the shapes of elements.
 4. Add the dataset to `datasets/datasets.py` for easy access.
@@ -234,7 +234,7 @@ For an example of adding a dataset, see [this pull request](https://github.com/g
 
 ### Adding a Model
 
-1. Add the bibtex reference to [`references.md`](https://github.com/google/uncertainty-baselines/blob/master/references.md).
+1. Add the bibtex reference to [`references.md`](https://github.com/google/uncertainty-baselines/blob/main/references.md).
 2. Add the model definition to the models/ dir. Every file should have a `create_model` function with the following signature:
 
     ```python
@@ -248,3 +248,5 @@ For an example of adding a dataset, see [this pull request](https://github.com/g
 3. Add a test that at a minimum constructs the model and does a forward pass.
 4. Add the model to `models/models.py` for easy access.
 5. Add the `create_model` function to `models/__init__.py`.
+
+Test.

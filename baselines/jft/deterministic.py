@@ -164,6 +164,7 @@ def main(argv):
   mw = u.BigVisionMetricWriter(xm_xp.id, xm_wu.id, steps_per_epoch)
 
   write_note(f"Initializing {config.model_name} model...")
+  logging.info("config.model = %s", config.get("model"))
   model_mod = importlib.import_module(f"{BASEDIR}.models.{config.model_name}")
   model = model_mod.Model(
       num_classes=config.num_classes, **config.get("model", {}))
@@ -351,7 +352,7 @@ def main(argv):
   # reproducibility unit tests.
   train_loss = -jnp.inf
   val_loss = -jnp.inf
-  best_l2 = {1: -jnp.inf}
+  results = {"dummy": {(0, 1): -jnp.inf}}
 
   write_note(f"First step compilations...\n{chrono.note}")
   # Using a python integer for step here, because opt.state.step is allocated
@@ -432,7 +433,7 @@ def main(argv):
       if u.itstime(step, config.fewshot.log_steps, total_steps):
         chrono.pause()
         write_note(f"Few-shot evaluation...\n{chrono.note}")
-        # Keep `best_l2` to return for reproducibility tests.
+        # Keep `results` to return for reproducibility tests.
         results, best_l2 = fewshotter.run_all(opt_repl.target,
                                               config.fewshot.datasets)
         fewshotter.walk_results(mw.measure, results, best_l2)
@@ -444,9 +445,9 @@ def main(argv):
   pool.join()
   mw.close()
 
-  # Return final training loss, validation loss, and fewshot best l2s for
+  # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.
-  return train_loss, val_loss, best_l2
+  return train_loss, val_loss, results
 
 
 if __name__ == "__main__":

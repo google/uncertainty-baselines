@@ -13,12 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Wide ResNet 28-10 on CIFAR-10/100 trained with maximum likelihood.
+"""Heteroscedastic [1] Wide ResNet 28-10 on CIFAR-10/100 trained with MLE.
 
 Hyperparameters differ slightly from the original paper's code
 (https://github.com/szagoruyko/wide-residual-networks) as TensorFlow uses, for
 example, l2 instead of weight decay, and a different parameterization for SGD's
 momentum.
+
+## References:
+
+[1]: Mark Collier, Basil Mustafa, Efi Kokiopoulou, Rodolphe Jenatton and
+     Jesse Berent. Correlated Input-Dependent Label Noise in Large-Scale Image
+     Classification. In Proc. of the IEEE/CVF Conference on Computer Vision
+     and Pattern Recognition (CVPR), 2021, pp. 1551-1560.
+     https://arxiv.org/abs/2105.10305
 """
 
 import os

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Ensemble on ImageNet.
+"""Heteroscedastic ensemble on ImageNet.
 
 This script only performs evaluation, not training. We recommend training
 ensembles by launching independent runs of `deterministic.py` over different

@@ -27,9 +27,11 @@ The approaches are combined simply by using DenseRank1 layers from [2] to
 construct the heteroscedastic layer.
 
 References:
-  [1]: Collier, M., Mustafa, B., Kokiopoulou, E., Jenatton, R., & Berent, J.
-       (2021). Correlated Input-Dependent Label Noise in Large-Scale Image
-       Classification. To appear CVPR 2021.
+  [1]: Mark Collier, Basil Mustafa, Efi Kokiopoulou, Rodolphe Jenatton and
+       Jesse Berent. Correlated Input-Dependent Label Noise in Large-Scale Image
+       Classification. In Proc. of the IEEE/CVF Conference on Computer Vision
+       and Pattern Recognition (CVPR), 2021, pp. 1551-1560.
+       https://arxiv.org/abs/2105.10305
 
   [2]: Michael W. Dusenberry*, Ghassen Jerfel*, Yeming Wen, Yian Ma, Jasper
        Snoek, Katherine Heller, Balaji Lakshminarayanan, Dustin Tran. Efficient

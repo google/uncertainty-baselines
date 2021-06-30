@@ -13,7 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ResNet50 model."""
+"""Heteroscedastic ResNet50 model.
+
+An heteroscedastic output layer [1] uses a multivariate Normal distributed
+latent variable on the final hidden layer. The covariance matrix of this latent
+variable, models the aleatoric uncertainty due to label noise.
+
+References:
+  [1]: Mark Collier, Basil Mustafa, Efi Kokiopoulou, Rodolphe Jenatton and
+       Jesse Berent. Correlated Input-Dependent Label Noise in Large-Scale Image
+       Classification. In Proc. of the IEEE/CVF Conference on Computer Vision
+       and Pattern Recognition (CVPR), 2021, pp. 1551-1560.
+       https://arxiv.org/abs/2105.10305
+"""
 
 import string
 

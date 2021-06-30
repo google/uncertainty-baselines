@@ -13,18 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ResNet-50 on ImageNet trained with maximum likelihood and gradient descent.
+"""Heteroscedastic [1] ResNet-50 on ImageNet trained with maximum likelihood.
 
-This script supports using mixup [1], possibly combined with the rescaling of
-the predictions proposed in [2] (see the metrics ending with `+rescaling`).
+This script supports using mixup [2], possibly combined with the rescaling of
+the predictions proposed in [3] (see the metrics ending with `+rescaling`).
 Mixup is enabled by setting ``mixup_alpha > 0`.
 
 ## References:
 
-[1]: Hongyi Zhang et al. mixup: Beyond Empirical Risk Minimization.
+[1]: Mark Collier, Basil Mustafa, Efi Kokiopoulou, Rodolphe Jenatton and
+     Jesse Berent. Correlated Input-Dependent Label Noise in Large-Scale Image
+     Classification. In Proc. of the IEEE/CVF Conference on Computer Vision
+     and Pattern Recognition (CVPR), 2021, pp. 1551-1560.
+     https://arxiv.org/abs/2105.10305
+[2]: Hongyi Zhang et al. mixup: Beyond Empirical Risk Minimization.
      _arXiv preprint arXiv:1710.09412_, 2017.
      https://arxiv.org/abs/1710.09412
-[2]: Luigi Carratino et al. On Mixup Regularization.
+[3]: Luigi Carratino et al. On Mixup Regularization.
      _arXiv preprint arXiv:2006.06049_, 2020.
      https://arxiv.org/abs/2006.06049
 """

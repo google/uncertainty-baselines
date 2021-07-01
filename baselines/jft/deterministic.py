@@ -16,7 +16,6 @@
 """Deterministic ViT on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
-import importlib
 import multiprocessing
 import numbers
 import os
@@ -33,6 +32,7 @@ import jax.numpy as jnp
 import ml_collections
 import numpy as np
 from tensorflow.io import gfile
+import uncertainty_baselines as ub
 
 # TODO(dusenberrymw): Open-source remaining imports.
 
@@ -163,10 +163,9 @@ def main(argv):
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
   mw = u.BigVisionMetricWriter(xm_xp.id, xm_wu.id, steps_per_epoch)
 
-  write_note(f"Initializing {config.model_name} model...")
+  write_note("Initializing model...")
   logging.info("config.model = %s", config.get("model"))
-  model_mod = importlib.import_module(f"{BASEDIR}.models.{config.model_name}")
-  model = model_mod.Model(
+  model = ub.models.vision_transformer(
       num_classes=config.num_classes, **config.get("model", {}))
 
   # We want all parameters to be created in host RAM, not on any device, they'll
@@ -176,7 +175,8 @@ def main(argv):
   def init(rng):
     image_size = tuple(train_ds.element_spec["image"].shape[1:])
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
-    params = flax.core.unfreeze(model.init(rng, dummy_input))["params"]
+    params = flax.core.unfreeze(model.init(rng, dummy_input,
+                                           train=False))["params"]
 
     # Set bias in the head to a low value, such that loss is small initially.
     params["head"]["bias"] = jnp.full_like(
@@ -196,7 +196,9 @@ def main(argv):
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    logits, _ = model.apply({"params": flax.core.freeze(params)}, images)
+    logits, _ = model.apply({"params": flax.core.freeze(params)},
+                            images,
+                            train=False)
 
     losses = getattr(u, config.get("loss", "sigmoid_xent"))(
         logits=logits, labels=labels, reduction=False)
@@ -212,21 +214,19 @@ def main(argv):
   # Setup function for computing representation.
   @partial(jax.pmap, axis_name="batch")
   def representation_fn(params, images, labels, mask):
-    _, outputs = model.apply({"params": flax.core.freeze(params)}, images)
+    _, outputs = model.apply({"params": flax.core.freeze(params)},
+                             images,
+                             train=False)
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, "batch")
     labels = jax.lax.all_gather(labels, "batch")
     mask = jax.lax.all_gather(mask, "batch")
     return representation, labels, mask
 
-  # Load the optimizer either from our folder or from flax.
-  opt_name = config.get("optim_name", "momentum_hp")
+  # Load the optimizer from flax.
+  opt_name = config.get("optim_name")
   write_note(f"Initializing {opt_name} optimizer...")
-  try:
-    opt_mod = importlib.import_module(f"{BASEDIR}.optims.{opt_name}")
-    opt_def = opt_mod.Optimizer(**config.get("optim", {}))
-  except ModuleNotFoundError:
-    opt_def = getattr(flax.optim, opt_name)(**config.get("optim", {}))
+  opt_def = getattr(flax.optim, opt_name)(**config.get("optim", {}))
 
   # We jit this, such that the arrays that are created are created on the same
   # device as the input is, in this case the CPU. Else they'd be on device[0].
@@ -310,7 +310,8 @@ def main(argv):
     opt_cpu, checkpoint_extra = checkpoint["opt"], checkpoint["extra"]
   elif config.get("model_init"):
     write_note(f"Initialize model from {config.model_init}...")
-    loaded = model_mod.load(params_cpu, config.model_init, config.get("model"))
+    # TODO(dusenberrymw): Replace and test load function.
+    loaded = resformer.load(params_cpu, config.model_init, config.get("model"))
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info("Restored parameter overview:")

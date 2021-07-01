@@ -53,9 +53,7 @@ def get_config():
   config.checkpoint_steps = 1000
 
   # Model section
-  config.model_name = 'resformer'
   config.model = ml_collections.ConfigDict()
-  config.model.resnet = None
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [16, 16]
   config.model.hidden_size = 768

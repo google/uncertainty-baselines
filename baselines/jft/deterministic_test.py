@@ -69,9 +69,7 @@ def get_config(classifier, representation_size):
   config.init_head_bias = 1e-3
 
   # Model section
-  config.model_name = 'resformer'
   config.model = ml_collections.ConfigDict()
-  config.model.resnet = None
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [16, 16]
   config.model.hidden_size = 4

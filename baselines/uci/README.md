@@ -13,7 +13,7 @@
 
 ## Metrics
 
-We define metrics specific to UCI datasets below. For general metrics, see [`baselines/`](https://github.com/google/edward2/tree/master/baselines).
+We define metrics specific to UCI datasets below. For general metrics, see [`baselines/`](https://github.com/google/edward2/tree/main/baselines).
 
 1. __UCI Dataset__. Negative-log-likelihood on the full test set and not averaged per data point.
 2. __Train Runtime.__ Training runtime is the total wall-clock time to train the model, including any intermediate test set evaluations. It is averaged across UCI datasets.

@@ -28,7 +28,7 @@ def get_strategy(tpu: str, use_tpu: bool) -> _Strategy:
   """Gets a strategy to run locally on CPU or on a fleet of TPUs.
 
   Args:
-    tpu: A string of the master TPU to run on. Ignored if use_tpu=False.
+    tpu: A string of the main TPU to run on. Ignored if use_tpu=False.
     use_tpu: Whether or not to use TPU or CPU.
 
   Returns:

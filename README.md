@@ -1,6 +1,6 @@
 # Uncertainty Baselines
 
-[![Travis](https://travis-ci.org/google/uncertainty-baselines.svg?branch=master)](https://travis-ci.org/google/uncertainty-baselines)
+[![Travis](https://travis-ci.org/google/uncertainty-baselines.svg?branch=main)](https://travis-ci.org/google/uncertainty-baselines)
 
 The goal of Uncertainty Baselines is to provide a template for researchers to
 build on. The baselines can be a starting point for any new ideas, applications,

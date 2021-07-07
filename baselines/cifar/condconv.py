@@ -15,7 +15,6 @@
 
 """Wide ResNet 28-10 with Monte Carlo dropout on CIFAR-10."""
 
-import functools
 import os
 import time
 from absl import app
@@ -153,21 +152,18 @@ def main(argv):
   steps_per_eval = clean_test_dataset_builder.num_examples // batch_size
   num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
   if FLAGS.corruptions_interval > 0:
-    if FLAGS.dataset == 'cifar10':
-      load_c_dataset = utils.load_cifar10_c
-    else:
-      load_c_dataset = functools.partial(
-          utils.load_cifar100_c, path=FLAGS.cifar100_c_path)
-    corruption_types, max_intensity = utils.load_corrupted_test_info(
-        FLAGS.dataset)
-    for corruption in corruption_types:
-      for intensity in range(1, max_intensity + 1):
-        dataset = load_c_dataset(
-            corruption_name=corruption,
-            corruption_intensity=intensity,
-            batch_size=test_batch_size,
-            use_bfloat16=FLAGS.use_bfloat16)
-        test_datasets['{0}_{1}'.format(corruption, intensity)] = (
+    if FLAGS.dataset == 'cifar100':
+      data_dir = FLAGS.cifar100_c_path
+    corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
+    for corruption_type in corruption_types:
+      for severity in range(1, 6):
+        dataset = ub.datasets.get(
+            f'{FLAGS.dataset}_corrupted',
+            corruption_type=corruption_type,
+            severity=severity,
+            split=tfds.Split.TEST,
+            data_dir=data_dir).load(batch_size=batch_size)
+        test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
@@ -266,7 +262,7 @@ def main(argv):
 
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
-      for intensity in range(1, max_intensity + 1):
+      for intensity in range(1, 6):
         for corruption in corruption_types:
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
@@ -560,8 +556,7 @@ def main(argv):
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
-                                                        corruption_types,
-                                                        max_intensity)
+                                                        corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),

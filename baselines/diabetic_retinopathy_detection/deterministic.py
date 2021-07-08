@@ -314,7 +314,7 @@ def main(argv):
 
     if FLAGS.use_validation:
       validation_iterator = iter(dataset_validation)
-      logging.info('Starting to run validation eval ay epoch: %s', epoch + 1)
+      logging.info('Starting to run validation eval at epoch: %s', epoch + 1)
       test_step(validation_iterator, 'validation', steps_per_validation_eval)
 
     test_iterator = iter(dataset_test)

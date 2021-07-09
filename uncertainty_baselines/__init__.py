@@ -53,6 +53,6 @@ for module_name in _IMPORTS:
     _lazy_import(module_name)
   except ModuleNotFoundError:
     logging.error(
-        'Skipped importing top level uncertainty_baselines module due to '
-        'ModuleNotFoundError.', exc_info=True)
+        'Skipped importing top level uncertainty_baselines module %s due to '
+        'ModuleNotFoundError:', module_name, exc_info=True)
 

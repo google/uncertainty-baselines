@@ -70,6 +70,10 @@ flags.DEFINE_bool('use_truncated_beta', True,
                   'Whether to sample the mixup weights from '
                   'Beta[0,1](alpha,alpha) or from the truncated distribution '
                   'Beta[1/2,1](alpha,alpha).')
+flags.DEFINE_float(
+    'train_proportion',
+    1.0,
+    'What proportion of the training set to use to train versus validate on.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -105,8 +109,6 @@ def main(argv):
   tf.random.set_seed(FLAGS.seed)
 
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
-  steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
   if FLAGS.use_gpu:
     logging.info('Use GPU')
@@ -132,12 +134,27 @@ def main(argv):
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
       one_hot=True,
-      mixup_params=mixup_params)
+      mixup_params=mixup_params,
+      validation_percent=1.0 - FLAGS.train_proportion)
+  steps_per_epoch = train_builder.num_examples // batch_size
   test_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TEST,
       use_bfloat16=FLAGS.use_bfloat16)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_dataset = test_builder.load(batch_size=batch_size, strategy=strategy)
+  steps_per_test_eval = IMAGENET_VALIDATION_IMAGES // batch_size
+  validation_dataset = None
+  steps_per_validation_eval = 0
+  if FLAGS.train_proportion < 1.0:
+    # Note we do not one_hot the validation set.
+    validation_builder = ub.datasets.ImageNetDataset(
+        split=tfds.Split.VALIDATION,
+        use_bfloat16=FLAGS.use_bfloat16,
+        mixup_params=mixup_params,
+        validation_percent=1.0 - FLAGS.train_proportion)
+    validation_dataset = validation_builder.load(
+        batch_size=batch_size, strategy=strategy)
+    steps_per_validation_eval = validation_builder.num_examples // batch_size
 
   if enable_mixup:
     mean_theta = mean_truncated_beta_distribution(FLAGS.mixup_alpha)
@@ -194,6 +211,14 @@ def main(argv):
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
     }
+    if FLAGS.train_proportion < 1.0:
+      metrics.update({
+          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
+          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/loss': tf.keras.metrics.Mean(),
+          'validation/ece': rm.metrics.ExpectedCalibrationError(
+              num_bins=FLAGS.num_bins),
+      })
     logging.info('Finished building Keras ResNet-50 model')
 
     if enable_mixup:
@@ -292,18 +317,21 @@ def main(argv):
       strategy.run(step_fn, args=(next(iterator),))
 
   @tf.function
-  def update_test_metrics(labels, logits, metric_suffix=''):
+  def update_test_metrics(
+      labels, logits, metric_prefix='test', metric_suffix=''):
     negative_log_likelihood = tf.reduce_mean(
         tf.keras.losses.sparse_categorical_crossentropy(
             labels, logits, from_logits=True))
     probs = tf.nn.softmax(logits)
-    metrics['test/negative_log_likelihood' + metric_suffix].update_state(
-        negative_log_likelihood)
-    metrics['test/accuracy' + metric_suffix].update_state(labels, probs)
-    metrics['test/ece' + metric_suffix].add_batch(probs, label=labels)
+    nll_key = metric_prefix + '/negative_log_likelihood' + metric_suffix
+    metrics[nll_key].update_state(negative_log_likelihood)
+    metrics[metric_prefix + '/accuracy' + metric_suffix].update_state(
+        labels, probs)
+    metrics[metric_prefix + '/ece' + metric_suffix].add_batch(
+        probs, label=labels)
 
   @tf.function
-  def test_step(iterator):
+  def test_step(metrics_prefix, iterator, steps_per_eval):
     """Evaluation StepFn."""
     def step_fn(inputs):
       """Per-Replica StepFn."""
@@ -314,10 +342,10 @@ def main(argv):
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
 
-      update_test_metrics(labels, logits)
+      update_test_metrics(labels, logits, metric_prefix=metrics_prefix)
 
       # Rescaling logic in Eq.(15) from [2]
-      if enable_mixup:
+      if enable_mixup and metrics_prefix == 'test':
         images *= mean_theta
         images += (1.-mean_theta) * tf.cast(mean_images, images.dtype)
 
@@ -328,7 +356,11 @@ def main(argv):
         scaled_logits *= 1./mean_theta
         scaled_logits += (1.-1./mean_theta) * tf.cast(mean_labels, logits.dtype)
 
-        update_test_metrics(labels, scaled_logits, '+rescaling')
+        update_test_metrics(
+            labels,
+            scaled_logits,
+            metric_prefix='test',
+            metric_suffix='+rescaling')
 
     for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
@@ -371,17 +403,28 @@ def main(argv):
                    eta_seconds / 60,
                    time_elapsed / 60))
     logging.info(message)
-
+    validation_iterator = iter(validation_dataset)
     test_iterator = iter(test_dataset)
     logging.info('Starting to run eval at epoch: %s', epoch)
+    if FLAGS.train_proportion < 1.0:
+      test_step(
+          metrics_prefix='validation',
+          iterator=validation_iterator,
+          steps_per_eval=steps_per_validation_eval)
     test_start_time = time.time()
-    test_step(test_iterator)
+    test_step(
+        metrics_prefix='test',
+        iterator=test_iterator,
+        steps_per_eval=steps_per_test_eval)
     ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
     metrics['test/ms_per_example'].update_state(ms_per_example)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),
                  metrics['train/accuracy'].result() * 100)
+    logging.info('Validation NLL: %.4f, Accuracy: %.2f%%',
+                 metrics['validation/negative_log_likelihood'].result(),
+                 metrics['validation/accuracy'].result() * 100)
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)

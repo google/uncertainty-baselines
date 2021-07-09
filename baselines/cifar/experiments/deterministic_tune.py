@@ -35,7 +35,8 @@ def get_config():
   config.experiment_name = (
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-  output_dir = 'gs://oss-xm-test-bucket/{}'.format(config.experiment_name)
+  output_dir = 'gs://launcher-beta-test-bucket/{}'.format(
+      config.experiment_name)
   config.args = {
       'train_epochs': 90,
       'per_core_batch_size': 64,

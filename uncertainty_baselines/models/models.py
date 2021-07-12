@@ -29,7 +29,6 @@ from uncertainty_baselines.models import efficientnet_batch_ensemble
 from uncertainty_baselines.models import genomics_cnn
 from uncertainty_baselines.models import movielens
 from uncertainty_baselines.models import resnet20
-from uncertainty_baselines.models import resnet50
 from uncertainty_baselines.models import textcnn
 from uncertainty_baselines.models import wide_resnet
 
@@ -51,7 +50,6 @@ def get_model_names() -> List[str]:
       'genomics_cnn',
       'movielens',
       'resnet20',
-      'resnet50',
       'textcnn',
       'wide_resnet',
   ]
@@ -85,8 +83,6 @@ def get(model_name: str, **kwargs) -> tf.keras.Model:
     return movielens.movielens(**kwargs)
   if model_name == 'resnet20':
     return resnet20.resnet20(**kwargs)
-  if model_name == 'resnet50':
-    return resnet50.resnet50(**kwargs)
   if model_name == 'textcnn':
     return textcnn.textcnn(**kwargs)
   if model_name == 'bert':

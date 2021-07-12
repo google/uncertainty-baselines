@@ -27,7 +27,6 @@ from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.movielens import movielens
 from uncertainty_baselines.models.mpnn import mpnn
 from uncertainty_baselines.models.resnet20 import resnet20
-from uncertainty_baselines.models.resnet50 import resnet50
 from uncertainty_baselines.models.resnet50_batchensemble import resnet101_batchensemble
 from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchensemble
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble

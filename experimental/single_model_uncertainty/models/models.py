@@ -26,7 +26,7 @@ import wide_resnet  # local file import
 from uncertainty_baselines.models import bert
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import resnet20
-from uncertainty_baselines.models import resnet50
+from uncertainty_baselines.models import resnet50_deterministic
 from uncertainty_baselines.models import textcnn
 
 
@@ -82,7 +82,7 @@ def get(
   if model_name == 'resnet20':
     return resnet20.resnet20(**hyperparameters)
   if model_name == 'resnet50':
-    return resnet50.resnet50(**hyperparameters)
+    return resnet50_deterministic.resnet50_deterministic(**hyperparameters)
   if model_name == 'textcnn':
     return textcnn.textcnn(**hyperparameters)
   if model_name == 'bert':

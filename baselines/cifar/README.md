@@ -52,6 +52,12 @@ We define metrics specific to CIFAR below. For general metrics, see [`baselines/
 
 1. __cNLL/cA/cCE__. Negative-log-likelihood, accuracy, and calibration error on [CIFAR-10-C](https://arxiv.org/abs/1903.12261); we apply the same corruptions to produce a CIFAR-100-C. `c` stands for corrupted. Results take the mean across corruption intensities and corruption types.
 
+## Model Checkpoints
+We plan to release the best-performaing checkpoints for all methods (work in progress). These checkpoints were trained on the combined training and validation set, using hyperparameters selected from the best validation performance.
+
+### Hyper-deep ensembles
+We used a random split of 95% of the original training data (consisting of 50,000 examples) as training set and the remaining 5% for validation. We use a backbone Wide ResNet 28-10 and a backbone ResNet-20 model. To construct the hyper-deep ensembles we first considered the best performing hyperparameters of the deterministic model as the starting point. We then trained 100 new models replacing the block-wise $\ell_2$-regularization parameters and label smoothing parameter with randomly drawn values for the same number of epochs. We constructed an ensemble of $k$ models by optimizing the ensemble performance on the validation set. In the stratification phase the final ensemble was re-trained on the full dataset, i.e., the combined training and validation data. More details on the training and evaluation procedure can be found in [Wenzel et al., 2020](https://arxiv.org/abs/2006.13570). For more details on the model, see the accompanying [Model Card](./model_card.md). The checkpoints can be browsed [here](insert). TODO(florianwenzel): Insert checkpoints path.
+
 ## CIFAR-10 Related Results
 
 We note results in the literature below. Note there are differences in the setup

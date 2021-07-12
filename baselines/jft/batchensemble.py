@@ -203,7 +203,7 @@ def main(_):
     plot_grad_norm_name_fn = None
 
   weight_decay_fn = train.get_weight_decay_function_from_config(config)
-  batch_loss_fn = train.wrap_module_with_auxiliary_loss_fn(
+  batch_loss_fn = ensemble.wrap_ensemble_module_with_auxiliary_loss_fn(
       module=model_train,
       loss_fn=loss_to_apply,
       auxiliary_loss_weight=config.get("auxiliary_loss_weight", 0.0),

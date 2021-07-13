@@ -273,7 +273,7 @@ def main(_):
                               config.get("prefetch_to_device", 1))
 
   writer = metric_writers.create_default_writer(
-      workdir, just_logging=jax.host_id() > 0, asynchronous_workers=128,
+      workdir, just_logging=jax.host_id() > 0,
       summary_writer=config.get("write_tf_summaries", False))
 
   checkpoint_async_results = []

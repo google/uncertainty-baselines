@@ -75,6 +75,7 @@ flags.DEFINE_float('dense_bias_l2', None,
 flags.DEFINE_bool('collect_profile', False,
                   'Whether to trace a profile with tensorboard')
 
+
 FLAGS = flags.FLAGS
 
 
@@ -157,10 +158,13 @@ def main(argv):
       split=tfds.Split.TEST,
       data_dir=data_dir)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
-  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
+
+
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+
   steps_per_epoch = train_builder.num_examples // batch_size
   steps_per_eval = clean_test_builder.num_examples // batch_size
   num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
@@ -307,6 +311,7 @@ def main(argv):
       labels = inputs['labels']
       logits = model(images, training=False)
       probs = tf.nn.softmax(logits)
+
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
 
@@ -322,6 +327,25 @@ def main(argv):
             labels, probs)
         corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
             probs, label=labels)
+
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
+
+  @tf.function
+  def cifar10h_test_step(iterator, num_steps):
+    """Evaluation StepFn."""
+    def step_fn(inputs):
+      """Per-Replica StepFn."""
+      images = inputs['features']
+      labels = inputs['labels']
+      logits = model(images, training=False)
+
+      negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(
+          from_logits=True,
+          reduction=tf.keras.losses.Reduction.NONE)(labels, logits)
+
+      negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
+      metrics['cifar10h/nll'].update_state(negative_log_likelihood)
 
     for _ in tf.range(tf.cast(num_steps, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))

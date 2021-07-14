@@ -25,6 +25,7 @@ from uncertainty_baselines.datasets import augment_utils
 from uncertainty_baselines.datasets import augmix
 from uncertainty_baselines.datasets import base
 
+
 # We use the convention of using mean = np.mean(train_images, axis=(0,1,2))
 # and std = np.std(train_images, axis=(0,1,2)).
 CIFAR10_MEAN = np.array([0.4914, 0.4822, 0.4465])
@@ -41,6 +42,8 @@ def _tuple_dict_fn_converter(fn, *args):
     return {'features': images, 'labels': labels}
 
   return dict_fn
+
+
 
 
 class _CifarDataset(base.BaseDataset):
@@ -62,7 +65,8 @@ class _CifarDataset(base.BaseDataset):
       use_bfloat16: bool = False,
       aug_params: Optional[Dict[str, Any]] = None,
       data_dir: Optional[str] = None,
-      is_training: Optional[bool] = None):
+      is_training: Optional[bool] = None,
+      is_cifar10h: Optional[bool] = False):
     """Create a CIFAR10 or CIFAR100 tf.data.Dataset builder.
 
     Args:
@@ -96,6 +100,7 @@ class _CifarDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
+      is_cifar10h: whether or not to load the Cifar10H labels for Cifar10.
     """
     self._normalize = normalize
     dataset_builder = tfds.builder(
@@ -127,6 +132,7 @@ class _CifarDataset(base.BaseDataset):
       # Hard target in the first epoch!
       aug_params['mixup_coeff'] = tf.ones([ensemble_size, 10])
     self._aug_params = aug_params
+
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
@@ -191,11 +197,14 @@ class _CifarDataset(base.BaseDataset):
       mixup_alpha = self._aug_params.get('mixup_alpha', 0)
       label_smoothing = self._aug_params.get('label_smoothing', 0.)
       should_onehot = mixup_alpha > 0 or label_smoothing > 0
+
+      labels = example['label']
+
       if should_onehot:
-        parsed_example['labels'] = tf.one_hot(
-            example['label'], 10, dtype=tf.float32)
+        parsed_example['labels'] = tf.one_hot(labels, 10, dtype=tf.float32)
       else:
-        parsed_example['labels'] = tf.cast(example['label'], tf.float32)
+        parsed_example['labels'] = tf.cast(labels, tf.float32)
+
 
       del parsed_example['image']
       del parsed_example['label']
@@ -255,3 +264,5 @@ class Cifar10CorruptedDataset(_CifarDataset):
         name=f'cifar10_corrupted/{corruption_type}_{severity}',
         fingerprint_key=None,
         **kwargs)
+
+

@@ -46,7 +46,9 @@ setup(
         'models': [
             'edward2 @ git+https://github.com/google/edward2.git#egg=edward2',
             'pandas',
-            'robustness_metrics @ git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics',
+            ('robustness_metrics @ '
+             'git+https://github.com/google-research/robustness_metrics.git'
+             '#egg=robustness_metrics'),
             'scipy',
             'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
             'tfp-nightly',

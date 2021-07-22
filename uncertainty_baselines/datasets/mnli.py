@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Data loader for the Multi-Genre Natural Language Inference (MNLI) dataset.
 
 MNLI corpus is a crowd-sourced collection of 433k sentence pairs annotated with
@@ -95,7 +94,7 @@ class MnliDataset(base.BaseDataset):
 
     name = 'glue/mnli'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs)
-    super(MnliDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=split,

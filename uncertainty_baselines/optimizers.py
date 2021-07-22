@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Utilities related to optimizers for Uncertainty Baselines."""
 
 import functools
@@ -153,7 +152,7 @@ class LinearWarmupLearningRateSchedule(LearningRateSchedule):
                decay_ratio: float,
                decay_epochs: int,
                warmup_epochs: int):
-    super(LinearWarmupLearningRateSchedule, self).__init__()
+    super().__init__()
     self.steps_per_epoch = steps_per_epoch
     self.initial_learning_rate = base_learning_rate
     self.decay_ratio = decay_ratio
@@ -251,7 +250,7 @@ class MovingAverage(tf.keras.optimizers.Optimizer):
       **kwargs: keyword arguments. Allowed to be {`clipnorm`,
         `clipvalue`, `lr`, `decay`}.
     """
-    super(MovingAverage, self).__init__(name, **kwargs)
+    super().__init__(name, **kwargs)
     self._optimizer = optimizer
     self._average_decay = average_decay
     self._start_step = tf.constant(start_step, tf.float32)
@@ -406,7 +405,7 @@ class MovingAverage(tf.keras.optimizers.Optimizer):
         'start_step': self._start_step,
         'dynamic_decay': self._dynamic_decay,
     }
-    base_config = super(MovingAverage, self).get_config()
+    base_config = super().get_config()
     return dict(list(base_config.items()) + list(config.items()))
 
   @classmethod

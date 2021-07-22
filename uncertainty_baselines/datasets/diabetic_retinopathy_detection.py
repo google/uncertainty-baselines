@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Kaggle diabetic retinopathy detection dataset builder."""
 
 from typing import Dict, Optional
@@ -55,7 +54,7 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       is_training = split in ['train', tfds.Split.TRAIN]
     dataset_builder = tfds.builder(
         'diabetic_retinopathy_detection/btgraham-300', data_dir=data_dir)
-    super(DiabeticRetinopathyDetectionDataset, self).__init__(
+    super().__init__(
         name='diabetic_retinopathy_detection',
         dataset_builder=dataset_builder,
         split=split,

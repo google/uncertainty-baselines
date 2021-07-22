@@ -59,7 +59,7 @@ class FashionMnistDataset(base.BaseDataset):
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(
         dataset_builder, validation_percent, split)
-    super(FashionMnistDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,

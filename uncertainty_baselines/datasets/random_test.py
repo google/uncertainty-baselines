@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for Random Image Datasets."""
 
 import tensorflow as tf
@@ -23,11 +22,11 @@ import uncertainty_baselines as ub
 class RandomImageDatasetTest(ub.datasets.DatasetTest):
 
   def testRandomGaussianDatasetSize(self):
-    super(RandomImageDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.RandomGaussianImageDataset, (32, 32, 3))
 
   def testRandomRademacherDatasetSize(self):
-    super(RandomImageDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.RandomRademacherImageDataset, (32, 32, 3))
 
 

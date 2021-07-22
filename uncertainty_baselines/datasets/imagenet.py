@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """ImageNet dataset builder.
 
 We have an option to use a percent of the training dataset as a validation set,
@@ -119,7 +118,7 @@ class ImageNetDataset(base.BaseDataset):
       }
     else:
       decoders = None
-    super(ImageNetDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,

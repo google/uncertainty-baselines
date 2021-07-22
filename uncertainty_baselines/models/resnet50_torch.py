@@ -47,7 +47,7 @@ class BasicBlock(nn.Module):
                dilation: int = 1,
                norm_layer: Optional[Callable[..., nn.Module]] = None,
                dropout_rate: float = 0.1) -> None:
-    super(BasicBlock, self).__init__()
+    super().__init__()
     if norm_layer is None:
       norm_layer = nn.BatchNorm2d
     if groups != 1 or base_width != 64:
@@ -109,7 +109,7 @@ class Bottleneck(nn.Module):
                dilation: int = 1,
                norm_layer: Optional[Callable[..., nn.Module]] = None,
                dropout_rate: float = 0.1) -> None:
-    super(Bottleneck, self).__init__()
+    super().__init__()
     if norm_layer is None:
       norm_layer = nn.BatchNorm2d
     width = int(planes * (base_width / 64.)) * groups
@@ -167,7 +167,7 @@ class ResNetMCDropout(nn.Module):
       replace_stride_with_dilation: Optional[List[bool]] = None,
       norm_layer: Optional[Callable[..., nn.Module]] = None,
   ) -> None:
-    super(ResNetMCDropout, self).__init__()
+    super().__init__()
     if norm_layer is None:
       norm_layer = nn.BatchNorm2d
     self._norm_layer = norm_layer

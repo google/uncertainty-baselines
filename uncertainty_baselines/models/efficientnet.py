@@ -97,7 +97,7 @@ class MBConvBlock(tf.keras.layers.Layer):
       use_se: Whether to use squeeze and excitation layers.
       clip_projection_output: Whether to clip projected conv outputs.
     """
-    super(MBConvBlock, self).__init__()
+    super().__init__()
     self._block_args = block_args
     self._batch_norm_momentum = batch_norm_momentum
     self._batch_norm_epsilon = batch_norm_epsilon
@@ -252,7 +252,7 @@ class EfficientNetModel(tf.keras.Model):
       use_se: Whether to use squeeze and excitation layers.
       clip_projection_output: Whether to clip projected conv outputs.
     """
-    super(EfficientNetModel, self).__init__()
+    super().__init__()
     self._width_coefficient = width_coefficient
     self._depth_coefficient = depth_coefficient
     self._dropout_rate = dropout_rate

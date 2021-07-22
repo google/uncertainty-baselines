@@ -143,7 +143,7 @@ class LinearAnnealing(tf.keras.optimizers.schedules.LearningRateSchedule):
                annealing_epochs,
                steps_per_epoch,
                name=None):
-    super(LinearAnnealing, self).__init__()
+    super().__init__()
     self.initial_coeff = initial_coeff
     self.annealing_epochs = annealing_epochs
     self.steps_per_epoch = steps_per_epoch

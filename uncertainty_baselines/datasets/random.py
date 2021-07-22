@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Random noise dataset builder."""
 
 from typing import Dict, Iterable, Optional
@@ -37,7 +36,7 @@ class _RandomDatasetBuilder(tfds.core.DatasetBuilder):
     self._num_train_examples = 50000
     self._num_validation_examples = 10000
     self._num_test_examples = 10000
-    super(_RandomDatasetBuilder, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
   def _download_and_prepare(self, dl_manager, download_config=None):
     """Downloads and prepares dataset for reading."""
@@ -164,7 +163,7 @@ class _RandomNoiseDataset(base.BaseDataset):
         tfds.Split.VALIDATION: 1,
         tfds.Split.TEST: 2,
     }
-    super(_RandomNoiseDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=_RandomDatasetBuilder(image_shape=image_shape),
         split=split,
@@ -178,7 +177,7 @@ class RandomGaussianImageDataset(_RandomNoiseDataset):
   """Random Gaussian Image dataset builder abstract class."""
 
   def __init__(self, **kwargs):
-    super(RandomGaussianImageDataset, self).__init__(
+    super().__init__(
         name='random_gaussian', **kwargs)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
@@ -208,7 +207,7 @@ class RandomRademacherImageDataset(_RandomNoiseDataset):
   """Random Rademacher Image dataset builder abstract class."""
 
   def __init__(self, **kwargs):
-    super(RandomRademacherImageDataset, self).__init__(
+    super().__init__(
         name='random_rademacher', **kwargs)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:

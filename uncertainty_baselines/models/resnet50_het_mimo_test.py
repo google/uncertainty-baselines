@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for MIMO with Heteroscedastic Approach on ResNet-50."""
 import tensorflow as tf
 import uncertainty_baselines as ub

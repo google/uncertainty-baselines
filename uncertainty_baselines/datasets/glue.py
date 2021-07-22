@@ -96,7 +96,7 @@ class _GlueDataset(base.BaseDataset):
     """
     tfds_name = 'glue/' + name
     dataset_builder = tfds.builder(tfds_name, try_gcs=try_gcs)
-    super(_GlueDataset, self).__init__(
+    super().__init__(
         name=tfds_name,
         dataset_builder=dataset_builder,
         split=split,
@@ -128,56 +128,56 @@ class ColaDataset(_GlueDataset):
   """COLA dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(ColaDataset, self).__init__(name='cola', **kwargs)
+    super().__init__(name='cola', **kwargs)
 
 
 class Sst2Dataset(_GlueDataset):
   """SST2 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(Sst2Dataset, self).__init__(name='sst2', **kwargs)
+    super().__init__(name='sst2', **kwargs)
 
 
 class MrpcDataset(_GlueDataset):
   """MRPC dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(MrpcDataset, self).__init__(name='mrpc', **kwargs)
+    super().__init__(name='mrpc', **kwargs)
 
 
 class QqpDataset(_GlueDataset):
   """QQP dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(QqpDataset, self).__init__(name='qqp', **kwargs)
+    super().__init__(name='qqp', **kwargs)
 
 
 class StsbDataset(_GlueDataset):
   """STSb dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(StsbDataset, self).__init__(name='stsb', **kwargs)
+    super().__init__(name='stsb', **kwargs)
 
 
 class QnliDataset(_GlueDataset):
   """QNLI dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(QnliDataset, self).__init__(name='qnli', **kwargs)
+    super().__init__(name='qnli', **kwargs)
 
 
 class RteDataset(_GlueDataset):
   """RTE dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(RteDataset, self).__init__(name='rte', **kwargs)
+    super().__init__(name='rte', **kwargs)
 
 
 class WnliDataset(_GlueDataset):
   """WNLI dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(WnliDataset, self).__init__(name='wnli', **kwargs)
+    super().__init__(name='wnli', **kwargs)
 
 
 GlueDatasets = {

@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Data loader for the Clinc Intent Detection dataset.
 
 Clinc Intent Detection dataset [1] is a text classification task for
@@ -176,7 +175,7 @@ class _ClincIntentionDatasetBuilder(tfds.core.DatasetBuilder):
   def __init__(self, data_dir, data_mode, **kwargs):
     self._num_examples, self._file_names = _get_num_examples_and_filenames(
         data_mode)
-    super(_ClincIntentionDatasetBuilder, self).__init__(
+    super().__init__(
         data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
@@ -292,7 +291,7 @@ class ClincIntentDetectionDataset(base.BaseDataset):
     self.tokenizer = _load_tokenizer(
         tokenizer_dir=os.path.join(data_dir, _FILENAME_TOKENZIER))
 
-    super(ClincIntentDetectionDataset, self).__init__(
+    super().__init__(
         name='clinc_intent',
         dataset_builder=_ClincIntentionDatasetBuilder(data_dir, data_mode),
         split=split,

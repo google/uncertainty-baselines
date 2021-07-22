@@ -26,7 +26,7 @@ class HaltonTest(absltest.TestCase):
   """Tests for generating Halton sequences."""
 
   def setUp(self):
-    super(HaltonTest, self).setUp()
+    super().setUp()
     # While the Halton sequence generation is deterministic for any given
     # inputs, we need to set the numpy seed for stats.kstest and stats.ks_2samp.
     np.random.seed(1337)

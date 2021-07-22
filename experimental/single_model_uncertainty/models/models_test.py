@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for single_model_uncertainty.models.get()."""
 
 import tensorflow as tf

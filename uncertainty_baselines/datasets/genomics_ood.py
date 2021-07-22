@@ -62,7 +62,7 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
   }
 
   def __init__(self, data_dir, data_mode, **kwargs):
-    super(_GenomicsOodDatasetBuilder, self).__init__(
+    super().__init__(
         data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
@@ -165,7 +165,7 @@ class GenomicsOodDataset(base.BaseDataset):
       builder = tfds.builder('genomics_ood')
       data_dir = builder.data_dir
 
-    super(GenomicsOodDataset, self).__init__(
+    super().__init__(
         name='genomics_ood',
         dataset_builder=_GenomicsOodDatasetBuilder(data_dir, data_mode),
         split=split,

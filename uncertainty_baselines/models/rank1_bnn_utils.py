@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Rank-1 BNN Utilities."""
 import edward2 as ed
 import numpy as np

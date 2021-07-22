@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for Kaggle diabetic retinopathy detection."""
 
 import tensorflow as tf
@@ -23,7 +22,7 @@ import uncertainty_baselines as ub
 class DiabeticRetinopathyDetectionDatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
-    super(DiabeticRetinopathyDetectionDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.DiabeticRetinopathyDetectionDataset,
         image_size=(512, 512, 3))
 

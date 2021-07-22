@@ -88,7 +88,7 @@ class Radial(tfp.distributions.Distribution):
       self._batch_shape_static = (
           tensorshape_util.constant_value_as_shape(self._batch_shape_parameter))
 
-      super(Radial, self).__init__(
+      super().__init__(
           dtype=dtype,
           validate_args=validate_args,
           allow_nan_stats=allow_nan_stats,
@@ -298,7 +298,7 @@ class TrainableRadial(tf.keras.layers.Layer):
       seed=None,
       **kwargs):
     """Constructs the initializer."""
-    super(TrainableRadial, self).__init__(**kwargs)
+    super().__init__(**kwargs)
     self.mean_initializer = get(mean_initializer)
     self.stddev_initializer = get(stddev_initializer)
     self.mean_regularizer = regularizers.get(mean_regularizer)
@@ -370,7 +370,7 @@ class TrainableHeRadial(TrainableRadial):
   """
 
   def __init__(self, seed=None, **kwargs):
-    super(TrainableHeRadial, self).__init__(
+    super().__init__(
         mean_initializer=tf.keras.initializers.he_normal(seed),
         seed=seed,
         **kwargs)

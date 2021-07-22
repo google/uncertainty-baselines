@@ -35,7 +35,7 @@ class DiversityMetricsTest(parameterized.TestCase, tf.test.TestCase):
   def setUp(self):
     np.random.seed(0)
     tf.random.set_seed(0)
-    super(DiversityMetricsTest, self).setUp()
+    super().setUp()
 
   def test_pairwise_cosine_similarity(self):
     x = np.random.rand(3, 2)

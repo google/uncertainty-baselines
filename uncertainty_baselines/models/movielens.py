@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """TF Keras model for an MLP for Criteo, from arxiv.org/abs/1906.02530."""
 
 from typing import Any, Dict, List

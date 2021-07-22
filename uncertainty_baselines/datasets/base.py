@@ -186,7 +186,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       self._shuffle_buffer_size = num_train_examples
     else:
       self._shuffle_buffer_size = shuffle_buffer_size
-    super(BaseDataset, self).__init__(
+    super().__init__(
         dataset_builder=dataset_builder,
         fingerprint_key=fingerprint_key,
         split=self._split,
@@ -433,7 +433,7 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
         in_distribution_dataset: BaseDataset,
         shuffle_datasets: bool = False,
         **kwargs):
-      super(_OodBaseDataset, self).__init__(**kwargs)
+      super().__init__(**kwargs)
       # This should be the builder for whatever split will be considered
       # in-distribution (usually the test split).
       self._in_distribution_dataset = in_distribution_dataset
@@ -462,12 +462,11 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
       if preprocess_fn:
         ood_dataset_preprocess_fn = preprocess_fn
       else:
-        ood_dataset_preprocess_fn = (
-            super(_OodBaseDataset, self)._create_process_example_fn())
+        ood_dataset_preprocess_fn = super()._create_process_example_fn()
       ood_dataset_preprocess_fn = ops.compose(
           ood_dataset_preprocess_fn,
           _create_ood_label_fn(False))
-      ood_dataset = super(_OodBaseDataset, self).load(
+      ood_dataset = super().load(
           preprocess_fn=ood_dataset_preprocess_fn,
           batch_size=batch_size)
       ood_dataset = ood_dataset.map(_remove_fingerprint_id_key(self))
@@ -497,7 +496,7 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
     def num_examples(self):
       return (
           self._in_distribution_dataset.num_examples +
-          super(_OodBaseDataset, self).num_examples)
+          super().num_examples)
 
   return _OodBaseDataset
 

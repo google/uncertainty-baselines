@@ -110,7 +110,7 @@ class _CifarDataset(base.BaseDataset):
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(
         dataset_builder, validation_percent, split)
-    super(_CifarDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,
@@ -229,7 +229,7 @@ class Cifar10Dataset(_CifarDataset):
   """CIFAR10 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(Cifar10Dataset, self).__init__(
+    super().__init__(
         name='cifar10',
         fingerprint_key='id',
         **kwargs)
@@ -239,7 +239,7 @@ class Cifar100Dataset(_CifarDataset):
   """CIFAR100 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(Cifar100Dataset, self).__init__(
+    super().__init__(
         name='cifar100',
         fingerprint_key='id',
         **kwargs)
@@ -260,7 +260,7 @@ class Cifar10CorruptedDataset(_CifarDataset):
       severity: Corruption severity, an integer between 1 and 5.
       **kwargs: Additional keyword arguments.
     """
-    super(Cifar10CorruptedDataset, self).__init__(
+    super().__init__(
         name=f'cifar10_corrupted/{corruption_type}_{severity}',
         fingerprint_key=None,
         **kwargs)

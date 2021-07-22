@@ -80,7 +80,7 @@ def main(argv):
   # num_classes is number of valid intents plus out-of-scope intent
   num_classes = ds_info.features['intent_label'].num_classes + 1
   # vocab_size is total number of valid tokens plus the out-of-vocabulary token.
-  vocab_size = ind_dataset_builder.tokenizer.num_words + 1
+  # vocab_size = ind_dataset_builder.tokenizer.num_words + 1
 
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
 
@@ -106,7 +106,7 @@ def main(argv):
       iteration=FLAGS.spec_norm_iteration,
       norm_multiplier=FLAGS.spec_norm_bound)
 
-  model, bert_encoder = ub.models.bert_sngp_model(
+  model, _ = ub.models.bert_sngp_model(
       num_classes=num_classes,
       bert_config=bert_config,
       gp_layer_kwargs=gp_layer_kwargs,

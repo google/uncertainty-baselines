@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Data loader for the Drug Cardiotoxicity dataset.
 
 Drug Cardiotoxicity dataset [1] is a molecule classification task to detect
@@ -130,7 +129,7 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
 
   def __init__(self, data_dir, **kwargs):
     self._num_examples, self._file_names = _get_num_examples_and_filenames()
-    super(_DrugCardiotoxicityDatasetBuilder, self).__init__(
+    super().__init__(
         data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
@@ -266,7 +265,7 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
         needs to be True for running on TPUs.
     """
 
-    super(DrugCardiotoxicityDataset, self).__init__(
+    super().__init__(
         name='drug_cardiotoxicity',
         dataset_builder=_DrugCardiotoxicityDatasetBuilder(data_dir),
         split=split,

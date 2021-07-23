@@ -56,6 +56,7 @@ class BatchEnsembleMlpBlock(nn.Module):
                                           deterministic)
     dtype = self.dtype or inputs.dtype
     inputs = jnp.asarray(inputs, self.dtype)
+    inputs = jnp.tile(inputs, (self.ens_size,) + (1,) * (inputs.ndim - 1))
     out_dim = self.out_dim or inputs.shape[-1]
     x = ed.nn.DenseBatchEnsemble(
         self.mlp_dim,
@@ -82,7 +83,8 @@ class BatchEnsembleMlpBlock(nn.Module):
     output = nn.Dropout(
         rate=self.dropout_rate, deterministic=deterministic)(
             output)
-    return output
+    output = jnp.reshape(output, (self.ens_size, -1) + output.shape[1:])
+    return jnp.mean(output, axis=0)
 
 
 class BatchEnsembleEncoder(nn.Module):

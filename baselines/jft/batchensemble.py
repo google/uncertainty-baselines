@@ -203,24 +203,16 @@ def main(_):
     plot_grad_norm_name_fn = None
 
   weight_decay_fn = train.get_weight_decay_function_from_config(config)
-  batch_loss_fn = ensemble.wrap_ensemble_module_with_auxiliary_loss_fn(
+  batch_loss_fn = train.wrap_module_with_auxiliary_loss_fn(
       module=model_train,
       loss_fn=loss_to_apply,
-      auxiliary_loss_weight=config.get("auxiliary_loss_weight", 0.0),
-      ens_size=ens_size)
-  if ens_size == 1:
-    evaluation_fn = functools.partial(
-        train.evaluation_fn,
-        apply_fn=model_eval.apply,
-        loss_fn=loss_to_apply,
-        correct_fn=train.correct_multilabel,
-        return_metric_args=compute_ece)
-  else:
-    evaluation_fn = functools.partial(
-        ensemble.evaluation_fn,
-        apply_fn=model_eval.apply,
-        return_metric_args=compute_ece,
-        ens_size=ens_size)
+      auxiliary_loss_weight=config.get("auxiliary_loss_weight", 0.0))
+  evaluation_fn = functools.partial(
+      train.evaluation_fn,
+      apply_fn=model_eval.apply,
+      loss_fn=loss_to_apply,
+      correct_fn=train.correct_multilabel,
+      return_metric_args=compute_ece)
   pmap_evaluation_fn = core.pmap_sorted(evaluation_fn, axis_name="batch")
 
   update_fn = functools.partial(

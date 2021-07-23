@@ -45,12 +45,8 @@ class BatchEnsembleMlpBlockTest(parameterized.TestCase):
         random_sign_init=random_sign_init)
     inputs = jax.random.normal(
         jax.random.PRNGKey(0), inputs_shape, dtype=jnp.float32)
-    if inputs.ndim == 3:
-      tiled_inputs = jnp.tile(inputs, [ens_size, 1, 1])
-    else:
-      tiled_inputs = jnp.tile(inputs, [ens_size, 1])
     params = be_mlp_block.init(
-        jax.random.PRNGKey(0), tiled_inputs, deterministic=False)["params"]
+        jax.random.PRNGKey(0), inputs, deterministic=False)["params"]
     params_shape = jax.tree_map(lambda x: x.shape, params)
     expected_kernel_shape = (inputs_shape[-1], mlp_dim)
     expected_alpha_shape = (ens_size, inputs_shape[-1])
@@ -61,7 +57,6 @@ class BatchEnsembleMlpBlockTest(parameterized.TestCase):
                      params_shape["DenseBatchEnsemble_0"]["fast_weight_alpha"])
     self.assertEqual(expected_gamma_shape,
                      params_shape["DenseBatchEnsemble_0"]["fast_weight_gamma"])
-    pass
 
   @parameterized.parameters(
       (4, [3, 20], 0.0, 10),
@@ -80,18 +75,13 @@ class BatchEnsembleMlpBlockTest(parameterized.TestCase):
       # Initialize and run TokenMoeBlock on device.
       inputs = jax.random.normal(
           jax.random.PRNGKey(0), inputs_shape, dtype=jnp.float32)
-      if inputs.ndim == 3:
-        tiled_inputs = jnp.tile(inputs, [ens_size, 1, 1])
-      else:
-        tiled_inputs = jnp.tile(inputs, [ens_size, 1])
       return be_mlp_block.init_with_output(
-          jax.random.PRNGKey(0), tiled_inputs, deterministic=False)[0]
+          jax.random.PRNGKey(0), inputs, deterministic=False)[0]
 
     outputs = apply(jnp.arange(jax.local_device_count()))
 
     expected_outputs_shape = [
-        jax.local_device_count(), inputs_shape[0] * ens_size
-    ] + inputs_shape[1:]
+        jax.local_device_count(), inputs_shape[0]] + inputs_shape[1:]
     self.assertEqual(expected_outputs_shape, list(outputs.shape))
 
 
@@ -108,8 +98,7 @@ class BatchEnsembleEncoderTest(parameterized.TestCase):
         ens_size=ens_size,
         random_sign_init=0.5)
     inputs = jax.random.normal(jax.random.PRNGKey(0), (4, 16, 48))
-    tiled_inputs = jnp.tile(inputs, [ens_size, 1, 1])
-    params = encoder.init(jax.random.PRNGKey(0), tiled_inputs)["params"]
+    params = encoder.init(jax.random.PRNGKey(0), inputs)["params"]
     params_shapes = jax.tree_map(lambda x: x.shape, params)
     # First layer in the encoder is a regular MLPBlock.
     self.assertEqual(
@@ -140,11 +129,10 @@ class BatchEnsembleEncoderTest(parameterized.TestCase):
     @functools.partial(jax.pmap, axis_name="batch")
     def apply(_):
       inputs = jax.random.normal(jax.random.PRNGKey(0), (4, 16, 48))
-      tiled_inputs = jnp.tile(inputs, [ens_size, 1, 1])
-      return encoder.init_with_output(jax.random.PRNGKey(1), tiled_inputs)[0]
+      return encoder.init_with_output(jax.random.PRNGKey(1), inputs)[0]
 
     outputs, _ = apply(jnp.arange(jax.local_device_count()))
-    self.assertEqual((jax.local_device_count(), 4 * ens_size, 16, 48),
+    self.assertEqual((jax.local_device_count(), 4, 16, 48),
                      outputs.shape)
 
 
@@ -180,12 +168,11 @@ class PatchTransformerBETest(parameterized.TestCase):
 
     @functools.partial(jax.pmap, axis_name="batch")
     def apply(_):
-      inputs = jax.random.normal(jax.random.PRNGKey(0), (1, 16, 16, 3))
-      tiled_inputs = jnp.tile(inputs, [ens_size, 1, 1, 1])
-      return model.init_with_output(jax.random.PRNGKey(1), tiled_inputs)
+      inputs = jax.random.normal(jax.random.PRNGKey(0), (3, 16, 16, 3))
+      return model.init_with_output(jax.random.PRNGKey(1), inputs)
 
     (outputs, _), params = apply(jnp.arange(jax.local_device_count()))
-    self.assertEqual((jax.local_device_count(), ens_size, num_classes),
+    self.assertEqual((jax.local_device_count(), 3, num_classes),
                      outputs.shape)
 
     if representation_size:

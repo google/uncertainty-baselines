@@ -216,6 +216,29 @@ If you'd like to cite Uncertainty Baselines, use the following BibTeX entry.
 }
 ```
 
+### Papers using Uncertainty Baselines
+The following papers have used code from Uncertainty Baselines:
+
+1. [A Simple Fix to Mahalanobis Distance for Improving Near-OOD Detection](https://arxiv.org/abs/2106.09022)
+2. [BatchEnsemble: An Alternative Approach to Efficient Ensembles and Lifelong Learning](https://arxiv.org/abs/2002.06715)
+3. [DEUP: Direct Epistemic Uncertainty Prediction](https://arxiv.org/abs/2102.08501)
+4. [Distilling Ensembles Improves Uncertainty Estimates](https://openreview.net/forum?id=Lzi5IMyJTFX)
+5. [Efficient and Scalable Bayesian Neural Nets with Rank-1 Factors](https://arxiv.org/abs/2005.07186)
+6. [Exploring the Uncertainty Properties of Neural Networks' Implicit Priors in the Infinite-Width Limit](https://arxiv.org/abs/2010.07355)
+7. [Hyperparameter Ensembles for Robustness and Uncertainty Quantification](https://arxiv.org/abs/2006.13570)
+8. [Measuring Calibration in Deep Learning](https://arxiv.org/abs/1904.01685)
+9. [Measuring and Improving Model-Moderator Collaboration using Uncertainty Estimation](https://arxiv.org/abs/2107.04212)
+10. [Neural networks with late-phase weights](https://arxiv.org/abs/2007.12927)
+11. [On the Practicality of Deterministic Epistemic Uncertainty](https://arxiv.org/abs/2107.00649)
+12. [Prediction-Time Batch Normalization for Robustness under Covariate Shift](https://arxiv.org/abs/2006.10963)
+13. [Refining the variational posterior through iterative optimization](http://bayesiandeeplearning.org/2019/papers/8.pdf)
+14. [Revisiting One-vs-All Classifiers for Predictive Uncertainty and Out-of-Distribution Detection in Neural Networks](https://arxiv.org/abs/2007.05134)
+15. [Simple and Principled Uncertainty Estimation with Deterministic Deep Learning via Distance Awareness](https://proceedings.neurips.cc/paper/2020/file/543e83748234f7cbab21aa0ade66565f-Paper.pdf)
+16. [Training independent subnetworks for robust prediction](https://openreview.net/forum?id=OGg9XnKxFAH)
+
+
+## Contributing
+
 ### Adding a Baseline
 
 1. Write a script that loads the fixed training dataset and model. Typically, this is forked from other baselines.

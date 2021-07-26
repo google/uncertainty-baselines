@@ -52,6 +52,10 @@ flags.DEFINE_bool('use_validation', False, 'Whether to use a validation split.')
 # Learning rate / SGD flags.
 flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_integer(
+    'lr_warmup_epochs', 1,
+    'Number of epochs for a linear warmup to the initial '
+    'learning rate. Use 0 to do no warmup.')
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
                   'Epochs to decay learning rate by.')
@@ -77,20 +81,19 @@ flags.DEFINE_float('dropout_rate', 1e-3,
 flags.DEFINE_float('prior_stddev', 0.05,
                    'Prior stddev. Sort of like a prior on dropout rate, where '
                    'it encourages defaulting/shrinking to this value.')
+flags.DEFINE_float('random_sign_init', 0.75,
+                   'Use random sign init for fast weights.')
 flags.DEFINE_bool('use_ensemble_bn', False, 'Whether to use ensemble bn.')
 
 # General model flags.
+flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('ensemble_size', 1, 'Size of ensemble.')
 flags.DEFINE_integer('per_core_batch_size', 16, 'Batch size per TPU core/GPU.')
-flags.DEFINE_float('random_sign_init', 0.75,
-                   'Use random sign init for fast weights.')
-flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_float('l2', 5e-5, 'L2 coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS, 'Number of training epochs.')
 flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
 flags.DEFINE_string(
     'class_reweight_mode', None,
     'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,'
@@ -101,6 +104,9 @@ flags.DEFINE_string(
 flags.DEFINE_integer('num_eval_samples', 1,
                      'Number of model predictions to sample per example at '
                      'eval time.')
+
+# Metric flags.
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
 
 # Accelerator flags.
 flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
@@ -210,7 +216,7 @@ def main(argv):
         base_learning_rate=base_lr,
         decay_ratio=FLAGS.lr_decay_ratio,
         decay_epochs=lr_decay_epochs,
-        warmup_epochs=5)
+        warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate,
                                         momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)

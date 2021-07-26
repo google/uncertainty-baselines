@@ -263,6 +263,11 @@ class SimDialDataset(base.BaseDataset):
           features[STATE_LABEL_NAME], out_type=tf.int32)
       dialog_len = features[DIAL_LEN_NAME]
 
+      # Ensure shape of parsed tensors.
+      sys_utt = tf.ensure_shape(sys_utt, (MAX_DIALOG_LEN, MAX_UTT_LEN))
+      usr_utt = tf.ensure_shape(usr_utt, (MAX_DIALOG_LEN, MAX_UTT_LEN))
+      state_label = tf.ensure_shape(state_label, (MAX_DIALOG_LEN,))
+
       return {
           SYS_UTT_NAME: sys_utt,
           USR_UTT_NAME: usr_utt,

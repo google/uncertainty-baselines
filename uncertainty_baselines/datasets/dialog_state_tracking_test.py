@@ -103,6 +103,25 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
     self.assertLen(vocab_dict_utter, dialog_state_tracking.VOCAB_SIZE_UTT)
     self.assertLen(vocab_dict_label, dialog_state_tracking.VOCAB_SIZE_LABEL)
 
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Test', tfds.Split.TEST))
+  def testDatasetSpec(self, split):
+    """Tests if dataset specification returns valid tensor shapes."""
+    batch_size = 9
+    dataset_builder = ub.datasets.SimDialDataset(
+        split=split, shuffle_buffer_size=20)
+    dataset = dataset_builder.load(batch_size=batch_size)
+    dataset_spec = tf.data.DatasetSpec.from_value(dataset).element_spec
+
+    # Specify expected shape.
+    utt_spec = tf.TensorSpec((batch_size, max_dial_len, max_utt_len),
+                             dtype=tf.int32)
+    label_spec = tf.TensorSpec((batch_size, max_dial_len), dtype=tf.int32)
+
+    self.assertEqual(dataset_spec['sys_utt'], utt_spec)
+    self.assertEqual(dataset_spec['usr_utt'], utt_spec)
+    self.assertEqual(dataset_spec['label'], label_spec)
+
 
 if __name__ == '__main__':
   tf.test.main()

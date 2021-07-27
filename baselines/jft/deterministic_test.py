@@ -128,7 +128,7 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
         classifier=classifier, representation_size=representation_size)
-    FLAGS.workdir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
 
     # Go two directories up to the root of the UB directory.
     ub_root_dir = pathlib.Path(__file__).parents[2]

@@ -64,6 +64,7 @@ try:
   from uncertainty_baselines.models import vit_batchensemble
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
+  from uncertainty_baselines.models.vit_gp import vision_transformer_gp
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:

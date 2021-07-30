@@ -40,16 +40,16 @@ from uncertainty_baselines.datasets import base
 MAX_UTT_LEN = 40
 MAX_DIALOG_LEN = 13
 
-VOCAB_SIZE_UTT = 460
-VOCAB_SIZE_LABEL = 48
+VOCAB_SIZE_UTT = 474
+VOCAB_SIZE_LABEL = 52
 
 USR_UTT_NAME = 'usr_utt'
 SYS_UTT_NAME = 'sys_utt'
 STATE_LABEL_NAME = 'label'
 DIAL_LEN_NAME = 'dialog_len'
 
-NUM_TRAIN = 9600
-NUM_TEST = 2400
+NUM_TRAIN = 6400
+NUM_TEST = 1600
 
 FILENAME_META = 'meta.json'
 FILENAME_TOKENIZER = 'id_to_vocab.json'

@@ -22,18 +22,24 @@ import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 from uncertainty_baselines.datasets import dialog_state_tracking
 
-max_dial_len = dialog_state_tracking.MAX_DIALOG_LEN
-max_utt_len = dialog_state_tracking.MAX_UTT_LEN
+MAX_DIALOG_LEN = dialog_state_tracking.MAX_DIALOG_LEN
+MAX_UTT_LEN = dialog_state_tracking.MAX_UTT_LEN
+
+NUM_TRAIN = dialog_state_tracking.NUM_TRAIN
+NUM_TEST = dialog_state_tracking.NUM_TEST
+
+VOCAB_SIZE_UTT = dialog_state_tracking.VOCAB_SIZE_UTT
+VOCAB_SIZE_LABEL = dialog_state_tracking.VOCAB_SIZE_LABEL
 
 
 class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
 
-  @parameterized.named_parameters(
-      ('Train', tfds.Split.TRAIN, dialog_state_tracking.NUM_TRAIN),
-      ('Test', tfds.Split.TEST, dialog_state_tracking.NUM_TEST))
-  def testDatasetSize(self, split, expected_size):
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN, NUM_TRAIN),
+                                  ('Test', tfds.Split.TEST, NUM_TEST))
+  def testDatasetSize(self, split, expected_size_dict):
     dataset_builder = ub.datasets.SimDialDataset(
         split=split, shuffle_buffer_size=20)
+    expected_size = expected_size_dict[dataset_builder.name]
     self.assertEqual(dataset_builder.num_examples, expected_size)
 
   @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
@@ -54,6 +60,9 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
     features_sys_shape = features_sys.shape
     labels_shape = labels.shape
     dialog_len_shape = dialog_len.shape
+
+    max_dial_len = MAX_DIALOG_LEN[dataset_builder.name]
+    max_utt_len = MAX_UTT_LEN[dataset_builder.name]
 
     self.assertEqual(features_usr_shape,
                      (batch_size, max_dial_len, max_utt_len))
@@ -100,8 +109,8 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
     vocab_dict_utter = dataset_builder.vocab_utter
     vocab_dict_label = dataset_builder.vocab_label
 
-    self.assertLen(vocab_dict_utter, dialog_state_tracking.VOCAB_SIZE_UTT)
-    self.assertLen(vocab_dict_label, dialog_state_tracking.VOCAB_SIZE_LABEL)
+    self.assertLen(vocab_dict_utter, VOCAB_SIZE_UTT[dataset_builder.name])
+    self.assertLen(vocab_dict_label, VOCAB_SIZE_LABEL[dataset_builder.name])
 
   @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
                                   ('Test', tfds.Split.TEST))
@@ -114,6 +123,9 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
     dataset_spec = tf.data.DatasetSpec.from_value(dataset).element_spec
 
     # Specify expected shape.
+    max_dial_len = MAX_DIALOG_LEN[dataset_builder.name]
+    max_utt_len = MAX_UTT_LEN[dataset_builder.name]
+
     utt_spec = tf.TensorSpec((batch_size, max_dial_len, max_utt_len),
                              dtype=tf.int32)
     label_spec = tf.TensorSpec((batch_size, max_dial_len), dtype=tf.int32)

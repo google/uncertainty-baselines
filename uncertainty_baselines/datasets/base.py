@@ -350,7 +350,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       dataset = dataset.map(
           process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    if not self._is_training:
+    if not self._is_training and self.name != 'diabetic_retinopathy_detection':
       dataset = dataset.cache()
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)

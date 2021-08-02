@@ -32,13 +32,16 @@ VOCAB_SIZE_UTT = dialog_state_tracking.VOCAB_SIZE_UTT
 VOCAB_SIZE_LABEL = dialog_state_tracking.VOCAB_SIZE_LABEL
 
 
-class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
+class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
+
+  def setUp(self):
+    self.dataset_class = ub.datasets.SimDialDataset
+    super().setUp()
 
   @parameterized.named_parameters(('Train', tfds.Split.TRAIN, NUM_TRAIN),
                                   ('Test', tfds.Split.TEST, NUM_TEST))
   def testDatasetSize(self, split, expected_size_dict):
-    dataset_builder = ub.datasets.SimDialDataset(
-        split=split, shuffle_buffer_size=20)
+    dataset_builder = self.dataset_class(split=split, shuffle_buffer_size=20)
     expected_size = expected_size_dict[dataset_builder.name]
     self.assertEqual(dataset_builder.num_examples, expected_size)
 
@@ -46,13 +49,13 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
                                   ('Test', tfds.Split.TEST))
   def testDatasetShape(self, split):
     batch_size = 9 if split == tfds.Split.TRAIN else 5
-    dataset_builder = ub.datasets.SimDialDataset(
-        split=split, shuffle_buffer_size=20)
+    dataset_builder = self.dataset_class(split=split, shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
 
     features_usr = element['usr_utt']
     features_sys = element['sys_utt']
+
     labels = element['label']
     dialog_len = element['dialog_len']
 
@@ -76,8 +79,7 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
   def testDialogLength(self, split):
     """Checks dialog length matches with that in dialog_len."""
     batch_size = 9 if split == tfds.Split.TRAIN else 5
-    dataset_builder = ub.datasets.SimDialDataset(
-        split=split, shuffle_buffer_size=20)
+    dataset_builder = self.dataset_class(split=split, shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
 
@@ -103,7 +105,7 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
 
   def testVocab(self):
     """Tests if vocab is loaded correctly."""
-    dataset_builder = ub.datasets.SimDialDataset(
+    dataset_builder = self.dataset_class(
         split=tfds.Split.TRAIN, shuffle_buffer_size=20)
 
     vocab_dict_utter = dataset_builder.vocab_utter
@@ -117,8 +119,7 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
   def testDatasetSpec(self, split):
     """Tests if dataset specification returns valid tensor shapes."""
     batch_size = 9
-    dataset_builder = ub.datasets.SimDialDataset(
-        split=split, shuffle_buffer_size=20)
+    dataset_builder = self.dataset_class(split=split, shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size)
     dataset_spec = tf.data.DatasetSpec.from_value(dataset).element_spec
 
@@ -133,6 +134,20 @@ class DialogStateTrackingTest(tf.test.TestCase, parameterized.TestCase):
     self.assertEqual(dataset_spec['sys_utt'], utt_spec)
     self.assertEqual(dataset_spec['usr_utt'], utt_spec)
     self.assertEqual(dataset_spec['label'], label_spec)
+
+
+class MultiWoZSynthDatasetTest(SimDialDatasetTest):
+
+  def setUp(self):
+    super().setUp()
+    self.dataset_class = ub.datasets.MultiWoZSynthDataset
+
+
+class SGDSynthDatasetTest(SimDialDatasetTest):
+
+  def setUp(self):
+    super().setUp()
+    self.dataset_class = ub.datasets.SGDSynthDataset
 
 
 if __name__ == '__main__':

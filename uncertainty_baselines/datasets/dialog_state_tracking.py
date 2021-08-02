@@ -20,12 +20,29 @@ state label of each conversational turn in a given dialog. Currently, the
 following datasets are supported.
 
    * Synthetic Task-oriented Dialog with Controllable Complexity (SimDial) [1]
+   * Synthetic Multi-Domain Wizard-of-Oz (MultiWoZ-Synth) [2, 4]
+   * Synthetic Schema-Guided Dialogue Dataset (SGD-Synth) [3]
+
 
 ## References
-[1]: Zhao, Tiancheng and Eskenazi, Maxine. Zero-Shot Dialog Generation with
-     Cross-Domain Latent Actions.
-     In _Meeting of the Special Interest Group on Discourse and Dialogue_, 2018.
+[1]: Tiancheng Zhao and Maxine Eskenazi. Zero-Shot Dialog Generation with
+     Cross-Domain Latent Actions. In _Meeting of the Special Interest Group on
+     Discourse and Dialogue_ (SIGDIAL), 2018.
      https://www.aclweb.org/anthology/W18-5001/
+[2]: Pawel Budzianowski et al. MultiWOZ - A Large-Scale Multi-Domain
+     Wizard-of-Oz Dataset for Task-Oriented Dialogue Modelling.
+     In _Proceedings of the 2018 Conference on Empirical Methods in Natural L
+     anguage Processing_ (EMNLP), 2018.
+     https://aclanthology.org/D18-1547/
+[3]: Abhinav Rastogi et al. Towards Scalable Multi-Domain Conversational Agents:
+     The Schema-Guided Dialogue Dataset. In _Proceedings of the AAAI Conference
+     on Artificial Intelligence_ (AAAI), 2020.
+     https://arxiv.org/abs/1909.05855
+[4]: Campagna, Giovanni et al. Zero-Shot Transfer Learning with Synthesized Data
+     for Multi-Domain Dialogue State Tracking.
+     In _Proceedings of the 58th Annual Meeting of the Association for
+     Computational Linguistics_(ACL), 2020.
+     https://arxiv.org/abs/2005.00891
 """
 
 import json
@@ -49,14 +66,14 @@ FILENAME_TOKENIZER_LABEL = 'id_to_vocab_label.json'
 FILENAME_TRAIN = 'train.tfrecord'
 FILENAME_TEST = 'test.tfrecord'
 
-MAX_UTT_LEN = dict(simdial=40)
-MAX_DIALOG_LEN = dict(simdial=13)
+MAX_UTT_LEN = dict(simdial=40, multiwoz_synth=42, sgd_synth=76)
+MAX_DIALOG_LEN = dict(simdial=13, multiwoz_synth=7, sgd_synth=24)
 
-VOCAB_SIZE_UTT = dict(simdial=474)
-VOCAB_SIZE_LABEL = dict(simdial=52)
+VOCAB_SIZE_UTT = dict(simdial=474, multiwoz_synth=1506, sgd_synth=6709)
+VOCAB_SIZE_LABEL = dict(simdial=52, multiwoz_synth=10, sgd_synth=39)
 
-NUM_TRAIN = dict(simdial=6400)
-NUM_TEST = dict(simdial=1600)
+NUM_TRAIN = dict(simdial=6400, multiwoz_synth=7500, sgd_synth=8100)
+NUM_TEST = dict(simdial=1600, multiwoz_synth=1500, sgd_synth=2700)
 
 # Use test as stand-in for val. In practice we never use this dataset.
 NUM_VAL = NUM_TEST
@@ -301,3 +318,17 @@ class SimDialDataset(_DialogStateTrackingDataset):
 
   def __init__(self, data_dir=None, **kwargs):
     super().__init__(name='simdial', data_dir=data_dir, **kwargs)
+
+
+class MultiWoZSynthDataset(_DialogStateTrackingDataset):
+  """SimDial dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='multiwoz_synth', data_dir=data_dir, **kwargs)
+
+
+class SGDSynthDataset(_DialogStateTrackingDataset):
+  """SimDial dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='sgd_synth', data_dir=data_dir, **kwargs)

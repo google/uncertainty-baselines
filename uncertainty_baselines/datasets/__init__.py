@@ -31,6 +31,8 @@ from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.datasets import DATASETS
 from uncertainty_baselines.datasets.datasets import get
 from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
+from uncertainty_baselines.datasets.dialog_state_tracking import MultiWoZSynthDataset
+from uncertainty_baselines.datasets.dialog_state_tracking import SGDSynthDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset
 from uncertainty_baselines.datasets.drug_cardiotoxicity import DrugCardiotoxicityDataset
 from uncertainty_baselines.datasets.fashion_mnist import FashionMnistDataset

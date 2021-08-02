@@ -132,10 +132,6 @@ def main(_):
     raise ValueError(error_msg)
 
   ens_size = config.get('model.transformer.ens_size', 1)
-  # TODO(ghassen): enable sigmoid for ensemble.
-  if ens_size > 1 and is_sigmoid:
-    error_msg = 'Inconsistent config: Ensemble only works with "softmax_xent".'
-    raise ValueError(error_msg)
 
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
@@ -196,7 +192,7 @@ def main(_):
   image_size = tuple(train_ds.element_spec['image'].shape[1:])
   logging.info('Model initialization: Starting.')
   opt, rngs = train.model_and_optim_init(
-      model_train.init, opt_def, (batch_size_per_core * ens_size,) + image_size,
+      model_train.init, opt_def, (batch_size_per_core,) + image_size,
       config.get('init_head_bias'), config.get('seed', 0),
       config.get('extra_rngs', ['dropout', 'gating']))
   logging.info('Model initialization: Done.')
@@ -285,14 +281,8 @@ def main(_):
 
   checkpoint_async_results = []
   log_training_first_n_steps = config.get('log_training_first_n_steps', -1)
-  xm_work_unit.set_notes('First step compilations...')
   with metric_writers.ensure_flushes(writer):
-    if jax.host_id() == 0:
-      callback_fn = xprof.XmUrlCallbackFn(
-          description=f'Xprof [{first_step + 171}...{first_step + 190}]',
-          work_unit=xm_work_unit)
-    else:
-      callback_fn = lambda x: x  # Do nothing.
+    callback_fn = lambda x: x  # Do nothing.
     xprof_session = xprof.MultiStepXprofSession(
         profile_steps=20,    # For how many steps to profile after warmup.
         warmup_steps=170,    # For how many steps to wait before profiling.
@@ -394,32 +384,9 @@ def main(_):
           writer.write_scalars(
               step, {key: np.mean(value) for key, value in aux_info.items()})
 
-        def progress(start_time, step, num_steps, batch_size):
-          """Generates progress note."""
-          time_elapsed = time.time() - start_time + accum_train_time
-          steps_per_sec = step / time_elapsed
-          eta_seconds = (num_steps - step) / (steps_per_sec + 1e-8)
-          note = ('Steps:{:d}/{:d}  [{:.1f}%]\n'
-                  'Images per second:{:.1f},\n'
-                  'ETA:{}, Total time:{}'.format(
-                      step, num_steps, 100 * step / num_steps,
-                      steps_per_sec * batch_size,
-                      experts_utils.htime(eta_seconds),
-                      experts_utils.htime((eta_seconds + time_elapsed))))
-          writer.write_scalars(
-              step, {'images_per_second': steps_per_sec * batch_size})
-          return note
-
-        progress_note = progress(
-            start_time,
-            step,
-            num_steps=total_steps,
-            batch_size=config.batch_size)
-        pool.apply_async(
-            lambda note=progress_note: xm_work_unit.set_notes(note))
 
       # Run checks to detect if the model partitioning is unhealthy.
-      # Global health metrics will be written to XM, and in case of problems a
+      # Global health metrics will be logged, and in case of problems a
       # WARNING or ERROR message will be logged.
       train.monitor_partitioning_health(
           optimizer=opt,

@@ -77,19 +77,16 @@ def get_config():
   config.model.representation_size = None
 
   # Optimizer section
-  config.optim_name = 'Adam'  # TODO(jjren)  finetune uses 'momentum_hp'
+  config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.optim.weight_decay = 0.1
-  config.optim.beta1 = 0.9
-  config.optim.beta2 = 0.999
   config.weight_decay = None  # No explicit weight decay
 
-  # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
+  config.clip_grad_norm = 1.0
   config.lr.base = 0.001
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-  config.lr.linear_end = 1e-5
+  config.lr.scale_with_batchsize = True
 
   config.args = {}
   return config

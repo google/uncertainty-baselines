@@ -33,28 +33,34 @@ def get_config():
 
   # Fine-tuning dataset
   config.dataset = 'cifar10'
-  config.val_split = 'test[:50%]'
-  config.train_split = 'train'
+  config.val_split = 'train[98%:]'
+  config.train_split = 'train[:98%]'
   config.num_classes = 10
 
-  config.trial = 0
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
+
   config.total_steps = 10_000
 
+  INPUT_RES = 384  # pylint: disable=invalid-name
   pp_common = '|value_range(-1, 1)'
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
   pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
   pp_common += '|keep("image", "labels")'
-  config.pp_train = 'decode|inception_crop(224)|flip_lr' + pp_common
-  config.pp_eval = 'decode|resize(224)' + pp_common
+  config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
+  config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
+
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
   config.log_training_steps = 10
   config.log_eval_steps = 100
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
   config.checkpoint_steps = 1000
+  config.checkpoint_timeout = 1
+
+  config.prefetch_to_device = 2
+  config.trial = 0
 
   # Model section
   # pre-trained model ckpt file
@@ -79,14 +85,15 @@ def get_config():
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
+  config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
+  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.clip_grad_norm = 1.0
   config.lr.base = 0.001
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-  config.lr.scale_with_batchsize = True
+  config.lr.scale_with_batchsize = False
 
   config.args = {}
   return config

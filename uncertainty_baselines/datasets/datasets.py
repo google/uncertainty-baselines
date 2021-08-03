@@ -20,13 +20,13 @@ import logging
 from typing import Any, List, Tuple, Union
 from absl import logging
 
+# pylint: disable=g-bad-import-order
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
-from uncertainty_baselines.datasets.cifar import Cifar10HDataset
 from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedDataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
@@ -45,6 +45,7 @@ from uncertainty_baselines.datasets.svhn import SvhnDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
+# pylint: enable=g-bad-import-order
 
 try:
   from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
@@ -60,7 +61,6 @@ except ImportError:
 DATASETS = {
     'cifar100': Cifar100Dataset,
     'cifar10': Cifar10Dataset,
-    'cifar10h': Cifar10HDataset,
     'cifar10_corrupted': Cifar10CorruptedDataset,
     'cifar100_corrupted': Cifar100CorruptedDataset,
     'civil_comments': CivilCommentsDataset,

@@ -17,6 +17,7 @@
 
 from absl import logging
 
+# pylint: disable=g-bad-import-order
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets import resnet_preprocessing
 from uncertainty_baselines.datasets.base import BaseDataset
@@ -24,7 +25,6 @@ from uncertainty_baselines.datasets.base import make_ood_dataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
-from uncertainty_baselines.datasets.cifar import Cifar10HDataset
 from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedDataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
@@ -56,6 +56,7 @@ from uncertainty_baselines.datasets.test_utils import DatasetTest
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsDataset
 from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitiesDataset
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
+# pylint: enable=g-bad-import-order
 
 try:
   # Try to import datasets depending on librosa.

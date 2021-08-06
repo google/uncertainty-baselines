@@ -46,7 +46,6 @@ dtype_default = jnp.float32
 class Training:
     def __init__(
         self,
-        task: str,
         data_training,
         model_type: str,
         optimizer: str,
@@ -82,7 +81,6 @@ class Training:
         @param n_inducing_inputs: number of inducing points to draw from each task
         @param output_dim: the task-specific number of output dimensions
         """
-        self.task = task
         self.data_training = data_training
         self.model_type = model_type
         self.optimizer = optimizer
@@ -110,7 +108,7 @@ class Training:
         self.inducing_inputs_bound = inducing_inputs_bound
         self.n_inducing_inputs = n_inducing_inputs
         self.noise_std = noise_std
-        self.task_id = 0
+        self.data_training_id = 0
 
         self.map_initialization = map_initialization
 
@@ -150,9 +148,9 @@ class Training:
         if self.map_initialization:
             params_log_var_init = hk.data_structures.filter(predicate_var, params_init)
 
-            if "fashionmnist" in self.task:
+            if "fashionmnist" in self.data_training:
                 filename_params = "saved_models/fashionmnist/map/params_pickle_map_fashionmnist"
-            elif "cifar" in self.task:
+            elif "cifar" in self.data_training:
                 if "resnet" not in self.architecture:
                     filename_params = "saved_models/cifar10/map/params_pickle_map_cifar10"
                 else:
@@ -329,7 +327,7 @@ class Training:
     def _compose_loss(
         self, prediction_type: str, metrics: Objectives
     ) -> Tuple[Callable, Callable]:
-        assert "continual_learning" not in self.task, "This method is deprecated for continual learning"
+        assert "continual_learning" not in self.data_training, "This method is deprecated for continual learning"
         if "fsvi" in self.model_type:
             if prediction_type == "classification":
                 loss = metrics.nelbo_fsvi_classification
@@ -389,7 +387,7 @@ class Training:
     def _compose_evaluation_metrics(
         self, prediction_type: str, metrics: Objectives
     ) -> Tuple[Callable, Callable, Callable]:
-        assert "continual_learning" not in self.task, "This method is deprecated for continual learning"
+        assert "continual_learning" not in self.data_training, "This method is deprecated for continual learning"
         if prediction_type == "classification":
             nll_grad_evaluation = metrics.nll_loss_classification
             task_evaluation = metrics.accuracy
@@ -439,7 +437,7 @@ class Training:
     ) -> Tuple[
         Callable[[jnp.ndarray], List[jnp.ndarray]],
     ]:
-        assert "continual_learning" not in self.task, "This method is deprecated for continual learning"
+        assert "continual_learning" not in self.data_training, "This method is deprecated for continual learning"
         if prior_type == "bnn_induced" or prior_type == "blm_induced":
             rng_key0, _ = jax.random.split(rng_key)
 
@@ -585,7 +583,7 @@ class Training:
             prior_fn: a function that takes in an array of inducing input points and return the mean
                 and covariance of the outputs at those points
         """
-        task_id = self.task_id if task_id is None else task_id
+        task_id = self.data_training_id if task_id is None else task_id
         prior_type = self.prior_type if prior_type is None else prior_type
         prior_mean, prior_cov = dtype_default(prior_mean), dtype_default(prior_cov)
 

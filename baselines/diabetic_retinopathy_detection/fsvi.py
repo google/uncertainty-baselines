@@ -39,7 +39,7 @@ flags.DEFINE_string(
 
 
 flags.DEFINE_string(
-    "model",
+    "model_type",
     "not_specified",
     "Model used (default: not_specified). Example: 'fsvi_mlp', 'mfvi_cnn'",
 )
@@ -87,7 +87,7 @@ flags.DEFINE_float(
 )
 
 flags.DEFINE_integer(
-    "inducing_points", default=0, help="Number of BNN inducing points (default: 0)",
+    "n_inducing_inputs", default=0, help="Number of BNN inducing points (default: 0)",
 )
 
 flags.DEFINE_string(
@@ -108,8 +108,8 @@ flags.DEFINE_float("tau", default=1.0, help="Likelihood precision (default: 1)")
 
 flags.DEFINE_float("noise_std", default=1.0, help="Likelihood variance (default: 1)")
 
-flags.DEFINE_string(
-    "ind_lim", default="ind_-1_1", help="Inducing point range (default: ind_-1_1)"
+flags.DEFINE_list(
+    "inducing_inputs_bound", default="-1.,1.", help="Inducing point range (default: [-1, 1])"
 )
 
 flags.DEFINE_integer(
@@ -118,8 +118,8 @@ flags.DEFINE_integer(
     help="Logging frequency in number of epochs (default: 10)",
 )
 
-flags.DEFINE_spaceseplist(
-    "figsize", default=[10, 4], help="Size of figures (default: (10, 4))",
+flags.DEFINE_list(
+    "figsize", default="10,4", help="Size of figures (default: (10, 4))",
 )
 
 flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")
@@ -206,17 +206,9 @@ def process_args():
     @param flags: input arguments
     @return:
     """
-    FLAGS.task = FLAGS.data_training
-
-    ind_lim = FLAGS.ind_lim.split('_')[1:]
-    ind_lim[0] = float(ind_lim[0])
-    ind_lim[1] = float(ind_lim[1])
-    FLAGS.ind_lim = ind_lim
-
-    FLAGS.figsize = tuple(FLAGS.figsize)
-    FLAGS.model_type = FLAGS.model
-    FLAGS.n_inducing_inputs = FLAGS.inducing_points
-    FLAGS.inducing_inputs_bound = FLAGS.ind_lim
+    # FLAGS doesn't accept renaming!
+    FLAGS.figsize = (int(v) for v in FLAGS.figsize)
+    FLAGS.inducing_inputs_bound = [float(v) for v in FLAGS.inducing_inputs_bound]
 
 
 def get_dict_of_flags():
@@ -226,7 +218,6 @@ def get_dict_of_flags():
 def main(argv):
     del argv
     process_args()
-    pdb.set_trace()
     kh = initialize_random_keys(seed=FLAGS.seed)
     rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 
@@ -240,11 +231,9 @@ def main(argv):
         input_shape=input_shape,
         output_dim=output_dim,
         n_train=n_train,
-        batch_size=FLAGS.batch_size,
         n_batches=n_train // FLAGS.batch_size,
         # TODO: unify the run.py for classification ood
         full_ntk=False,
-        model_type=FLAGS.model_type,
         **get_dict_of_flags(),
     )
 

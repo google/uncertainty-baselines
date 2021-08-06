@@ -13,12 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Wide ResNet 28-10 on CIFAR-10/100 trained with maximum likelihood.
+"""Posterior Network Wide ResNet 28-10 on CIFAR-10/100 trained with UCE loss.
 
-Hyperparameters differ slightly from the original paper's code
-(https://github.com/szagoruyko/wide-residual-networks) as TensorFlow uses, for
-example, l2 instead of weight decay, and a different parameterization for SGD's
-momentum.
+The implementation is based on the paper https://arxiv.org/abs/2006.09239
 """
 
 import os
@@ -71,6 +68,14 @@ flags.DEFINE_float('dense_kernel_l2', None,
 flags.DEFINE_float('dense_bias_l2', None,
                    'L2 reg. coefficient for the bias of the dense layer.')
 
+# PosteriorNetwork-specific flags
+flags.DEFINE_integer('latent_dim', 16, 'Dimensionality of the latent space.')
+flags.DEFINE_integer('flow_depth', 8, 'Number of layers for the latent flow.')
+flags.DEFINE_integer('flow_width', None, 'Width of the latent flow layers. '
+                     'Only used for maf flows.')
+flags.DEFINE_enum('flow_type', 'radial', ['maf', 'radial', 'affine'],
+                  'Type of normalizing flow to be used in the latent space.')
+flags.DEFINE_float('entropy_reg', 0.01, 'Entropy regularizer for the UCE loss.')
 
 flags.DEFINE_bool('collect_profile', False,
                   'Whether to trace a profile with tensorboard')
@@ -85,35 +90,6 @@ def _extract_hyperparameter_dictionary():
   hp_keys = ub.models.models.wide_resnet.HP_KEYS
   hps = {k: flags_as_dict[k] for k in hp_keys}
   return hps
-
-
-def _generalized_energy_distance(labels, predictions, num_classes):
-  """Compute generalized energy distance.
-
-  See Eq. (8) https://arxiv.org/abs/2006.06015
-  where d(a, b) = (a - b)^2.
-
-  Args:
-    labels: [batch_size, num_classes] Tensor with empirical probabilities of
-      each class assigned by the labellers.
-    predictions: [batch_size, num_classes] Tensor of predicted probabilities.
-    num_classes: Integer.
-
-  Returns:
-    Tuple of Tensors (label_diversity, sample_diversity, ged).
-  """
-  y = tf.expand_dims(labels, -1)
-  y_hat = tf.expand_dims(predictions, -1)
-
-  non_diag = tf.expand_dims(1.0 - tf.eye(num_classes), 0)
-  distance = tf.reduce_sum(tf.reduce_sum(
-      non_diag * y * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
-  label_diversity = tf.reduce_sum(tf.reduce_sum(
-      non_diag * y * tf.transpose(y, perm=[0, 2, 1]), -1), -1)
-  sample_diversity = tf.reduce_sum(tf.reduce_sum(
-      non_diag * y_hat * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
-  ged = tf.reduce_mean(2 * distance - label_diversity - sample_diversity)
-  return label_diversity, sample_diversity, ged
 
 
 def main(argv):
@@ -215,16 +191,23 @@ def main(argv):
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))
 
+  class_counts = [train_builder.num_examples // num_classes] * num_classes
+
   with strategy.scope():
-    logging.info('Building ResNet model')
-    model = ub.models.wide_resnet(
+    logging.info('Building Posterior Network ResNet model')
+    model = ub.models.wide_resnet_posterior_network(
         input_shape=(32, 32, 3),
         depth=28,
         width_multiplier=10,
         num_classes=num_classes,
         l2=FLAGS.l2,
         hps=_extract_hyperparameter_dictionary(),
-        seed=seeds[1])
+        seed=seeds[1],
+        class_counts=class_counts,
+        latent_dim=FLAGS.latent_dim,
+        flow_depth=FLAGS.flow_depth,
+        flow_width=FLAGS.flow_width,
+        flow_type=FLAGS.flow_type)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -294,39 +277,31 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
 
+      uce_loss_fn = ub.models.uce_loss(sparse=True,
+                                       entropy_reg=FLAGS.entropy_reg,
+                                       num_classes=num_classes)
+
       if FLAGS.augmix and FLAGS.aug_count >= 1:
         # Index 0 at augmix processing is the unperturbed image.
         # We take just 1 augmented image from the returned augmented images.
         images = images[:, 1, ...]
       with tf.GradientTape() as tape:
-        logits = model(images, training=True)
-        if FLAGS.label_smoothing == 0.:
-          negative_log_likelihood = tf.reduce_mean(
-              tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                              logits,
-                                                              from_logits=True))
-        else:
-          one_hot_labels = tf.one_hot(tf.cast(labels, tf.int32), num_classes)
-          negative_log_likelihood = tf.reduce_mean(
-              tf.keras.losses.categorical_crossentropy(
-                  one_hot_labels,
-                  logits,
-                  from_logits=True,
-                  label_smoothing=FLAGS.label_smoothing))
-        l2_loss = sum(model.losses)
-        loss = negative_log_likelihood + l2_loss
+        alphas = model(images, training=True)
+        loss = uce_loss_fn(labels, alphas)
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
       grads = tape.gradient(scaled_loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-      probs = tf.nn.softmax(logits)
+      probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
+      negative_log_likelihood = tf.reduce_mean(
+          tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
       metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
-      metrics['train/accuracy'].update_state(labels, logits)
+      metrics['train/accuracy'].update_state(labels, probs)
 
     for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
@@ -338,8 +313,8 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      logits = model(images, training=False)
-      probs = tf.nn.softmax(logits)
+      alphas = model(images, training=False)
+      probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
 
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
@@ -367,23 +342,15 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      logits = model(images, training=False)
+      alphas = model(images, training=False)
+      probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
 
       negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(
-          from_logits=True,
-          reduction=tf.keras.losses.Reduction.NONE)(labels, logits)
+          from_logits=False,
+          reduction=tf.keras.losses.Reduction.NONE)(labels, probs)
 
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
       metrics['cifar10h/nll'].update_state(negative_log_likelihood)
-
-      label_diversity, sample_diversity, ged = _generalized_energy_distance(
-          labels, tf.nn.softmax(logits), 10)
-
-      metrics['cifar10h/ged'].update_state(ged)
-      metrics['cifar10h/ged_label_diversity'].update_state(
-          tf.reduce_mean(label_diversity))
-      metrics['cifar10h/ged_sample_diversity'].update_state(
-          tf.reduce_mean(sample_diversity))
 
     for _ in tf.range(tf.cast(num_steps, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))

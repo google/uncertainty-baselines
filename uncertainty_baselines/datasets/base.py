@@ -38,18 +38,6 @@ _EnumeratedPreProcessFn = Callable[
     types.Features]
 
 
-def _absolute_split_len(absolute_split, dataset_splits):
-  if absolute_split.from_ is None:
-    start = 0
-  else:
-    start = absolute_split.from_
-  if absolute_split.to is None:
-    end = dataset_splits[absolute_split.splitname].num_examples
-  else:
-    end = absolute_split.to
-  return end - start
-
-
 def get_validation_percent_split(
     dataset_builder,
     validation_percent,
@@ -210,13 +198,6 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
   @property
   def num_examples(self):
-    if isinstance(self._split, tfds.core.ReadInstruction):
-      absolute_split = self._split.to_absolute(
-          {
-              name: self.tfds_info.splits[name].num_examples
-              for name in self.tfds_info.splits.keys()
-          })[0]
-      return _absolute_split_len(absolute_split, self.tfds_info.splits)
     return self.tfds_info.splits[self._split].num_examples
 
   def _create_process_example_fn(self) -> Optional[PreProcessFn]:
@@ -350,7 +331,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       dataset = dataset.map(
           process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    if not self._is_training:
+    if not self._is_training and self.name != 'diabetic_retinopathy_detection':
       dataset = dataset.cache()
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)

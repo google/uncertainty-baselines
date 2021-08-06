@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-B/16.
+r"""ViT-SNGP B/16.
 
 """
 # pylint: enable=line-too-long
@@ -66,12 +66,11 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
   config.model.representation_size = 768
 
-  # Heteroscedastic
-  config.model.multiclass = False
-  config.model.temperature = 0.4
-  config.model.mc_samples = 1000
-  config.model.num_factors = 50
-  config.model.param_efficient = True
+  # GP layer parameters.
+  config.gp_layer = ml_collections.ConfigDict()
+  config.gp_layer.normalize_input = True
+  config.gp_layer.random_feature_scale = 1.  # 1. or None
+  config.gp_layer.random_feature_stddev = 0.025  # 1. or 0.025
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -80,7 +79,6 @@ def get_config():
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
   config.weight_decay = None  # No explicit weight decay
-  config.grad_clip_norm = 2.5
 
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
@@ -93,8 +91,14 @@ def get_config():
   config.fewshot = get_fewshot()
   config.fewshot.log_steps = 25_000
 
+  config.args = {}
   return config
 
 
-def get_hyper(hyper):
-  return hyper.product([])
+def get_sweep(hyper):
+  # lr_grid = [3e-4, 4e-4, 5e-4, 6e-4]
+  # stddev_grid = [0.01, 0.02, 0.03, 0.04, 0.05]
+  return hyper.product([
+      # hyper.sweep('config.lr.base', lr_grid),
+      # hyper.sweep('config.gp_layer.random_feature_stddev', stddev_grid)
+  ])

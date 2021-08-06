@@ -20,12 +20,29 @@ state label of each conversational turn in a given dialog. Currently, the
 following datasets are supported.
 
    * Synthetic Task-oriented Dialog with Controllable Complexity (SimDial) [1]
+   * Synthetic Multi-Domain Wizard-of-Oz (MultiWoZ-Synth) [2, 4]
+   * Synthetic Schema-Guided Dialogue Dataset (SGD-Synth) [3]
+
 
 ## References
-[1]: Zhao, Tiancheng and Eskenazi, Maxine. Zero-Shot Dialog Generation with
-     Cross-Domain Latent Actions.
-     In _Meeting of the Special Interest Group on Discourse and Dialogue_, 2018.
+[1]: Tiancheng Zhao and Maxine Eskenazi. Zero-Shot Dialog Generation with
+     Cross-Domain Latent Actions. In _Meeting of the Special Interest Group on
+     Discourse and Dialogue_ (SIGDIAL), 2018.
      https://www.aclweb.org/anthology/W18-5001/
+[2]: Pawel Budzianowski et al. MultiWOZ - A Large-Scale Multi-Domain
+     Wizard-of-Oz Dataset for Task-Oriented Dialogue Modelling.
+     In _Proceedings of the 2018 Conference on Empirical Methods in Natural L
+     anguage Processing_ (EMNLP), 2018.
+     https://aclanthology.org/D18-1547/
+[3]: Abhinav Rastogi et al. Towards Scalable Multi-Domain Conversational Agents:
+     The Schema-Guided Dialogue Dataset. In _Proceedings of the AAAI Conference
+     on Artificial Intelligence_ (AAAI), 2020.
+     https://arxiv.org/abs/1909.05855
+[4]: Campagna, Giovanni et al. Zero-Shot Transfer Learning with Synthesized Data
+     for Multi-Domain Dialogue State Tracking.
+     In _Proceedings of the 58th Annual Meeting of the Association for
+     Computational Linguistics_(ACL), 2020.
+     https://arxiv.org/abs/2005.00891
 """
 
 import json
@@ -37,19 +54,10 @@ import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 
-MAX_UTT_LEN = 40
-MAX_DIALOG_LEN = 13
-
-VOCAB_SIZE_UTT = 460
-VOCAB_SIZE_LABEL = 48
-
 USR_UTT_NAME = 'usr_utt'
 SYS_UTT_NAME = 'sys_utt'
 STATE_LABEL_NAME = 'label'
 DIAL_LEN_NAME = 'dialog_len'
-
-NUM_TRAIN = 9600
-NUM_TEST = 2400
 
 FILENAME_META = 'meta.json'
 FILENAME_TOKENIZER = 'id_to_vocab.json'
@@ -57,6 +65,15 @@ FILENAME_TOKENIZER_LABEL = 'id_to_vocab_label.json'
 
 FILENAME_TRAIN = 'train.tfrecord'
 FILENAME_TEST = 'test.tfrecord'
+
+MAX_UTT_LEN = dict(simdial=40, multiwoz_synth=42, sgd_synth=76)
+MAX_DIALOG_LEN = dict(simdial=13, multiwoz_synth=7, sgd_synth=24)
+
+VOCAB_SIZE_UTT = dict(simdial=474, multiwoz_synth=1506, sgd_synth=6709)
+VOCAB_SIZE_LABEL = dict(simdial=52, multiwoz_synth=10, sgd_synth=39)
+
+NUM_TRAIN = dict(simdial=6400, multiwoz_synth=7500, sgd_synth=8100)
+NUM_TEST = dict(simdial=1600, multiwoz_synth=1500, sgd_synth=2700)
 
 # Use test as stand-in for val. In practice we never use this dataset.
 NUM_VAL = NUM_TEST
@@ -79,9 +96,14 @@ def _make_features_spec() -> Dict[str, tf.io.FixedLenFeature]:
   }
 
 
-def _get_num_examples_and_filenames() -> Tuple[Dict[str, int], Dict[str, str]]:
+def _get_num_examples_and_filenames(
+    dataset_name) -> Tuple[Dict[str, int], Dict[str, str]]:
   """Retrieves the number of examples and filenames according to data mode."""
-  num_examples = {'train': NUM_TRAIN, 'validation': NUM_VAL, 'test': NUM_TEST}
+  num_examples = {
+      'train': NUM_TRAIN[dataset_name],
+      'validation': NUM_VAL[dataset_name],
+      'test': NUM_TEST[dataset_name]
+  }
   file_names = {
       'train': FILENAME_TRAIN,
       'validation': FILENAME_VALID,
@@ -97,7 +119,9 @@ def load_json(json_dir: str) -> Dict[Any, Any]:
     return json.load(json_file)
 
 
-_CITATION = """
+_CITATION = {
+    'simdial':
+        """
 @article{zhao2018zero,
   title={Zero-Shot Dialog Generation with Cross-Domain Latent Actions},
   author={Zhao, Tiancheng and Eskenazi, Maxine},
@@ -105,20 +129,25 @@ _CITATION = """
   year={2018}
 }
 """
-_DESCRIPTION = (
-    'Simulated goal-oriented conversations [1] generated for information '
-    'requests in four domains: bus, restaurant, weather, and movie.')
+}
+_HOMEPAGE = {'simdial': 'https://github.com/snakeztc/SimDial'}
+_DESCRIPTION = {
+    'simdial':
+        ('Simulated goal-oriented conversations [1] generated for information '
+         'requests in four domains: bus, restaurant, weather, and movie.')
+}
 
 
-class _SimDialDatasetBuilder(tfds.core.DatasetBuilder):
+class _DialogStateTrackingDatasetBuilder(tfds.core.DatasetBuilder):
   """Minimal TFDS DatasetBuilder, does not support downloading."""
   VERSION = tfds.core.Version('1.0.0')
   RELEASE_NOTES = {
       '1.0.0': 'Initial release.',
   }
 
-  def __init__(self, data_dir, **kwargs):
-    self._num_examples, self._file_names = _get_num_examples_and_filenames()
+  def __init__(self, name, data_dir, **kwargs):
+    self._data_name = name
+    self._num_examples, self._file_names = _get_num_examples_and_filenames(name)
     self._file_paths = self._get_file_paths(data_dir)
 
     super().__init__(data_dir=data_dir, **kwargs)
@@ -174,14 +203,14 @@ class _SimDialDatasetBuilder(tfds.core.DatasetBuilder):
 
     info = tfds.core.DatasetInfo(
         builder=self,
-        description=_DESCRIPTION,
         features=tfds.features.FeaturesDict(features),
-        homepage='https://github.com/snakeztc/SimDial',
-        citation=_CITATION,
         # Note that while metadata seems to be the most appropriate way to store
         # arbitrary info, it will not be printed when printing out the dataset
         # info.
-        metadata=tfds.core.MetadataDict(**metadata_dict))
+        metadata=tfds.core.MetadataDict(**metadata_dict),
+        description=_DESCRIPTION.get(self._data_name, ''),
+        homepage=_HOMEPAGE.get(self._data_name, ''),
+        citation=_CITATION.get(self._data_name, ''))
 
     # Instead of having a single element shard_lengths, we should really have a
     # list of the number of elements in each file shard in each split.
@@ -203,24 +232,26 @@ class _SimDialDatasetBuilder(tfds.core.DatasetBuilder):
         ),
     ]
     split_dict = tfds.core.SplitDict(
-        split_infos, dataset_name='__sim_dial_dataset_builder')
+        split_infos, dataset_name='__dialog_state_tracking_dataset_builder')
     info.set_splits(split_dict)
     return info
 
 
-class SimDialDataset(base.BaseDataset):
+class _DialogStateTrackingDataset(base.BaseDataset):
   """SimDial dataset builder class."""
 
   def __init__(self,
+               name: str,
                split: str,
                shuffle_buffer_size: Optional[int] = None,
                num_parallel_parser_calls: int = 64,
                data_dir: Optional[str] = None,
                download_data: bool = False,
                is_training: Optional[bool] = None):
-    """Create a SimDial tf.data.Dataset builder.
+    """Create a dialog state tracking tf.data.Dataset builder.
 
     Args:
+      name: the name of the dataset.
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
@@ -235,15 +266,15 @@ class SimDialDataset(base.BaseDataset):
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
-
     # Load vocab for dialog utterances and state labels.
     self.vocab_utter = load_json(os.path.join(data_dir, FILENAME_TOKENIZER))
     self.vocab_label = load_json(
         os.path.join(data_dir, FILENAME_TOKENIZER_LABEL))
 
+    dataset_builder = _DialogStateTrackingDatasetBuilder(name, data_dir)
     super().__init__(
-        name='simdial',
-        dataset_builder=_SimDialDatasetBuilder(data_dir),
+        name=name,
+        dataset_builder=dataset_builder,
         split=split,
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
@@ -263,6 +294,15 @@ class SimDialDataset(base.BaseDataset):
           features[STATE_LABEL_NAME], out_type=tf.int32)
       dialog_len = features[DIAL_LEN_NAME]
 
+      # Extract maxmimum dialog and utterance lengths.
+      max_dialog_len = MAX_DIALOG_LEN[self.name]
+      max_utt_len = MAX_UTT_LEN[self.name]
+
+      # Ensure shape of parsed tensors.
+      sys_utt = tf.ensure_shape(sys_utt, (max_dialog_len, max_utt_len))
+      usr_utt = tf.ensure_shape(usr_utt, (max_dialog_len, max_utt_len))
+      state_label = tf.ensure_shape(state_label, (max_dialog_len,))
+
       return {
           SYS_UTT_NAME: sys_utt,
           USR_UTT_NAME: usr_utt,
@@ -271,3 +311,24 @@ class SimDialDataset(base.BaseDataset):
       }
 
     return _example_parser
+
+
+class SimDialDataset(_DialogStateTrackingDataset):
+  """SimDial dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='simdial', data_dir=data_dir, **kwargs)
+
+
+class MultiWoZSynthDataset(_DialogStateTrackingDataset):
+  """SimDial dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='multiwoz_synth', data_dir=data_dir, **kwargs)
+
+
+class SGDSynthDataset(_DialogStateTrackingDataset):
+  """SimDial dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='sgd_synth', data_dir=data_dir, **kwargs)

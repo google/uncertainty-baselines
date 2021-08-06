@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the deterministic ViT on JFT-300M model script."""
+"""Tests for the ViT-SNGP on JFT-300M model script."""
 import os
 import pathlib
 import shutil
@@ -26,9 +26,9 @@ import jax
 import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import deterministic  # local file import
+import sngp  # local file import
 
-flags.adopt_module_key_flags(deterministic)
+flags.adopt_module_key_flags(sngp)
 FLAGS = flags.FLAGS
 
 
@@ -113,17 +113,17 @@ def get_config(classifier, representation_size):
   return config
 
 
-class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
+class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      ('token', 2, 13877.0625, 12517.542100694445, 0.17999999225139618),
-      ('token', None, 10922.836, 9120.224175347223, 0.1899999976158142),
-      ('gap', 2, 13866.779, 12934.386284722223, 0.19999999552965164),
-      ('gap', None, 13569.819, 12855.133680555555, 0.23999999463558197),
+      ('token', 2, 1111.4404296875, 16258.519965277777, 0.16999999806284904),
+      ('token', None, 13992.8515625, 3621.3713107638887, 0.20999999344348907),
+      ('gap', 2, 8779.61328125, 3998.798285590278, 0.12999999895691872),
+      ('gap', None, 11279.3515625, 3212.2536892361113, 0.2199999988079071),
   )
-  def test_deterministic_script(self, classifier, representation_size,
-                                correct_train_loss, correct_val_loss,
-                                correct_fewshot_acc_sum):
+  def test_sngp_script(self, classifier, representation_size,
+                       correct_train_loss, correct_val_loss,
+                       correct_fewshot_acc_sum):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
@@ -138,15 +138,17 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
 
     # Check for any errors.
     with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      train_loss, val_loss, fewshot_results = deterministic.main(None)
+      train_loss, val_loss, fewshot_results = sngp.main(None)
 
     # Check for reproducibility.
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('train_loss = %s, val_loss = %s, fewshot_acc_sum = %s',
                  train_loss, val_loss, fewshot_acc_sum)
-    self.assertAllClose(train_loss, correct_train_loss)
-    self.assertAllClose(val_loss, correct_val_loss)
-    self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
+    # Allow small amount of numeric error due to stochastic nature of GP model.
+    self.assertAllClose(train_loss, correct_train_loss, atol=0.02, rtol=1e-5)
+    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=1e-5)
+    self.assertAllClose(
+        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.025, rtol=0.15)
 
     # TODO(dusenberrymw): Check for ability to restart from previous checkpoint
     # (after failure, etc.).

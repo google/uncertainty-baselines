@@ -41,9 +41,15 @@ import batchensemble_utils  # local file import
 
 
 config_flags.DEFINE_config_file(
-    "config", None, "Training configuration.", lock_config=True)
+    'config', None, 'Training configuration.', lock_config=True)
 
-flags.DEFINE_string("workdir", default=None, help="Work unit directory.")
+flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
+flags.DEFINE_integer(
+    'num_cores', default=None, help='Unused. How many devices being used.')
+flags.DEFINE_boolean(
+    'use_gpu', default=None, help='Unused. Whether or not running on GPU.')
+flags.DEFINE_string('tpu', None,
+                    'Unused. Name of the TPU. Only used if use_gpu is False.')
 
 # Adds jax flags to the program.
 jax.config.parse_flags_with_absl()
@@ -51,7 +57,7 @@ jax.config.parse_flags_with_absl()
 
 def restore_model_and_put_to_devices(
     config: ml_collections.ConfigDict,
-    workdir: str,
+    output_dir: str,
     partition_specs: Sequence[PartitionSpec],
     model: flax.nn.Module,
     optimizer: flax.optim.Optimizer,
@@ -62,7 +68,7 @@ def restore_model_and_put_to_devices(
   """Restores from latest available checkpoint and puts model to devices."""
   (optimizer, train_iter, rng_state_tf, rngs,
    global_state) = train.restore_checkpoints(
-       workdir=workdir,
+       workdir=output_dir,
        step=None,
        partition_specs=partition_specs,
        optimizer=optimizer,
@@ -73,36 +79,36 @@ def restore_model_and_put_to_devices(
        thread_pool=thread_pool)
   if global_state:
     # 1. If a checkpoint is present in the current work dir, continue training.
-    logging.info("Continuing training from step %d", global_state["step"])
+    logging.info('Continuing training from step %d', global_state['step'])
     # Shard parameters and optim state and put to the corresponding device.
     optimizer = core.tree_shard(optimizer)
-  elif config.get("model_init_prefix"):
+  elif config.get('model_init_prefix'):
     # 2. Alternatively, initialize from the given model_init_prefix checkpoint.
-    logging.info("Fine-tuning model from %r...", config.model_init_prefix)
-    if not hasattr(model, "load"):
+    logging.info('Fine-tuning model from %r...', config.model_init_prefix)
+    if not hasattr(model, 'load'):
       # Note: Likely due to use of .partial, model may end up being e.g.
       # a flax.nn.Base.PatchTransformer instead of experts_nn.PatchTransformer
       # This causes explicit checks for class equivalence to fail, and also
       # causes static type checking to fail. Checking for .load attribute
       # circumvents both these issues.
-      raise ValueError((f"Loaded model {model} has no load method. Are you sure"
-                        " it is one of  'PatchTransformer' and 'Resformer'?"))
+      raise ValueError((f'Loaded model {model} has no load method. Are you sure'
+                        ' it is one of "PatchTransformer" and "Resformer"?'))
     restored_params = model.load(
         prefix=config.model_init_prefix,
         init_params=optimizer.target,
         model_params=config.model,
-        keep_head=config.get("keep_head", False),
+        keep_head=config.get('keep_head', False),
         partition_specs=partition_specs)
     # Shard restored parameters and replicate original optimizer state.
     optimizer = optimizer.replace(
         target=core.tree_shard(restored_params),
         state=flax.jax_utils.replicate(optimizer.state))
-    global_state = {"step": 0, "accum_train_time": 0.0}
+    global_state = {'step': 0, 'accum_train_time': 0.0}
   else:
     # 3. Use model initialized from scratch.
-    logging.info("Initializing training from scratch...")
+    logging.info('Initializing training from scratch...')
     optimizer = flax.jax_utils.replicate(optimizer)
-    global_state = {"step": 0, "accum_train_time": 0.0}
+    global_state = {'step': 0, 'accum_train_time': 0.0}
   # Set TF's global RNG generator and JAX's per-device RNG keys.
   train.rng_tf_set_global_generator(rng_state_tf)
   rngs_per_device = jax.tree_map(train.rng_jax_fold_host_if_needed_and_shard,
@@ -112,43 +118,39 @@ def restore_model_and_put_to_devices(
 
 def main(_):
   config = flags.FLAGS.config
-  workdir = flags.FLAGS.workdir
-  tf.io.gfile.makedirs(workdir)
+  output_dir = flags.FLAGS.output_dir
+  tf.io.gfile.makedirs(output_dir)
 
   partition_specs = []
 
   # Loss to apply.
-  loss_to_apply = getattr(core, config.get("loss_to_apply", "softmax_xent"))
-  compute_ece = config.get("compute_ece", False)
-  is_sigmoid = config.get("loss_to_apply", "softmax_xent") == "sigmoid_xent"
+  loss_to_apply = getattr(core, config.get('loss_to_apply', 'softmax_xent'))
+  compute_ece = config.get('compute_ece', False)
+  is_sigmoid = config.get('loss_to_apply', 'softmax_xent') == 'sigmoid_xent'
   if compute_ece and is_sigmoid:
-    error_msg = "Inconsistent config: ECE can only be used with 'softmax_xent'."
+    error_msg = 'Inconsistent config: ECE can only be used with "softmax_xent".'
     raise ValueError(error_msg)
 
-  ens_size = config.get("model.transformer.ens_size", 1)
-  # TODO(ghassen): enable sigmoid for ensemble.
-  if ens_size > 1 and is_sigmoid:
-    error_msg = "Inconsistent config: Ensemble only works with 'softmax_xent'."
-    raise ValueError(error_msg)
+  ens_size = config.get('model.transformer.ens_size', 1)
 
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
   # Ideally, this should make code deterministic, but for many reasons we are
   # not there yet. For instance, tf.data.map is not determisntic.
-  rng_generator = tf.random.Generator.from_seed(config.get("seed", 0))
+  rng_generator = tf.random.Generator.from_seed(config.get('seed', 0))
   tf.random.set_global_generator(
       rng_generator.split(jax.host_count())[jax.host_id()])
 
-  logging.info("Number of devices: %s  (host_id: %s)", jax.device_count(),
+  logging.info('Number of devices: %s  (host_id: %s)', jax.device_count(),
                jax.host_id())
-  logging.info("Config:\n%s", str(config))
+  logging.info('Config:\n%s', str(config))
 
   if (config.batch_size % jax.device_count() != 0 or
       config.batch_size_eval % jax.device_count() != 0):
-    raise ValueError(f"Batch sizes ({config.batch_size} and "
-                     f"{config.batch_size_eval}) must be divisible by "
-                     f"the number of devices ({jax.device_count()})")
+    raise ValueError(f'Batch sizes ({config.batch_size} and '
+                     f'{config.batch_size_eval}) must be divisible by '
+                     f'the number of devices ({jax.device_count()})')
 
   batch_size_per_host = config.batch_size // jax.host_count()
   batch_size_per_core = config.batch_size // jax.device_count()
@@ -156,14 +158,14 @@ def main(_):
   # TODO(basilm): Remove when JFT2.6B is properly submitted.
   if config.dataset in jft_latest_pipeline.DATA_INFO:
     input_pipeline = jft_latest_pipeline
-    cache = "loaded"
+    cache = 'loaded'
   else:
     input_pipeline = default_input_pipeline
-    cache = "batched"
+    cache = 'batched'
 
   train_ds = input_pipeline.get_data(
       dataset=config.dataset,
-      data_dir=config.get("dataset_dir"),
+      data_dir=config.get('dataset_dir'),
       split=config.train_split,
       batch_size=batch_size_per_host,
       preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
@@ -171,14 +173,14 @@ def main(_):
       cache=False)
   steps_per_epoch = input_pipeline.get_num_examples(
       config.dataset, config.train_split,
-      data_dir=config.get("dataset_dir")) / config.batch_size
+      data_dir=config.get('dataset_dir')) / config.batch_size
   total_steps = train.get_total_steps_from_config(config, steps_per_epoch)
-  logging.info("Running for %d steps per epoch (%d steps total)",
+  logging.info('Running for %d steps per epoch (%d steps total)',
                steps_per_epoch, total_steps)
 
-  opt_def = train.get_optimizer_from_config(config, f"{BIG_VISION_DIR}.optims")
+  opt_def = train.get_optimizer_from_config(config, f'{BIG_VISION_DIR}.optims')
   eval_config = copy.deepcopy(config)
-  if config.get("eval_overrides"):
+  if config.get('eval_overrides'):
     with eval_config.unlocked():
       eval_config.update(config.eval_overrides)
   model = getattr(ub.models, config.model_name)
@@ -187,16 +189,16 @@ def main(_):
   model_eval = model(
       num_classes=config.num_classes, train=False, **eval_config.model)
 
-  image_size = tuple(train_ds.element_spec["image"].shape[1:])
-  logging.info("Model initialization: Starting.")
+  image_size = tuple(train_ds.element_spec['image'].shape[1:])
+  logging.info('Model initialization: Starting.')
   opt, rngs = train.model_and_optim_init(
-      model_train.init, opt_def, (batch_size_per_core * ens_size,) + image_size,
-      config.get("init_head_bias"), config.get("seed", 0),
-      config.get("extra_rngs", ["dropout", "gating"]))
-  logging.info("Model initialization: Done.")
+      model_train.init, opt_def, (batch_size_per_core,) + image_size,
+      config.get('init_head_bias'), config.get('seed', 0),
+      config.get('extra_rngs', ['dropout', 'gating']))
+  logging.info('Model initialization: Done.')
   # TODO(jpuigcerver): Support logging parameter count with new sharding.
 
-  if config.get("plot_grad_norm_patterns"):
+  if config.get('plot_grad_norm_patterns'):
     plot_grad_norm_name_fn = experts_utils.make_match_fn_from_prefixes(
         config.plot_grad_norm_patterns)
   else:
@@ -206,7 +208,7 @@ def main(_):
   batch_loss_fn = ensemble.wrap_ensemble_module_with_auxiliary_loss_fn(
       module=model_train,
       loss_fn=loss_to_apply,
-      auxiliary_loss_weight=config.get("auxiliary_loss_weight", 0.0),
+      auxiliary_loss_weight=config.get('auxiliary_loss_weight', 0.0),
       ens_size=ens_size)
   if ens_size == 1:
     evaluation_fn = functools.partial(
@@ -221,31 +223,32 @@ def main(_):
         apply_fn=model_eval.apply,
         return_metric_args=compute_ece,
         ens_size=ens_size)
-  pmap_evaluation_fn = core.pmap_sorted(evaluation_fn, axis_name="batch")
+  pmap_evaluation_fn = core.pmap_sorted(evaluation_fn, axis_name='batch')
 
   update_fn = functools.partial(
       batchensemble_utils.update_fn_be,
       weight_decay_fn=weight_decay_fn,
       plot_grad_norm_name_fn=plot_grad_norm_name_fn,
-      plot_grads_nan_inf=config.get("plot_grads_nan_inf", True),
-      max_grad_norm_global=config.get("clip_grad_norm", None),
-      frozen_vars_patterns=config.get("frozen_var_patterns", None),
-      fast_weight_lr_multiplier=config.get("fast_weight_lr_multiplier", None))
+      plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
+      max_grad_norm_global=config.get('clip_grad_norm', None),
+      frozen_vars_patterns=config.get('frozen_var_patterns', None),
+      fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
   pmap_update_fn = core.pmap_sorted(
-      update_fn, axis_name="batch", donate_argnums=(0, 1),
+      update_fn, axis_name='batch', donate_argnums=(0, 1),
       static_broadcasted_argnums=(5,))
 
   # Restore parameters from checkpoints (if possible) and put to TPU devices.
   opt, train_iter, rngs_per_device, global_state = restore_model_and_put_to_devices(
-      config, workdir, partition_specs, model, opt, iter(train_ds), rngs, pool)
+      config, output_dir, partition_specs, model, opt, iter(train_ds), rngs,
+      pool)
   del rngs
-  first_step = global_state["step"]
-  accum_train_time = global_state["accum_train_time"]
+  first_step = global_state['step']
+  accum_train_time = global_state['accum_train_time']
   start_time = time.time()
-  logging.info("Initial step for training = %d.", first_step)
+  logging.info('Initial step for training = %d.', first_step)
 
   local_devices = sorted(jax.local_devices(), key=lambda device: device.id)
-  if config.get("ema", {}):
+  if config.get('ema', {}):
     ema_updater = ema.ExponentialMovingAverage(
         target=partitioning.tree_unreplicate_using_partition_specs(
             jax.tree_map(np.zeros_like, opt.target),
@@ -257,7 +260,7 @@ def main(_):
     ema_updater = None
   if first_step != 0 and ema_updater is not None:
     ema_updater = train.restore_ema_checkpoints(
-        workdir,
+        output_dir,
         first_step,
         partition_specs,
         ema_updater,
@@ -270,22 +273,16 @@ def main(_):
   lr_fn = u.create_learning_rate_schedule(
       config.batch_size, total_steps, steps_per_epoch, **config.lr)
   lr_iter = u.prefetch_scalar(map(lr_fn, range(first_step, total_steps)),
-                              config.get("prefetch_to_device", 1))
+                              config.get('prefetch_to_device', 1))
 
   writer = metric_writers.create_default_writer(
-      workdir, just_logging=jax.host_id() > 0,
-      summary_writer=config.get("write_tf_summaries", False))
+      output_dir, just_logging=jax.host_id() > 0,
+      summary_writer=config.get('write_tf_summaries', False))
 
   checkpoint_async_results = []
-  log_training_first_n_steps = config.get("log_training_first_n_steps", -1)
-  xm_work_unit.set_notes("First step compilations...")
+  log_training_first_n_steps = config.get('log_training_first_n_steps', -1)
   with metric_writers.ensure_flushes(writer):
-    if jax.host_id() == 0:
-      callback_fn = xprof.XmUrlCallbackFn(
-          description=f"Xprof [{first_step + 171}...{first_step + 190}]",
-          work_unit=xm_work_unit)
-    else:
-      callback_fn = lambda x: x  # Do nothing.
+    callback_fn = lambda x: x  # Do nothing.
     xprof_session = xprof.MultiStepXprofSession(
         profile_steps=20,    # For how many steps to profile after warmup.
         warmup_steps=170,    # For how many steps to wait before profiling.
@@ -293,17 +290,17 @@ def main(_):
     for step, lr_repl in zip(range(first_step + 1, total_steps + 1), lr_iter):
       train_batch = next(train_iter)
       with xprof_session:
-        with jax.profiler.StepTraceAnnotation(name="train", step_num=step):
+        with jax.profiler.StepTraceAnnotation(name='train', step_num=step):
           opt, rngs_per_device, loss_value, aux_info = pmap_update_fn(
               opt,
               rngs_per_device,
               lr_repl,
-              train_batch["image"],
-              train_batch["labels"],
+              train_batch['image'],
+              train_batch['labels'],
               batch_loss_fn)
 
       if (ema_updater is not None and
-          step % config.get("ema", {}).get("period", 10) == 0):
+          step % config.get('ema', {}).get('period', 10) == 0):
         ema_updater = ema_updater.update(
             partitioning.tree_unreplicate_using_partition_specs(
                 tree=opt.target,
@@ -311,7 +308,7 @@ def main(_):
                 local_devices=local_devices))
 
         # Checkpoint saving.
-      backup_checkpoints_every_n_steps = config.get("backup_checkpoint_steps")
+      backup_checkpoints_every_n_steps = config.get('backup_checkpoint_steps')
       if (step % config.write_checkpoint_every_n_steps == 0 or
           (backup_checkpoints_every_n_steps is not None and
            step % backup_checkpoints_every_n_steps == 0) or
@@ -326,7 +323,7 @@ def main(_):
         # checkpointed step. The pool is used to remove files in parallel.
         if jax.host_id() == 0:
           train.remove_old_checkpoints(
-              workdir,
+              output_dir,
               keep_steps_from=step - config.write_checkpoint_every_n_steps,
               keep_steps_multiple_of=backup_checkpoints_every_n_steps,
               thread_pool=pool)
@@ -335,24 +332,24 @@ def main(_):
         # the asynchronous copy, to prevent any extra TPU memory usage.
         time_since_last_start = float(time.time() - start_time)
         checkpoint_async_results = train.save_checkpoints(
-            workdir=workdir,
+            workdir=output_dir,
             step=step,
             partition_specs=partition_specs,
             optimizer=opt,
             # TODO(jpuigcerver): start_input_pipeline() does not return a
-            # serializable iterator. Also, serialization of a "memory heavy"
+            # serializable iterator. Also, serialization of a 'memory heavy'
             # tf.data.Dataset iterator may cause OOM (e.g. big shuffle buffer).
             train_iter=None,
             rng_state_tf=tf.random.get_global_generator().state.numpy(),
             rng_state_jax=rngs_per_device,
             global_state={
-                # Note: "step" is automatically added to this dictionary.
-                "accum_train_time": accum_train_time + time_since_last_start,
+                # Note: 'step' is automatically added to this dictionary.
+                'accum_train_time': accum_train_time + time_since_last_start,
             },
             thread_pool=pool)
         if ema_updater is not None:
           checkpoint_async_results.append(train.save_ema_checkpoints(
-              workdir=workdir,
+              workdir=output_dir,
               step=step,
               partition_specs=partition_specs,
               ema_updater=ema_updater,
@@ -366,53 +363,30 @@ def main(_):
         time_elapsed = time.time() - start_time + accum_train_time
         img_sec_core = (
             config.batch_size * step / time_elapsed / jax.device_count())
-        writer.write_scalars(step, {"learning_rate": lr_repl[0],
-                                    "training_loss": np.mean(loss_value),
-                                    "img/sec/core": img_sec_core,
-                                    "epoch": step / steps_per_epoch})
+        writer.write_scalars(step, {'learning_rate': lr_repl[0],
+                                    'training_loss': np.mean(loss_value),
+                                    'img/sec/core': img_sec_core,
+                                    'epoch': step / steps_per_epoch})
         if aux_info:
           # Per-block info has to be dealt especially.
-          if "per_block_info" in aux_info:
+          if 'per_block_info' in aux_info:
             scalar_metrics_to_aggregate = config.get(
-                "scalar_metrics_to_aggregate", ())
+                'scalar_metrics_to_aggregate', ())
             metrics.write_info_to_metric_writer(
                 metric_writer=writer,
                 step=step,
                 gating_info_dict=jax.tree_map(lambda x: np.mean(x, axis=0),
-                                              aux_info["per_block_info"]),
+                                              aux_info['per_block_info']),
                 scalar_metrics_to_aggregate=scalar_metrics_to_aggregate,
                 write_matrices=True)
-            del aux_info["per_block_info"]
+            del aux_info['per_block_info']
           # Plot rest of metrics as scalars.
           writer.write_scalars(
               step, {key: np.mean(value) for key, value in aux_info.items()})
 
-        def progress(start_time, step, num_steps, batch_size):
-          """Generates progress note."""
-          time_elapsed = time.time() - start_time + accum_train_time
-          steps_per_sec = step / time_elapsed
-          eta_seconds = (num_steps - step) / (steps_per_sec + 1e-8)
-          note = ("Steps:{:d}/{:d}  [{:.1f}%]\n"
-                  "Images per second:{:.1f},\n"
-                  "ETA:{}, Total time:{}".format(
-                      step, num_steps, 100 * step / num_steps,
-                      steps_per_sec * batch_size,
-                      experts_utils.htime(eta_seconds),
-                      experts_utils.htime((eta_seconds + time_elapsed))))
-          writer.write_scalars(
-              step, {"images_per_second": steps_per_sec * batch_size})
-          return note
-
-        progress_note = progress(
-            start_time,
-            step,
-            num_steps=total_steps,
-            batch_size=config.batch_size)
-        pool.apply_async(
-            lambda note=progress_note: xm_work_unit.set_notes(note))
 
       # Run checks to detect if the model partitioning is unhealthy.
-      # Global health metrics will be written to XM, and in case of problems a
+      # Global health metrics will be logged, and in case of problems a
       # WARNING or ERROR message will be logged.
       train.monitor_partitioning_health(
           optimizer=opt,
@@ -420,19 +394,19 @@ def main(_):
           metric_writer=writer,
           step=step,
           first_step=first_step + 1,
-          every_n_steps=config.get("check_partitioning_health_every_n_steps",
+          every_n_steps=config.get('check_partitioning_health_every_n_steps',
                                    total_steps // 20))
       # Evaluate model on validation, test, ...
       rngs_per_device = train.run_evaluation_on_multiple_splits(
           pmap_evaluation_fn, opt.target, eval_iters, rngs_per_device,
           step / steps_per_epoch, step, total_steps,
           config.run_evaluation_every_n_steps, writer, compute_ece,
-          config.get("ece_num_bins", 15), suffix="")
+          config.get('ece_num_bins', 15), suffix='')
       if ema_updater and config.run_evaluation_every_n_steps > 0 and (
           step == first_step + 1 or
           step % config.run_evaluation_every_n_steps == 0 or
           step == total_steps):
-        logging.info("Evaluation with EMA weights at step %d: started.", step)
+        logging.info('Evaluation with EMA weights at step %d: started.', step)
         # Copy current parameters to CPU. Only one replica of each local
         # partition is copied to prevent redundant data transfers (e.g.
         # non-expert parameters).
@@ -454,7 +428,7 @@ def main(_):
                 local_devices=local_devices),
             eval_iters, rngs_per_device, step / steps_per_epoch, step,
             total_steps, config.run_evaluation_every_n_steps, writer,
-            compute_ece, config.get("ece_num_bins", 15), suffix="_ema")
+            compute_ece, config.get('ece_num_bins', 15), suffix='_ema')
         rngs_per_device = core.tree_block_until_ready(rngs_per_device)
         # Copy current parameters back to the TPU.
         opt = opt.replace(
@@ -462,12 +436,12 @@ def main(_):
                 curr_params,
                 partition_specs=partition_specs,
                 local_devices=local_devices))
-        logging.info("Evaluation with EMA weights at step %d: finished.", step)
+        logging.info('Evaluation with EMA weights at step %d: finished.', step)
         del curr_params
 
   pool.close()
   pool.join()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   app.run(main)

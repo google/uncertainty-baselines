@@ -360,7 +360,7 @@ class BlockV1(hk.Module):
                 kernel_shape=1,
                 stride=stride,
                 with_bias=False,
-                padding="SAME",
+                padding="VALID",
                 name="shortcut_conv",
                 stochastic_parameters=stochastic_parameters,
                 uniform_init_minval=uniform_init_minval,
@@ -375,7 +375,7 @@ class BlockV1(hk.Module):
             kernel_shape=1 if bottleneck else 3,
             stride=1,
             with_bias=False,
-            padding="SAME",
+            padding="VALID",
             name="conv_0",
             stochastic_parameters=stochastic_parameters,
             uniform_init_minval=uniform_init_minval,
@@ -405,7 +405,7 @@ class BlockV1(hk.Module):
                 kernel_shape=1,
                 stride=1,
                 with_bias=False,
-                padding="SAME",
+                padding="VALID",
                 name="conv_2",
                 stochastic_parameters=stochastic_parameters,
                 uniform_init_minval=uniform_init_minval,
@@ -680,10 +680,10 @@ class ResNet(hk.Module):
 
         self.initial_conv = conv2D_stochastic(
             output_channels=64,
-            kernel_shape=3,
-            stride=1,
+            kernel_shape=7,
+            stride=2,
             with_bias=False,
-            padding="SAME",
+            padding="VALID",
             name="initial_conv",
             stochastic_parameters=self.stochastic_parameters_feature_mapping,
             uniform_init_minval=self.uniform_init_minval,
@@ -733,6 +733,7 @@ class ResNet(hk.Module):
         # TODO: remove hardcoded values
         test_local_stats = False
         out = inputs
+        out = zero_padding_2D(out, padding=3)
         out = self.initial_conv(out, rng_key, stochastic)
         if not self.resnet_v2:
             out = self.initial_batchnorm(out, is_training, test_local_stats)
@@ -743,7 +744,7 @@ class ResNet(hk.Module):
         # TODO: check why the max_pool is commented out
         # Yes, I was following the modifications Joost proposed in his paper here:
         # Uncertainty Estimation Using a Single Deep Deterministic Neural Network
-        # out = self.max_pool(out)
+        out = self.max_pool(out)
 
         for block_group in self.block_groups:
             out = block_group(out, rng_key, stochastic, is_training, test_local_stats)
@@ -753,6 +754,11 @@ class ResNet(hk.Module):
             out = jax.nn.relu(out)
         out = jnp.mean(out, axis=[1, 2])
         return self.logits(out, rng_key, stochastic)
+
+
+def zero_padding_2D(x, padding: int):
+    # assume x is of shape (batch_size, width, height, channels)
+    return jnp.pad(x, pad_width=((0, 0), (padding, padding), (padding, padding), (0, 0)))
 
 
 class ResNet18(ResNet):

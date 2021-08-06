@@ -1,4 +1,5 @@
 import pdb
+from time import time
 
 import jax.numpy as jnp
 import numpy as np
@@ -20,12 +21,18 @@ torch.manual_seed(0)
 
 def load_data(
     batch_size,
+    use_validation: bool,
     data_dir="/scratch/data/diabetic-retinopathy-detection",
+    eval_batch_size: int = None,
     n_batches: int = None,
 ):
     # SELECT TRAINING AND TEST DATA LOADERS
     (_, output_dim, trainloader, x_train, _, _, _,) = get_diabetic_retinopathy(
-        batch_size=batch_size, data_dir=data_dir, n_batches=n_batches
+        train_batch_size=batch_size,
+        data_dir=data_dir,
+        n_batches=n_batches,
+        use_validation=use_validation,
+        eval_batch_size=eval_batch_size,
     )
 
     n_train = x_train.shape[0]
@@ -39,19 +46,17 @@ def load_data(
     )
 
 
-def get_diabetic_retinopathy(batch_size, data_dir, n_batches=None):
+def get_diabetic_retinopathy(
+    train_batch_size, eval_batch_size, data_dir, use_validation, n_batches=None
+):
     image_dim = 128
-    # input_shape = [1, image_dim, image_dim, 3]
     output_dim = 2
-    loader_batch_size = 5000
-
-    eval_batch_size = 10000
-    use_validation = False
+    # input_shape = [1, image_dim, image_dim, 3]
 
     dataset_train_builder = ub.datasets.get(
         "diabetic_retinopathy_detection", split="train", data_dir=data_dir
     )
-    trainloader = dataset_train_builder.load(batch_size=loader_batch_size)
+    trainloader = dataset_train_builder.load(batch_size=train_batch_size)
 
     dataset_validation_builder = ub.datasets.get(
         "diabetic_retinopathy_detection",
@@ -59,7 +64,7 @@ def get_diabetic_retinopathy(batch_size, data_dir, n_batches=None):
         data_dir=data_dir,
         is_training=not use_validation,
     )
-    validation_batch_size = eval_batch_size if use_validation else batch_size
+    validation_batch_size = eval_batch_size if use_validation else train_batch_size
     valloader = dataset_validation_builder.load(batch_size=validation_batch_size)
     trainloader = trainloader.concatenate(valloader)
 
@@ -71,12 +76,14 @@ def get_diabetic_retinopathy(batch_size, data_dir, n_batches=None):
     print("Loading diabetic retinopathy dataset. This may take a few minutes.")
     train_iterator = iter(trainloader)
     ds_info = tfds.builder("diabetic_retinopathy_detection").info
-    loader_n_batches = ds_info.splits["train"].num_examples // loader_batch_size
+    loader_n_batches = ds_info.splits["train"].num_examples // train_batch_size
     loader_n_batches = loader_n_batches if n_batches is None else n_batches
 
     logging.info("Finish getting data iterators")
     for i in tqdm(range(loader_n_batches), desc="loading data"):
+        start = time()
         data = next(train_iterator)
+        print(f"it takes {time() - start:.2f} seconds")
         if i == 0:
             x_train = data["features"]._numpy().transpose(0, 3, 1, 2)
             y_train = data["labels"]._numpy()
@@ -87,10 +94,8 @@ def get_diabetic_retinopathy(batch_size, data_dir, n_batches=None):
             y_train = np.concatenate([y_train, data["labels"]._numpy()], 0)
 
     x_train = x_train.transpose(0, 2, 3, 1)
-    y_train = _one_hot(y_train, output_dim)
-
     train_dataset = seqtools.collate([x_train, y_train])
-    trainloader = seqtools.batch(train_dataset, batch_size, collate_fn=collate_fn)
+    trainloader = seqtools.batch(train_dataset, train_batch_size, collate_fn=collate_fn)
 
     test_iterator = iter(testloader)
     data = next(test_iterator)

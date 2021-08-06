@@ -21,6 +21,7 @@ classification_datasets = [
     "cifar10",
     "svhn",
     "two_moons",
+    "dr",
 ]
 continual_learning_datasets = [
     "pmnist",

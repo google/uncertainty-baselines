@@ -158,9 +158,14 @@ flags.DEFINE_string(
     help="The subdirectory in logroot/runs/ corresponding to this run",
 )
 flags.DEFINE_integer(
-    "n_batches",
+    "loader_n_batches",
     None,
     "Number of batches to use",
+)
+flags.DEFINE_integer(
+    "eval_batch_size",
+    32,
+    "Number of batches for evaluation",
 )
 
 # new flags copied from deterministic.py
@@ -174,7 +179,6 @@ flags.DEFINE_string(
 )
 flags.DEFINE_string("data_dir", None, "Path to training and testing data.")
 
-# TODO: decide if we keep this
 flags.DEFINE_bool("use_validation", True, "Whether to use a validation split.")
 
 
@@ -227,8 +231,12 @@ def main(argv):
     rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 
     # LOAD DATA
-    (trainloader, input_shape, output_dim, n_train,) = datasets.load_data(
-        batch_size=FLAGS.batch_size, data_dir=FLAGS.data_dir, n_batches=FLAGS.n_batches
+    trainloader, input_shape, output_dim, n_train = datasets.load_data(
+        batch_size=FLAGS.batch_size,
+        data_dir=FLAGS.data_dir,
+        n_batches=FLAGS.loader_n_batches,
+        eval_batch_size=FLAGS.eval_batch_size,
+        use_validation=FLAGS.use_validation,
     )
 
     # INITIALIZE TRAINING CLASS
@@ -237,8 +245,8 @@ def main(argv):
         output_dim=output_dim,
         n_train=n_train,
         n_batches=n_train // FLAGS.batch_size,
-        # TODO: unify the run.py for classification ood
         full_ntk=False,
+        # TODO: is there a better way than this?
         **get_dict_of_flags(),
     )
 

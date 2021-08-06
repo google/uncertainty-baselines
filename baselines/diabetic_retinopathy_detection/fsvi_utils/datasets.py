@@ -66,7 +66,8 @@ def get_diabetic_retinopathy(
     )
     validation_batch_size = eval_batch_size if use_validation else train_batch_size
     valloader = dataset_validation_builder.load(batch_size=validation_batch_size)
-    trainloader = trainloader.concatenate(valloader)
+    if not use_validation:
+        trainloader = trainloader.concatenate(valloader)
 
     dataset_test_builder = ub.datasets.get(
         "diabetic_retinopathy_detection", split="test", data_dir=data_dir

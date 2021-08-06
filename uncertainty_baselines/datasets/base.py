@@ -436,8 +436,6 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
       dataset = self._in_distribution_dataset.load(
           preprocess_fn=dataset_preprocess_fn,
           batch_size=batch_size)
-      dataset = dataset.map(
-          _remove_fingerprint_id_key(self._in_distribution_dataset))
 
       # Set up the OOD dataset using this class.
       if preprocess_fn:
@@ -450,7 +448,7 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
       ood_dataset = super().load(
           preprocess_fn=ood_dataset_preprocess_fn,
           batch_size=batch_size)
-      ood_dataset = ood_dataset.map(_remove_fingerprint_id_key(self))
+      # We keep the fingerprint id in both dataset and ood_dataset
 
       # Combine the two datasets.
       try:
@@ -480,18 +478,6 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
           super().num_examples)
 
   return _OodBaseDataset
-
-
-# We may be able to refactor this to be part of preprocess_fn so we don't
-# need to do a second `ds.map()`, but the ordering of composed functions is
-# tricky.
-def _remove_fingerprint_id_key(dataset):
-
-  def f(example: types.Features) -> types.Features:
-    del example[dataset._fingerprint_key]  # pylint: disable=protected-access
-    return example
-
-  return f
 
 
 def _create_ood_label_fn(is_in_distribution: bool) -> PreProcessFn:

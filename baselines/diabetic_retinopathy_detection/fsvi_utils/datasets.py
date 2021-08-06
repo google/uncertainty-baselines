@@ -18,17 +18,15 @@ except:
 torch.manual_seed(0)
 
 
-def load_data(batch_size, data_dir="/scratch/data/diabetic-retinopathy-detection"):
+def load_data(
+    batch_size,
+    data_dir="/scratch/data/diabetic-retinopathy-detection",
+    n_batches: int = None,
+):
     # SELECT TRAINING AND TEST DATA LOADERS
-    (
-        _,
-        output_dim,
-        trainloader,
-        x_train,
-        _,
-        _,
-        _,
-    ) = get_diabetic_retinopathy(batch_size=batch_size, data_dir=data_dir)
+    (_, output_dim, trainloader, x_train, _, _, _,) = get_diabetic_retinopathy(
+        batch_size=batch_size, data_dir=data_dir, n_batches=n_batches
+    )
 
     n_train = x_train.shape[0]
     input_shape = list(x_train.shape)
@@ -41,9 +39,7 @@ def load_data(batch_size, data_dir="/scratch/data/diabetic-retinopathy-detection
     )
 
 
-def get_diabetic_retinopathy(
-    batch_size, data_dir
-):
+def get_diabetic_retinopathy(batch_size, data_dir, n_batches=None):
     image_dim = 128
     # input_shape = [1, image_dim, image_dim, 3]
     output_dim = 2
@@ -76,10 +72,9 @@ def get_diabetic_retinopathy(
     train_iterator = iter(trainloader)
     ds_info = tfds.builder("diabetic_retinopathy_detection").info
     loader_n_batches = ds_info.splits["train"].num_examples // loader_batch_size
+    loader_n_batches = loader_n_batches if n_batches is None else n_batches
 
     logging.info("Finish getting data iterators")
-    # TODO: remove this
-    loader_n_batches = 3
     for i in tqdm(range(loader_n_batches), desc="loading data"):
         data = next(train_iterator)
         if i == 0:

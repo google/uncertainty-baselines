@@ -157,6 +157,11 @@ flags.DEFINE_string(
     default=None,
     help="The subdirectory in logroot/runs/ corresponding to this run",
 )
+flags.DEFINE_integer(
+    "n_batches",
+    None,
+    "Number of batches to use",
+)
 
 # new flags copied from deterministic.py
 flags.DEFINE_string(
@@ -223,7 +228,7 @@ def main(argv):
 
     # LOAD DATA
     (trainloader, input_shape, output_dim, n_train,) = datasets.load_data(
-        batch_size=FLAGS.batch_size, data_dir=FLAGS.data_dir
+        batch_size=FLAGS.batch_size, data_dir=FLAGS.data_dir, n_batches=FLAGS.n_batches
     )
 
     # INITIALIZE TRAINING CLASS

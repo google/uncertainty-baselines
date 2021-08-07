@@ -266,7 +266,8 @@ class Objectives_hk:
             self._elbo_fsvi_classification,
         )
 
-        return -elbo, state
+        return -elbo, {"state": state, "elbo": elbo, "log_likelihood": log_likelihood,
+                       "kl": kl, "scale": scale}
 
 
 @partial(jit, static_argnums=(0,))

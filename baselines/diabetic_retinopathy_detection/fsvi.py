@@ -10,6 +10,10 @@ from absl import app, flags
 from jax import jit
 from jax import random
 from tensorflow_probability.substrates import jax as tfp
+import tensorflow as tf
+from tqdm import tqdm
+
+from baselines.diabetic_retinopathy_detection.utils import log_epoch_metrics
 
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
@@ -23,6 +27,7 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
     initialize_random_keys,
 )
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import Training
+from baselines.diabetic_retinopathy_detection import utils
 
 
 tfd = tfp.distributions
@@ -231,7 +236,7 @@ def main(argv):
     rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 
     # LOAD DATA
-    trainloader, input_shape, output_dim, n_train = datasets.load_data(
+    dataset_train, input_shape, output_dim, n_train = datasets.load_data(
         batch_size=FLAGS.batch_size,
         data_dir=FLAGS.data_dir,
         n_batches=FLAGS.loader_n_batches,
@@ -287,30 +292,19 @@ def main(argv):
         rng_key=rng_key,
     )
 
-    # INITIALIZE LOGGING CLASS
-    epoch_start = 0
-    # logging = utils_logging.Logging(
-    #     model=model,
-    #     metrics=metrics,
-    #     loss=loss,
-    #     kl_evaluation=kl_evaluation,
-    #     log_likelihood_evaluation=log_likelihood_evaluation,
-    #     nll_grad_evaluation=nll_grad_evaluation,
-    #     task_evaluation=task_evaluation,
-    #     epoch_start=epoch_start,
-    #     x_train_permuted=x_train_permuted,
-    #     y_train_permuted=y_train_permuted,
-    #     x_test=x_test,
-    #     y_test=y_test,
-    #     x_ood=x_ood,
-    #     n_train=n_train,
-    #     val_frac=val_frac,
-    #     epochs=epochs,
-    #     save=save,
-    #     save_path=save_path,
-    #     model_type=model_type,
-    #     **kwargs,
-    # )
+    use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
+    metrics = utils.get_diabetic_retinopathy_base_metrics(
+        use_tpu=use_tpu,
+        num_bins=FLAGS.num_bins,
+        use_validation=FLAGS.use_validation)
+    # Define metrics outside the accelerator scope for CPU eval.
+    # This will cause an error on TPU.
+    if not use_tpu:
+        metrics.update(
+            utils.get_diabetic_retinopathy_cpu_metrics(
+                use_validation=FLAGS.use_validation))
+    metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
+
 
     @jit
     def update(
@@ -322,7 +316,7 @@ def main(argv):
             inducing_inputs=inducing_inputs, model_params=model_params,
         )
 
-        grads, new_state = jax.grad(loss, argnums=0, has_aux=True)(
+        grads, additional_info = jax.grad(loss, argnums=0, has_aux=True)(
             trainable_params,
             non_trainable_params,
             state,
@@ -341,24 +335,24 @@ def main(argv):
         new_params = optax.apply_updates(params, updates)
         params = new_params
 
-        return params, opt_state, new_state
+        new_state = additional_info["state"]
+        return params, opt_state, new_state, additional_info
 
     print(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
+    train_iterator = iter(dataset_train)
     for epoch in range(FLAGS.epochs):
-        # logging.t0 = time.time()
+        t0 = time.time()
 
-        for i, data in enumerate(trainloader, 0):
+        for i, data in tqdm(enumerate(train_iterator), desc="gradient steps..."):
             rng_key_train, _ = random.split(rng_key_train)
-
+            # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
+            features_and_labels = data["features"]._numpy(), data["labels"]._numpy()
             x_batch, y_batch = get_minibatch(
-                data, output_dim, input_shape, prediction_type
+                features_and_labels, output_dim, input_shape, prediction_type
             )
             inducing_inputs = inducing_input_fn(x_batch, rng_key_train)
-            if "mlp" in FLAGS.model_type:
-                x_batch = x_batch.reshape(FLAGS.batch_size, -1)
-                inducing_inputs = inducing_inputs.reshape(inducing_inputs.shape[0], -1)
 
-            params, opt_state, state = update(
+            params, opt_state, state, additional_info = update(
                 params,
                 state,
                 opt_state,
@@ -368,19 +362,33 @@ def main(argv):
                 rng_key_train,
             )
 
-        # logging.T = time.time()
-        # logging.training_progress(epoch, params, state, rng_key_test)
-        # logging.training_progress_large(epoch, params, state, x_batch, y_batch, prior_mean, prior_cov, inducing_inputs, rng_key_test)
+            pdb.set_trace()
 
-        # logging.log_training_progress(
-        #     epoch, params, state, x_batch, y_batch, x_test, y_test, x_ood,
-        #     prior_mean, prior_cov, inducing_inputs, rng_key_test
-        # )
-        #
-        # logging.log_training_metrics(
-        #     epoch, x_batch, y_batch, x_test, y_test, x_ood, y_ood, inducing_inputs,
-        #     params, state, prior_mean, prior_cov, rng_key_test
-        # )
+            # compute metrics
+            features, labels = features_and_labels
+            metrics['train/loss'].update_state(-additional_info["elbo"].item())
+            metrics['train/negative_log_likelihood'].update_state(
+                -additional_info["log_likelihood"].item())
+            _, rng_key_eval = jax.random.split(rng_key_train)
+            _, probs, _ = model.predict_y_multisample(
+                params=params, state=state,
+                inputs=features, rng_key=rng_key_eval, n_samples=1,
+                is_training=False
+            )
+            probs_of_labels = probs[:, 1]
+            metrics['train/accuracy'].update_state(labels, probs_of_labels)
+            metrics['train/auprc'].update_state(labels, probs_of_labels)
+            metrics['train/auroc'].update_state(labels, probs_of_labels)
+
+            if not use_tpu:
+                metrics['train/ece'].add_batch(probs_of_labels, label=labels)
+
+        log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
+
+        T0 = time.time()
+        print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
+
+
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ import logging
 
 from tqdm import tqdm
 
+from baselines.diabetic_retinopathy_detection.utils import load_input_shape
+
 try:
     import uncertainty_baselines as ub
 except:
@@ -27,19 +29,24 @@ def load_data(
     n_batches: int = None,
 ):
     # SELECT TRAINING AND TEST DATA LOADERS
-    (_, output_dim, trainloader, x_train, _, _, _,) = get_diabetic_retinopathy(
+    (
+        dataset_train,
+        dataset_validation,
+        dataset_test,
+        output_dim,
+        n_train,
+    ) = get_diabetic_retinopathy(
         train_batch_size=batch_size,
         data_dir=data_dir,
         n_batches=n_batches,
         use_validation=use_validation,
         eval_batch_size=eval_batch_size,
     )
+    input_shape = load_input_shape(dataset_train=dataset_train)
+    input_shape = [1] + input_shape
 
-    n_train = x_train.shape[0]
-    input_shape = list(x_train.shape)
-    input_shape[0] = 1
     return (
-        trainloader,
+        dataset_train,
         input_shape,
         output_dim,
         n_train,
@@ -49,14 +56,13 @@ def load_data(
 def get_diabetic_retinopathy(
     train_batch_size, eval_batch_size, data_dir, use_validation, n_batches=None
 ):
-    image_dim = 128
     output_dim = 2
     # input_shape = [1, image_dim, image_dim, 3]
 
     dataset_train_builder = ub.datasets.get(
         "diabetic_retinopathy_detection", split="train", data_dir=data_dir
     )
-    trainloader = dataset_train_builder.load(batch_size=train_batch_size)
+    dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
 
     dataset_validation_builder = ub.datasets.get(
         "diabetic_retinopathy_detection",
@@ -65,52 +71,33 @@ def get_diabetic_retinopathy(
         is_training=not use_validation,
     )
     validation_batch_size = eval_batch_size if use_validation else train_batch_size
-    valloader = dataset_validation_builder.load(batch_size=validation_batch_size)
+    dataset_validation = dataset_validation_builder.load(
+        batch_size=validation_batch_size
+    )
     if not use_validation:
-        trainloader = trainloader.concatenate(valloader)
+        dataset_train = dataset_train.concatenate(dataset_validation)
 
     dataset_test_builder = ub.datasets.get(
         "diabetic_retinopathy_detection", split="test", data_dir=data_dir
     )
-    testloader = dataset_test_builder.load(batch_size=eval_batch_size)
+    dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
 
     print("Loading diabetic retinopathy dataset. This may take a few minutes.")
-    train_iterator = iter(trainloader)
     ds_info = tfds.builder("diabetic_retinopathy_detection").info
-    loader_n_batches = ds_info.splits["train"].num_examples // train_batch_size
-    loader_n_batches = loader_n_batches if n_batches is None else n_batches
+    n_train = ds_info.splits["train"].num_examples
 
     logging.info("Finish getting data iterators")
-    for i in tqdm(range(loader_n_batches), desc="loading data"):
-        start = time()
-        data = next(train_iterator)
-        print(f"it takes {time() - start:.2f} seconds")
-        if i == 0:
-            x_train = data["features"]._numpy().transpose(0, 3, 1, 2)
-            y_train = data["labels"]._numpy()
-        else:
-            x_train = np.concatenate(
-                [x_train, data["features"]._numpy().transpose(0, 3, 1, 2)], 0
-            )
-            y_train = np.concatenate([y_train, data["labels"]._numpy()], 0)
-
-    x_train = x_train.transpose(0, 2, 3, 1)
-    train_dataset = seqtools.collate([x_train, y_train])
-    trainloader = seqtools.batch(train_dataset, train_batch_size, collate_fn=collate_fn)
-
-    test_iterator = iter(testloader)
-    data = next(test_iterator)
-    x_test = data["features"]._numpy()
-    y_test = _one_hot(data["labels"]._numpy(), output_dim)
+    # for i in tqdm(range(loader_n_batches), desc="loading data"):
+    #     # start = time()
+    #     data = next(train_iterator)
+    # print(f"it takes {time() - start:.2f} seconds")
 
     return (
-        image_dim,
+        dataset_train,
+        dataset_validation,
+        dataset_test,
         output_dim,
-        trainloader,
-        x_train,
-        y_train,
-        x_test,
-        y_test,
+        n_train,
     )
 
 

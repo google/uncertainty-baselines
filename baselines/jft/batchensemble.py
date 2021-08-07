@@ -170,6 +170,7 @@ def main(_):
       batch_size=batch_size_per_host,
       preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
       shuffle_buffer_size=config.shuffle_buffer_size,
+      shuffle_files=True,
       cache=False)
   steps_per_epoch = input_pipeline.get_num_examples(
       config.dataset, config.train_split,

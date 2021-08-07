@@ -140,41 +140,9 @@ class Training:
         init_fn, apply_fn = model.forward
         # INITIALIZE NETWORK STATE + PARAMETERS
         x_init = jnp.ones(self.input_shape)
-        if 'mlp' in self.model_type:
-            x_init = x_init.reshape([x_init.shape[0], -1])
         params_init, state = init_fn(
             rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
         )
-
-        if self.map_initialization:
-            params_log_var_init = hk.data_structures.filter(predicate_var, params_init)
-
-            if "fashionmnist" in self.data_training:
-                filename_params = "saved_models/fashionmnist/map/params_pickle_map_fashionmnist"
-            elif "cifar" in self.data_training:
-                if "resnet" not in self.architecture:
-                    filename_params = "saved_models/cifar10/map/params_pickle_map_cifar10"
-                else:
-                    filename_params = "saved_models/cifar10/map/params_pickle_map_cifar10_resnet_01"
-                    filename_state = "saved_models/cifar10/map/state_pickle_map_cifar10_resnet_01"
-                    # filename_params = "saved_models/cifar10/fsvi/params_pickle_fsvi_cifar10_resnet_linear_model_01"
-                    # filename_state = "saved_models/cifar10/fsvi/state_pickle_fsvi_cifar10_resnet_linear_model_01"
-            else:
-                raise ValueError("MAP parameter file not found.")
-
-            # TODO: use absolute path instead of letting it depend on working directory?
-            params_trained = np.load(filename_params, allow_pickle=True)
-            if "resnet" in self.architecture:
-                state = np.load(filename_state, allow_pickle=True)
-
-            params_mean_trained = hk.data_structures.filter(predicate_mean, params_trained)
-            params_batchnorm_trained = hk.data_structures.filter(
-                predicate_batchnorm, params_trained
-            )
-
-            params_init = hk.data_structures.merge(
-                params_mean_trained, params_log_var_init, params_batchnorm_trained
-            )
 
         return model, init_fn, apply_fn, state, params_init
 
@@ -252,9 +220,7 @@ class Training:
         )
 
     def _compose_model(self) -> Model:
-        if "mlp" in self.model_type:
-            network_class = MLP
-        elif "cnn" or "resnet" in self.model_type:
+        if "cnn" or "resnet" in self.model_type:
             network_class = CNN
         else:
             raise ValueError("Invalid network type.")
@@ -332,27 +298,7 @@ class Training:
         if "fsvi" in self.model_type:
             if prediction_type == "classification":
                 loss = metrics.nelbo_fsvi_classification
-            if prediction_type == "regression":
-                loss = metrics.nelbo_fsvi_regression
             kl_evaluation = metrics.function_kl
-        elif "mfvi" in self.model_type:
-            if prediction_type == "classification":
-                loss = metrics.nelbo_mfvi_classification
-            if prediction_type == "regression":
-                loss = metrics.nelbo_mfvi_regression
-            kl_evaluation = metrics.parameter_kl
-        elif "map" in self.model_type or "dropout" in self.model_type:
-            if prediction_type == "classification":
-                if "fsmap" in self.model_type:
-                    loss = metrics.fsmap_loss_classification
-                else:
-                    loss = metrics.map_loss_classification
-            elif prediction_type == "regression":
-                if "fsmap" in self.model_type:
-                    loss = metrics.fsmap_loss_classification
-                else:
-                    loss = metrics.map_loss_regression
-            kl_evaluation = None
         else:
             raise ValueError("No loss specified.")
         return loss, kl_evaluation
@@ -388,15 +334,10 @@ class Training:
     def _compose_evaluation_metrics(
         self, prediction_type: str, metrics: Objectives
     ) -> Tuple[Callable, Callable, Callable]:
-        assert "continual_learning" not in self.data_training, "This method is deprecated for continual learning"
         if prediction_type == "classification":
             nll_grad_evaluation = metrics.nll_loss_classification
             task_evaluation = metrics.accuracy
             log_likelihood_evaluation = metrics._crossentropy_log_likelihood
-        elif prediction_type == "regression":
-            task_evaluation = None  # TODO: implement MSE evaluation
-            nll_grad_evaluation = metrics.nll_loss_regression
-            log_likelihood_evaluation = metrics._gaussian_log_likelihood
         else:
             raise ValueError(f"Unrecognized prediction_type: {prediction_type}")
         return log_likelihood_evaluation, nll_grad_evaluation, task_evaluation

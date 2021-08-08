@@ -305,6 +305,9 @@ def main(argv):
         rng_key=rng_key,
     )
 
+    summary_writer = tf.summary.create_file_writer(
+        os.path.join(FLAGS.output_dir, 'summaries'))
+
     # INITIALIZE KL INPUT FUNCTIONS
     inducing_input_fn, prior_fn = training.kl_input_functions(
         apply_fn=apply_fn,
@@ -468,6 +471,20 @@ def main(argv):
         )
 
         log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
+
+        total_results = {name: metric.result() for name, metric in metrics.items()}
+        # Metrics from Robustness Metrics (like ECE) will return a dict with a
+        # single key/value, instead of a scalar.
+        total_results = {
+            k: (list(v.values())[0] if isinstance(v, dict) else v)
+            for k, v in total_results.items()
+        }
+        with summary_writer.as_default():
+            for name, result in total_results.items():
+                tf.summary.scalar(name, result, step=epoch + 1)
+
+        for metric in metrics.values():
+            metric.reset_states()
 
         T0 = time.time()
         print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")

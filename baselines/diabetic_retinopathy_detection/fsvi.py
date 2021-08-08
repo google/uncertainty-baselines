@@ -253,6 +253,7 @@ def main(argv):
         eval_batch_size=train_batch_size,
         use_validation=FLAGS.use_validation,
     )
+    steps_per_epoch = n_train // train_batch_size
 
     # INITIALIZE TRAINING CLASS
     training = Training(
@@ -361,7 +362,8 @@ def main(argv):
     for epoch in range(FLAGS.epochs):
         t0 = time.time()
 
-        for i, data in tqdm(enumerate(train_iterator), desc="gradient steps..."):
+        for i in tqdm(range(steps_per_epoch), desc="gradient steps..."):
+            data = next(train_iterator)
             rng_key_train, _ = random.split(rng_key_train)
             # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
             features, labels = data["features"]._numpy(), data["labels"]._numpy()

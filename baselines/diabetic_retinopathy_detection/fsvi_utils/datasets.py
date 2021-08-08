@@ -34,6 +34,8 @@ def load_data(
         dataset_test,
         output_dim,
         n_train,
+        n_valid,
+        n_test
     ) = get_diabetic_retinopathy(
         train_batch_size=batch_size,
         data_dir=data_dir,
@@ -45,9 +47,13 @@ def load_data(
 
     return (
         dataset_train,
+        dataset_validation,
+        dataset_test,
         input_shape,
         output_dim,
         n_train,
+        n_valid,
+        n_test
     )
 
 
@@ -85,6 +91,10 @@ def get_diabetic_retinopathy(
     ds_info = tfds.builder("diabetic_retinopathy_detection").info
     n_train = ds_info.splits["train"].num_examples
 
+    n_valid = (
+            ds_info.splits['validation'].num_examples // eval_batch_size)
+    n_test = ds_info.splits['test'].num_examples // eval_batch_size
+
     logging.info("Finish getting data iterators")
     # for i in tqdm(range(loader_n_batches), desc="loading data"):
     #     # start = time()
@@ -97,6 +107,8 @@ def get_diabetic_retinopathy(
         dataset_test,
         output_dim,
         n_train,
+        n_valid,
+        n_test
     )
 
 

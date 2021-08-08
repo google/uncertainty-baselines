@@ -15,6 +15,7 @@ from tensorflow_probability.substrates import jax as tfp
 import tensorflow as tf
 from tqdm import tqdm
 
+from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk
 from baselines.diabetic_retinopathy_detection.utils import log_epoch_metrics
 
 abspath = os.path.abspath(__file__)
@@ -116,7 +117,9 @@ flags.DEFINE_float("tau", default=1.0, help="Likelihood precision (default: 1)")
 flags.DEFINE_float("noise_std", default=1.0, help="Likelihood variance (default: 1)")
 
 flags.DEFINE_list(
-    "inducing_inputs_bound", default="-1.,1.", help="Inducing point range (default: [-1, 1])"
+    "inducing_inputs_bound",
+    default="-1.,1.",
+    help="Inducing point range (default: [-1, 1])",
 )
 
 flags.DEFINE_integer(
@@ -166,14 +169,10 @@ flags.DEFINE_string(
     help="The subdirectory in logroot/runs/ corresponding to this run",
 )
 flags.DEFINE_integer(
-    "loader_n_batches",
-    None,
-    "Number of batches to use",
+    "loader_n_batches", None, "Number of batches to use",
 )
 flags.DEFINE_integer(
-    "eval_batch_size",
-    32,
-    "Number of batches for evaluation",
+    "eval_batch_size", 32, "Number of batches for evaluation",
 )
 
 # new flags copied from deterministic.py
@@ -236,6 +235,7 @@ def main(argv):
     del argv
 
     from jax.lib import xla_bridge
+
     print("*" * 100)
     print("Platform that is used by JAX:", xla_bridge.get_backend().platform)
     print("*" * 100)
@@ -246,14 +246,26 @@ def main(argv):
 
     # LOAD DATA
     train_batch_size = FLAGS.train_batch_size * FLAGS.num_cores
+    eval_batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
 
-    dataset_train, input_shape, output_dim, n_train = datasets.load_data(
+    (
+        dataset_train,
+        dataset_validation,
+        dataset_test,
+        input_shape,
+        output_dim,
+        n_train,
+        n_valid,
+        n_test,
+    ) = datasets.load_data(
         batch_size=train_batch_size,
         data_dir=FLAGS.data_dir,
         eval_batch_size=train_batch_size,
         use_validation=FLAGS.use_validation,
     )
     steps_per_epoch = n_train // train_batch_size
+    steps_per_validation_eval = n_valid // eval_batch_size
+    steps_per_test_eval = n_test // eval_batch_size
 
     # INITIALIZE TRAINING CLASS
     training = Training(
@@ -278,7 +290,7 @@ def main(argv):
         opt_state,
         get_trainable_params,
         get_variational_and_model_params,
-        metrics,
+        objectives,
         loss,
         kl_evaluation,
         log_likelihood_evaluation,
@@ -306,17 +318,17 @@ def main(argv):
 
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
     metrics = utils.get_diabetic_retinopathy_base_metrics(
-        use_tpu=use_tpu,
-        num_bins=FLAGS.num_bins,
-        use_validation=FLAGS.use_validation)
+        use_tpu=use_tpu, num_bins=FLAGS.num_bins, use_validation=FLAGS.use_validation
+    )
     # Define metrics outside the accelerator scope for CPU eval.
     # This will cause an error on TPU.
     if not use_tpu:
         metrics.update(
             utils.get_diabetic_retinopathy_cpu_metrics(
-                use_validation=FLAGS.use_validation))
-    metrics.update({'test/ms_per_example': tf.keras.metrics.Mean()})
-
+                use_validation=FLAGS.use_validation
+            )
+        )
+    metrics.update({"test/ms_per_example": tf.keras.metrics.Mean()})
 
     @jit
     def update(
@@ -346,8 +358,7 @@ def main(argv):
 
         if FLAGS.num_cores > 1:
             grads_full = tree.map_structure(
-                partial(jax.lax.pmean, axis_name="i"),
-                grads_full
+                partial(jax.lax.pmean, axis_name="i"), grads_full
             )
 
         updates, opt_state = opt.update(grads_full, opt_state)
@@ -362,7 +373,7 @@ def main(argv):
     for epoch in range(FLAGS.epochs):
         t0 = time.time()
 
-        for i in tqdm(range(steps_per_epoch), desc="gradient steps..."):
+        for _ in tqdm(range(steps_per_epoch), desc="gradient steps..."):
             data = next(train_iterator)
             rng_key_train, _ = random.split(rng_key_train)
             # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
@@ -371,51 +382,90 @@ def main(argv):
                 (features, labels), output_dim, input_shape, prediction_type
             )
             inducing_inputs = inducing_input_fn(
-                x_batch,
-                rng_key_train,
-                FLAGS.num_cores * FLAGS.n_inducing_inputs
+                x_batch, rng_key_train, FLAGS.num_cores * FLAGS.n_inducing_inputs
             )
 
             if FLAGS.num_cores > 1:
-                x_batch, y_batch, inducing_inputs = list(map(
-                    lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:]),
-                    [x_batch, y_batch, inducing_inputs]))
+                x_batch, y_batch, inducing_inputs = list(
+                    map(
+                        lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:]),
+                        [x_batch, y_batch, inducing_inputs],
+                    )
+                )
                 keys = jax.random.split(rng_key_train, num=FLAGS.num_cores)
-                update_to_use = jax.pmap(update, axis_name="i",
-                                         in_axes=(None, None, None, 0, 0, 0, 0))
+                update_to_use = jax.pmap(
+                    update, axis_name="i", in_axes=(None, None, None, 0, 0, 0, 0)
+                )
             else:
                 update_to_use = update
                 keys = rng_key_train
 
             params, opt_state, state, additional_info = update_to_use(
-                params,
-                state,
-                opt_state,
-                x_batch,
-                y_batch,
-                inducing_inputs,
-                keys,
+                params, state, opt_state, x_batch, y_batch, inducing_inputs, keys,
             )
 
             # TODO: in case num_cores>1, I need to deal with multiple copies of returned data
 
             # compute metrics
-            metrics['train/loss'].update_state(-additional_info["elbo"].item())
-            metrics['train/negative_log_likelihood'].update_state(
-                -additional_info["log_likelihood"].item())
+            metrics["train/loss"].update_state(-additional_info["elbo"].item())
+            metrics["train/negative_log_likelihood"].update_state(
+                -additional_info["log_likelihood"].item()
+            )
             _, rng_key_eval = jax.random.split(rng_key_train)
             _, probs, _ = model.predict_y_multisample(
-                params=params, state=state,
-                inputs=features, rng_key=rng_key_eval, n_samples=1,
-                is_training=False
+                params=params,
+                state=state,
+                inputs=features,
+                rng_key=rng_key_eval,
+                n_samples=1,
+                is_training=False,
             )
             probs_of_labels = probs[:, 1]
-            metrics['train/accuracy'].update_state(labels, probs_of_labels)
-            metrics['train/auprc'].update_state(labels, probs_of_labels)
-            metrics['train/auroc'].update_state(labels, probs_of_labels)
+            metrics["train/accuracy"].update_state(labels, probs_of_labels)
+            metrics["train/auprc"].update_state(labels, probs_of_labels)
+            metrics["train/auroc"].update_state(labels, probs_of_labels)
 
             if not use_tpu:
-                metrics['train/ece'].add_batch(probs_of_labels, label=labels)
+                metrics["train/ece"].add_batch(probs_of_labels, label=labels)
+
+            # TODO: remove
+            break
+
+        # evaluation on validation set
+        if FLAGS.use_validation:
+            _, rng_key_test = jax.random.split(rng_key_test)
+            evaluate_on_valid_or_test(
+                dataset_split="validation",
+                metrics=metrics,
+                model=model,
+                params=params,
+                state=state,
+                data_iterator=iter(dataset_validation),
+                num_steps=steps_per_validation_eval,
+                rng_key=rng_key_test,
+                use_tpu=use_tpu,
+                objectives=objectives,
+                output_dim=output_dim,
+                input_shape=input_shape,
+                prediction_type=prediction_type,
+            )
+        # evaluation on test set
+        _, rng_key_test = jax.random.split(rng_key_test)
+        evaluate_on_valid_or_test(
+            dataset_split="test",
+            metrics=metrics,
+            model=model,
+            params=params,
+            state=state,
+            data_iterator=iter(dataset_test),
+            num_steps=steps_per_test_eval,
+            rng_key=rng_key_test,
+            use_tpu=use_tpu,
+            objectives=objectives,
+            output_dim=output_dim,
+            input_shape=input_shape,
+            prediction_type=prediction_type,
+        )
 
         log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
 
@@ -423,6 +473,52 @@ def main(argv):
         print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
 
 
+def evaluate_on_valid_or_test(
+    dataset_split: str,
+    metrics,
+    model,
+    params,
+    state,
+    data_iterator,
+    num_steps,
+    rng_key,
+    use_tpu: bool,
+    objectives: Objectives_hk,
+    output_dim,
+    input_shape,
+    prediction_type,
+):
+    for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
+        data = next(data_iterator)
+        features, labels = data["features"]._numpy(), data["labels"]._numpy()
+        _, y_batch = get_minibatch(
+            (features, labels), output_dim, input_shape, prediction_type
+        )
+        _, rng_key = jax.random.split(rng_key)
+        preds_f_samples, preds_f_mean, preds_f_var = model.predict_f_multisample(
+            params=params,
+            state=state,
+            inputs=features,
+            rng_key=rng_key,
+            n_samples=1,
+            is_training=False,
+        )
+        log_likelihood = objectives.crossentropy_log_likelihood(
+            preds_f_samples=preds_f_samples, targets=y_batch,
+        )
+        probs = jax.nn.softmax(preds_f_mean, axis=-1)
+        probs_of_labels = probs[:, 1]
+
+        metrics[dataset_split + "/negative_log_likelihood"].update_state(
+            -log_likelihood
+        )
+        metrics[dataset_split + "/accuracy"].update_state(labels, probs_of_labels)
+        metrics["test/accuracy"].update_state(labels, probs_of_labels)
+        metrics[dataset_split + "/auprc"].update_state(labels, probs_of_labels)
+        metrics[dataset_split + "/auroc"].update_state(labels, probs_of_labels)
+
+        if not use_tpu:
+            metrics[dataset_split + "/ece"].add_batch(probs, label=probs_of_labels)
 
 
 if __name__ == "__main__":

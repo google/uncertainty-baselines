@@ -2,10 +2,12 @@ import os
 import pdb
 import pickle
 import time
+from functools import partial
 
 import haiku as hk
 import jax
 import optax
+import tree
 from absl import app, flags
 from jax import jit
 from jax import random
@@ -76,7 +78,7 @@ flags.DEFINE_integer(
 )
 
 flags.DEFINE_integer(
-    "batch_size",
+    "train_batch_size",
     default=100,
     help="Per-core batch size to use for training (default: 100)",
 )
@@ -143,6 +145,7 @@ flags.DEFINE_bool(
     "stochastic_linearization", default=False, help="Stochastic linearization"
 )
 
+# TODO: remove this option
 flags.DEFINE_bool("batch_normalization", default=False, help="Batch normalization")
 
 flags.DEFINE_bool("linear_model", default=False, help="Linear model")
@@ -202,7 +205,7 @@ flags.DEFINE_integer("num_bins", 15, "Number of bins for ECE.")
 flags.DEFINE_bool("force_use_cpu", False, "If True, force usage of CPU")
 flags.DEFINE_bool("use_gpu", True, "Whether to run on GPU or otherwise TPU.")
 flags.DEFINE_bool("use_bfloat16", False, "Whether to use mixed precision.")
-flags.DEFINE_integer("num_cores", 8, "Number of TPU cores or number of GPUs.")
+flags.DEFINE_integer("num_cores", 1, "Number of TPU cores or number of GPUs.")
 flags.DEFINE_string(
     "tpu",
     None,
@@ -231,16 +234,23 @@ def get_dict_of_flags():
 
 def main(argv):
     del argv
+
+    from jax.lib import xla_bridge
+    print("*" * 100)
+    print("Platform that is used by JAX:", xla_bridge.get_backend().platform)
+    print("*" * 100)
+
     process_args()
     kh = initialize_random_keys(seed=FLAGS.seed)
     rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 
     # LOAD DATA
+    train_batch_size = FLAGS.train_batch_size * FLAGS.num_cores
+
     dataset_train, input_shape, output_dim, n_train = datasets.load_data(
-        batch_size=FLAGS.batch_size,
+        batch_size=train_batch_size,
         data_dir=FLAGS.data_dir,
-        n_batches=FLAGS.loader_n_batches,
-        eval_batch_size=FLAGS.eval_batch_size,
+        eval_batch_size=train_batch_size,
         use_validation=FLAGS.use_validation,
     )
 
@@ -249,9 +259,10 @@ def main(argv):
         input_shape=input_shape,
         output_dim=output_dim,
         n_train=n_train,
-        n_batches=n_train // FLAGS.batch_size,
+        n_batches=n_train // train_batch_size,
         full_ntk=False,
         # TODO: is there a better way than this?
+        batch_size=train_batch_size,
         **get_dict_of_flags(),
     )
 
@@ -331,6 +342,13 @@ def main(argv):
         zero_grads = jax.tree_map(lambda x: x * 0.0, non_trainable_params)
         grads = jax.tree_map(lambda x: x * 1.0, grads)
         grads_full = hk.data_structures.merge(grads, zero_grads)
+
+        if FLAGS.num_cores > 1:
+            grads_full = tree.map_structure(
+                partial(jax.lax.pmean, axis_name="i"),
+                grads_full
+            )
+
         updates, opt_state = opt.update(grads_full, opt_state)
         new_params = optax.apply_updates(params, updates)
         params = new_params
@@ -346,26 +364,40 @@ def main(argv):
         for i, data in tqdm(enumerate(train_iterator), desc="gradient steps..."):
             rng_key_train, _ = random.split(rng_key_train)
             # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
-            features_and_labels = data["features"]._numpy(), data["labels"]._numpy()
+            features, labels = data["features"]._numpy(), data["labels"]._numpy()
             x_batch, y_batch = get_minibatch(
-                features_and_labels, output_dim, input_shape, prediction_type
+                (features, labels), output_dim, input_shape, prediction_type
             )
-            inducing_inputs = inducing_input_fn(x_batch, rng_key_train)
+            inducing_inputs = inducing_input_fn(
+                x_batch,
+                rng_key_train,
+                FLAGS.num_cores * FLAGS.n_inducing_inputs
+            )
 
-            params, opt_state, state, additional_info = update(
+            if FLAGS.num_cores > 1:
+                x_batch, y_batch, inducing_inputs = list(map(
+                    lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:]),
+                    [x_batch, y_batch, inducing_inputs]))
+                keys = jax.random.split(rng_key_train, num=FLAGS.num_cores)
+                update_to_use = jax.pmap(update, axis_name="i",
+                                         in_axes=(None, None, None, 0, 0, 0, 0))
+            else:
+                update_to_use = update
+                keys = rng_key_train
+
+            params, opt_state, state, additional_info = update_to_use(
                 params,
                 state,
                 opt_state,
                 x_batch,
                 y_batch,
                 inducing_inputs,
-                rng_key_train,
+                keys,
             )
 
-            pdb.set_trace()
+            # TODO: in case num_cores>1, I need to deal with multiple copies of returned data
 
             # compute metrics
-            features, labels = features_and_labels
             metrics['train/loss'].update_state(-additional_info["elbo"].item())
             metrics['train/negative_log_likelihood'].update_state(
                 -additional_info["log_likelihood"].item())

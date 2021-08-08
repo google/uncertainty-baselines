@@ -28,7 +28,6 @@ class Objectives_hk:
         predict_y_multisample_jitted,
         output_dim,
         kl_scale: str,
-        n_batches,
         predict_f_multisample,
         predict_f_multisample_jitted,
         noise_std,
@@ -53,7 +52,6 @@ class Objectives_hk:
         self.kl_scale = kl_scale
         self.regularization = regularization
         self.noise_std = noise_std
-        self.n_batches = n_batches
         self.n_samples = n_samples
         self.full_cov = full_cov
         self.prior_type = prior_type

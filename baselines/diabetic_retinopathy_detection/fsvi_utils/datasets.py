@@ -26,7 +26,6 @@ def load_data(
     use_validation: bool,
     data_dir="/scratch/data/diabetic-retinopathy-detection",
     eval_batch_size: int = None,
-    n_batches: int = None,
 ):
     # SELECT TRAINING AND TEST DATA LOADERS
     (
@@ -38,7 +37,6 @@ def load_data(
     ) = get_diabetic_retinopathy(
         train_batch_size=batch_size,
         data_dir=data_dir,
-        n_batches=n_batches,
         use_validation=use_validation,
         eval_batch_size=eval_batch_size,
     )
@@ -54,7 +52,7 @@ def load_data(
 
 
 def get_diabetic_retinopathy(
-    train_batch_size, eval_batch_size, data_dir, use_validation, n_batches=None
+    train_batch_size, eval_batch_size, data_dir, use_validation
 ):
     output_dim = 2
     # input_shape = [1, image_dim, image_dim, 3]
@@ -67,6 +65,7 @@ def get_diabetic_retinopathy(
     dataset_validation_builder = ub.datasets.get(
         "diabetic_retinopathy_detection",
         split="validation",
+
         data_dir=data_dir,
         is_training=not use_validation,
     )

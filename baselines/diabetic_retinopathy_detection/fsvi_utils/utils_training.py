@@ -105,7 +105,6 @@ class Training:
         self.n_batches = n_batches
         self.n_train = n_train
         self.batch_size = batch_size
-        self.n_batches = n_batches
         self.inducing_inputs_bound = inducing_inputs_bound
         self.n_inducing_inputs = n_inducing_inputs
         self.noise_std = noise_std
@@ -321,7 +320,6 @@ class Training:
             kl_scale=self.kl_scale,
             full_cov=self.full_cov,
             n_samples=self.n_samples,
-            n_batches=self.n_batches,
             output_dim=self.output_dim,
             noise_std=self.noise_std,
             prior_type=self.prior_type,

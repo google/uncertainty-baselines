@@ -1,7 +1,9 @@
+import logging
 import os
 import pdb
 import pickle
 import time
+import types
 from functools import partial
 
 import haiku as hk
@@ -14,6 +16,7 @@ from jax import random
 from tensorflow_probability.substrates import jax as tfp
 import tensorflow as tf
 from tqdm import tqdm
+from tensorboard.plugins.hparams import api as hp
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk
 from baselines.diabetic_retinopathy_detection.utils import log_epoch_metrics
@@ -280,7 +283,7 @@ def main(argv):
     )
 
     # INITIALIZE MODEL
-    (model, init_fn, apply_fn, state, params) = training.initialize_model(
+    (model, _, apply_fn, state, params) = training.initialize_model(
         rng_key=rng_key
     )
 
@@ -306,7 +309,20 @@ def main(argv):
     )
 
     summary_writer = tf.summary.create_file_writer(
-        os.path.join(FLAGS.output_dir, 'summaries'))
+        os.path.join(FLAGS.output_dir, "summaries")
+    )
+
+    latest_checkpoint = get_latest_checkpoint(FLAGS.output_dir)
+    initial_epoch = 0
+    if latest_checkpoint:
+        with tf.io.gfile.GFile(latest_checkpoint, mode="rb") as f:
+            chkpt = pickle.load(f)
+        # TODO: need to validate the chkpt has compatible hyperparameters, such as
+        # the type of the model, optimizer
+        state, params, opt_state = chkpt["state"], chkpt["params"], chkpt["opt_state"]
+
+        logging.info('Loaded checkpoint %s', latest_checkpoint)
+        initial_epoch = chkpt["epoch"] + 1
 
     # INITIALIZE KL INPUT FUNCTIONS
     inducing_input_fn, prior_fn = training.kl_input_functions(
@@ -376,7 +392,7 @@ def main(argv):
     for epoch in range(FLAGS.epochs):
         t0 = time.time()
 
-        for _ in tqdm(range(steps_per_epoch), desc="gradient steps..."):
+        for _ in tqdm(range(initial_epoch, steps_per_epoch), desc="gradient steps..."):
             data = next(train_iterator)
             rng_key_train, _ = random.split(rng_key_train)
             # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
@@ -488,6 +504,58 @@ def main(argv):
 
         T0 = time.time()
         print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
+
+        if (
+            FLAGS.checkpoint_interval > 0
+            and (epoch + 1) % FLAGS.checkpoint_interval == 0
+        ):
+            hparams = {
+                k: v
+                for k, v in get_dict_of_flags().items()
+                if not isinstance(v, types.GeneratorType)
+            }
+            to_save = {
+                "params": params,
+                "state": state,
+                # TODO: improve this way of saving hyperparameters
+                # TODO: figure out why the figsize has type generator
+                "hparams": hparams,
+                "opt_state": opt_state,
+                "epoch": epoch,
+            }
+            # Also save Keras model, due to checkpoint.save issue
+            chkpt_name = os.path.join(FLAGS.output_dir, f"chkpt_{epoch + 1}")
+            with tf.io.gfile.GFile(chkpt_name, mode="wb") as f:
+                pickle.dump(to_save, f)
+            logging.info("Saved checkpoint to %s", chkpt_name)
+
+
+    to_save = {
+        "params": params,
+        "state": state,
+        # TODO: improve this way of saving hyperparameters
+        # TODO: figure out why the figsize has type generator
+        "hparams": hparams,
+        "opt_state": opt_state,
+        "epoch": epoch,
+    }
+    final_checkpoint_name = os.path.join(FLAGS.output_dir, 'final_checkpoint')
+    with tf.io.gfile.GFile(final_checkpoint_name, mode="wb") as f:
+        pickle.dump(to_save, f)
+    logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+
+    with summary_writer.as_default():
+        hp.hparams({
+            'learning_rate': FLAGS.learning_rate,
+        })
+
+
+def get_latest_checkpoint(path):
+    chkpts = [f for f in tf.io.gfile.listdir(path) if "chkpt_" in f]
+    if chkpts:
+        latest = max(chkpts, key=lambda x: int(x.split("_")[1]))
+        return os.path.join(path, latest)
+
 
 
 def evaluate_on_valid_or_test(

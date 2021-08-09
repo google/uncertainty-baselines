@@ -50,7 +50,10 @@ class VisionTransformerGaussianProcess(nn.Module):
     # pylint:enable=not-a-mapping
 
   @nn.compact
-  def __call__(self, inputs: Array, train: bool,
+  def __call__(self,
+               inputs: Array,
+               train: bool,
+               mean_field_factor: float = -1.,
                **gp_kwargs) -> Tuple[Array, Mapping[str, Any]]:
     x_vit, out = self.vit_backbone(inputs=inputs, train=train)
     if not self.use_gp_layer:
@@ -77,7 +80,15 @@ class VisionTransformerGaussianProcess(nn.Module):
     if len(x_gp) > 2:
       out['random_features'] = x_gp[2]
 
-    return x_gp[0], out
+    if not train:
+      # During inference, compute posterior mean by adjusting posterior-mode
+      # logits prediction with predictive uncertainty.
+      logits = ed.nn.utils.mean_field_logits(
+          logits=x_gp[0], covmat=x_gp[1], mean_field_factor=mean_field_factor)
+    else:
+      logits = x_gp[0]
+
+    return logits, out
 
 
 def vision_transformer_gp(num_classes: int, use_gp_layer: bool,

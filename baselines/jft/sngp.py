@@ -289,7 +289,11 @@ def main(argv):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
     variable_dict = {'params': flax.core.freeze(params), **states}
-    logits, _ = model.apply(variable_dict, images, train=False)
+    logits, _ = model.apply(
+        variable_dict,
+        images,
+        train=False,
+        mean_field_factor=gp_config.get('mean_field_factor', -1.))
 
     losses = getattr(u, config.get('loss', 'sigmoid_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -306,7 +310,11 @@ def main(argv):
   @partial(jax.pmap, axis_name='batch')
   def representation_fn(params, images, labels, mask, states):
     variable_dict = {'params': flax.core.freeze(params), **states}
-    _, outputs = model.apply(variable_dict, images, train=False)
+    _, outputs = model.apply(
+        variable_dict,
+        images,
+        train=False,
+        mean_field_factor=gp_config.get('mean_field_factor', -1.))
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -323,9 +331,8 @@ def main(argv):
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
   @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
-  def update_fn(opt, states, lr, images, labels, rng):
+  def update_fn(opt, states, lr, reset_covmat, images, labels, rng):
     """Update step."""
-    # TODO(jereliu): Expand to allow precision matrix resetting.
     measurements = {}
 
     if config.get('mixup') and config.mixup.p:
@@ -343,12 +350,30 @@ def main(argv):
           images,
           train=True,
           rngs={'dropout': rng_model_local},
-          mutable=list(states.keys()))
+          mutable=list(states.keys()),
+          mean_field_factor=gp_config.get('mean_field_factor', -1.))
 
       logits, _ = model_results
       loss = getattr(u, config.get('loss', 'sigmoid_xent'))(
           logits=logits, labels=labels)
       return loss, updated_states
+
+    # Performs exact covariance update (i.e., reset precision matrix resetting
+    # at begining of new epoch) if covmat_momentum is a null value.
+    if gp_config.get('covmat_momentum', -1.) < 0:
+      # Resets precision matrix to Identity * ridge_penalty if at the begining
+      # of a new epoch. This should be done before accumulate gradient.
+      ridge_penalty = gp_config.get('ridge_penalty', 1.)
+      prec_mat_old = states['laplace_covariance']['head']['covmat_layer'][
+          'precision_matrix']
+      prec_mat_new = (
+          (1. - reset_covmat) * prec_mat_old +
+          reset_covmat * jnp.eye(prec_mat_old.shape[0]) * ridge_penalty)
+
+      states = flax.core.unfreeze(states)
+      states['laplace_covariance']['head']['covmat_layer'][
+          'precision_matrix'] = prec_mat_new
+      states = flax.core.freeze(states)
 
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
@@ -442,6 +467,12 @@ def main(argv):
   lr_iter = u.prefetch_scalar(map(lr_fn, range(first_step, total_steps)),
                               config.get('prefetch_to_device', 1))
 
+  # Prepare the precision matrix resetting schedule, and pre-fetch it to device.
+  reset_covmat_fn = lambda step: float(step % steps_per_epoch == 0)
+  reset_covmat_iter = u.prefetch_scalar(
+      map(reset_covmat_fn, range(first_step, total_steps)),
+      nprefetch=config.get('prefetch_to_device', 1))
+
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
   states_repl = flax_utils.replicate(states_cpu)
@@ -465,8 +496,9 @@ def main(argv):
   write_note(f'First step compilations...\n{chrono.note}')
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
-  for step, train_batch, lr_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
+  for step, train_batch, lr_repl, reset_covmat_repl in zip(
+      range(first_step + 1, total_steps + 1), train_iter, lr_iter,
+      reset_covmat_iter):
     mw.step_start(step)
 
     with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
@@ -476,6 +508,7 @@ def main(argv):
            opt_repl,
            states_repl,
            lr_repl,
+           reset_covmat_repl,
            train_batch['image'],
            train_batch['labels'],
            rng=rngs_loop)
@@ -493,10 +526,10 @@ def main(argv):
       # We need to transfer the weights over now or else we risk keeping them
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
-      # We will also do the same for untrainable parameters (`states`). This is
-      # ok since `random features` are frozen throughout pre-training, and
-      # `predictive covariance` are irrelevant for downstream finetuning and
-      # will be discarded anyway.
+      # For GP layer, we will also do the same for untrainable parameters
+      # (`states`). This is ok since `random features` are frozen throughout
+      # pre-training, and `precision matrix` is a finetuning-specific parameters
+      # that will be re-learned in the finetuning task.
       opt_cpu = jax.tree_map(lambda x: np.array(x[0]), opt_repl)
       states_cpu = jax.tree_map(lambda x: np.array(x[0]), states_repl)
 

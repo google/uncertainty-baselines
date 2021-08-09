@@ -27,7 +27,6 @@ from clu import parameter_overview
 from clu import periodic_actions
 import flax
 import flax.jax_utils as flax_utils
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import ml_collections
@@ -72,7 +71,7 @@ def accumulate_gradient_with_states(
     accum_steps):
   """Improved version of `u.accumulate_gradient()` that allows for states."""
   # This function handles the `loss_and_grad_fn` function which takes a state
-  # arguement and returns ((losses, states), grads).
+  # argument and returns ((losses, states), grads).
   if accum_steps and accum_steps > 1:
     assert images.shape[0] % accum_steps == 0, (
         f'Bad accum_steps {accum_steps} for batch size {images.shape[0]}')
@@ -102,27 +101,16 @@ def accumulate_gradient_with_states(
 
 
 def get_gp_kwargs(gp_config):
-  """Extract keyword arguement parameters for the Gaussian process layer."""
-  normalize_input = gp_config.get('normalize_input', True)
-  kernel_stddev = gp_config.get('random_feature_stddev', 1.)
-  feature_scale = gp_config.get('random_feature_scale', -1.)
+  """Extract keyword argument parameters for the Gaussian process layer."""
   covmat_momentum = gp_config.get('covmat_momentum', 0.999)
 
-  logging.info('gp_config.normalize_input = %s', normalize_input)
-  logging.info('gp_config.random_feature_stddev = %s', kernel_stddev)
-  logging.info('gp_config.random_feature_scale = %s', feature_scale)
+  # Extracts model parameter.
   logging.info('gp_config.covmat_momentum = %s', covmat_momentum)
-
-  feature_scale = None if feature_scale < 0. else feature_scale
-  kernel_init = nn.initializers.normal(stddev=kernel_stddev)
-  hidden_kwargs = dict(feature_scale=feature_scale, kernel_init=kernel_init)
+  covmat_momentum = None if covmat_momentum < 0. else covmat_momentum
   covmat_kwargs = dict(momentum=covmat_momentum)
 
-  # Assemble into kwargs dictionary.
-  gp_layer_kwargs = dict(
-      normalize_input=normalize_input,
-      hidden_kwargs=hidden_kwargs,
-      covmat_kwargs=covmat_kwargs)
+  # Assembles into kwargs dictionary.
+  gp_layer_kwargs = dict(covmat_kwargs=covmat_kwargs)
 
   return gp_layer_kwargs
 
@@ -337,7 +325,7 @@ def main(argv):
   @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, states, lr, images, labels, rng):
     """Update step."""
-
+    # TODO(jereliu): Expand to allow precision matrix resetting.
     measurements = {}
 
     if config.get('mixup') and config.mixup.p:
@@ -423,17 +411,17 @@ def main(argv):
                                              checkpoint['states'],
                                              checkpoint['extra'])
   elif config.get('model_init'):
-    write_note(f'Initialize model from {config.model_init}...')
-    raise ValueError(
-        'Load from `config.model_init` checkpoint is currently not supported.')
+    # Load trainable parameters from the checkpoint.
+    # This does not cause issue for SNGP since all non-trainable parameters
+    # (random feature, precision matrix, etc) are last-layer parameters that
+    # should be re-trained during fine-tuning.
+    write_note(f'Initialize trainable parameters from {config.model_init}...')
     # TODO(dusenberrymw): Replace and test load function.
-    # pylint:disable=unreachable
     loaded = resformer.load(params_cpu, config.model_init, config.get('model'))
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')
       parameter_overview.log_parameter_overview(loaded)
-    # pylint:enable=unreachable
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
@@ -482,6 +470,7 @@ def main(argv):
     mw.step_start(step)
 
     with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
+      # TODO(jereliu): Expand to allow precision matrix resetting.
       (opt_repl, states_repl, loss_value, rngs_loop,
        extra_measurements) = update_fn(
            opt_repl,
@@ -505,8 +494,9 @@ def main(argv):
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
       # We will also do the same for untrainable parameters (`states`). This is
-      # ok since both `random features` and `predictive covariance` are frozen
-      # or task-specific parameters that are not important for pre-training.
+      # ok since `random features` are frozen throughout pre-training, and
+      # `predictive covariance` are irrelevant for downstream finetuning and
+      # will be discarded anyway.
       opt_cpu = jax.tree_map(lambda x: np.array(x[0]), opt_repl)
       states_cpu = jax.tree_map(lambda x: np.array(x[0]), states_repl)
 

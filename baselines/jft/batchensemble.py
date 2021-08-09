@@ -38,6 +38,23 @@ import uncertainty_baselines as ub
 import batchensemble_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
+u = None
+ensemble = None
+default_input_pipeline = None
+jft_latest_pipeline = None
+metric_writers = None
+partitioning = None
+train = None
+experts_utils = None
+xprof = None
+core = None
+metrics = None
+ema = None
+pp_builder = None
+config_flags = None
+xm = None
+xm_api = None
+BIG_VISION_DIR = None
 
 
 config_flags.DEFINE_config_file(
@@ -58,7 +75,7 @@ jax.config.parse_flags_with_absl()
 def restore_model_and_put_to_devices(
     config: ml_collections.ConfigDict,
     output_dir: str,
-    partition_specs: Sequence[PartitionSpec],
+    partition_specs: Sequence[partitioning.PartitionSpec],
     model: flax.nn.Module,
     optimizer: flax.optim.Optimizer,
     train_iter: Iterable[Any],

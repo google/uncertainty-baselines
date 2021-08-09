@@ -27,6 +27,7 @@ import jax
 import jax.numpy as jnp
 
 # TODO(dusenberrymw): Open-source remaining imports.
+core = None
 
 
 EvaluationOutput = Tuple[jnp.ndarray, ...]

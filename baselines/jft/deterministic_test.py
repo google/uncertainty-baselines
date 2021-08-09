@@ -16,7 +16,6 @@
 """Tests for the deterministic ViT on JFT-300M model script."""
 import os
 import pathlib
-import shutil
 import tempfile
 
 from absl import flags

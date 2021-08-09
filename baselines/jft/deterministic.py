@@ -34,6 +34,13 @@ import numpy as np
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
 
+fewshot = None
+input_pipeline = None
+resformer = None
+u = None
+pp_builder = None
+xm = None
+xm_api = None
 # TODO(dusenberrymw): Open-source remaining imports.
 
 
@@ -77,11 +84,14 @@ def main(argv):
   # tf.data pipeline not being deterministic even if we would set TF seed.
   rng = jax.random.PRNGKey(config.get('seed', 0))
 
+  xm_xp = None
+  xm_wu = None
   def write_note(note):
     if jax.host_id() == 0:
       logging.info('NOTE: %s', note)
   write_note('Initializing...')
 
+  fillin = lambda *_: None
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'

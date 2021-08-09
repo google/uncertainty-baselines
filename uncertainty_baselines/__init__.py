@@ -48,11 +48,5 @@ def _lazy_import(name):
   return imported
 
 
-for module_name in _IMPORTS:
-  try:
-    _lazy_import(module_name)
-  except ModuleNotFoundError:
-    logging.error(
-        'Skipped importing top level uncertainty_baselines module %s due to '
-        'ModuleNotFoundError:', module_name, exc_info=True)
-
+# Lazily load any top level modules when accessed. Requires Python 3.7.
+__getattr__ = _lazy_import

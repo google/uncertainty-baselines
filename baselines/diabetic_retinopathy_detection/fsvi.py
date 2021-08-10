@@ -263,7 +263,7 @@ def main(argv):
     ) = datasets.load_data(
         batch_size=train_batch_size,
         data_dir=FLAGS.data_dir,
-        eval_batch_size=train_batch_size,
+        eval_batch_size=eval_batch_size,
         use_validation=FLAGS.use_validation,
     )
     steps_per_epoch = n_train // train_batch_size

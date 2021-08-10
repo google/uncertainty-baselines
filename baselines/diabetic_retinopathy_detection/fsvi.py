@@ -574,14 +574,14 @@ def evaluate_on_valid_or_test(
     for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
         data = next(data_iterator)
         features, labels = data["features"]._numpy(), data["labels"]._numpy()
-        _, y_batch = get_minibatch(
+        x_batch, y_batch = get_minibatch(
             (features, labels), output_dim, input_shape, prediction_type
         )
         _, rng_key = jax.random.split(rng_key)
         preds_f_samples, preds_f_mean, preds_f_var = model.predict_f_multisample_jitted(
             params=params,
             state=state,
-            inputs=features,
+            inputs=x_batch,
             rng_key=rng_key,
             n_samples=1,
             is_training=False,

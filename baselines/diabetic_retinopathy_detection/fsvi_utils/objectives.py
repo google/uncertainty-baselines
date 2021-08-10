@@ -4,6 +4,8 @@ from typing import Tuple
 import haiku as hk
 import jax
 import jax.numpy as jnp
+import tree
+from jax.experimental import optimizers
 from jax import jit
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
@@ -205,6 +207,55 @@ class Objectives_hk:
         # elbo = log_likelihood / inputs.shape[0] - scale * kl / inducing_inputs.shape[0]
 
         return elbo, log_likelihood, kl, scale
+
+    @partial(jit, static_argnums=(0,))
+    def map_loss_classification(
+            self,
+            trainable_params,
+            non_trainable_params,
+            state,
+            prior_mean,
+            prior_cov,
+            inputs,
+            targets,
+            inducing_inputs,
+            rng_key,
+    ):
+        return self.objective_and_state(
+            trainable_params,
+            non_trainable_params,
+            state,
+            prior_mean,
+            prior_cov,
+            inputs,
+            targets,
+            inducing_inputs,
+            rng_key,
+            self._map_loss_classification,
+        )
+
+    def _map_loss_classification(
+        self,
+        params,
+        state,
+        prior_mean,
+        prior_cov,
+        inputs,
+        targets,
+        inducing_inputs,
+        rng_key,
+        is_training,
+    ):
+        negative_log_likelihood = self._nll_loss_classification(
+            params, state, inputs, targets, rng_key, is_training,
+        )
+        reg_params = [p for ((mod_name, _), p) in tree.flatten_with_path(params) if 'batchnorm' not in mod_name]
+        loss = (
+            negative_log_likelihood
+            + self.regularization * jnp.square(optimizers.l2_norm(reg_params))
+        )
+        return loss
+
 
     @partial(jit, static_argnums=(0,))
     def crossentropy_log_likelihood(self, preds_f_samples, targets):

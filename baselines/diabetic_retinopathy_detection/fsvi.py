@@ -447,9 +447,6 @@ def main(argv):
             if not use_tpu:
                 metrics["train/ece"].add_batch(probs_of_labels, label=labels)
 
-            # TODO: remove
-            break
-
         # evaluation on validation set
         if FLAGS.use_validation:
             _, rng_key_test = jax.random.split(rng_key_test)

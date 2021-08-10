@@ -427,8 +427,9 @@ def main(argv):
 
             # compute metrics
             metrics["train/loss"].update_state(-additional_info["elbo"].item())
+            log_likelihood_per_input = additional_info["log_likelihood"].item() / y_batch.shape[0]
             metrics["train/negative_log_likelihood"].update_state(
-                -additional_info["log_likelihood"].item()
+                -log_likelihood_per_input
             )
             _, rng_key_eval = jax.random.split(rng_key_train)
             _, probs, _ = model.predict_y_multisample(
@@ -577,7 +578,7 @@ def evaluate_on_valid_or_test(
             (features, labels), output_dim, input_shape, prediction_type
         )
         _, rng_key = jax.random.split(rng_key)
-        preds_f_samples, preds_f_mean, preds_f_var = model.predict_f_multisample(
+        preds_f_samples, preds_f_mean, preds_f_var = model.predict_f_multisample_jitted(
             params=params,
             state=state,
             inputs=features,
@@ -588,11 +589,13 @@ def evaluate_on_valid_or_test(
         log_likelihood = objectives.crossentropy_log_likelihood(
             preds_f_samples=preds_f_samples, targets=y_batch,
         )
+        # to make it comparable to log likelihood reported in other scripts, e.g. deterministic.py
+        log_likelihood_per_input = log_likelihood / y_batch.shape[0]
         probs = jax.nn.softmax(preds_f_mean, axis=-1)
         probs_of_labels = probs[:, 1]
 
         metrics[dataset_split + "/negative_log_likelihood"].update_state(
-            -log_likelihood
+            -log_likelihood_per_input
         )
         metrics[dataset_split + "/accuracy"].update_state(labels, probs_of_labels)
         metrics["test/accuracy"].update_state(labels, probs_of_labels)

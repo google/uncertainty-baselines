@@ -31,6 +31,8 @@ import jax
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
+import scipy
+
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
 
@@ -115,6 +117,51 @@ def get_gp_kwargs(gp_config):
   return gp_layer_kwargs
 
 
+def resformer_sngp_load(init_params, init_file, model_params):
+  """Load model parameter of ViT-SNGP for finetuning on high-res inputs."""
+
+  # Restores original parameter from the checkpoint.
+  restored_params = resformer.load(init_params, init_file, model_params)
+
+  # Modifies the position embedding layer of ViT-SNGP for high-res inputs.
+  logging.info('restored_params = %s', list(restored_params.keys()))
+  vit_params = restored_params.get('vit_backbone', {})
+  logging.info('vit_params = %s', list(vit_params.keys()))
+  if 'posembed_input' in vit_params.get('Transformer', {}):
+    # Rescale the grid of position embeddings. Param shape is (1,N,1024)
+    posemb = restored_params['vit_backbone']['Transformer']['posembed_input'][
+        'pos_embedding']
+    posemb_new = init_params['vit_backbone']['Transformer']['posembed_input'][
+        'pos_embedding']
+    if posemb.shape != posemb_new.shape:
+      logging.info('Resformer: resized variant: %s to %s', posemb.shape,
+                   posemb_new.shape)
+      ntok_new = posemb_new.shape[1]
+
+      if model_params.classifier == 'token':
+        posemb_tok, posemb_grid = posemb[:, :1], posemb[0, 1:]
+        ntok_new -= 1
+      else:
+        posemb_tok, posemb_grid = posemb[:, :0], posemb[0]
+
+      gs_old = int(np.sqrt(len(posemb_grid)))
+
+      # New grid may not be square!
+      gs_new = model_params.get('grid_size') or (int(
+          np.sqrt(ntok_new)), int(np.sqrt(ntok_new)))
+      logging.info('Resformer: grid-size from %s to %s', gs_old, gs_new)
+      posemb_grid = posemb_grid.reshape(gs_old, gs_old, -1)
+
+      zoom = (gs_new[0] / gs_old, gs_new[1] / gs_old, 1)
+      posemb_grid = scipy.ndimage.zoom(posemb_grid, zoom, order=1)
+      posemb_grid = posemb_grid.reshape(1, gs_new[0] * gs_new[1], -1)
+      posemb = jnp.array(np.concatenate([posemb_tok, posemb_grid], axis=1))
+      restored_params['vit_backbone']['Transformer']['posembed_input'][
+          'pos_embedding'] = posemb
+
+  return restored_params
+
+
 def main(argv):
   del argv
 
@@ -178,6 +225,7 @@ def main(argv):
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch=config.get('prefetch_to_host', 2),
       cache=False)
+  logging.info('image_size = %s', train_ds.element_spec['image'].shape[1:])
 
   # Start prefetching already.
   train_iter = u.start_input_pipeline(
@@ -244,10 +292,21 @@ def main(argv):
   gp_config = config.get('gp_layer', {})
   gp_layer_kwargs = get_gp_kwargs(gp_config)
 
+  # Process ViT backbone model configs.
+  vit_kwargs = config.get('model')
+
+  if vit_kwargs.get('reinit', None):
+    # Remove parameters not related to model architecture.
+    logging.info('Non-architecture parameter "reinit" found in vit_kwargs. '
+                 'It will be removed before passing to the model.')
+    vit_kwargs = vit_kwargs.copy_and_resolve_references()
+    with vit_kwargs.unlocked():
+      del vit_kwargs.reinit
+
   model = ub.models.vision_transformer_gp(
       num_classes=config.num_classes,
       use_gp_layer=use_gp_layer,
-      vit_kwargs=config.get('model', {}),
+      vit_kwargs=vit_kwargs,
       gp_layer_kwargs=gp_layer_kwargs)
 
   # We want all parameters to be created in host RAM, not on any device, they'll
@@ -442,7 +501,8 @@ def main(argv):
     # should be re-trained during fine-tuning.
     write_note(f'Initialize trainable parameters from {config.model_init}...')
     # TODO(dusenberrymw): Replace and test load function.
-    loaded = resformer.load(params_cpu, config.model_init, config.get('model'))
+    loaded = resformer_sngp_load(params_cpu, config.model_init,
+                                 config.get('model'))
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')

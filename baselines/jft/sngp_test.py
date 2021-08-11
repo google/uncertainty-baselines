@@ -80,6 +80,8 @@ def get_config(classifier, representation_size):
   config.model.transformer.num_layers = 1
   config.model.classifier = classifier
   config.model.representation_size = representation_size
+  # Reinitialize GP output layer.
+  config.model.reinit = ['head/output_layer/kernel', 'head/output_layer/bias']
 
   # Optimizer section
   config.optim_name = 'Adam'

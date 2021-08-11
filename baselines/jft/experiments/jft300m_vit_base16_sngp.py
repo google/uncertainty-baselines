@@ -67,7 +67,7 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
   config.model.representation_size = 768
 
-  # Gaussian process layer parameters.
+  # Gaussian process layer section
   config.gp_layer = ml_collections.ConfigDict()
   # Use momentum-based (i.e., non-exact) covariance update for pre-training.
   # This is because the exact covariance update can be unstable for pretraining,

@@ -443,14 +443,15 @@ def main(argv):
 
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
-    if config.get('grad_accum_steps', 1) == 1 or config.get('grad_clip_norm'):
+    do_grad_clip = config.get('grad_clip_norm', -1.) > 0.
+    if config.get('grad_accum_steps', 1) == 1 or do_grad_clip:
       grads, _ = jax.tree_flatten(g)
       l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
       measurements['l2_grads'] = l2_g
 
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
-    if config.get('grad_clip_norm'):
+    if do_grad_clip:
       g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
       g = jax.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)

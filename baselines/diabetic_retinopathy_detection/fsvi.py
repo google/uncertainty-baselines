@@ -190,7 +190,13 @@ flags.DEFINE_string(
 flags.DEFINE_string("data_dir", None, "Path to training and testing data.")
 
 flags.DEFINE_bool("use_validation", True, "Whether to use a validation split.")
-
+flags.DEFINE_string(
+    'class_reweight_mode', None,
+    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,'
+    'test respectively). `None` (default) will not perform any loss reweighting. '
+    '`constant` will use the train proportions to reweight the binary cross '
+    'entropy loss. `minibatch` will use the proportions of each minibatch to '
+    'reweight the loss.')
 
 # General model flags.
 # TODO: decide if we keep this
@@ -369,6 +375,7 @@ def main(argv):
             y_batch,
             inducing_inputs,
             rng_key,
+            FLAGS.class_reweight_mode == "constant",
         )
 
         zero_grads = jax.tree_map(lambda x: x * 0.0, non_trainable_params)
@@ -588,6 +595,7 @@ def evaluate_on_valid_or_test(
         )
         log_likelihood = objectives.crossentropy_log_likelihood(
             preds_f_samples=preds_f_samples, targets=y_batch,
+            class_weight=False,
         )
         # to make it comparable to log likelihood reported in other scripts, e.g. deterministic.py
         log_likelihood_per_input = log_likelihood / y_batch.shape[0]

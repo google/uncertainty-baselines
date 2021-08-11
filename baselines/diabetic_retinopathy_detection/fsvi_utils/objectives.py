@@ -1,3 +1,4 @@
+import pdb
 from functools import partial
 from typing import Tuple
 
@@ -13,6 +14,7 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils import utils_linearizat
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import (
     partition_params,
 )
+from baselines.diabetic_retinopathy_detection.utils import get_diabetic_retinopathy_class_balance_weights
 
 dtype_default = jnp.float32
 eps = 1e-6
@@ -61,7 +63,7 @@ class Objectives_hk:
         self.linear_model = linear_model
         self.full_ntk = full_ntk
 
-    @partial(jit, static_argnums=(0, 10,))
+    @partial(jit, static_argnums=(0, 10, 11))
     def objective_and_state(
         self,
         trainable_params,
@@ -73,6 +75,7 @@ class Objectives_hk:
         targets,
         inducing_inputs,
         rng_key,
+        class_weight,
         objective_fn,
     ):
         is_training = True
@@ -88,6 +91,7 @@ class Objectives_hk:
             inducing_inputs,
             rng_key,
             is_training,
+            class_weight
         )
 
         state = self.apply_fn(
@@ -119,6 +123,27 @@ class Objectives_hk:
             axis=0,
         )
         return log_likelihood
+
+    def _crossentropy_log_likelihood_with_class_weights(self, preds_f_samples, targets):
+        # get_positive_empirical_prob
+        # TODO: remove the hardcoded 1
+        minibatch_positive_empirical_prob = targets[:, 1].sum() / targets.shape[0]
+        minibatch_class_weights = (
+            get_diabetic_retinopathy_class_balance_weights(
+                positive_empirical_prob=minibatch_positive_empirical_prob))
+
+        log_likelihoods = jnp.mean(jnp.sum(
+                    targets * jax.nn.log_softmax(preds_f_samples, axis=-1), axis=-1
+                ),
+            axis=0
+        )
+        weights = jnp.where(
+            targets[:, 1] == 1,
+            minibatch_class_weights[1],
+            minibatch_class_weights[0]
+        )
+        reduced_value = jnp.sum(jnp.multiply(log_likelihoods, weights))
+        return reduced_value
 
     def _function_kl(
         self, params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
@@ -195,11 +220,13 @@ class Objectives_hk:
         inducing_inputs,
         rng_key,
         is_training,
+        class_weight,
     ):
         preds_f_samples, _, _ = self.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
         )
-        log_likelihood = self.crossentropy_log_likelihood(preds_f_samples, targets)
+        log_likelihood = self.crossentropy_log_likelihood(preds_f_samples, targets,
+                                                          class_weight)
         kl, scale = self.function_kl(
             params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
         )
@@ -257,9 +284,12 @@ class Objectives_hk:
         return loss
 
 
-    @partial(jit, static_argnums=(0,))
-    def crossentropy_log_likelihood(self, preds_f_samples, targets):
-        return self._crossentropy_log_likelihood(preds_f_samples, targets)
+    @partial(jit, static_argnums=(0, 3))
+    def crossentropy_log_likelihood(self, preds_f_samples, targets, class_weight):
+        if class_weight:
+            return self._crossentropy_log_likelihood_with_class_weights(preds_f_samples, targets)
+        else:
+            return self._crossentropy_log_likelihood(preds_f_samples, targets)
 
     @partial(jit, static_argnums=(0,))
     def function_kl(
@@ -289,7 +319,7 @@ class Objectives_hk:
             self._nll_loss_classification,
         )
 
-    @partial(jit, static_argnums=(0,))
+    @partial(jit, static_argnums=(0, 10))
     def nelbo_fsvi_classification(
         self,
         trainable_params,
@@ -301,6 +331,7 @@ class Objectives_hk:
         targets,
         inducing_inputs,
         rng_key,
+        class_weight: bool,
     ):
         (elbo, log_likelihood, kl, scale), state = self.objective_and_state(
             trainable_params,
@@ -312,6 +343,7 @@ class Objectives_hk:
             targets,
             inducing_inputs,
             rng_key,
+            class_weight,
             self._elbo_fsvi_classification,
         )
 

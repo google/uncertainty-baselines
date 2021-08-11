@@ -15,18 +15,21 @@
 
 """Random-feature Gaussian process model with vision transformer (ViT) backbone."""
 import dataclasses
+
 from typing import Any, Mapping, Tuple
 
 import edward2.jax as ed
 import flax.linen as nn
 
+import ml_collections
 import uncertainty_baselines.models.vit as vit
 
 # Jax data types.
 Array = Any
+ConfigDict = ml_collections.ConfigDict
+Dtype = Any
 PRNGKey = Any
 Shape = Tuple[int]
-Dtype = Any
 
 # Default field value for kwargs, to be used for data class declaration.
 default_kwarg_dict = lambda: dataclasses.field(default_factory=dict)
@@ -36,13 +39,22 @@ class VisionTransformerGaussianProcess(nn.Module):
   """VisionTransformer with Gaussian process output head."""
   num_classes: int
   use_gp_layer: bool = True
-  vit_kwargs: Mapping[str, Any] = default_kwarg_dict()
+  vit_kwargs: ConfigDict = ConfigDict()
+  # TODO(jereliu): Use ConfigDict for gp_layer_kwargs.
   gp_layer_kwargs: Mapping[str, Any] = default_kwarg_dict()
 
   def setup(self):
     # pylint:disable=not-a-mapping
-    self.vit_backbone = vit.VisionTransformer(
-        num_classes=self.num_classes, **self.vit_kwargs)
+    # Force set backbone parameters for compatibility with
+    # the existing checkpoints.
+    # TODO(jereliu): Set representation_size=None for backbone model to prevent
+    # it from generating unused parameters.
+    backbone_kwargs = self.vit_kwargs.copy_and_resolve_references()
+    with backbone_kwargs.unlocked():
+      backbone_kwargs['num_classes'] = 18291
+      backbone_kwargs['representation_size'] = 768
+
+    self.vit_backbone = vit.VisionTransformer(**backbone_kwargs)
 
     if self.use_gp_layer:
       self.gp_layer = ed.nn.RandomFeatureGaussianProcess(
@@ -92,7 +104,7 @@ class VisionTransformerGaussianProcess(nn.Module):
 
 
 def vision_transformer_gp(num_classes: int, use_gp_layer: bool,
-                          vit_kwargs: Mapping[str, Any],
+                          vit_kwargs: ConfigDict,
                           gp_layer_kwargs: Mapping[str, Any]):
   """Builds a Vision Transformer Gaussian process (ViT-GP) model."""
   return VisionTransformerGaussianProcess(

@@ -164,6 +164,22 @@ flags.DEFINE_float(
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
 
+# OOD flags.
+flags.DEFINE_bool(
+    'eval_only', False,
+    'Whether to run only eval and (maybe) OOD steps.')
+flags.DEFINE_bool(
+    'run_ood', False,
+    'Whether to run OOD evaluation on specified OOD datasets.')
+flags.DEFINE_list('ood_dataset', 'cifar100,svhn_cropped',
+                  'list of OOD datasets to evaluate on.')
+flags.DEFINE_integer(
+    'ood_interval', -1, 'Number of epochs between evaluating on OOD metrics.'
+    ' Use -1 to never evaluate.')
+flags.DEFINE_string('saved_model_dir', None,
+                    'Directory containing the saved model checkpoints.')
+
+
 # Redefining default values
 flags.FLAGS.set_default('base_learning_rate', 0.1)
 flags.FLAGS.set_default('l2', 3e-4)
@@ -247,6 +263,33 @@ def main(argv):
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
   }
+
+  if FLAGS.run_ood:
+    steps_per_ood = {}
+    ood_dataset_names = FLAGS.ood_dataset
+    for ood_dataset_name in ood_dataset_names:
+
+      ood_dataset_class = ub.datasets.DATASETS[ood_dataset_name]
+      ood_dataset_class = ub.datasets.make_ood_dataset(ood_dataset_class)
+      # If the OOD datasets are not CIFAR10/CIFAR100, we normalize by CIFAR
+      # statistics, since all test datasets should be preprocessed the same.
+      if 'cifar' not in ood_dataset_name:
+        ood_dataset_builder = ood_dataset_class(
+            clean_test_dataset_builder,
+            split='test',
+            validation_percent=validation_proportion,
+            normalize_by_cifar=True)
+      else:
+        ood_dataset_builder = ood_dataset_class(
+            clean_test_dataset_builder,
+            split='test',
+            validation_percent=validation_proportion)
+      ood_dataset = ood_dataset_builder.load(batch_size=batch_size)
+      steps_per_ood[
+          ood_dataset_name] = ood_dataset_builder.num_examples // batch_size
+      test_datasets['ood_{}'.format(ood_dataset_name)] = (
+          strategy.experimental_distribute_dataset(ood_dataset))
+
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar100':
       data_dir = FLAGS.cifar100_c_path
@@ -352,12 +395,37 @@ def main(argv):
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
+    logging.info('Output dir : %s', FLAGS.output_dir)
     if latest_checkpoint:
       # checkpoint.restore must be within a strategy.scope() so that optimizer
       # slot variables are mirrored.
       checkpoint.restore(latest_checkpoint)
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
+    if FLAGS.run_ood:
+      if not FLAGS.saved_model_dir:
+        raise ValueError('Saved model checkpoint must be specified with the.'
+                         '--saved_model_dir flag for OOD evaluation.')
+      logging.info('Saved model dir : %s', FLAGS.output_dir)
+      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
+      checkpoint.restore(latest_checkpoint)
+      logging.info('Loaded checkpoint %s', latest_checkpoint)
+      if FLAGS.eval_only:
+        initial_epoch = FLAGS.train_epochs - 1  # Run just one epoch of eval
+
+  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
+  if FLAGS.run_ood:
+    ood_dataset_names = FLAGS.ood_dataset
+    for dataset_name in ood_dataset_names:
+      metrics.update({
+          'ood/auroc_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='ROC', num_thresholds=2000),
+          'ood/auprc_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='PR', num_thresholds=2000),
+          'ood/fpr@95tpr_{}'.format(dataset_name):
+              tf.keras.metrics.SpecificityAtSensitivity(
+                  0.95, num_thresholds=2000)
+      })
 
   @tf.function
   def train_step(iterator, step):
@@ -463,6 +531,7 @@ def main(argv):
           -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
           tf.math.log(float(FLAGS.num_dropout_samples)))
 
+      logging.info('Dataset name : %s', dataset_name)
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
@@ -475,7 +544,19 @@ def main(argv):
         metrics['val/accuracy'].update_state(labels, probs)
         metrics['val/ece'].add_batch(probs, label=labels)
         metrics['val/stddev'].update_state(stddev)
-      else:
+      elif dataset_name.startswith('ood'):
+        is_in_distribution = inputs['is_in_distribution']
+        ood_probs = tf.reduce_max(probs, axis=-1)
+
+        # Edgecase for if dataset_name contains underscores
+        ood_dataset_name = '_'.join(dataset_name.split('_')[1:])
+        metrics['ood/auroc_{}'.format(ood_dataset_name)].update_state(
+            is_in_distribution, ood_probs)
+        metrics['ood/auprc_{}'.format(ood_dataset_name)].update_state(
+            is_in_distribution, ood_probs)
+        metrics['ood/fpr@95tpr_{}'.format(ood_dataset_name)].update_state(
+            is_in_distribution, ood_probs)
+      elif FLAGS.corruptions_interval > 0:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
@@ -496,27 +577,28 @@ def main(argv):
 
   for epoch in range(initial_epoch, FLAGS.train_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    for step in range(steps_per_epoch):
-      step_variable.assign(step)
-      # Pass `step` as a tf.Variable to train_step to prevent the tf.function
-      # train_step() re-compiling itself at each function call.
-      train_step(train_iterator, step_variable)
+    if not FLAGS.eval_only:
+      for step in range(steps_per_epoch):
+        step_variable.assign(step)
+        # Pass `step` as a tf.Variable to train_step to prevent the tf.function
+        # train_step() re-compiling itself at each function call.
+        train_step(train_iterator, step_variable)
 
-      current_step = epoch * steps_per_epoch + (step + 1)
-      max_steps = steps_per_epoch * FLAGS.train_epochs
-      time_elapsed = time.time() - start_time
-      steps_per_sec = float(current_step) / time_elapsed
-      eta_seconds = (max_steps - current_step) / steps_per_sec
-      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                     current_step / max_steps,
-                     epoch + 1,
-                     FLAGS.train_epochs,
-                     steps_per_sec,
-                     eta_seconds / 60,
-                     time_elapsed / 60))
-      if step % 20 == 0:
-        logging.info(message)
+        current_step = epoch * steps_per_epoch + (step + 1)
+        max_steps = steps_per_epoch * FLAGS.train_epochs
+        time_elapsed = time.time() - start_time
+        steps_per_sec = float(current_step) / time_elapsed
+        eta_seconds = (max_steps - current_step) / steps_per_sec
+        message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                   'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                       current_step / max_steps,
+                       epoch + 1,
+                       FLAGS.train_epochs,
+                       steps_per_sec,
+                       eta_seconds / 60,
+                       time_elapsed / 60))
+        if step % 20 == 0:
+          logging.info(message)
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if use_validation_set:
@@ -535,6 +617,17 @@ def main(argv):
       metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
+
+    if FLAGS.run_ood:
+      ood_dataset_names = FLAGS.ood_dataset
+      for dataset_name in ood_dataset_names:
+        ood_iterator = iter(test_datasets['ood_{}'.format(dataset_name)])
+        logging.info('Calculating OOD on dataset %s', dataset_name)
+        steps_per_eval = steps_per_ood[dataset_name]
+        logging.info('Running OOD eval at epoch: %s', epoch)
+        test_step(ood_iterator, 'ood_{}'.format(dataset_name))
+
+        logging.info('Done with OOD eval on %s', dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and

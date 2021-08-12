@@ -20,7 +20,7 @@ r"""ViT-S/32.
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
+import get_fewshot  # local file import
 
 
 def get_config():

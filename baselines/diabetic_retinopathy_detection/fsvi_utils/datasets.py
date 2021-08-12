@@ -1,14 +1,7 @@
-import pdb
-from time import time
-
-import jax.numpy as jnp
-import numpy as np
-import seqtools
-import tensorflow_datasets as tfds
-import torch
 import logging
 
-from tqdm import tqdm
+import tensorflow_datasets as tfds
+import torch
 
 from baselines.diabetic_retinopathy_detection.utils import load_input_shape
 
@@ -22,47 +15,13 @@ torch.manual_seed(0)
 
 
 def load_data(
-    batch_size,
+    train_batch_size,
     use_validation: bool,
     data_dir="/scratch/data/diabetic-retinopathy-detection",
     eval_batch_size: int = None,
 ):
     # SELECT TRAINING AND TEST DATA LOADERS
-    (
-        dataset_train,
-        dataset_validation,
-        dataset_test,
-        output_dim,
-        n_train,
-        n_valid,
-        n_test
-    ) = get_diabetic_retinopathy(
-        train_batch_size=batch_size,
-        data_dir=data_dir,
-        use_validation=use_validation,
-        eval_batch_size=eval_batch_size,
-    )
-    input_shape = load_input_shape(dataset_train=dataset_train)
-    input_shape = [1] + input_shape
-
-    return (
-        dataset_train,
-        dataset_validation,
-        dataset_test,
-        input_shape,
-        output_dim,
-        n_train,
-        n_valid,
-        n_test
-    )
-
-
-def get_diabetic_retinopathy(
-    train_batch_size, eval_batch_size, data_dir, use_validation
-):
     output_dim = 2
-    # input_shape = [1, image_dim, image_dim, 3]
-
     dataset_train_builder = ub.datasets.get(
         "diabetic_retinopathy_detection", split="train", data_dir=data_dir
     )
@@ -71,7 +30,6 @@ def get_diabetic_retinopathy(
     dataset_validation_builder = ub.datasets.get(
         "diabetic_retinopathy_detection",
         split="validation",
-
         data_dir=data_dir,
         is_training=not use_validation,
     )
@@ -91,33 +49,21 @@ def get_diabetic_retinopathy(
     ds_info = tfds.builder("diabetic_retinopathy_detection").info
     n_train = ds_info.splits["train"].num_examples
 
-    n_valid = (
-            ds_info.splits['validation'].num_examples // eval_batch_size)
-    n_test = ds_info.splits['test'].num_examples // eval_batch_size
+    n_valid = ds_info.splits["validation"].num_examples // eval_batch_size
+    n_test = ds_info.splits["test"].num_examples // eval_batch_size
 
     logging.info("Finish getting data iterators")
-    # for i in tqdm(range(loader_n_batches), desc="loading data"):
-    #     # start = time()
-    #     data = next(train_iterator)
-    # print(f"it takes {time() - start:.2f} seconds")
+
+    input_shape = load_input_shape(dataset_train=dataset_train)
+    input_shape = [1] + input_shape
 
     return (
         dataset_train,
         dataset_validation,
         dataset_test,
+        input_shape,
         output_dim,
         n_train,
         n_valid,
-        n_test
+        n_test,
     )
-
-
-def _one_hot(x, k, dtype=jnp.float32):
-    """Create a one-hot encoding of x of size k."""
-    return np.array(x[:, None] == np.arange(k), dtype)
-
-
-def collate_fn(batch):
-    inputs = np.stack([x for x, _ in batch])
-    targets = np.stack([y for _, y in batch])
-    return inputs, targets

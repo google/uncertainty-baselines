@@ -31,6 +31,8 @@ from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedD
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
+from uncertainty_baselines.datasets.dialog_state_tracking import MultiWoZSynthDataset
+from uncertainty_baselines.datasets.dialog_state_tracking import SGDSynthDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
@@ -73,9 +75,11 @@ DATASETS = {
     'mnli': MnliDataset,
     'movielens': MovieLensDataset,
     'multiwoz': MultiWoZDataset,
+    'multiwoz_synth': MultiWoZSynthDataset,
     'places365': Places365Dataset,
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,
+    'sgd_synth': SGDSynthDataset,
     'simdial': SimDialDataset,
     'smcalflow': SMCalflowDataset,
     'speech_commands': SpeechCommandsDataset,

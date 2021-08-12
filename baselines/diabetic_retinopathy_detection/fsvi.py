@@ -267,7 +267,7 @@ def main(argv):
         n_valid,
         n_test,
     ) = datasets.load_data(
-        batch_size=train_batch_size,
+        train_batch_size=train_batch_size,
         data_dir=FLAGS.data_dir,
         eval_batch_size=eval_batch_size,
         use_validation=FLAGS.use_validation,
@@ -283,8 +283,8 @@ def main(argv):
         n_train=n_train,
         n_batches=n_train // train_batch_size,
         full_ntk=False,
-        # TODO: is there a better way than this?
         batch_size=train_batch_size,
+        # TODO: is there a better way than this?
         **get_dict_of_flags(),
     )
 
@@ -611,7 +611,7 @@ def evaluate_on_valid_or_test(
         metrics[dataset_split + "/auroc"].update_state(labels, probs_of_labels)
 
         if not use_tpu:
-            metrics[dataset_split + "/ece"].add_batch(probs, label=probs_of_labels)
+            metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=labels)
 
 
 if __name__ == "__main__":

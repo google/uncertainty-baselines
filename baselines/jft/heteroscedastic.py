@@ -200,8 +200,9 @@ def main(argv):
                                            train=False))['params']
 
     # Set bias in the head to a low value, such that loss is small initially.
-    params['head']['loc_layer']['bias'] = jnp.full_like(
-        params['head']['loc_layer']['bias'], config.get('init_head_bias', 0))
+    if 'head' in params:
+      params['head']['loc_layer']['bias'] = jnp.full_like(
+          params['head']['loc_layer']['bias'], config.get('init_head_bias', 0))
 
     return params
 
@@ -343,7 +344,18 @@ def main(argv):
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
     # TODO(dusenberrymw): Replace and test load function.
-    loaded = resformer.load(params_cpu, config.model_init, config.get('model'))
+    reinit_params = ['head/scale_layer_homoscedastic/kernel',
+                     'head/scale_layer_homoscedastic/bias',
+                     'head/scale_layer_heteroscedastic/kernel',
+                     'head/scale_layer_heteroscedastic/bias',
+                     'head/loc_layer/kernel', 'head/diag_layer/kernel',
+                     'head/loc_layer/bias', 'head/diag_layer/bias']
+    for param in reinit_params:
+      if param in params_cpu:
+        del params_cpu[param]
+
+    loaded = resformer.load(params_cpu, config.model_init, config.get('model'),
+                            reinit_params)
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')

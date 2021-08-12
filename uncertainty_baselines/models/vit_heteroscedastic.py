@@ -223,6 +223,7 @@ class VisionTransformer(nn.Module):
   mc_samples: int = 1000
   num_factors: int = 0
   param_efficient: bool = True
+  return_locs: bool = False
 
   @nn.compact
   def __call__(self, inputs, *, train):
@@ -276,14 +277,15 @@ class VisionTransformer(nn.Module):
 
     if self.multiclass:
       output_layer = ed.nn.MCSoftmaxDenseFA(
-          self.num_classes, self.het_num_factors, self.temperature,
+          self.num_classes, self.num_factors, self.temperature,
           self.param_efficient, self.mc_samples,
-          self.mc_samples, logits_only=True)
+          self.mc_samples, logits_only=True, return_locs=self.return_locs,
+          name='head')
     else:
       output_layer = ed.nn.MCSigmoidDenseFA(
           self.num_classes, self.num_factors, self.temperature,
           self.param_efficient, self.mc_samples, self.mc_samples,
-          logits_only=True, name='head')
+          logits_only=True, return_locs=self.return_locs, name='head')
 
     x = output_layer(x)
 
@@ -301,7 +303,8 @@ def het_vision_transformer(num_classes: int,
                            temperature: float = 1.0,
                            mc_samples: int = 1000,
                            num_factors: int = 0,
-                           param_efficient: bool = True):
+                           param_efficient: bool = True,
+                           return_locs: bool = False):
   """Builds a Heteroscedastic Vision Transformer (ViT) model."""
   # TODO(dusenberrymw): Add API docs once config dict in VisionTransformer is
   # cleaned up.
@@ -316,4 +319,5 @@ def het_vision_transformer(num_classes: int,
       temperature=temperature,
       mc_samples=mc_samples,
       num_factors=num_factors,
-      param_efficient=param_efficient)
+      param_efficient=param_efficient,
+      return_locs=return_locs)

@@ -218,6 +218,11 @@ flags.DEFINE_string(
     None,
     "Name of the TPU. Only used if force_use_cpu and use_gpu are both False.",
 )
+flags.DEFINE_integer(
+    "n_samples_test",
+    1,
+    "Number of MC samples used for validation and testing",
+)
 FLAGS = flags.FLAGS
 
 
@@ -471,6 +476,7 @@ def main(argv):
                 output_dim=output_dim,
                 input_shape=input_shape,
                 prediction_type=prediction_type,
+                n_samples=FLAGS.n_samples_test,
             )
         # evaluation on test set
         _, rng_key_test = jax.random.split(rng_key_test)
@@ -488,6 +494,7 @@ def main(argv):
             output_dim=output_dim,
             input_shape=input_shape,
             prediction_type=prediction_type,
+            n_samples=FLAGS.n_samples_test,
         )
 
         log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
@@ -568,6 +575,7 @@ def evaluate_on_valid_or_test(
     output_dim,
     input_shape,
     prediction_type,
+    n_samples,
 ):
     for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
         data = next(data_iterator)
@@ -581,7 +589,7 @@ def evaluate_on_valid_or_test(
             state=state,
             inputs=x_batch,
             rng_key=rng_key,
-            n_samples=1,
+            n_samples=n_samples,
             is_training=False,
         )
         log_likelihood = objectives.crossentropy_log_likelihood(

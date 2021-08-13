@@ -46,6 +46,7 @@ import datetime
 import functools
 import inspect
 import os
+import pdb
 from typing import Any, Callable, Dict, Optional, Sequence, Text, Tuple, Union
 
 import numpy as np
@@ -53,7 +54,8 @@ import pandas as pd
 from scipy.stats import bernoulli
 import tensorflow as tf
 import tensorflow_datasets as tfds
-
+import jax.numpy as jnp
+import jax
 
 def dropout_predict(x,
                     model,
@@ -221,6 +223,46 @@ def deep_ensemble_predict(x,
       dist=dist, uncertainty_type=uncertainty_type)
 
 
+def fsvi_predict(x,
+                 model,
+                 rng_key,
+                 training_setting,
+                 num_samples,
+                 uncertainty_type='entropy'):
+    """
+    Args:
+      x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
+      where B the batch size and H, W the input images height and width
+      accordingly.
+      model: a probabilistic model (e.g., `tensorflow.keras.model`) which accepts
+        input with shape [B, H, W, 3] and outputs sigmoid probability [0.0, 1.0],
+        and also accepts boolean argument `training` for disabling e.g.,
+        BatchNorm, Dropout at test time, as well as rng_key as random key for the
+        forward passes.
+      rng_key: `jax.numpy.ndarray`, jax random key for the forward passes.
+      training_setting: bool, if True, run model prediction in training mode. See
+        note in docstring at top of file.
+      uncertainty_type: (optional) `str`, type of uncertainty; returns one of
+        {"entropy", "stddev"}.
+
+    Returns:
+      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      uncertainty: `numpy.ndarray`, uncertainty in prediction,
+        with shape [B].
+    """
+    mc_samples = model(
+        inputs=x,
+        training=training_setting,
+        num_samples=num_samples,
+        rng_key=rng_key,
+    )
+    # Bernoulli output distribution
+    dist = bernoulli(mc_samples.mean(axis=0))
+
+    return get_dist_mean_and_uncertainty(
+        dist=dist, uncertainty_type=uncertainty_type)
+
+
 def get_dist_mean_and_uncertainty(dist: bernoulli, uncertainty_type: str):
   """Compute the mean and uncertainty.
 
@@ -261,7 +303,8 @@ RETINOPATHY_MODEL_TO_UNCERTAINTY_ESTIMATOR = {
     'dropoutensemble': dropout_ensemble_predict,
     'ensemble': deep_ensemble_predict,
     'radial': dropout_predict,
-    'variational_inference': dropout_predict
+    'variational_inference': dropout_predict,
+    'fsvi': fsvi_predict,
 }
 
 
@@ -380,6 +423,25 @@ def evaluate_metric(y_true: np.ndarray,
     return df
   else:
     return mean
+
+
+def wrap_fsvi_model(model, params, state, use_mixed_precision):
+
+    def estimator_wrapper(inputs, training, num_samples, rng_key):
+        preds_y_samples, _, _ = model.predict_y_multisample_jitted(
+            params=params,
+            state=state,
+            inputs=inputs._numpy(),
+            rng_key=rng_key,
+            n_samples=num_samples,
+            is_training=training,
+        )
+        if use_mixed_precision:
+            preds_y_samples = preds_y_samples.astype(jnp.float32)
+        probs = preds_y_samples[:, :, 1]
+        return np.array(probs)
+
+    return estimator_wrapper
 
 
 def wrap_retinopathy_estimator(estimator, use_mixed_precision):
@@ -528,7 +590,11 @@ def store_keras_metrics(metrics_dict: Dict[str, Any],
 
     retain_proportion = float(prefix.split('_')[-1])
     metric_tensor = metric.result()
-    metric_scalar = metric_tensor.numpy()
+    if isinstance(metric_tensor, dict):
+        metric_tensor = list(metric_tensor.values())[0]
+        metric_scalar = metric_tensor
+    else:
+        metric_scalar = metric_tensor.numpy()
     results.append((metric_name, retain_proportion, metric_scalar))
 
     if return_parsed_dict:

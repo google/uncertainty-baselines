@@ -727,3 +727,10 @@ def flatten_dictionary(x):
     else:
       outputs[k] = v
   return outputs
+
+
+def get_latest_fsvi_checkpoint(path):
+    chkpts = [f for f in tf.io.gfile.listdir(path) if "chkpt_" in f]
+    if chkpts:
+        latest = max(chkpts, key=lambda x: int(x.split("_")[1]))
+        return os.path.join(path, latest)

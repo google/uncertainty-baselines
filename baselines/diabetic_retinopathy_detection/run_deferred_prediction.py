@@ -72,6 +72,8 @@ Real-World Relevance:
 """
 
 import os
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+import pickle
 import pprint
 import time
 from absl import app
@@ -82,8 +84,12 @@ import deferred_prediction  # local file import
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import jax
+
 import uncertainty_baselines as ub
 import utils  # local file import
+from baselines.diabetic_retinopathy_detection.utils import get_latest_fsvi_checkpoint
+from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN
 
 # Data load / output flags.
 flags.DEFINE_string(
@@ -220,7 +226,7 @@ def main(argv):
 
   # TODO(nband): debug, switch from keras.models.save to tf.train.Checkpoint
   checkpoint_filenames = utils.parse_keras_models(FLAGS.checkpoint_dir)
-  if not checkpoint_filenames:
+  if not checkpoint_filenames and model_type != 'fsvi':
     raise Exception(
         f'Did not locate a Keras checkpoint in checkpoint directory '
         f'{FLAGS.checkpoint_dir}')
@@ -234,6 +240,26 @@ def main(argv):
       estimator.append(
           deferred_prediction.wrap_retinopathy_estimator(
               loaded_model, use_mixed_precision=FLAGS.use_bfloat16))
+  elif model_type == 'fsvi':
+    latest_checkpoint_file = get_latest_fsvi_checkpoint(
+      FLAGS.checkpoint_dir)
+    with tf.io.gfile.GFile(latest_checkpoint_file, mode="rb") as f:
+      chkpt = pickle.load(f)
+    state, params, hparams = chkpt["state"], chkpt["params"], chkpt["hparams"]
+    model = CNN(
+        architecture=hparams["architecture"],
+        # TODO: remove this hardcoded value
+        output_dim=2,
+        activation_fn=hparams["activation"],
+        regularization=hparams["regularization"],
+        stochastic_parameters=True,
+        linear_model=hparams["linear_model"],
+        dropout="dropout" in model_type,
+        dropout_rate=hparams["dropout_rate"],
+        batch_normalization=hparams["batch_normalization"],
+    )
+    estimator = deferred_prediction.wrap_fsvi_model(model=model,
+        params=params, state=state, use_mixed_precision=FLAGS.use_bfloat16)
   else:
     latest_checkpoint_file = utils.get_latest_checkpoint(
         file_names=checkpoint_filenames)
@@ -245,10 +271,13 @@ def main(argv):
   estimator_args = {'uncertainty_type': uncertainty_type}
 
   if model_type in {
-      'dropout', 'radial', 'variational_inference', 'dropoutensemble'
+      'dropout', 'radial', 'variational_inference', 'dropoutensemble', 'fsvi'
   }:
     # Argument for stochastic forward passes
     estimator_args['num_samples'] = num_mc_samples
+  if model_type == 'fsvi':
+    # TODO: check with Neil and Tim about setting this seed
+    estimator_args['rng_key'] = jax.random.PRNGKey(train_seed)
 
   # Containers used for caching performance evaluation
   y_true = list()

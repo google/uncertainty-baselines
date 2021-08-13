@@ -1,6 +1,5 @@
 import logging
 import os
-import pdb
 import pickle
 import time
 import types
@@ -19,7 +18,7 @@ from tqdm import tqdm
 from tensorboard.plugins.hparams import api as hp
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk
-from baselines.diabetic_retinopathy_detection.utils import log_epoch_metrics
+from baselines.diabetic_retinopathy_detection.utils import log_epoch_metrics, get_latest_fsvi_checkpoint
 
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
@@ -318,7 +317,7 @@ def main(argv):
         os.path.join(FLAGS.output_dir, "summaries")
     )
 
-    latest_checkpoint = get_latest_checkpoint(FLAGS.output_dir)
+    latest_checkpoint = get_latest_fsvi_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
     if latest_checkpoint:
         with tf.io.gfile.GFile(latest_checkpoint, mode="rb") as f:
@@ -553,14 +552,6 @@ def main(argv):
         hp.hparams({
             'learning_rate': FLAGS.learning_rate,
         })
-
-
-def get_latest_checkpoint(path):
-    chkpts = [f for f in tf.io.gfile.listdir(path) if "chkpt_" in f]
-    if chkpts:
-        latest = max(chkpts, key=lambda x: int(x.split("_")[1]))
-        return os.path.join(path, latest)
-
 
 
 def evaluate_on_valid_or_test(

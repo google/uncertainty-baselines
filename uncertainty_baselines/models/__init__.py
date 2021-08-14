@@ -97,9 +97,10 @@ except tf.errors.NotFoundError:
 import_torch = True
 if import_torch:
   try:
-    from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
+    from uncertainty_baselines.models.resnet50_torch import resnet50_torch
+    from uncertainty_baselines.models.resnet50_dropout_torch import (
+      resnet50_dropout_torch)
   except ImportError:
     logging.warning(
-        'Skipped Torch ResNet-50 Dropout model due to ImportError.',
-        exc_info=True)
+      'Skipped Torch models due to ImportError.', exc_info=True)
 # pylint: enable=g-import-not-at-top

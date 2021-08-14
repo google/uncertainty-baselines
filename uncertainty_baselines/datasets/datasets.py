@@ -23,6 +23,7 @@ from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
+from uncertainty_baselines.datasets.aptos import APTOSDataset
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
@@ -32,6 +33,7 @@ from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedD
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
+from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift import DiabeticRetinopathySeverityShiftDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
@@ -59,6 +61,7 @@ except ImportError:
   SMCalflowDataset = None
 
 DATASETS = {
+    'aptos': APTOSDataset,
     'cifar100': Cifar100Dataset,
     'cifar10': Cifar10Dataset,
     'cifar10h': Cifar10HDataset,
@@ -69,6 +72,7 @@ DATASETS = {
     'clinic_intent': ClincIntentDetectionDataset,
     'criteo': CriteoDataset,
     'diabetic_retinopathy_detection': DiabeticRetinopathyDetectionDataset,
+    'diabetic_retinopathy_severity_shift': DiabeticRetinopathySeverityShiftDataset,
     'imagenet': ImageNetDataset,
     'mnist': MnistDataset,
     'mnli': MnliDataset,

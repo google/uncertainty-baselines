@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import pdb
@@ -247,8 +248,17 @@ def get_dict_of_flags():
     return {k: getattr(FLAGS, k) for k in dir(FLAGS)}
 
 
+def write_flags(path):
+    d = get_dict_of_flags()
+    string = json.dumps(d, indent=4, separators=(",", ":"))
+    with tf.io.gfile.GFile(path, "w") as f:
+        f.write(string)
+
+
 def main(argv):
     del argv
+
+    write_flags(os.path.join(FLAGS.output_dir, "flags.txt"))
 
     from jax.lib import xla_bridge
 

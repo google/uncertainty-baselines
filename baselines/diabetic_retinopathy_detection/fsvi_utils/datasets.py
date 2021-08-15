@@ -49,8 +49,8 @@ def load_data(
     ds_info = tfds.builder("diabetic_retinopathy_detection").info
     n_train = ds_info.splits["train"].num_examples
 
-    n_valid = ds_info.splits["validation"].num_examples // eval_batch_size
-    n_test = ds_info.splits["test"].num_examples // eval_batch_size
+    n_valid = ds_info.splits["validation"].num_examples
+    n_test = ds_info.splits["test"].num_examples
 
     logging.info("Finish getting data iterators")
 

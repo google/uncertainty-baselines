@@ -1,5 +1,6 @@
 import logging
 import os
+import pdb
 import pickle
 import time
 import types
@@ -9,12 +10,14 @@ import haiku as hk
 import jax
 import optax
 import tree
+import numpy as np
 from absl import app, flags
 from jax import jit
 from jax import random
 from tensorflow_probability.substrates import jax as tfp
 import tensorflow as tf
 from tqdm import tqdm
+import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk
@@ -361,7 +364,7 @@ def main(argv):
 
     @jit
     def update(
-        params, state, opt_state, x_batch, y_batch, inducing_inputs, rng_key,
+        params, state, x_batch, y_batch, inducing_inputs, rng_key,
     ):
         trainable_params, non_trainable_params = get_trainable_params(params)
         variational_params, model_params = get_variational_and_model_params(params)
@@ -390,13 +393,33 @@ def main(argv):
             grads_full = tree.map_structure(
                 partial(jax.lax.pmean, axis_name="i"), grads_full
             )
+            additional_info = tree.map_structure(
+                partial(jax.lax.pmean, axis_name="i"), additional_info
+            )
+        return grads_full, additional_info
 
+    @jit
+    def update_apply_grad(grads_full, opt_state, params, additional_info):
         updates, opt_state = opt.update(grads_full, opt_state)
         new_params = optax.apply_updates(params, updates)
-        params = new_params
-
         new_state = additional_info["state"]
-        return params, opt_state, new_state, additional_info
+        return new_params, opt_state, new_state, additional_info
+
+    @jit
+    def reshape(x_batch, y_batch, inducing_inputs, rng_key_train):
+        x_batch, y_batch, inducing_inputs = list(
+            map(
+                lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:]),
+                [x_batch, y_batch, inducing_inputs],
+            )
+        )
+        keys = jax.random.split(rng_key_train, num=FLAGS.num_cores)
+        return x_batch, y_batch, inducing_inputs, keys
+
+    update_pmap = jax.pmap(
+        update, axis_name="i", in_axes=(None, None, 0, 0, 0, 0)
+    )
+
 
     print(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
     train_iterator = iter(dataset_train)
@@ -416,22 +439,29 @@ def main(argv):
             )
 
             if FLAGS.num_cores > 1:
-                x_batch, y_batch, inducing_inputs = list(
-                    map(
-                        lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:]),
-                        [x_batch, y_batch, inducing_inputs],
-                    )
+                x_batch, y_batch, inducing_inputs, keys = reshape(
+                    x_batch, y_batch, inducing_inputs, rng_key_train
                 )
-                keys = jax.random.split(rng_key_train, num=FLAGS.num_cores)
-                update_to_use = jax.pmap(
-                    update, axis_name="i", in_axes=(None, None, None, 0, 0, 0, 0)
-                )
+                update_to_use = update_pmap
             else:
                 update_to_use = update
                 keys = rng_key_train
 
-            params, opt_state, state, additional_info = update_to_use(
-                params, state, opt_state, x_batch, y_batch, inducing_inputs, keys,
+            grads_full, additional_info = update_to_use(
+                params, state, x_batch, y_batch, inducing_inputs, keys,
+            )
+            if FLAGS.num_cores > 1:
+                # pdb.set_trace()
+                grads_full = take_first_copy(
+                    structure=grads_full,
+                    num_cores=FLAGS.num_cores,
+                )
+                additional_info = take_first_copy(
+                    structure=additional_info,
+                    num_cores=FLAGS.num_cores,
+                )
+            params, opt_state, state, additional_info = update_apply_grad(
+                grads_full, opt_state, params, additional_info
             )
 
             # TODO: in case num_cores>1, I need to deal with multiple copies of returned data
@@ -559,6 +589,14 @@ def main(argv):
         hp.hparams({
             'learning_rate': FLAGS.learning_rate,
         })
+
+
+def take_first_copy(structure, num_cores):
+    def _func(x):
+        assert x.shape[0] == num_cores, f"x.shape={x.shape}, num_cores={num_cores}"
+        assert jnp.abs(x[0] - x[1]).max().item() < 1e-8
+        return x[0]
+    return tree.map_structure(_func, structure)
 
 
 def evaluate_on_valid_or_test(

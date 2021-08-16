@@ -299,9 +299,26 @@ class Training:
             #
             # opt = make_adam_optimizer()
             opt = optax.adam(self.learning_rate)
-        elif "sgd_reprod" in self.optimizer:
+        elif "sgd_reprod_linear" == self.optimizer:
             print("*" * 100)
-            print("The optimizer to reproducing deterministic is used")
+            print("The linear learning schedule to reproducing deterministic is used")
+            final_decay_factor = 1e-3
+            lr_warmup_epochs = 1
+            one_minus_momentum = 0.0052243
+            lr_schedule = warm_up_polynomial_schedule(
+                base_learning_rate=self.learning_rate,
+                end_learning_rate=final_decay_factor * self.learning_rate,
+                decay_steps=(self.n_batches * (self.epochs - lr_warmup_epochs)),
+                warmup_steps=self.n_batches * lr_warmup_epochs,
+                decay_power=1.0
+            )
+            momentum = 1 - one_minus_momentum
+            opt = optax.chain(
+                optax.trace(decay=momentum, nesterov=True),
+                optax.scale_by_schedule(lr_schedule),
+                optax.scale(-1),
+            )
+        elif "sgd_reprod" in self.optimizer:
             DEFAULT_NUM_EPOCHS = 90
             lr_decay_epochs = ['30', '60']
             one_minus_momentum = 0.0052243
@@ -663,6 +680,31 @@ def warm_up_piecewise_constant_schedule(
                 learning_rate)
         return learning_rate
     return schedule
+
+
+def warm_up_polynomial_schedule(
+    base_learning_rate,
+    end_learning_rate,
+    decay_steps,
+    warmup_steps,
+    decay_power,
+):
+    poly_schedule = optax.polynomial_schedule(
+        init_value=base_learning_rate,
+        end_value=end_learning_rate,
+        power=decay_power,
+        transition_steps=decay_steps,
+    )
+
+    def schedule(step):
+        lr = poly_schedule(step)
+        indicator = jnp.maximum(0.0, jnp.sign(warmup_steps - step))
+        warmup_lr = base_learning_rate * step / warmup_steps
+        lr = warmup_lr * indicator + (1 - indicator) * lr
+        return lr
+
+    return schedule
+
 
 
 def decide_prediction_type(data_training: str) -> str:

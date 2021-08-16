@@ -25,10 +25,10 @@ import uncertainty_baselines as ub
 class VitTest(parameterized.TestCase):
 
   @parameterized.parameters(
-      ('token', 3, 16147746),
-      ('token', None, 16146713),
-      ('gap', 3, 16147742),
-      ('gap', None, 16146709),
+      ('token', 3, 2079663),
+      ('token', None, 2078630),
+      ('gap', 3, 2079659),
+      ('gap', None, 2078626),
   )
   def test_vision_transformer(self, classifier, representation_size,
                               expected_param_count):

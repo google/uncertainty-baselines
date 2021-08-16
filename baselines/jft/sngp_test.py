@@ -117,10 +117,10 @@ def get_config(classifier, representation_size):
 class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      ('token', 2, 916.2851, 1954.3369140625, 0.16999999806284904),
-      ('token', None, 290.0307, 915.987548828125, 0.20999999344348907),
-      ('gap', 2, 695.6460, 600.8613823784722, 0.12999999895691872),
-      ('gap', None, 192.9434, 341.7078450520833, 0.2199999988079071),
+      ('token', 2, 82027.5781, 281.8759, 0.22999999672174454),
+      ('token', None, 475.9011, 188.6002, 0.20999999344348907),
+      ('gap', 2, 1299.9533, 369.9055, 0.23999999463558197),
+      ('gap', None, 1049.3100, 494.6824, 0.2199999988079071),
   )
   def test_sngp_script(self, classifier, representation_size,
                        correct_train_loss, correct_val_loss,

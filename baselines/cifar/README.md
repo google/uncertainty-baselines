@@ -9,7 +9,7 @@
 | [Hyper-BatchEnsemble (size=4)](hyperbatchensemble.py) | 0.126 | 96.3% | 0.009  |- |  - |  - | 73.1M |
 | [MIMO](mimo.py) | 0.123 | 96.4% | 0.010 | 0.927 / 76.6% / 0.112 | - | 0.080 | 36.5M |
 | [Rank-1 BNN (Gaussian, size=4)](rank1_bnn.py) | 0.128 | 96.3% |  0.008 | 0.84 / 76.7% / 0.080 | 7.3 (8 TPUv2 cores) | - | 36.6M |
-| [Rank-1 BNN (Cauchy, size=4, 4 samples)](rank1_bnn.py) | [0.120 | 96.5% |  0.009 | 0.74 / 80.5% / 0.090 | 7.3 (8 TPUv2 cores) | - | 36.6M |
+| [Rank-1 BNN (Cauchy, size=4, 4 samples)](rank1_bnn.py) | 0.120 | 96.5% |  0.009 | 0.74 / 80.5% / 0.090 | 7.3 (8 TPUv2 cores) | - | 36.6M |
 | [SNGP](sngp.py) | 0.134 | 96.0% | 0.007 | 0.74 / 78.5% / 0.078 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
 | [SNGP, with AugMix](sngp.py)| 0.103 | 96.9% | 0.0045 | 0.33 / 89.1% / 0.015 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
 | [SNGP, with MC Dropout (size=10)](sngp.py) | 0.131 | 95.9% | 0.008 | 0.76 / 77.7% / 0.082 | 4.5 (8 TPUv2 cores) | 2.846 (8 TPUv2 cores) | 36.5M |
@@ -21,6 +21,7 @@
 | [Ensemble (size=4)](ensemble.py) | 0.114 | 96.6% | 0.010 | 0.81 / 77.9% / 0.087 | 1.2 (32 TPUv2 cores) | 0.317  (8 TPUv2 cores) | 146M |
 | [Hyper-deep ensemble (size=4)](hyperdeepensemble.py)<sup>12</sup> | 0.118 | 96.4% | 0.008 | 0.83 / 76.8% / 0.079 | 1.2 (32 TPUv2 cores) | 20.7 / 0.317  (8 TPUv2 cores) | 146M |
 | [Variational inference (sample=1)](variational_inference.py) | 0.211 | 94.7% | 0.029 | 1.46 / 71.3% / 0.181 | 5.5 (8 TPUv2 cores) | 0.220 (8 TPUv2 cores) | 73M |
+| [Posterior Network](posterior_network.py) | 0.360 | 93.1% |  0.112 | 1.06 / 75.2% / 0.139 | 1.6 (8 TPUv2 cores) | - | 36.6M |
 
 ## CIFAR-100
 

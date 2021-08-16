@@ -197,13 +197,13 @@ class Objectives_hk:
         return kl, scale
 
     def _nll_loss_classification(
-        self, params, state, inputs, targets, rng_key, is_training
+        self, params, state, inputs, targets, rng_key, is_training, class_weight
     ):
         preds_f_samples, _, _ = self.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
         )
         log_likelihood = (
-            self.crossentropy_log_likelihood(preds_f_samples, targets)
+            self.crossentropy_log_likelihood(preds_f_samples, targets, class_weight)
             / targets.shape[0]
         )
         loss = -log_likelihood
@@ -235,7 +235,7 @@ class Objectives_hk:
 
         return elbo, log_likelihood, kl, scale
 
-    @partial(jit, static_argnums=(0,))
+    @partial(jit, static_argnums=(0, 10))
     def map_loss_classification(
             self,
             trainable_params,
@@ -247,8 +247,9 @@ class Objectives_hk:
             targets,
             inducing_inputs,
             rng_key,
+            class_weight,
     ):
-        return self.objective_and_state(
+        (loss, negative_log_likelihood), state = self.objective_and_state(
             trainable_params,
             non_trainable_params,
             state,
@@ -258,8 +259,14 @@ class Objectives_hk:
             targets,
             inducing_inputs,
             rng_key,
+            class_weight,
             self._map_loss_classification,
         )
+        return loss, {
+            "state": state,
+            "loss": loss,
+            "log_likelihood": -negative_log_likelihood * targets.shape[0]
+        }
 
     def _map_loss_classification(
         self,
@@ -272,16 +279,17 @@ class Objectives_hk:
         inducing_inputs,
         rng_key,
         is_training,
+        class_weight,
     ):
         negative_log_likelihood = self._nll_loss_classification(
-            params, state, inputs, targets, rng_key, is_training,
+            params, state, inputs, targets, rng_key, is_training, class_weight
         )
         reg_params = [p for ((mod_name, _), p) in tree.flatten_with_path(params) if 'batchnorm' not in mod_name]
         loss = (
             negative_log_likelihood
             + self.regularization * jnp.square(optimizers.l2_norm(reg_params))
         )
-        return loss
+        return loss, negative_log_likelihood
 
 
     @partial(jit, static_argnums=(0, 3))
@@ -348,7 +356,7 @@ class Objectives_hk:
         )
 
         return -elbo, {"state": state, "elbo": elbo, "log_likelihood": log_likelihood,
-                       "kl": kl, "scale": scale}
+                       "kl": kl, "scale": scale, "loss": -elbo}
 
 
 @partial(jit, static_argnums=(0,))

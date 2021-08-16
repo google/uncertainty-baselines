@@ -21,6 +21,7 @@ from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
 
+import uncertainty_baselines as ub
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk
 from baselines.diabetic_retinopathy_detection.utils import log_epoch_metrics, get_latest_fsvi_checkpoint
 
@@ -212,6 +213,18 @@ flags.DEFINE_integer(
 # Metric flags.
 flags.DEFINE_integer("num_bins", 15, "Number of bins for ECE.")
 
+# Learning rate / SGD flags.
+flags.DEFINE_float('final_decay_factor', 1e-3, 'How much to decay the LR by.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_string('lr_schedule', 'step', 'Type of LR schedule.')
+flags.DEFINE_integer(
+    'lr_warmup_epochs', 1,
+    'Number of epochs for a linear warmup to the initial '
+    'learning rate. Use 0 to do no warmup.')
+flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
+flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
+                  'Epochs to decay learning rate by.')
+
 # Accelerator flags.
 flags.DEFINE_bool("force_use_cpu", False, "If True, force usage of CPU")
 flags.DEFINE_bool("use_gpu", True, "Whether to run on GPU or otherwise TPU.")
@@ -298,7 +311,7 @@ def main(argv):
         input_shape=input_shape,
         output_dim=output_dim,
         n_train=n_train,
-        n_batches=n_train // train_batch_size,
+        n_batches=steps_per_epoch,
         full_ntk=False,
         batch_size=train_batch_size,
         # TODO: is there a better way than this?
@@ -311,6 +324,27 @@ def main(argv):
     )
 
     # INITIALIZE OPTIMIZATION
+    base_lr = FLAGS.learning_rate
+    if FLAGS.lr_schedule == 'step':
+      DEFAULT_NUM_EPOCHS = 90
+      lr_decay_epochs = [
+          (int(start_epoch_str) * FLAGS.epochs) // DEFAULT_NUM_EPOCHS
+          for start_epoch_str in FLAGS.lr_decay_epochs
+      ]
+      lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
+          steps_per_epoch,
+          base_lr,
+          decay_ratio=FLAGS.lr_decay_ratio,
+          decay_epochs=lr_decay_epochs,
+          warmup_epochs=FLAGS.lr_warmup_epochs)
+    else:
+      lr_schedule = ub.schedules.WarmUpPolynomialSchedule(
+          base_lr,
+          end_learning_rate=FLAGS.final_decay_factor * base_lr,
+          decay_steps=(
+              steps_per_epoch * (FLAGS.train_epochs - FLAGS.lr_warmup_epochs)),
+          warmup_steps=steps_per_epoch * FLAGS.lr_warmup_epochs,
+          decay_power=1.0)
     (
         opt,
         opt_state,
@@ -417,12 +451,15 @@ def main(argv):
 
     @jit
     def reshape(x_batch, y_batch, inducing_inputs, rng_key_train):
-        x_batch, y_batch, inducing_inputs = list(
+        func = lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:])
+        x_batch, y_batch = list(
             map(
-                lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:]),
-                [x_batch, y_batch, inducing_inputs],
+                func,
+                [x_batch, y_batch],
             )
         )
+        if inducing_inputs is not None:
+            inducing_inputs = func(inducing_inputs)
         keys = jax.random.split(rng_key_train, num=FLAGS.num_cores)
         return x_batch, y_batch, inducing_inputs, keys
 
@@ -461,7 +498,6 @@ def main(argv):
                 params, state, x_batch, y_batch, inducing_inputs, keys,
             )
             if FLAGS.num_cores > 1:
-                # pdb.set_trace()
                 grads_full = take_first_copy(
                     structure=grads_full,
                     num_cores=FLAGS.num_cores,
@@ -477,7 +513,7 @@ def main(argv):
             # TODO: in case num_cores>1, I need to deal with multiple copies of returned data
 
             # compute metrics
-            metrics["train/loss"].update_state(-additional_info["elbo"].item())
+            metrics["train/loss"].update_state(additional_info["loss"].item())
             log_likelihood_per_input = additional_info["log_likelihood"].item() / y_batch.shape[0]
             metrics["train/negative_log_likelihood"].update_state(
                 -log_likelihood_per_input

@@ -1,3 +1,4 @@
+import pdb
 from functools import partial
 from typing import List, Tuple, Callable, Union, Sequence, Dict
 
@@ -13,6 +14,7 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Mo
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils, utils_linearization
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import predicate_mean, predicate_var, predicate_batchnorm
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
+from uncertainty_baselines.schedules import WarmUpPiecewiseConstantSchedule
 
 classification_datasets = [
     "mnist",
@@ -74,6 +76,7 @@ class Training:
         n_inducing_inputs: int,
         noise_std,
         map_initialization,
+        epochs,
         **kwargs,
     ):
         """
@@ -109,6 +112,7 @@ class Training:
         self.n_inducing_inputs = n_inducing_inputs
         self.noise_std = noise_std
         self.data_training_id = 0
+        self.epochs = epochs
 
         self.map_initialization = map_initialization
 
@@ -295,6 +299,31 @@ class Training:
             #
             # opt = make_adam_optimizer()
             opt = optax.adam(self.learning_rate)
+        elif "sgd_reprod" in self.optimizer:
+            print("*" * 100)
+            print("The optimizer to reproducing deterministic is used")
+            DEFAULT_NUM_EPOCHS = 90
+            lr_decay_epochs = ['30', '60']
+            one_minus_momentum = 0.0052243
+            lr_warmup_epochs = 1
+            lr_decay_ratio = 0.2
+            lr_decay_epochs = [
+                (int(start_epoch_str) * self.epochs) // DEFAULT_NUM_EPOCHS
+                for start_epoch_str in lr_decay_epochs
+            ]
+            lr_schedule = warm_up_piecewise_constant_schedule(
+                steps_per_epoch=self.n_batches,
+                base_learning_rate=self.learning_rate,
+                decay_ratio=lr_decay_ratio,
+                decay_epochs=lr_decay_epochs,
+                warmup_epochs=lr_warmup_epochs)
+
+            momentum = 1 - one_minus_momentum
+            opt = optax.chain(
+                optax.trace(decay=momentum, nesterov=True),
+                optax.scale_by_schedule(lr_schedule),
+                optax.scale(-1),
+            )
         elif "sgd" in self.optimizer:
             epoch_points = self.optimizer.split("_")[1:]
             for i in range(len(epoch_points)):
@@ -327,6 +356,10 @@ class Training:
             if prediction_type == "classification":
                 loss = metrics.nelbo_fsvi_classification
             kl_evaluation = metrics.function_kl
+        elif "map" in self.model_type or "dropout" in self.model_type:
+            if prediction_type == "classification":
+                loss = metrics.map_loss_classification
+            kl_evaluation = None
         else:
             raise ValueError("No loss specified.")
         return loss, kl_evaluation
@@ -607,6 +640,28 @@ def piecewise_constant_schedule(init_value, boundaries, scale):
             v = v * indicator + (1 - indicator) * scale * v
         return v
 
+    return schedule
+
+
+def warm_up_piecewise_constant_schedule(
+        steps_per_epoch,
+        base_learning_rate,
+        warmup_epochs,
+        decay_epochs,
+        decay_ratio,
+    ):
+    def schedule(count):
+        lr_epoch = jnp.array(count, jnp.float32) / steps_per_epoch
+        learning_rate = base_learning_rate
+        if warmup_epochs >= 1:
+            learning_rate *= lr_epoch / warmup_epochs
+        _decay_epochs = [warmup_epochs] + decay_epochs
+        for index, start_epoch in enumerate(_decay_epochs):
+            learning_rate = jnp.where(
+                lr_epoch >= start_epoch,
+                base_learning_rate * decay_ratio ** index,
+                learning_rate)
+        return learning_rate
     return schedule
 
 

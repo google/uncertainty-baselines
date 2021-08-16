@@ -324,27 +324,6 @@ def main(argv):
     )
 
     # INITIALIZE OPTIMIZATION
-    base_lr = FLAGS.learning_rate
-    if FLAGS.lr_schedule == 'step':
-      DEFAULT_NUM_EPOCHS = 90
-      lr_decay_epochs = [
-          (int(start_epoch_str) * FLAGS.epochs) // DEFAULT_NUM_EPOCHS
-          for start_epoch_str in FLAGS.lr_decay_epochs
-      ]
-      lr_schedule = ub.schedules.WarmUpPiecewiseConstantSchedule(
-          steps_per_epoch,
-          base_lr,
-          decay_ratio=FLAGS.lr_decay_ratio,
-          decay_epochs=lr_decay_epochs,
-          warmup_epochs=FLAGS.lr_warmup_epochs)
-    else:
-      lr_schedule = ub.schedules.WarmUpPolynomialSchedule(
-          base_lr,
-          end_learning_rate=FLAGS.final_decay_factor * base_lr,
-          decay_steps=(
-              steps_per_epoch * (FLAGS.train_epochs - FLAGS.lr_warmup_epochs)),
-          warmup_steps=steps_per_epoch * FLAGS.lr_warmup_epochs,
-          decay_power=1.0)
     (
         opt,
         opt_state,
@@ -467,13 +446,12 @@ def main(argv):
         update, axis_name="i", in_axes=(None, None, 0, 0, 0, 0)
     )
 
-
     print(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
     train_iterator = iter(dataset_train)
-    for epoch in range(FLAGS.epochs):
+    for epoch in range(initial_epoch, FLAGS.epochs):
         t0 = time.time()
 
-        for _ in tqdm(range(initial_epoch, steps_per_epoch), desc="gradient steps..."):
+        for _ in tqdm(range(steps_per_epoch), desc="gradient steps..."):
             data = next(train_iterator)
             rng_key_train, _ = random.split(rng_key_train)
             # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
@@ -661,6 +639,8 @@ def evaluate_on_valid_or_test(
     prediction_type,
     n_samples,
 ):
+    list_labels = []
+    list_probas = []
     for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
         data = next(data_iterator)
         features, labels = data["features"]._numpy(), data["labels"]._numpy()
@@ -685,6 +665,8 @@ def evaluate_on_valid_or_test(
         probs = jax.nn.softmax(preds_f_mean, axis=-1)
         probs_of_labels = probs[:, 1]
 
+        list_labels.append(labels)
+        list_probas.append(probs_of_labels)
         metrics[dataset_split + "/negative_log_likelihood"].update_state(
             -log_likelihood_per_input
         )
@@ -695,6 +677,14 @@ def evaluate_on_valid_or_test(
 
         if not use_tpu:
             metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=labels)
+
+    all_labels = jnp.concatenate(list_labels)
+    all_probas = jnp.concatenate(list_probas)
+    probas_positive = all_probas[all_labels == 1]
+    percentiles = [90, 99, 99.9]
+    print("*" * 100)
+    print(f"The {dataset_split} percentiles {percentiles} are ",
+          jnp.percentile(probas_positive, percentiles))
 
 
 if __name__ == "__main__":

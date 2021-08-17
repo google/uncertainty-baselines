@@ -512,7 +512,7 @@ def main(argv):
                 state=state,
                 inputs=features,
                 rng_key=rng_key_eval,
-                n_samples=FLAGS.n_samples,
+                n_samples=1,
                 is_training=False,
             )
             if jnp.isnan(probs).sum() > 1:

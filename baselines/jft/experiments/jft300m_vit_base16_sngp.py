@@ -101,5 +101,3 @@ def get_config():
   return config
 
 
-def get_sweep(hyper):
-  return hyper.product([])

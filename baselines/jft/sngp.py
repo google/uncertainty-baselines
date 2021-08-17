@@ -27,13 +27,15 @@ from clu import parameter_overview
 from clu import periodic_actions
 import flax
 import flax.jax_utils as flax_utils
+import flax.traverse_util as trav_utils
+
 import jax
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
 import robustness_metrics as rm
-import scipy
 
+import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
 
@@ -119,48 +121,45 @@ def get_gp_kwargs(gp_config):
 
 
 def resformer_sngp_load(init_params, init_file, model_params):
-  """Load model parameter of ViT-SNGP for finetuning on high-res inputs."""
+  """Load model parameters from checkpoint and align that with ViT-SNGP."""
 
-  # Restores original parameter from the checkpoint.
+  def _flatten_dict(params):
+    return {'/'.join(k): v for k, v in trav_utils.flatten_dict(params).items()}
+
+  def _unflatten_dict(flat_params):
+    tuple_to_value = {tuple(k.split('/')): v for k, v in flat_params.items()}
+    return trav_utils.unflatten_dict(tuple_to_value)
+
+  # Restores parameters from the checkpoint.
   restored_params = resformer.load(init_params, init_file, model_params)
 
-  # Modifies the position embedding layer of ViT-SNGP for high-res inputs.
-  logging.info('restored_params = %s', list(restored_params.keys()))
-  vit_params = restored_params.get('vit_backbone', {})
-  logging.info('vit_params = %s', list(vit_params.keys()))
-  if 'posembed_input' in vit_params.get('Transformer', {}):
-    # Rescale the grid of position embeddings. Param shape is (1,N,1024)
-    posemb = restored_params['vit_backbone']['Transformer']['posembed_input'][
-        'pos_embedding']
-    posemb_new = init_params['vit_backbone']['Transformer']['posembed_input'][
-        'pos_embedding']
-    if posemb.shape != posemb_new.shape:
-      logging.info('Resformer: resized variant: %s to %s', posemb.shape,
-                   posemb_new.shape)
-      ntok_new = posemb_new.shape[1]
+  # Align restored parameter dict (restored_params) with model parameters
+  # (init_params) by adding in missing parameters and removing extra parameters.
+  # This is needed for ViT-GP to use pre-trained embeddings from
+  # other models.
+  restored_flat = _flatten_dict(restored_params)
+  expected_flat = _flatten_dict(init_params)
+  missing_keys = expected_flat.keys() - restored_flat.keys()
+  extra_keys = restored_flat.keys() - expected_flat.keys()
 
-      if model_params.classifier == 'token':
-        posemb_tok, posemb_grid = posemb[:, :1], posemb[0, 1:]
-        ntok_new -= 1
-      else:
-        posemb_tok, posemb_grid = posemb[:, :0], posemb[0]
+  logging.info(
+      'Restored params from checkpoint: %s.\n'
+      'Expected params from code: %s.', restored_flat.keys(),
+      expected_flat.keys())
 
-      gs_old = int(np.sqrt(len(posemb_grid)))
+  # Remove extra parameters.
+  for k in extra_keys:
+    del restored_flat[k]
 
-      # New grid may not be square!
-      gs_new = model_params.get('grid_size') or (int(
-          np.sqrt(ntok_new)), int(np.sqrt(ntok_new)))
-      logging.info('Resformer: grid-size from %s to %s', gs_old, gs_new)
-      posemb_grid = posemb_grid.reshape(gs_old, gs_old, -1)
+  # Add missing parameters using initialized values.
+  for k in missing_keys:
+    restored_flat[k] = expected_flat[k]
 
-      zoom = (gs_new[0] / gs_old, gs_new[1] / gs_old, 1)
-      posemb_grid = scipy.ndimage.zoom(posemb_grid, zoom, order=1)
-      posemb_grid = posemb_grid.reshape(1, gs_new[0] * gs_new[1], -1)
-      posemb = jnp.array(np.concatenate([posemb_tok, posemb_grid], axis=1))
-      restored_params['vit_backbone']['Transformer']['posembed_input'][
-          'pos_embedding'] = posemb
+  logging.info(
+      'Added Missing params from checkpoint: %s.\n'
+      'Removed Extra params in checkpoint: %s.\n', missing_keys, extra_keys)
 
-  return restored_params
+  return _unflatten_dict(restored_flat)
 
 
 def main(argv):
@@ -268,6 +267,23 @@ def main(argv):
   else:
     val_ds = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
 
+  ood_ds = None
+  if config.get('ood_dataset'):
+    logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+    if isinstance(config.ood_split, str):
+      ood_ds = {
+          'ind':
+              _get_val_split(config.dataset, config.ood_split, config.pp_eval,
+                             config.get('data_dir')),
+          'ood':
+              _get_val_split(config.ood_dataset, config.ood_split,
+                             config.pp_eval, config.get('data_dir')),
+      }
+    else:
+      raise NotImplementedError(
+          'Only string type of val_split is supported! Got val_split=%s!' %
+          str(config.ood_split))
+
   ntrain_img = input_pipeline.get_num_examples(
       config.dataset,
       config.train_split,
@@ -365,8 +381,7 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
 
-    softmax = jax.nn.softmax(logits)
-    metric_args = jax.lax.all_gather([softmax, labels, mask], axis_name='batch')
+    metric_args = jax.lax.all_gather([logits, labels, mask], axis_name='batch')
     return ncorrect, loss, n, metric_args
 
   # Setup function for computing representation.
@@ -644,19 +659,60 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute complicated metrics such
-          # as ECE.
-          softmax, labels, masks = batch_metric_args
+          # Here we parse batch_metric_args to compute
+          # complicated metrics such as ECE.
+          logits, labels, masks = batch_metric_args
           masks = np.array(masks[0], dtype=np.bool)
           # From one-hot to integer labels, as required by ECE.
           labels = np.argmax(np.array(labels[0]), axis=-1)
-          softmax = np.array(softmax[0])
-          for s, l, m in zip(softmax, labels, masks):
-            ece.add_batch(s[m, :], label=l[m])
+          logits = np.array(logits[0])
+          probs = jax.nn.softmax(logits)
+          for p, l, m in zip(probs, labels, masks):
+            ece.add_batch(p[m, :], label=l[m])
+
         val_loss = loss / nseen  # Keep to return for reproducibility tests.
         mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
         mw.measure(f'{val_name}_loss', val_loss)
         mw.measure(f'{val_name}_ece', float(ece.result()['ece']))
+
+      # Fewshot evaluation.
+      if ood_ds:
+        ood_metrics = {
+            'auroc':
+                tf.keras.metrics.AUC(
+                    curve='ROC', summation_method='interpolation'),
+            'auprc':
+                tf.keras.metrics.AUC(
+                    curve='PR', summation_method='interpolation')
+        }
+        for metric in ood_metrics.values():
+          metric.reset_states()
+        for val_name, (val_iter, val_steps) in ood_ds.items():
+          for _, batch in zip(range(val_steps), val_iter):
+            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+                evaluation_fn(opt_repl.target, states_repl, batch['image'],
+                              batch['labels'], batch['mask']))
+            ncorrect += np.sum(np.array(batch_ncorrect[0]))
+            loss += np.sum(np.array(batch_losses[0]))
+            nseen += np.sum(np.array(batch_n[0]))
+            # Parse batch_metric_args to compute OOD AUC.
+            logits, labels, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits_masked = np.array(logits[0])[masks]
+            probs_masked = jax.nn.softmax(logits_masked)
+            confs = jnp.max(probs_masked, axis=-1)
+            ood_labels = np.ones_like(
+                confs) if val_name == 'ind' else np.zeros_like(confs)
+            for metric in ood_metrics.values():
+              metric.update_state(ood_labels, confs)
+          # For in-domain data, also compute model accuracy.
+          if val_name == 'ind':
+            val_loss = loss / nseen  # Keep to return for reproducibility tests.
+            mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
+            mw.measure(f'{val_name}_loss', val_loss)
+        for name, value in ood_metrics.items():
+          mw.measure(f'ood_{name}', value.result())
+
       chrono.resume()
 
     if 'fewshot' in config:

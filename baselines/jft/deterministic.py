@@ -31,6 +31,7 @@ import jax
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
+import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
 
@@ -164,6 +165,23 @@ def main(argv):
   else:
     val_ds = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
 
+  ood_ds = None
+  if config.get('ood_dataset'):
+    logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+    if isinstance(config.ood_split, str):
+      ood_ds = {
+          'ind':
+              _get_val_split(config.dataset, config.ood_split, config.pp_eval,
+                             config.get('data_dir')),
+          'ood':
+              _get_val_split(config.ood_dataset, config.ood_split,
+                             config.pp_eval, config.get('data_dir')),
+      }
+    else:
+      raise NotImplementedError(
+          'Only string type of val_split is supported! Got val_split=%s!' %
+          str(config.ood_split))
+
   ntrain_img = input_pipeline.get_num_examples(
       config.dataset, config.train_split,
       data_dir=fillin(config.get('data_dir')))
@@ -226,7 +244,9 @@ def main(argv):
     top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
-    return ncorrect, loss, n
+
+    metric_args = jax.lax.all_gather([logits, mask], axis_name='batch')
+    return ncorrect, loss, n, metric_args
 
   # Setup function for computing representation.
   @partial(jax.pmap, axis_name='batch')
@@ -432,7 +452,7 @@ def main(argv):
       for val_name, (val_iter, val_steps) in val_ds.items():
         ncorrect, loss, nseen = 0, 0, 0
         for _, batch in zip(range(val_steps), val_iter):
-          batch_ncorrect, batch_losses, batch_n = evaluation_fn(
+          batch_ncorrect, batch_losses, batch_n, _ = evaluation_fn(
               opt_repl.target, batch['image'], batch['labels'], batch['mask'])
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
@@ -444,6 +464,47 @@ def main(argv):
         val_loss = loss / nseen  # Keep to return for reproducibility tests.
         mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
         mw.measure(f'{val_name}_loss', val_loss)
+
+      # OOD eval
+      if ood_ds:
+        ood_metrics = {
+            'auroc':
+                tf.keras.metrics.AUC(
+                    curve='ROC', summation_method='interpolation'),
+            'auprc':
+                tf.keras.metrics.AUC(
+                    curve='PR', summation_method='interpolation')
+        }
+        for metric in ood_metrics.values():
+          metric.reset_states()
+        for val_name, (val_iter, val_steps) in ood_ds.items():
+          for _, batch in zip(range(val_steps), val_iter):
+            batch_ncorrect, batch_losses, batch_n, batch_metric_args = evaluation_fn(
+                opt_repl.target, batch['image'], batch['labels'], batch['mask'])
+            # All results are a replicated array shaped as follows:
+            # (local_devices, per_device_batch_size, elem_shape...)
+            # with each local device's entry being identical as they got psum'd.
+            # So let's just take the first one to the host as numpy.
+            ncorrect += np.sum(np.array(batch_ncorrect[0]))
+            loss += np.sum(np.array(batch_losses[0]))
+            nseen += np.sum(np.array(batch_n[0]))
+
+            # Here we parse batch_metric_args to compute
+            # complicated metrics such as ECE and OOD AUROC
+            logits, masks = batch_metric_args
+            probs = jax.nn.softmax(logits, axis=-1)
+            logits = logits[jnp.array(masks, dtype=bool)]
+            confs = jnp.max(probs, axis=-1)
+            ood_labels = np.ones_like(
+                confs) if val_name == 'ind' else np.zeros_like(confs)
+            for metric in ood_metrics.values():
+              metric.update_state(ood_labels, confs)
+          if val_name == 'ind':
+            val_loss = loss / nseen  # Keep to return for reproducibility tests.
+            mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
+            mw.measure(f'{val_name}_loss', val_loss)
+        for name, value in ood_metrics.items():
+          mw.measure(f'ood_{name}', value.result())
       chrono.resume()
 
     if 'fewshot' in config:

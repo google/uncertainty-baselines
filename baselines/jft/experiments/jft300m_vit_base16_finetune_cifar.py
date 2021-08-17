@@ -37,6 +37,11 @@ def get_config():
   config.train_split = 'train[:98%]'
   config.num_classes = 10
 
+  # OOD eval
+  # ood_split is the data split for both the ood_dataset and the dataset.
+  config.ood_dataset = 'cifar100'
+  config.ood_split = 'test'
+
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
 

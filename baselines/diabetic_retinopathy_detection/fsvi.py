@@ -240,6 +240,16 @@ flags.DEFINE_integer(
     1,
     "Number of MC samples used for validation and testing",
 )
+flags.DEFINE_float(
+    "uniform_init_minval",
+    -20.0,
+    "lower bound of uniform distribution for variational log variance",
+)
+flags.DEFINE_float(
+    "uniform_init_maxval",
+    -18.0,
+    "lower bound of uniform distribution for variational log variance",
+)
 FLAGS = flags.FLAGS
 
 
@@ -502,9 +512,11 @@ def main(argv):
                 state=state,
                 inputs=features,
                 rng_key=rng_key_eval,
-                n_samples=1,
+                n_samples=FLAGS.n_samples,
                 is_training=False,
             )
+            if jnp.isnan(probs).sum() > 1:
+                pdb.set_trace()
             probs_of_labels = probs[:, 1]
             metrics["train/accuracy"].update_state(labels, probs_of_labels)
             metrics["train/auprc"].update_state(labels, probs_of_labels)

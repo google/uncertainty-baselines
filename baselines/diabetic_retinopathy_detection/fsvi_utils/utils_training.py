@@ -79,6 +79,8 @@ class Training:
         noise_std,
         map_initialization,
         epochs,
+        uniform_init_minval,
+        uniform_init_maxval,
         **kwargs,
     ):
         """
@@ -115,6 +117,8 @@ class Training:
         self.noise_std = noise_std
         self.data_training_id = 0
         self.epochs = epochs
+        self.uniform_init_minval = uniform_init_minval
+        self.uniform_init_maxval = uniform_init_maxval
 
         self.map_initialization = map_initialization
 
@@ -149,11 +153,13 @@ class Training:
             rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
         )
         if self.map_initialization:
-            file_path = "gs://ub-data/retinopathy-out-qixuan/deterministic/reprod/checkpoint_80"
+            file_path = "gs://ub-data/retinopathy-out-qixuan/deterministic/reprod/chkpt_80"
 
+            print("*" * 100)
+            print("load deterministic network")
             params_log_var_init = hk.data_structures.filter(predicate_var, params_init)
 
-            with tf.io.gfile.Gfile(file_path, "rb") as f:
+            with tf.io.gfile.GFile(file_path, "rb") as f:
                 chkpt = pickle.load(f)
             state, params_trained = chkpt["state"], chkpt["params"]
 
@@ -260,6 +266,8 @@ class Training:
             dropout=self.dropout,
             dropout_rate=self.dropout_rate,
             batch_normalization=self.batch_normalization,
+            uniform_init_minval=self.uniform_init_minval,
+            uniform_init_maxval=self.uniform_init_maxval
         )
         return model
 

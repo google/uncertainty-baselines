@@ -190,8 +190,12 @@ class CNN(Model):
         dropout=False,
         dropout_rate=0.0,
         batch_normalization=False,
+        uniform_init_minval: float = -20.,
+        uniform_init_maxval: float = -18.,
     ):
         self.batch_normalization = batch_normalization
+        self.uniform_init_minval = uniform_init_minval
+        self.uniform_init_maxval = uniform_init_maxval
         super().__init__(
             output_dim=output_dim,
             architecture=architecture,
@@ -213,6 +217,8 @@ class CNN(Model):
                     dropout=self.dropout,
                     dropout_rate=self.dropout_rate,
                     linear_model=self.linear_model,
+                    uniform_init_minval=self.uniform_init_minval,
+                    uniform_init_maxval=self.uniform_init_maxval,
                 )
                 return net(inputs, rng_key, stochastic, is_training)
 

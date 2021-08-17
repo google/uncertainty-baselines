@@ -621,6 +621,8 @@ class ResNet(hk.Module):
         use_projection: Sequence[bool] = (True, True, True, True),
         logits_config: Optional[Mapping[str, Any]] = None,
         name: Optional[str] = None,
+        uniform_init_minval: float = -20.,
+        uniform_init_maxval: float = -18.,
     ):
         """Constructs a ResNet model.
         Args:
@@ -655,12 +657,8 @@ class ResNet(hk.Module):
             self.stochastic_parameters_final_layer = stochastic_parameters
 
         # TODO: Maybe remove hardcoding here
-        if self.linear_model:
-            self.uniform_init_minval = -20.0
-            self.uniform_init_maxval = -18.0
-        else:
-            self.uniform_init_minval = -20.0
-            self.uniform_init_maxval = -18.0
+        self.uniform_init_minval = uniform_init_minval
+        self.uniform_init_maxval = uniform_init_maxval
 
         bn_config = dict(bn_config or {})
         bn_config.setdefault("decay_rate", 0.9)
@@ -818,6 +816,8 @@ class ResNet50FSVI(ResNet):
         resnet_v2: bool = False,
         logits_config: Optional[Mapping[str, Any]] = None,
         name: Optional[str] = None,
+        uniform_init_minval: float = -20.,
+        uniform_init_maxval: float = -18.,
     ):
         """Constructs a ResNet model.
 
@@ -844,4 +844,6 @@ class ResNet50FSVI(ResNet):
             use_projection=(True, True, True, True),
             logits_config=logits_config,
             name=name,
+            uniform_init_minval=uniform_init_minval,
+            uniform_init_maxval=uniform_init_maxval,
         )

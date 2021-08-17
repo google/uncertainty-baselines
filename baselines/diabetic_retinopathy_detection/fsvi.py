@@ -397,7 +397,7 @@ def main(argv):
 
     @jit
     def update(
-        params, state, x_batch, y_batch, inducing_inputs, rng_key,
+        params, state, opt_state, x_batch, y_batch, inducing_inputs, rng_key,
     ):
         trainable_params, non_trainable_params = get_trainable_params(params)
         variational_params, model_params = get_variational_and_model_params(params)
@@ -429,14 +429,10 @@ def main(argv):
             additional_info = tree.map_structure(
                 partial(jax.lax.pmean, axis_name="i"), additional_info
             )
-        return grads_full, additional_info
-
-    @jit
-    def update_apply_grad(grads_full, opt_state, params, additional_info):
         updates, opt_state = opt.update(grads_full, opt_state)
         new_params = optax.apply_updates(params, updates)
         new_state = additional_info["state"]
-        return new_params, opt_state, new_state, additional_info
+        return new_params, new_state, opt_state, additional_info
 
     @jit
     def reshape(x_batch, y_batch, inducing_inputs, rng_key_train):
@@ -453,8 +449,10 @@ def main(argv):
         return x_batch, y_batch, inducing_inputs, keys
 
     update_pmap = jax.pmap(
-        update, axis_name="i", in_axes=(None, None, 0, 0, 0, 0)
+        update, axis_name="i", in_axes=(None, None, None, 0, 0, 0, 0),
+        out_axes=(None, None, None, None)
     )
+    verbose = False
 
     print(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
     train_iterator = iter(dataset_train)
@@ -462,7 +460,12 @@ def main(argv):
         t0 = time.time()
 
         for _ in tqdm(range(steps_per_epoch), desc="gradient steps..."):
+            if verbose:
+                start = time.time()
             data = next(train_iterator)
+            if verbose:
+                print(f"loading data used {time.time() - start:.2f} seconds")
+                start = time.time()
             rng_key_train, _ = random.split(rng_key_train)
             # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
             features, labels = data["features"]._numpy(), data["labels"]._numpy()
@@ -472,6 +475,9 @@ def main(argv):
             inducing_inputs = inducing_input_fn(
                 x_batch, rng_key_train, FLAGS.num_cores * FLAGS.n_inducing_inputs
             )
+            if verbose:
+                print(f"preparing data used {time.time() - start:.2f} seconds")
+                start = time.time()
 
             if FLAGS.num_cores > 1:
                 x_batch, y_batch, inducing_inputs, keys = reshape(
@@ -481,24 +487,17 @@ def main(argv):
             else:
                 update_to_use = update
                 keys = rng_key_train
+            if verbose:
+                print(f"reshaping data used {time.time() - start:.2f} seconds")
+                start = time.time()
 
-            grads_full, additional_info = update_to_use(
-                params, state, x_batch, y_batch, inducing_inputs, keys,
-            )
-            if FLAGS.num_cores > 1:
-                grads_full = take_first_copy(
-                    structure=grads_full,
-                    num_cores=FLAGS.num_cores,
-                )
-                additional_info = take_first_copy(
-                    structure=additional_info,
-                    num_cores=FLAGS.num_cores,
-                )
-            params, opt_state, state, additional_info = update_apply_grad(
-                grads_full, opt_state, params, additional_info
-            )
 
-            # TODO: in case num_cores>1, I need to deal with multiple copies of returned data
+            params, state, opt_state, additional_info = update_to_use(
+                params, state, opt_state, x_batch, y_batch, inducing_inputs, keys,
+            )
+            if verbose:
+                print(f"compute grads used {time.time() - start:.2f} seconds")
+                start = time.time()
 
             # compute metrics
             metrics["train/loss"].update_state(additional_info["loss"].item())
@@ -524,6 +523,8 @@ def main(argv):
 
             if not use_tpu:
                 metrics["train/ece"].add_batch(probs_of_labels, label=labels)
+            if verbose:
+                print(f"compute metric used {time.time() - start:.2f} seconds")
 
         # evaluation on validation set
         if FLAGS.use_validation:
@@ -627,14 +628,6 @@ def main(argv):
         })
 
 
-def take_first_copy(structure, num_cores):
-    def _func(x):
-        assert x.shape[0] == num_cores, f"x.shape={x.shape}, num_cores={num_cores}"
-        assert jnp.abs(x[0] - x[1]).max().item() < 1e-8
-        return x[0]
-    return tree.map_structure(_func, structure)
-
-
 def evaluate_on_valid_or_test(
     dataset_split: str,
     metrics,
@@ -651,8 +644,8 @@ def evaluate_on_valid_or_test(
     prediction_type,
     n_samples,
 ):
-    list_labels = []
-    list_probas = []
+    # list_labels = []
+    # list_probas = []
     for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
         data = next(data_iterator)
         features, labels = data["features"]._numpy(), data["labels"]._numpy()
@@ -677,8 +670,8 @@ def evaluate_on_valid_or_test(
         probs = jax.nn.softmax(preds_f_mean, axis=-1)
         probs_of_labels = probs[:, 1]
 
-        list_labels.append(labels)
-        list_probas.append(probs_of_labels)
+        # list_labels.append(labels)
+        # list_probas.append(probs_of_labels)
         metrics[dataset_split + "/negative_log_likelihood"].update_state(
             -log_likelihood_per_input
         )
@@ -690,13 +683,13 @@ def evaluate_on_valid_or_test(
         if not use_tpu:
             metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=labels)
 
-    all_labels = jnp.concatenate(list_labels)
-    all_probas = jnp.concatenate(list_probas)
-    probas_positive = all_probas[all_labels == 1]
-    percentiles = [90, 99, 99.9]
-    print("*" * 100)
-    print(f"The {dataset_split} percentiles {percentiles} are ",
-          jnp.percentile(probas_positive, percentiles))
+    # all_labels = jnp.concatenate(list_labels)
+    # all_probas = jnp.concatenate(list_probas)
+    # probas_positive = all_probas[all_labels == 1]
+    # percentiles = [90, 99, 99.9]
+    # print("*" * 100)
+    # print(f"The {dataset_split} percentiles {percentiles} are ",
+    #       jnp.percentile(probas_positive, percentiles))
 
 
 if __name__ == "__main__":

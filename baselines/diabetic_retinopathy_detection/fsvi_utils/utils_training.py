@@ -423,9 +423,9 @@ class Training:
     ):
         if self.inducing_input_type == "ood_rand" and len(x_ood) > 1:
             raise AssertionError("Inducing point type 'ood_rand' only works if one OOD set is specified.")
-        def inducing_input_fn(x_batch, rng_key, n_inducing_inputs=None):
-            if n_inducing_inputs is None:
-                n_inducing_inputs = self.n_inducing_inputs
+        def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
+            # if n_inducing_inputs is None:
+            #     n_inducing_inputs = self.n_inducing_inputs
             return utils.select_inducing_inputs(
                 n_inducing_inputs=n_inducing_inputs,
                 inducing_input_type=self.inducing_input_type,

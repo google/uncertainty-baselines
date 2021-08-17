@@ -294,8 +294,9 @@ def main(argv):
     rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 
     # LOAD DATA
-    train_batch_size = FLAGS.train_batch_size * FLAGS.num_cores
-    eval_batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
+    num_cores = FLAGS.num_cores
+    train_batch_size = FLAGS.train_batch_size * num_cores
+    eval_batch_size = FLAGS.eval_batch_size * num_cores
 
     (
         dataset_train,
@@ -380,9 +381,10 @@ def main(argv):
         prior_cov=FLAGS.prior_cov,
         rng_key=rng_key,
     )
-    # if FLAGS.num_cores > 1:
-    #     inducing_input_fn = jax.pmap(inducing_input_fn, axis_name="i",
-    #                                  in_axes=)
+    if num_cores > 1:
+        inducing_input_fn = jax.pmap(inducing_input_fn, axis_name="i",
+                                     in_axes=(None, 0, None),
+                                     static_broadcasted_argnums=(2,))
 
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
     metrics = utils.get_diabetic_retinopathy_base_metrics(
@@ -425,7 +427,7 @@ def main(argv):
         grads = jax.tree_map(lambda x: x * 1.0, grads)
         grads_full = hk.data_structures.merge(grads, zero_grads)
 
-        if FLAGS.num_cores > 1:
+        if num_cores > 1:
             grads_full = tree.map_structure(
                 partial(jax.lax.pmean, axis_name="i"), grads_full
             )
@@ -438,24 +440,36 @@ def main(argv):
         return new_params, new_state, opt_state, additional_info
 
     @jit
-    def reshape(x_batch, y_batch, inducing_inputs, rng_key_train):
-        func = lambda x: x.reshape([FLAGS.num_cores, -1] + list(x.shape)[1:])
+    def reshape(x_batch, y_batch):
+        func = lambda x: x.reshape([num_cores, -1] + list(x.shape)[1:])
         x_batch, y_batch = list(
             map(
                 func,
                 [x_batch, y_batch],
             )
         )
-        if inducing_inputs is not None:
-            inducing_inputs = func(inducing_inputs)
-        keys = jax.random.split(rng_key_train, num=FLAGS.num_cores)
-        return x_batch, y_batch, inducing_inputs, keys
+        return x_batch, y_batch
 
     update_pmap = jax.pmap(
         update, axis_name="i", in_axes=(None, None, None, 0, 0, 0, 0),
         out_axes=(None, None, None, None)
     )
-    verbose = True
+
+    def predict_y_multisample(params, state, inputs, rng_key_eval):
+        _, probs, _ = model.predict_y_multisample(
+            params=params,
+            state=state,
+            inputs=inputs,
+            rng_key=rng_key_eval,
+            n_samples=1,
+            is_training=False,
+        )
+        return probs
+    if num_cores > 1:
+        predict_y_multisample = jax.pmap(predict_y_multisample,
+                                         in_axes=(None, None, 0, 0))
+
+    verbose = False
 
     print(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
     train_iterator = iter(dataset_train)
@@ -478,25 +492,30 @@ def main(argv):
             if verbose:
                 print(f"one-hot used {time.time() - start:.2f} seconds")
                 start = time.time()
+
+            if num_cores > 1:
+                keys = random.split(rng_key_train, num_cores)
+                eval_keys = random.split(keys[0], num_cores)
+            else:
+                keys = rng_key_train
+                _, eval_keys = random.split(rng_key_train)
             inducing_inputs = inducing_input_fn(
-                x_batch, rng_key_train, FLAGS.num_cores * FLAGS.n_inducing_inputs
+                x_batch, keys, FLAGS.n_inducing_inputs
             )
             if verbose:
                 print(f"inducing_inputs used {time.time() - start:.2f} seconds")
                 start = time.time()
 
-            if FLAGS.num_cores > 1:
-                x_batch, y_batch, inducing_inputs, keys = reshape(
-                    x_batch, y_batch, inducing_inputs, rng_key_train
+            if num_cores > 1:
+                x_batch, y_batch = reshape(
+                    x_batch, y_batch
                 )
                 update_to_use = update_pmap
             else:
                 update_to_use = update
-                keys = rng_key_train
             if verbose:
                 print(f"reshaping data used {time.time() - start:.2f} seconds")
                 start = time.time()
-
 
             params, state, opt_state, additional_info = update_to_use(
                 params, state, opt_state, x_batch, y_batch, inducing_inputs, keys,
@@ -506,15 +525,15 @@ def main(argv):
                 start = time.time()
 
             # compute metrics
-            _, rng_key_eval = jax.random.split(rng_key_train)
-            _, probs, _ = model.predict_y_multisample(
-                params=params,
-                state=state,
-                inputs=features,
-                rng_key=rng_key_eval,
-                n_samples=1,
-                is_training=False,
+            probs = predict_y_multisample(
+                params,
+                state,
+                x_batch,
+                eval_keys,
             )
+            if num_cores > 1:
+                probs = jnp.reshape(probs, [-1] + list(probs.shape[2:]))
+
             if verbose:
                 print(f"eval forward pass used {time.time() - start:.2f} seconds")
                 start = time.time()

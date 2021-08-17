@@ -1,5 +1,6 @@
 import os
 import getpass
+import pdb
 from copy import copy
 from typing import Tuple, List
 import random as random_py
@@ -368,9 +369,7 @@ def select_inducing_inputs(
         training_samples = x_batch_permuted[:n_inducing_inputs_train]
         inducing_inputs = np.concatenate([uniform_samples, training_samples], 0)
     elif "train_pixel_rand" in inducing_input_type:
-        scale = dtype_default(
-            inducing_input_type.split("train_pixel_rand_", 1)[1].split("_", 1)[0]
-        )
+        scale = float(inducing_input_type.split("train_pixel_rand_", 1)[1].split("_", 1)[0])
         n_inducing_inputs_sample = int(
             (1-scale) * n_inducing_inputs
         )  # TODO: fix: only allows for even n_inducing_inputs
@@ -411,7 +410,7 @@ def select_inducing_inputs(
                 key=rng_key,
             )[:, None]
             pixel_samples = random_pixels * jnp.ones(input_shape[-1])
-        inducing_inputs = np.concatenate([pixel_samples, training_samples], 0)
+        inducing_inputs = jnp.concatenate([pixel_samples, training_samples], 0)
     elif "gauss_uniform_train" in inducing_input_type:
         scale = dtype_default(
             inducing_input_type.split("gauss_uniform_train_", 1)[1].split("_", 1)[0]

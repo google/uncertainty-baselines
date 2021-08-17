@@ -1,4 +1,5 @@
 import pdb
+import pickle
 from functools import partial
 from typing import List, Tuple, Callable, Union, Sequence, Dict
 
@@ -9,6 +10,7 @@ import numpy as np
 import optax
 import sklearn
 import tree
+import tensorflow as tf
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils, utils_linearization
@@ -147,25 +149,13 @@ class Training:
             rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
         )
         if self.map_initialization:
+            file_path = "gs://ub-data/retinopathy-out-qixuan/deterministic/reprod/checkpoint_80"
+
             params_log_var_init = hk.data_structures.filter(predicate_var, params_init)
 
-            if "fashionmnist" in self.task:
-                filename_params = "saved_models/fashionmnist/map/params_pickle_map_fashionmnist"
-            elif "cifar" in self.task:
-                if "resnet" not in self.architecture:
-                    filename_params = "saved_models/cifar10/map/params_pickle_map_cifar10"
-                else:
-                    filename_params = "saved_models/cifar10/map/params_pickle_map_cifar10_resnet_01"
-                    filename_state = "saved_models/cifar10/map/state_pickle_map_cifar10_resnet_01"
-                    # filename_params = "saved_models/cifar10/fsvi/params_pickle_fsvi_cifar10_resnet_linear_model_01"
-                    # filename_state = "saved_models/cifar10/fsvi/state_pickle_fsvi_cifar10_resnet_linear_model_01"
-            else:
-                raise ValueError("MAP parameter file not found.")
-
-            # TODO: use absolute path instead of letting it depend on working directory?
-            params_trained = np.load(filename_params, allow_pickle=True)
-            if "resnet" in self.architecture:
-                state = np.load(filename_state, allow_pickle=True)
+            with tf.io.gfile.Gfile(file_path, "rb") as f:
+                chkpt = pickle.load(f)
+            state, params_trained = chkpt["state"], chkpt["params"]
 
             params_mean_trained = hk.data_structures.filter(predicate_mean, params_trained)
             params_batchnorm_trained = hk.data_structures.filter(

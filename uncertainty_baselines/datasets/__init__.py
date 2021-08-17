@@ -60,10 +60,12 @@ from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDatas
 
 try:
   # Try to import datasets depending on librosa.
+  from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
+  from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
 except ImportError:
   logging.warning(
-      'Skipped Speech Commands dataset due to ImportError. Try installing '
+      'Skipped dataset due to ImportError. Try installing '
       'uncertainty baselines with the `datasets` extras.', exc_info=True)
 except OSError:
   logging.warning(

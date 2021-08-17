@@ -54,7 +54,7 @@ try:
   from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
 except ImportError:
-  logging.warning('Skipped due to ImportError: {e}. Try installing uncertainty '
+  logging.warning('Skipped due to ImportError. Try installing uncertainty '
                   'baselines with the `datasets` extras.', exc_info=True)
   SpeechCommandsDataset = None
   MultiWoZDataset = None

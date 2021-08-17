@@ -380,6 +380,9 @@ def main(argv):
         prior_cov=FLAGS.prior_cov,
         rng_key=rng_key,
     )
+    # if FLAGS.num_cores > 1:
+    #     inducing_input_fn = jax.pmap(inducing_input_fn, axis_name="i",
+    #                                  in_axes=)
 
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
     metrics = utils.get_diabetic_retinopathy_base_metrics(
@@ -452,7 +455,7 @@ def main(argv):
         update, axis_name="i", in_axes=(None, None, None, 0, 0, 0, 0),
         out_axes=(None, None, None, None)
     )
-    verbose = False
+    verbose = True
 
     print(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
     train_iterator = iter(dataset_train)
@@ -472,11 +475,14 @@ def main(argv):
             x_batch, y_batch = get_minibatch(
                 (features, labels), output_dim, input_shape, prediction_type
             )
+            if verbose:
+                print(f"one-hot used {time.time() - start:.2f} seconds")
+                start = time.time()
             inducing_inputs = inducing_input_fn(
                 x_batch, rng_key_train, FLAGS.num_cores * FLAGS.n_inducing_inputs
             )
             if verbose:
-                print(f"preparing data used {time.time() - start:.2f} seconds")
+                print(f"inducing_inputs used {time.time() - start:.2f} seconds")
                 start = time.time()
 
             if FLAGS.num_cores > 1:
@@ -500,11 +506,6 @@ def main(argv):
                 start = time.time()
 
             # compute metrics
-            metrics["train/loss"].update_state(additional_info["loss"].item())
-            log_likelihood_per_input = additional_info["log_likelihood"].item() / y_batch.shape[0]
-            metrics["train/negative_log_likelihood"].update_state(
-                -log_likelihood_per_input
-            )
             _, rng_key_eval = jax.random.split(rng_key_train)
             _, probs, _ = model.predict_y_multisample(
                 params=params,
@@ -514,8 +515,15 @@ def main(argv):
                 n_samples=1,
                 is_training=False,
             )
-            if jnp.isnan(probs).sum() > 1:
-                pdb.set_trace()
+            if verbose:
+                print(f"eval forward pass used {time.time() - start:.2f} seconds")
+                start = time.time()
+
+            metrics["train/loss"].update_state(additional_info["loss"].item())
+            log_likelihood_per_input = additional_info["log_likelihood"].item() / y_batch.shape[0]
+            metrics["train/negative_log_likelihood"].update_state(
+                -log_likelihood_per_input
+            )
             probs_of_labels = probs[:, 1]
             metrics["train/accuracy"].update_state(labels, probs_of_labels)
             metrics["train/auprc"].update_state(labels, probs_of_labels)

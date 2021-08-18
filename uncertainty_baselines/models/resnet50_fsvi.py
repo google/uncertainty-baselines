@@ -1,4 +1,4 @@
-from typing import Mapping, Optional, Sequence, Union, Any, Tuple
+from typing import Mapping, Optional, Sequence, Union, Any, Tuple, Callable
 
 import haiku as hk
 import jax
@@ -41,8 +41,8 @@ class dense_stochastic_hk(hk.Module):
         uniform_init_minval: float,
         uniform_init_maxval: float,
         with_bias: bool = True,
-        w_init: Optional[hk.initializers.Initializer] = None,
-        b_init: Optional[hk.initializers.Initializer] = None,
+        w_init: Union[Optional[hk.initializers.Initializer], str] = "uniform",
+        b_init: Union[Optional[hk.initializers.Initializer], str] = "uniform",
         name: Optional[str] = None,
         stochastic_parameters: bool = False,
     ):
@@ -66,15 +66,14 @@ class dense_stochastic_hk(hk.Module):
         output_size = self.output_size
         dtype = inputs.dtype
 
-        if self.w_init is None:
-            stddev = 1.0 / np.sqrt(self.input_size)
-            self.w_init = hk.initializers.RandomUniform(minval=-stddev, maxval=stddev)
+        stddev = 1.0 / np.sqrt(self.input_size)
+        self.w_init = parse_w_init(init_type=self.w_init,
+                                   uniform_stddev=stddev)
         w_mu = hk.get_parameter("w_mu", shape=[j, k], dtype=dtype, init=self.w_init)
 
         if self.with_bias:
-            if self.b_init is None:
-                stddev = 1.0 / np.sqrt(self.input_size)
-                self.b_init = hk.initializers.RandomUniform(minval=-stddev, maxval=stddev)
+            self.b_init = parse_b_init(init_type=self.b_init,
+                                       uniform_stddev=stddev)
             b_mu = hk.get_parameter("b_mu", shape=[k], dtype=dtype, init=self.b_init)
         if self.stochastic_parameters:
             w_logvar = hk.get_parameter(
@@ -122,6 +121,32 @@ def to_dimension_numbers(
     )
 
 
+def parse_w_init(init_type, uniform_stddev):
+    if isinstance(init_type, Callable):
+        return init_type
+    if init_type == "uniform":
+        stddev = uniform_stddev
+        w_init = hk.initializers.RandomUniform(minval=-stddev, maxval=stddev)
+    elif init_type == "he_normal":
+        w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "truncated_normal")
+    else:
+        raise NotImplementedError(init_type)
+    return w_init
+
+
+def parse_b_init(init_type, uniform_stddev):
+    if isinstance(init_type, Callable):
+        return init_type
+    if init_type == "uniform":
+        stddev = uniform_stddev
+        b_init = hk.initializers.RandomUniform(minval=-stddev, maxval=stddev)
+    elif init_type == "zeros":
+        b_init = hk.initializers.Constant(0.0)
+    else:
+        raise NotImplementedError(init_type)
+    return b_init
+
+
 class conv2D_stochastic(hk.Module):
     """General N-dimensional convolutional."""
 
@@ -138,8 +163,8 @@ class conv2D_stochastic(hk.Module):
             str, Sequence[Tuple[int, int]], hk.pad.PadFn, Sequence[hk.pad.PadFn]
         ] = "SAME",
         with_bias: bool = True,
-        w_init: Optional[hk.initializers.Initializer] = None,
-        b_init: Optional[hk.initializers.Initializer] = None,
+        w_init: Union[Optional[hk.initializers.Initializer], str] = "uniform",
+        b_init: Union[Optional[hk.initializers.Initializer], str] = "uniform",
         data_format: str = "channels_last",
         mask: Optional[jnp.ndarray] = None,
         feature_group_count: int = 1,
@@ -263,14 +288,12 @@ class conv2D_stochastic(hk.Module):
                 f"Shapes are: {self.mask.shape}, {w_shape}"
             )
 
-        if self.w_init is None:
-            fan_in_shape = np.prod(w_shape[:-1])
-            stddev = 1.0 / np.sqrt(fan_in_shape)
-            self.w_init = hk.initializers.RandomUniform(minval=-stddev, maxval=stddev)
-        if self.b_init is None:
-            fan_in_shape = np.prod(w_shape[:-1])
-            stddev = 1.0 / np.sqrt(fan_in_shape)
-            self.b_init = hk.initializers.RandomUniform(minval=-stddev, maxval=stddev)
+        fan_in_shape = np.prod(w_shape[:-1])
+        stddev = 1.0 / np.sqrt(fan_in_shape)
+        self.w_init = parse_w_init(init_type=self.w_init,
+                                   uniform_stddev=stddev)
+        self.b_init = parse_b_init(init_type=self.b_init,
+                                   uniform_stddev=stddev)
 
         w_mu = hk.get_parameter(
             "w_mu", w_shape, dtype, init=self.w_init
@@ -342,6 +365,8 @@ class BlockV1(hk.Module):
         bn_config: Mapping[str, float],
         bottleneck: bool,
         name: Optional[str] = None,
+        w_init: str = "uniform",
+        b_init: str = "uniform",
     ):
 
         super().__init__(name=name)
@@ -365,6 +390,8 @@ class BlockV1(hk.Module):
                 stochastic_parameters=stochastic_parameters,
                 uniform_init_minval=uniform_init_minval,
                 uniform_init_maxval=uniform_init_maxval,
+                w_init=w_init,
+                b_init=b_init,
             )
 
             self.proj_batchnorm = hk.BatchNorm(name="batchnorm", **bn_config)
@@ -380,6 +407,8 @@ class BlockV1(hk.Module):
             stochastic_parameters=stochastic_parameters,
             uniform_init_minval=uniform_init_minval,
             uniform_init_maxval=uniform_init_maxval,
+            w_init=w_init,
+            b_init=b_init,
         )
 
         bn_0 = hk.BatchNorm(name="batchnorm", **bn_config)
@@ -394,6 +423,8 @@ class BlockV1(hk.Module):
             stochastic_parameters=stochastic_parameters,
             uniform_init_minval=uniform_init_minval,
             uniform_init_maxval=uniform_init_maxval,
+            w_init=w_init,
+            b_init=b_init,
         )
 
         bn_1 = hk.BatchNorm(name="batchnorm", **bn_config)
@@ -410,6 +441,8 @@ class BlockV1(hk.Module):
                 stochastic_parameters=stochastic_parameters,
                 uniform_init_minval=uniform_init_minval,
                 uniform_init_maxval=uniform_init_maxval,
+                w_init=w_init,
+                b_init=b_init,
             )
 
             bn_2 = hk.BatchNorm(name="batchnorm", scale_init=jnp.zeros, **bn_config)
@@ -439,112 +472,6 @@ class BlockV1(hk.Module):
         return jax.nn.relu(out + shortcut)
 
 
-class BlockV2(hk.Module):
-    """ResNet V2 block with optional bottleneck."""
-
-    def __init__(
-        self,
-        stochastic_parameters: bool,
-        dropout: bool,
-        dropout_rate: float,
-        uniform_init_minval: float,
-        uniform_init_maxval: float,
-        channels: int,
-        stride: Union[int, Sequence[int]],
-        use_projection: bool,
-        bn_config: Mapping[str, float],
-        bottleneck: bool,
-        name: Optional[str] = None,
-    ):
-
-        super().__init__(name=name)
-        self.use_projection = use_projection
-        self.dropout = dropout
-        self.dropout_rate = dropout_rate
-        # TODO: implement dropout
-        if self.dropout:
-            raise NotImplementedError("Dropout not yet implemented for ResNetV2")
-
-        bn_config = dict(bn_config)
-        bn_config.setdefault("create_scale", True)
-        bn_config.setdefault("create_offset", True)
-
-        if self.use_projection:
-            self.proj_conv = conv2D_stochastic(
-                output_channels=channels,
-                kernel_shape=1,
-                stride=stride,
-                with_bias=False,
-                padding="SAME",
-                name="shortcut_conv",
-                stochastic_parameters=stochastic_parameters,
-                uniform_init_minval=uniform_init_minval,
-                uniform_init_maxval=uniform_init_maxval,
-            )
-
-        channel_div = 4 if bottleneck else 1
-        conv_0 = conv2D_stochastic(
-            output_channels=channels // channel_div,
-            kernel_shape=1 if bottleneck else 3,
-            stride=1,
-            with_bias=False,
-            padding="SAME",
-            name="conv_0",
-            stochastic_parameters=stochastic_parameters,
-            uniform_init_minval=uniform_init_minval,
-            uniform_init_maxval=uniform_init_maxval,
-        )
-
-        bn_0 = hk.BatchNorm(name="batchnorm", **bn_config)
-
-        conv_1 = conv2D_stochastic(
-            output_channels=channels // channel_div,
-            kernel_shape=3,
-            stride=stride,
-            with_bias=False,
-            padding="SAME",
-            name="conv_1",
-            stochastic_parameters=stochastic_parameters,
-            uniform_init_minval=uniform_init_minval,
-            uniform_init_maxval=uniform_init_maxval,
-        )
-
-        bn_1 = hk.BatchNorm(name="batchnorm", **bn_config)
-        layers = ((conv_0, bn_0), (conv_1, bn_1))
-
-        if bottleneck:
-            conv_2 = conv2D_stochastic(
-                output_channels=channels,
-                kernel_shape=1,
-                stride=1,
-                with_bias=False,
-                padding="SAME",
-                name="conv_2",
-                stochastic_parameters=stochastic_parameters,
-                uniform_init_minval=uniform_init_minval,
-                uniform_init_maxval=uniform_init_maxval,
-            )
-
-            # NOTE: Some implementations of ResNet50 v2 suggest initializing
-            # gamma/scale here to zeros.
-            bn_2 = hk.BatchNorm(name="batchnorm", **bn_config)
-            layers = layers + ((conv_2, bn_2),)
-
-        self.layers = layers
-
-    def __call__(self, inputs, rng_key, stochastic, is_training, test_local_stats):
-        x = shortcut = inputs
-
-        for i, (conv_i, bn_i) in enumerate(self.layers):
-            x = bn_i(x, is_training, test_local_stats)
-            x = jax.nn.relu(x)
-            if i == 0 and self.use_projection:
-                shortcut = self.proj_conv(x, rng_key, stochastic)
-            x = conv_i(x, rng_key, stochastic)
-
-        return x + shortcut
-
-
 class BlockGroup(hk.Module):
     """Higher level block for ResNet implementation."""
 
@@ -559,20 +486,19 @@ class BlockGroup(hk.Module):
         num_blocks: int,
         stride: Union[int, Sequence[int]],
         bn_config: Mapping[str, float],
-        resnet_v2: bool,
         bottleneck: bool,
         use_projection: bool,
         name: Optional[str] = None,
+        w_init: str = "uniform",
+        b_init: str = "uniform",
     ):
 
         super().__init__(name=name)
 
-        block_cls = BlockV2 if resnet_v2 else BlockV1
-
         self.blocks = []
         for i in range(num_blocks):
             self.blocks.append(
-                block_cls(
+                BlockV1(
                     stochastic_parameters=stochastic_parameters,
                     dropout=dropout,
                     dropout_rate=dropout_rate,
@@ -584,6 +510,8 @@ class BlockGroup(hk.Module):
                     bottleneck=bottleneck,
                     bn_config=bn_config,
                     name="block_%d" % (i),
+                    w_init=w_init,
+                    b_init=b_init,
                 )
             )
 
@@ -604,7 +532,6 @@ class ResNet(hk.Module):
 
     BlockGroup = BlockGroup  # pylint: disable=invalid-name
     BlockV1 = BlockV1  # pylint: disable=invalid-name
-    BlockV2 = BlockV2  # pylint: disable=invalid-name
 
     def __init__(
         self,
@@ -623,6 +550,8 @@ class ResNet(hk.Module):
         name: Optional[str] = None,
         uniform_init_minval: float = -20.,
         uniform_init_maxval: float = -18.,
+        w_init: str = "uniform",
+        b_init: str = "uniform",
     ):
         """Constructs a ResNet model.
         Args:
@@ -668,7 +597,6 @@ class ResNet(hk.Module):
 
         logits_config = dict(logits_config or {})
         # logits_config.setdefault("w_init", jnp.zeros)
-        logits_config.setdefault("w_init", None)  # TR: added
         logits_config.setdefault("name", "logits")
         logits_config.setdefault("with_bias", True)  # TR: added
 
@@ -686,6 +614,8 @@ class ResNet(hk.Module):
             stochastic_parameters=self.stochastic_parameters_feature_mapping,
             uniform_init_minval=self.uniform_init_minval,
             uniform_init_maxval=self.uniform_init_maxval,
+            w_init=w_init,
+            b_init=b_init,
         )
 
         if not self.resnet_v2:
@@ -705,10 +635,11 @@ class ResNet(hk.Module):
                     num_blocks=blocks_per_group[i],
                     stride=strides[i],
                     bn_config=bn_config,
-                    resnet_v2=resnet_v2,
                     bottleneck=bottleneck,
                     use_projection=use_projection[i],
                     name="block_group_%d" % (i),
+                    w_init=w_init,
+                    b_init=b_init,
                 )
             )
 
@@ -724,6 +655,8 @@ class ResNet(hk.Module):
             uniform_init_minval=self.uniform_init_minval,
             uniform_init_maxval=self.uniform_init_maxval,
             stochastic_parameters=self.stochastic_parameters_final_layer,
+            w_init=w_init,
+            b_init=b_init,
             **logits_config,
         )
 
@@ -818,6 +751,8 @@ class ResNet50FSVI(ResNet):
         name: Optional[str] = None,
         uniform_init_minval: float = -20.,
         uniform_init_maxval: float = -18.,
+        w_init: str = "uniform",
+        b_init: str = "uniform",
     ):
         """Constructs a ResNet model.
 
@@ -846,4 +781,6 @@ class ResNet50FSVI(ResNet):
             name=name,
             uniform_init_minval=uniform_init_minval,
             uniform_init_maxval=uniform_init_maxval,
+            w_init=w_init,
+            b_init=b_init,
         )

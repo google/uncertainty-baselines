@@ -91,18 +91,18 @@ def get_config():
   config.gp_layer = ml_collections.ConfigDict()
   config.gp_layer.ridge_penalty = 1.
   # Disable momentum in order to use exact covariance update for finetuning.
-  config.gp_layer.covmat_momentum = -1.
-  config.gp_layer.mean_field_factor = -1.  # Disabled for now.
+  config.gp_layer.covmat_momentum = -1.  # Disable to allow exact cov update.
+  config.gp_layer.mean_field_factor = 5.
 
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.grad_clip_norm = -1.  # Disable for ViT-GP model.
+  config.grad_clip_norm = 1.
   config.weight_decay = None  # No explicit weight decay
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 5e-4
+  config.lr.base = 0.001
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
   config.lr.scale_with_batchsize = False

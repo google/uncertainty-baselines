@@ -296,7 +296,7 @@ def main(argv):
     # LOAD DATA
     num_cores = FLAGS.num_cores
     train_batch_size = FLAGS.train_batch_size * num_cores
-    eval_batch_size = FLAGS.eval_batch_size * num_cores
+    eval_batch_size = FLAGS.eval_batch_size
 
     (
         dataset_train,

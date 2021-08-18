@@ -81,6 +81,8 @@ class Training:
         epochs,
         uniform_init_minval,
         uniform_init_maxval,
+        w_init,
+        b_init,
         **kwargs,
     ):
         """
@@ -119,6 +121,8 @@ class Training:
         self.epochs = epochs
         self.uniform_init_minval = uniform_init_minval
         self.uniform_init_maxval = uniform_init_maxval
+        self.w_init = w_init
+        self.b_init = b_init
 
         self.map_initialization = map_initialization
 
@@ -267,7 +271,9 @@ class Training:
             dropout_rate=self.dropout_rate,
             batch_normalization=self.batch_normalization,
             uniform_init_minval=self.uniform_init_minval,
-            uniform_init_maxval=self.uniform_init_maxval
+            uniform_init_maxval=self.uniform_init_maxval,
+            w_init=self.w_init,
+            b_init=self.b_init,
         )
         return model
 

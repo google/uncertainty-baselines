@@ -192,10 +192,14 @@ class CNN(Model):
         batch_normalization=False,
         uniform_init_minval: float = -20.,
         uniform_init_maxval: float = -18.,
+        w_init: str = "uniform",
+        b_init: str = "uniform",
     ):
         self.batch_normalization = batch_normalization
         self.uniform_init_minval = uniform_init_minval
         self.uniform_init_maxval = uniform_init_maxval
+        self.w_init = w_init
+        self.b_init = b_init
         super().__init__(
             output_dim=output_dim,
             architecture=architecture,
@@ -219,6 +223,8 @@ class CNN(Model):
                     linear_model=self.linear_model,
                     uniform_init_minval=self.uniform_init_minval,
                     uniform_init_maxval=self.uniform_init_maxval,
+                    w_init=self.w_init,
+                    b_init=self.b_init,
                 )
                 return net(inputs, rng_key, stochastic, is_training)
 

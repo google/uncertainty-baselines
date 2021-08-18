@@ -31,6 +31,8 @@ import jax
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
+import robustness_metrics as rm
+
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
@@ -245,7 +247,7 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, mask], axis_name='batch')
+    metric_args = jax.lax.all_gather([logits, labels, mask], axis_name='batch')
     return ncorrect, loss, n, metric_args
 
   # Setup function for computing representation.
@@ -451,9 +453,12 @@ def main(argv):
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_ds.items():
         ncorrect, loss, nseen = 0, 0, 0
+        ece_num_bins = config.get('ece_num_bins', 15)
+        ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
         for _, batch in zip(range(val_steps), val_iter):
-          batch_ncorrect, batch_losses, batch_n, _ = evaluation_fn(
-              opt_repl.target, batch['image'], batch['labels'], batch['mask'])
+          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+              evaluation_fn(opt_repl.target, batch['image'],
+                            batch['labels'], batch['mask']))
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
           # with each local device's entry being identical as they got psum'd.
@@ -461,9 +466,21 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
+          # Here we parse batch_metric_args to compute complicated metrics
+          # such as ECE.
+          logits, labels, masks = batch_metric_args
+          masks = np.array(masks[0], dtype=np.bool)
+          # From one-hot to integer labels, as required by ECE.
+          labels = np.argmax(np.array(labels[0]), axis=-1)
+          logits = np.array(logits[0])
+          probs = jax.nn.softmax(logits)
+          for p, l, m in zip(probs, labels, masks):
+            ece.add_batch(p[m, :], label=l[m])
+
         val_loss = loss / nseen  # Keep to return for reproducibility tests.
         mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
         mw.measure(f'{val_name}_loss', val_loss)
+        mw.measure(f'{val_name}_ece', float(ece.result()['ece']))
 
       # OOD eval
       if ood_ds:
@@ -491,7 +508,7 @@ def main(argv):
 
             # Here we parse batch_metric_args to compute
             # complicated metrics such as ECE and OOD AUROC
-            logits, masks = batch_metric_args
+            logits, _, masks = batch_metric_args
             probs = jax.nn.softmax(logits[0], axis=-1)
             probs = probs[jnp.array(masks[0], dtype=bool)]
             confs = jnp.max(probs, axis=-1)

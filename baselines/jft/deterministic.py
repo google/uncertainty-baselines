@@ -492,8 +492,8 @@ def main(argv):
             # Here we parse batch_metric_args to compute
             # complicated metrics such as ECE and OOD AUROC
             logits, masks = batch_metric_args
-            probs = jax.nn.softmax(logits, axis=-1)
-            logits = logits[jnp.array(masks, dtype=bool)]
+            probs = jax.nn.softmax(logits[0], axis=-1)
+            probs = probs[jnp.array(masks[0], dtype=bool)]
             confs = jnp.max(probs, axis=-1)
             ood_labels = np.ones_like(
                 confs) if val_name == 'ind' else np.zeros_like(confs)

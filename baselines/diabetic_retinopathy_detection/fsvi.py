@@ -250,6 +250,21 @@ flags.DEFINE_float(
     -18.0,
     "lower bound of uniform distribution for variational log variance",
 )
+flags.DEFINE_integer(
+    "loss_type",
+    1,
+    "type of loss",
+)
+flags.DEFINE_string(
+    "w_init",
+    "uniform",
+    "initializer for weights",
+)
+flags.DEFINE_string(
+    "b_init",
+    "uniform",
+    "initializer for bias",
+)
 FLAGS = flags.FLAGS
 
 
@@ -296,7 +311,7 @@ def main(argv):
     # LOAD DATA
     num_cores = FLAGS.num_cores
     train_batch_size = FLAGS.train_batch_size * num_cores
-    eval_batch_size = FLAGS.eval_batch_size
+    eval_batch_size = FLAGS.eval_batch_size * num_cores
 
     (
         dataset_train,
@@ -421,6 +436,7 @@ def main(argv):
             inducing_inputs,
             rng_key,
             FLAGS.class_reweight_mode == "constant",
+            FLAGS.loss_type,
         )
 
         zero_grads = jax.tree_map(lambda x: x * 0.0, non_trainable_params)
@@ -438,17 +454,6 @@ def main(argv):
         new_params = optax.apply_updates(params, updates)
         new_state = additional_info["state"]
         return new_params, new_state, opt_state, additional_info
-
-    @jit
-    def reshape(x_batch, y_batch):
-        func = lambda x: x.reshape([num_cores, -1] + list(x.shape)[1:])
-        x_batch, y_batch = list(
-            map(
-                func,
-                [x_batch, y_batch],
-            )
-        )
-        return x_batch, y_batch
 
     update_pmap = jax.pmap(
         update, axis_name="i", in_axes=(None, None, None, 0, 0, 0, 0),
@@ -468,6 +473,31 @@ def main(argv):
     if num_cores > 1:
         predict_y_multisample = jax.pmap(predict_y_multisample,
                                          in_axes=(None, None, 0, 0))
+
+    def predict_f_multisample_jitted(params, state, inputs, rng_key, n_samples):
+        preds_f_samples, preds_f_mean, _ = model.predict_f_multisample_jitted(
+            params=params,
+            state=state,
+            inputs=inputs,
+            rng_key=rng_key,
+            n_samples=n_samples,
+            is_training=False,
+        )
+        return preds_f_samples, preds_f_mean
+    if num_cores > 1:
+        predict_f_multisample_jitted = jax.pmap(predict_f_multisample_jitted,
+                                         in_axes=(None, None, 0, 0, None),
+                                        static_broadcasted_argnums=(4,))
+
+    def crossentropy_log_likelihood(preds_f_samples, y_batch):
+        log_likelihood = objectives.crossentropy_log_likelihood(
+            preds_f_samples=preds_f_samples, targets=y_batch,
+            class_weight=False,
+        )
+        return log_likelihood
+    if num_cores > 1:
+        crossentropy_log_likelihood = jax.pmap(crossentropy_log_likelihood,
+                                                in_axes=(0, 0),)
 
     verbose = False
 
@@ -507,8 +537,8 @@ def main(argv):
                 start = time.time()
 
             if num_cores > 1:
-                x_batch, y_batch = reshape(
-                    x_batch, y_batch
+                x_batch, y_batch = reshape_to_multiple_cores(
+                    x_batch, y_batch, num_cores
                 )
                 update_to_use = update_pmap
             else:
@@ -532,7 +562,7 @@ def main(argv):
                 eval_keys,
             )
             if num_cores > 1:
-                probs = jnp.reshape(probs, [-1] + list(probs.shape[2:]))
+                probs = reshape_to_one_core(probs)
 
             if verbose:
                 print(f"eval forward pass used {time.time() - start:.2f} seconds")
@@ -559,36 +589,38 @@ def main(argv):
             evaluate_on_valid_or_test(
                 dataset_split="validation",
                 metrics=metrics,
-                model=model,
                 params=params,
                 state=state,
                 data_iterator=iter(dataset_validation),
                 num_steps=steps_per_validation_eval,
                 rng_key=rng_key_test,
                 use_tpu=use_tpu,
-                objectives=objectives,
                 output_dim=output_dim,
                 input_shape=input_shape,
                 prediction_type=prediction_type,
                 n_samples=FLAGS.n_samples_test,
+                predict_f_multisample_jitted=predict_f_multisample_jitted,
+                num_cores=num_cores,
+                crossentropy_log_likelihood=crossentropy_log_likelihood
             )
         # evaluation on test set
         _, rng_key_test = jax.random.split(rng_key_test)
         evaluate_on_valid_or_test(
             dataset_split="test",
             metrics=metrics,
-            model=model,
             params=params,
             state=state,
             data_iterator=iter(dataset_test),
             num_steps=steps_per_test_eval,
             rng_key=rng_key_test,
             use_tpu=use_tpu,
-            objectives=objectives,
             output_dim=output_dim,
             input_shape=input_shape,
             prediction_type=prediction_type,
             n_samples=FLAGS.n_samples_test,
+            predict_f_multisample_jitted=predict_f_multisample_jitted,
+            num_cores = num_cores,
+            crossentropy_log_likelihood=crossentropy_log_likelihood
         )
 
         log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
@@ -655,21 +687,39 @@ def main(argv):
         })
 
 
+@jax.jit
+def reshape_to_one_core(x):
+    return jnp.reshape(x, [-1] + list(x.shape[2:]))
+
+
+@partial(jax.jit, static_argnums=(2,))
+def reshape_to_multiple_cores(x_batch, y_batch, num_cores):
+    func = lambda x: x.reshape([num_cores, -1] + list(x.shape)[1:])
+    x_batch, y_batch = list(
+        map(
+            func,
+            [x_batch, y_batch],
+        )
+    )
+    return x_batch, y_batch
+
+
 def evaluate_on_valid_or_test(
     dataset_split: str,
     metrics,
-    model,
     params,
     state,
     data_iterator,
     num_steps,
     rng_key,
     use_tpu: bool,
-    objectives: Objectives_hk,
     output_dim,
     input_shape,
     prediction_type,
     n_samples,
+    predict_f_multisample_jitted,
+    num_cores,
+    crossentropy_log_likelihood,
 ):
     # list_labels = []
     # list_probas = []
@@ -679,21 +729,30 @@ def evaluate_on_valid_or_test(
         x_batch, y_batch = get_minibatch(
             (features, labels), output_dim, input_shape, prediction_type
         )
-        _, rng_key = jax.random.split(rng_key)
-        preds_f_samples, preds_f_mean, preds_f_var = model.predict_f_multisample_jitted(
-            params=params,
-            state=state,
-            inputs=x_batch,
-            rng_key=rng_key,
-            n_samples=n_samples,
-            is_training=False,
+        if num_cores > 1:
+            keys = jax.random.split(rng_key, num_cores)
+            x_batch, y_batch = reshape_to_multiple_cores(
+                x_batch, y_batch, num_cores
+            )
+        else:
+            _, keys = jax.random.split(rng_key)
+        preds_f_samples, preds_f_mean = predict_f_multisample_jitted(
+            params,
+            state,
+            x_batch,
+            keys,
+            n_samples,
         )
-        log_likelihood = objectives.crossentropy_log_likelihood(
-            preds_f_samples=preds_f_samples, targets=y_batch,
-            class_weight=False,
+
+        log_likelihood = crossentropy_log_likelihood(
+            preds_f_samples, y_batch,
         )
+        if num_cores > 1:
+            preds_f_mean = reshape_to_one_core(preds_f_mean)
+            log_likelihood = jnp.mean(log_likelihood)
+
         # to make it comparable to log likelihood reported in other scripts, e.g. deterministic.py
-        log_likelihood_per_input = log_likelihood / y_batch.shape[0]
+        log_likelihood_per_input = log_likelihood / labels.shape[0]
         probs = jax.nn.softmax(preds_f_mean, axis=-1)
         probs_of_labels = probs[:, 1]
 

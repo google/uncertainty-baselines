@@ -221,6 +221,7 @@ class Objectives_hk:
         rng_key,
         is_training,
         class_weight,
+        loss_type,
     ):
         preds_f_samples, _, _ = self.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
@@ -230,12 +231,20 @@ class Objectives_hk:
         kl, scale = self.function_kl(
             params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
         )
-        elbo = log_likelihood - scale * kl
-        # elbo = log_likelihood / inputs.shape[0] - scale * kl / inducing_inputs.shape[0]
+        if loss_type == 1:
+            elbo = log_likelihood - scale * kl
+        elif loss_type == 2:
+            elbo = log_likelihood / inputs.shape[0] - scale * kl / inducing_inputs.shape[0]
+        elif loss_type == 3:
+            elbo = (log_likelihood - scale * kl) / inputs.shape[0]
+        elif loss_type == 4:
+            elbo = log_likelihood / inputs.shape[0]
+        else:
+            raise NotImplementedError(loss_type)
 
         return elbo, log_likelihood, kl, scale
 
-    @partial(jit, static_argnums=(0, 10))
+    @partial(jit, static_argnums=(0, 10, 11))
     def map_loss_classification(
             self,
             trainable_params,
@@ -248,6 +257,7 @@ class Objectives_hk:
             inducing_inputs,
             rng_key,
             class_weight,
+            loss_type,
     ):
         (loss, negative_log_likelihood), state = self.objective_and_state(
             trainable_params,
@@ -327,7 +337,7 @@ class Objectives_hk:
             self._nll_loss_classification,
         )
 
-    @partial(jit, static_argnums=(0, 10))
+    @partial(jit, static_argnums=(0, 10, 11))
     def nelbo_fsvi_classification(
         self,
         trainable_params,
@@ -340,10 +350,12 @@ class Objectives_hk:
         inducing_inputs,
         rng_key,
         class_weight: bool,
+        loss_type: int,
     ):
-        (elbo, log_likelihood, kl, scale), state = self.objective_and_state(
-            trainable_params,
-            non_trainable_params,
+        params = hk.data_structures.merge(trainable_params, non_trainable_params, )
+        is_training = True
+        elbo, log_likelihood, kl, scale = self._elbo_fsvi_classification(
+            params,
             state,
             prior_mean,
             prior_cov,
@@ -351,9 +363,20 @@ class Objectives_hk:
             targets,
             inducing_inputs,
             rng_key,
+            is_training,
             class_weight,
-            self._elbo_fsvi_classification,
+            loss_type,
         )
+
+        state = self.apply_fn(
+            params,
+            state,
+            rng_key,
+            inputs,
+            rng_key,
+            stochastic=True,
+            is_training=is_training,
+        )[1]
 
         return -elbo, {"state": state, "elbo": elbo, "log_likelihood": log_likelihood,
                        "kl": kl, "scale": scale, "loss": -elbo}

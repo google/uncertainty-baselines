@@ -21,10 +21,6 @@ from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
 
-import uncertainty_baselines as ub
-from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk
-from baselines.diabetic_retinopathy_detection.utils import log_epoch_metrics, get_latest_fsvi_checkpoint
-
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
 path = dname + "/../.."
@@ -33,15 +29,15 @@ os.chdir(path)
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils import datasets
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
-    get_minibatch,
     initialize_random_keys,
+    to_one_hot,
 )
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import Training
 from baselines.diabetic_retinopathy_detection import utils
-
-
-tfd = tfp.distributions
-
+from baselines.diabetic_retinopathy_detection.utils import (
+    log_epoch_metrics,
+    get_latest_fsvi_checkpoint,
+)
 
 # original flags
 flags.DEFINE_string(
@@ -195,12 +191,14 @@ flags.DEFINE_string("data_dir", None, "Path to training and testing data.")
 
 flags.DEFINE_bool("use_validation", True, "Whether to use a validation split.")
 flags.DEFINE_string(
-    'class_reweight_mode', None,
-    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,'
-    'test respectively). `None` (default) will not perform any loss reweighting. '
-    '`constant` will use the train proportions to reweight the binary cross '
-    'entropy loss. `minibatch` will use the proportions of each minibatch to '
-    'reweight the loss.')
+    "class_reweight_mode",
+    None,
+    "Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,"
+    "test respectively). `None` (default) will not perform any loss reweighting. "
+    "`constant` will use the train proportions to reweight the binary cross "
+    "entropy loss. `minibatch` will use the proportions of each minibatch to "
+    "reweight the loss.",
+)
 
 # General model flags.
 # TODO: decide if we keep this
@@ -214,16 +212,17 @@ flags.DEFINE_integer(
 flags.DEFINE_integer("num_bins", 15, "Number of bins for ECE.")
 
 # Learning rate / SGD flags.
-flags.DEFINE_float('final_decay_factor', 1e-3, 'How much to decay the LR by.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
-flags.DEFINE_string('lr_schedule', 'step', 'Type of LR schedule.')
+flags.DEFINE_float("final_decay_factor", 1e-3, "How much to decay the LR by.")
+flags.DEFINE_float("one_minus_momentum", 0.1, "Optimizer momentum.")
+flags.DEFINE_string("lr_schedule", "step", "Type of LR schedule.")
 flags.DEFINE_integer(
-    'lr_warmup_epochs', 1,
-    'Number of epochs for a linear warmup to the initial '
-    'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
-                  'Epochs to decay learning rate by.')
+    "lr_warmup_epochs",
+    1,
+    "Number of epochs for a linear warmup to the initial "
+    "learning rate. Use 0 to do no warmup.",
+)
+flags.DEFINE_float("lr_decay_ratio", 0.2, "Amount to decay learning rate.")
+flags.DEFINE_list("lr_decay_epochs", ["30", "60"], "Epochs to decay learning rate by.")
 
 # Accelerator flags.
 flags.DEFINE_bool("force_use_cpu", False, "If True, force usage of CPU")
@@ -236,9 +235,7 @@ flags.DEFINE_string(
     "Name of the TPU. Only used if force_use_cpu and use_gpu are both False.",
 )
 flags.DEFINE_integer(
-    "n_samples_test",
-    1,
-    "Number of MC samples used for validation and testing",
+    "n_samples_test", 1, "Number of MC samples used for validation and testing",
 )
 flags.DEFINE_float(
     "uniform_init_minval",
@@ -251,19 +248,13 @@ flags.DEFINE_float(
     "lower bound of uniform distribution for variational log variance",
 )
 flags.DEFINE_integer(
-    "loss_type",
-    1,
-    "type of loss",
+    "loss_type", 1, "type of loss",
 )
 flags.DEFINE_string(
-    "w_init",
-    "uniform",
-    "initializer for weights",
+    "w_init", "uniform", "initializer for weights",
 )
 flags.DEFINE_string(
-    "b_init",
-    "uniform",
-    "initializer for bias",
+    "b_init", "uniform", "initializer for bias",
 )
 FLAGS = flags.FLAGS
 
@@ -345,9 +336,7 @@ def main(argv):
     )
 
     # INITIALIZE MODEL
-    (model, _, apply_fn, state, params) = training.initialize_model(
-        rng_key=rng_key
-    )
+    (model, _, apply_fn, state, params) = training.initialize_model(rng_key=rng_key)
 
     # INITIALIZE OPTIMIZATION
     (
@@ -383,7 +372,7 @@ def main(argv):
         # the type of the model, optimizer
         state, params, opt_state = chkpt["state"], chkpt["params"], chkpt["opt_state"]
 
-        logging.info('Loaded checkpoint %s', latest_checkpoint)
+        logging.info("Loaded checkpoint %s", latest_checkpoint)
         initial_epoch = chkpt["epoch"] + 1
 
     # INITIALIZE KL INPUT FUNCTIONS
@@ -396,10 +385,6 @@ def main(argv):
         prior_cov=FLAGS.prior_cov,
         rng_key=rng_key,
     )
-    if num_cores > 1:
-        inducing_input_fn = jax.pmap(inducing_input_fn, axis_name="i",
-                                     in_axes=(None, 0, None),
-                                     static_broadcasted_argnums=(2,))
 
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
     metrics = utils.get_diabetic_retinopathy_base_metrics(
@@ -415,10 +400,15 @@ def main(argv):
         )
     metrics.update({"test/ms_per_example": tf.keras.metrics.Mean()})
 
+    ########################## specify functions ##########################
     @jit
-    def update(
+    def update_fn(
         params, state, opt_state, x_batch, y_batch, inducing_inputs, rng_key,
     ):
+        """
+        Captured variables:
+            loss, FLAGS, num_cores
+        """
         trainable_params, non_trainable_params = get_trainable_params(params)
         variational_params, model_params = get_variational_and_model_params(params)
         prior_mean, prior_cov = prior_fn(
@@ -455,49 +445,139 @@ def main(argv):
         new_state = additional_info["state"]
         return new_params, new_state, opt_state, additional_info
 
-    update_pmap = jax.pmap(
-        update, axis_name="i", in_axes=(None, None, None, 0, 0, 0, 0),
-        out_axes=(None, None, None, None)
-    )
-
-    def predict_y_multisample(params, state, inputs, rng_key_eval):
+    def parallelisable_train_per_batch_computation(
+        params, state, opt_state, rng_key_train, x_batch, labels,
+    ):
+        """
+        Captured variables:
+            output_dim, FLAGS, update_fn, inducing_input_fn, model
+        """
+        # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
+        y_batch = to_one_hot(labels, output_dim)
+        inducing_key, rng_key_train, rng_key_eval = jax.random.split(rng_key_train, 3)
+        inducing_inputs = inducing_input_fn(
+            x_batch, inducing_key, FLAGS.n_inducing_inputs
+        )
+        params, state, opt_state, additional_info = update_fn(
+            params, state, opt_state, x_batch, y_batch, inducing_inputs, rng_key_train,
+        )
+        # compute metrics
         _, probs, _ = model.predict_y_multisample(
             params=params,
             state=state,
-            inputs=inputs,
+            inputs=x_batch,
             rng_key=rng_key_eval,
             n_samples=1,
             is_training=False,
         )
-        return probs
-    if num_cores > 1:
-        predict_y_multisample = jax.pmap(predict_y_multisample,
-                                         in_axes=(None, None, 0, 0))
+        return params, state, opt_state, additional_info, probs
 
-    def predict_f_multisample_jitted(params, state, inputs, rng_key, n_samples):
+    if num_cores > 1:
+        parallelisable_train_per_batch_computation = jax.pmap(
+            parallelisable_train_per_batch_computation,
+            axis_name="i",
+            in_axes=(None, None, None, 0, 0, 0),
+            out_axes=(None, None, None, None, 0),
+        )
+
+    def parallelizable_eval_per_batch_computation(
+        params, state, rng_key, x_batch, labels,
+    ):
+        """
+        Captured variables:
+            output_dim, FLAGS, objectives,
+        """
+        y_batch = to_one_hot(labels, output_dim)
         preds_f_samples, preds_f_mean, _ = model.predict_f_multisample_jitted(
             params=params,
             state=state,
-            inputs=inputs,
+            inputs=x_batch,
             rng_key=rng_key,
-            n_samples=n_samples,
+            n_samples=FLAGS.n_samples_test,
             is_training=False,
         )
-        return preds_f_samples, preds_f_mean
-    if num_cores > 1:
-        predict_f_multisample_jitted = jax.pmap(predict_f_multisample_jitted,
-                                         in_axes=(None, None, 0, 0, None),
-                                        static_broadcasted_argnums=(4,))
 
-    def crossentropy_log_likelihood(preds_f_samples, y_batch):
         log_likelihood = objectives.crossentropy_log_likelihood(
-            preds_f_samples=preds_f_samples, targets=y_batch,
-            class_weight=False,
+            preds_f_samples=preds_f_samples, targets=y_batch, class_weight=False,
         )
-        return log_likelihood
+        # to make it comparable to log likelihood reported in other scripts, e.g. deterministic.py
+        log_likelihood_per_input = log_likelihood / labels.shape[0]
+
+        probs = jax.nn.softmax(preds_f_mean, axis=-1)
+        probs_of_labels = probs[:, 1]
+        return log_likelihood_per_input, probs_of_labels
+
     if num_cores > 1:
-        crossentropy_log_likelihood = jax.pmap(crossentropy_log_likelihood,
-                                                in_axes=(0, 0),)
+        parallelizable_eval_per_batch_computation = jax.pmap(
+            parallelizable_eval_per_batch_computation,
+            in_axes=(None, None, 0, 0, 0),
+            out_axes=(0, 0),
+        )
+
+    def evaluate_on_valid_or_test(
+        dataset_split: str, params, state, data_iterator, num_steps, rng_key,
+    ):
+        """
+        Captured variables:
+            num_cores, parallelizable_eval_per_batch_computation
+        """
+        # list_labels = []
+        # list_probas = []
+        verbose = False
+        for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
+            if verbose:
+                start = time.time()
+            data = next(data_iterator)
+            x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
+
+            if verbose:
+                print(f"reading data used {time.time() - start:.2f} seconds")
+                start = time.time()
+
+            if num_cores > 1:
+                rng_key = jax.random.split(rng_key, num_cores)
+                x_batch, labels = reshape_to_multiple_cores(x_batch, labels, num_cores)
+
+            log_likelihood, probs_of_labels = parallelizable_eval_per_batch_computation(
+                params, state, rng_key, x_batch, labels,
+            )
+            if verbose:
+                print(f"eval computation used {time.time() - start:.2f} seconds")
+                start = time.time()
+
+            if num_cores > 1:
+                probs_of_labels = reshape_to_one_core(probs_of_labels)
+                log_likelihood = jnp.mean(log_likelihood)
+
+            if verbose:
+                print(f"reshape data again used {time.time() - start:.2f} seconds")
+                start = time.time()
+
+            # list_labels.append(labels)
+            # list_probas.append(probs_of_labels)
+            metrics[dataset_split + "/negative_log_likelihood"].update_state(
+                -log_likelihood
+            )
+            metrics[dataset_split + "/accuracy"].update_state(labels, probs_of_labels)
+            metrics["test/accuracy"].update_state(labels, probs_of_labels)
+            metrics[dataset_split + "/auprc"].update_state(labels, probs_of_labels)
+            metrics[dataset_split + "/auroc"].update_state(labels, probs_of_labels)
+
+            if not use_tpu:
+                metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=labels)
+
+            if verbose:
+                print(f"compute metrics used {time.time() - start:.2f} seconds")
+
+        # all_labels = jnp.concatenate(list_labels)
+        # all_probas = jnp.concatenate(list_probas)
+        # probas_positive = all_probas[all_labels == 1]
+        # percentiles = [90, 99, 99.9]
+        # print("*" * 100)
+        # print(f"The {dataset_split} percentiles {percentiles} are ",
+        #       jnp.percentile(probas_positive, percentiles))
+
+    ########################## train-eval loop ##########################
 
     verbose = False
 
@@ -505,71 +585,41 @@ def main(argv):
     train_iterator = iter(dataset_train)
     for epoch in range(initial_epoch, FLAGS.epochs):
         t0 = time.time()
-
         for _ in tqdm(range(steps_per_epoch), desc="gradient steps..."):
             if verbose:
                 start = time.time()
             data = next(train_iterator)
+            x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
             if verbose:
                 print(f"loading data used {time.time() - start:.2f} seconds")
                 start = time.time()
-            rng_key_train, _ = random.split(rng_key_train)
-            # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
-            features, labels = data["features"]._numpy(), data["labels"]._numpy()
-            x_batch, y_batch = get_minibatch(
-                (features, labels), output_dim, input_shape, prediction_type
-            )
-            if verbose:
-                print(f"one-hot used {time.time() - start:.2f} seconds")
-                start = time.time()
-
             if num_cores > 1:
-                keys = random.split(rng_key_train, num_cores)
-                eval_keys = random.split(keys[0], num_cores)
-            else:
-                keys = rng_key_train
-                _, eval_keys = random.split(rng_key_train)
-            inducing_inputs = inducing_input_fn(
-                x_batch, keys, FLAGS.n_inducing_inputs
-            )
-            if verbose:
-                print(f"inducing_inputs used {time.time() - start:.2f} seconds")
-                start = time.time()
-
-            if num_cores > 1:
-                x_batch, y_batch = reshape_to_multiple_cores(
-                    x_batch, y_batch, num_cores
-                )
-                update_to_use = update_pmap
-            else:
-                update_to_use = update
-            if verbose:
-                print(f"reshaping data used {time.time() - start:.2f} seconds")
-                start = time.time()
-
-            params, state, opt_state, additional_info = update_to_use(
-                params, state, opt_state, x_batch, y_batch, inducing_inputs, keys,
-            )
-            if verbose:
-                print(f"compute grads used {time.time() - start:.2f} seconds")
-                start = time.time()
-
-            # compute metrics
-            probs = predict_y_multisample(
+                rng_key_train = random.split(rng_key_train, num_cores)
+                x_batch, labels = reshape_to_multiple_cores(x_batch, labels, num_cores)
+            (
                 params,
                 state,
-                x_batch,
-                eval_keys,
+                opt_state,
+                additional_info,
+                probs,
+            ) = parallelisable_train_per_batch_computation(
+                params, state, opt_state, rng_key_train, x_batch, labels,
             )
+            if verbose:
+                print(f"per-batch computation used {time.time() - start:.2f} seconds")
+                start = time.time()
+
             if num_cores > 1:
                 probs = reshape_to_one_core(probs)
 
             if verbose:
-                print(f"eval forward pass used {time.time() - start:.2f} seconds")
+                print(f"reshape again used {time.time() - start:.2f} seconds")
                 start = time.time()
 
             metrics["train/loss"].update_state(additional_info["loss"].item())
-            log_likelihood_per_input = additional_info["log_likelihood"].item() / y_batch.shape[0]
+            log_likelihood_per_input = (
+                additional_info["log_likelihood"].item() / labels.shape[0]
+            )
             metrics["train/negative_log_likelihood"].update_state(
                 -log_likelihood_per_input
             )
@@ -587,40 +637,22 @@ def main(argv):
         if FLAGS.use_validation:
             _, rng_key_test = jax.random.split(rng_key_test)
             evaluate_on_valid_or_test(
-                dataset_split="validation",
-                metrics=metrics,
-                params=params,
-                state=state,
-                data_iterator=iter(dataset_validation),
-                num_steps=steps_per_validation_eval,
-                rng_key=rng_key_test,
-                use_tpu=use_tpu,
-                output_dim=output_dim,
-                input_shape=input_shape,
-                prediction_type=prediction_type,
-                n_samples=FLAGS.n_samples_test,
-                predict_f_multisample_jitted=predict_f_multisample_jitted,
-                num_cores=num_cores,
-                crossentropy_log_likelihood=crossentropy_log_likelihood
+                "validation",
+                params,
+                state,
+                iter(dataset_validation),
+                steps_per_validation_eval,
+                rng_key_test,
             )
         # evaluation on test set
         _, rng_key_test = jax.random.split(rng_key_test)
         evaluate_on_valid_or_test(
-            dataset_split="test",
-            metrics=metrics,
-            params=params,
-            state=state,
-            data_iterator=iter(dataset_test),
-            num_steps=steps_per_test_eval,
-            rng_key=rng_key_test,
-            use_tpu=use_tpu,
-            output_dim=output_dim,
-            input_shape=input_shape,
-            prediction_type=prediction_type,
-            n_samples=FLAGS.n_samples_test,
-            predict_f_multisample_jitted=predict_f_multisample_jitted,
-            num_cores = num_cores,
-            crossentropy_log_likelihood=crossentropy_log_likelihood
+            "test",
+            params,
+            state,
+            iter(dataset_test),
+            steps_per_test_eval,
+            rng_key_test,
         )
 
         log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
@@ -666,7 +698,6 @@ def main(argv):
                 pickle.dump(to_save, f)
             logging.info("Saved checkpoint to %s", chkpt_name)
 
-
     to_save = {
         "params": params,
         "state": state,
@@ -676,15 +707,15 @@ def main(argv):
         "opt_state": opt_state,
         "epoch": epoch,
     }
-    final_checkpoint_name = os.path.join(FLAGS.output_dir, 'final_checkpoint')
+    final_checkpoint_name = os.path.join(FLAGS.output_dir, "final_checkpoint")
     with tf.io.gfile.GFile(final_checkpoint_name, mode="wb") as f:
         pickle.dump(to_save, f)
-    logging.info('Saved last checkpoint to %s', final_checkpoint_name)
+    logging.info("Saved last checkpoint to %s", final_checkpoint_name)
 
     with summary_writer.as_default():
-        hp.hparams({
-            'learning_rate': FLAGS.learning_rate,
-        })
+        hp.hparams(
+            {"learning_rate": FLAGS.learning_rate,}
+        )
 
 
 @jax.jit
@@ -695,87 +726,8 @@ def reshape_to_one_core(x):
 @partial(jax.jit, static_argnums=(2,))
 def reshape_to_multiple_cores(x_batch, y_batch, num_cores):
     func = lambda x: x.reshape([num_cores, -1] + list(x.shape)[1:])
-    x_batch, y_batch = list(
-        map(
-            func,
-            [x_batch, y_batch],
-        )
-    )
+    x_batch, y_batch = list(map(func, [x_batch, y_batch],))
     return x_batch, y_batch
-
-
-def evaluate_on_valid_or_test(
-    dataset_split: str,
-    metrics,
-    params,
-    state,
-    data_iterator,
-    num_steps,
-    rng_key,
-    use_tpu: bool,
-    output_dim,
-    input_shape,
-    prediction_type,
-    n_samples,
-    predict_f_multisample_jitted,
-    num_cores,
-    crossentropy_log_likelihood,
-):
-    # list_labels = []
-    # list_probas = []
-    for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
-        data = next(data_iterator)
-        features, labels = data["features"]._numpy(), data["labels"]._numpy()
-        x_batch, y_batch = get_minibatch(
-            (features, labels), output_dim, input_shape, prediction_type
-        )
-        if num_cores > 1:
-            keys = jax.random.split(rng_key, num_cores)
-            x_batch, y_batch = reshape_to_multiple_cores(
-                x_batch, y_batch, num_cores
-            )
-        else:
-            _, keys = jax.random.split(rng_key)
-        preds_f_samples, preds_f_mean = predict_f_multisample_jitted(
-            params,
-            state,
-            x_batch,
-            keys,
-            n_samples,
-        )
-
-        log_likelihood = crossentropy_log_likelihood(
-            preds_f_samples, y_batch,
-        )
-        if num_cores > 1:
-            preds_f_mean = reshape_to_one_core(preds_f_mean)
-            log_likelihood = jnp.mean(log_likelihood)
-
-        # to make it comparable to log likelihood reported in other scripts, e.g. deterministic.py
-        log_likelihood_per_input = log_likelihood / labels.shape[0]
-        probs = jax.nn.softmax(preds_f_mean, axis=-1)
-        probs_of_labels = probs[:, 1]
-
-        # list_labels.append(labels)
-        # list_probas.append(probs_of_labels)
-        metrics[dataset_split + "/negative_log_likelihood"].update_state(
-            -log_likelihood_per_input
-        )
-        metrics[dataset_split + "/accuracy"].update_state(labels, probs_of_labels)
-        metrics["test/accuracy"].update_state(labels, probs_of_labels)
-        metrics[dataset_split + "/auprc"].update_state(labels, probs_of_labels)
-        metrics[dataset_split + "/auroc"].update_state(labels, probs_of_labels)
-
-        if not use_tpu:
-            metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=labels)
-
-    # all_labels = jnp.concatenate(list_labels)
-    # all_probas = jnp.concatenate(list_probas)
-    # probas_positive = all_probas[all_labels == 1]
-    # percentiles = [90, 99, 99.9]
-    # print("*" * 100)
-    # print(f"The {dataset_split} percentiles {percentiles} are ",
-    #       jnp.percentile(probas_positive, percentiles))
 
 
 if __name__ == "__main__":

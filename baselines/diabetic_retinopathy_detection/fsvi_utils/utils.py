@@ -49,40 +49,9 @@ def initialize_random_keys(seed: int) -> KeyHelper:
     return kh
 
 
-def _one_hot(x, k, dtype=dtype_default):
+def to_one_hot(x, k, dtype=dtype_default):
     """Create a one-hot encoding of x of size k."""
     return np.array(x[:, None] == np.arange(k), dtype)
-
-
-def get_minibatch(
-    data: Tuple, output_dim, input_shape, prediction_type
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    @return:
-        x: input data
-        y: 2D array of shape (batch_dim, output_dim) if classification
-    """
-    x, y = data
-    if prediction_type == "regression":
-        x_batch = np.array(x)
-        y_batch = np.array(y)
-    elif prediction_type == "classification":
-        if len(input_shape) <= 2:
-            x_batch = np.reshape(x, [x.shape[0], -1])
-        elif len(input_shape) == 4 and len(x.shape) != 4:  # handles flattened image inputs
-            x_batch = np.array(x).reshape(x.shape[0], input_shape[1], input_shape[2], input_shape[3])
-        else:
-            if x.shape[1] != x.shape[2]:
-                x_batch = np.array(x).transpose([0, 2, 3, 1])
-            else:
-                x_batch = np.array(x)
-
-        assert len(y.shape) == 1, "the label is supposed to have only one dimension"
-        y_batch = _one_hot(np.array(y), output_dim)
-    else:
-        ValueError("Unknown prediction type")
-
-    return x_batch, y_batch
 
 
 @jit

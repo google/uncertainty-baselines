@@ -13,7 +13,7 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils_linearization
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import (
     partition_params,
-)
+    predicate_batchnorm)
 from baselines.diabetic_retinopathy_detection.utils import get_diabetic_retinopathy_class_balance_weights
 
 dtype_default = jnp.float32
@@ -222,6 +222,7 @@ class Objectives_hk:
         is_training,
         class_weight,
         loss_type,
+        l2_strength,
     ):
         preds_f_samples, _, _ = self.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
@@ -239,6 +240,10 @@ class Objectives_hk:
             elbo = (log_likelihood - scale * kl) / inputs.shape[0]
         elif loss_type == 4:
             elbo = log_likelihood / inputs.shape[0]
+        elif loss_type == 5:
+            batch_norm_params = hk.data_structures.filter(predicate_batchnorm, params)
+            l2_loss = jnp.sum(jnp.stack([jnp.sum(x * x) for x in tree.flatten(batch_norm_params)]))
+            elbo = (log_likelihood - scale * kl) / inputs.shape[0] + l2_loss * l2_strength
         else:
             raise NotImplementedError(loss_type)
 
@@ -337,7 +342,7 @@ class Objectives_hk:
             self._nll_loss_classification,
         )
 
-    @partial(jit, static_argnums=(0, 10, 11))
+    @partial(jit, static_argnums=(0, 10, 11, 12))
     def nelbo_fsvi_classification(
         self,
         trainable_params,
@@ -351,6 +356,7 @@ class Objectives_hk:
         rng_key,
         class_weight: bool,
         loss_type: int,
+        l2_strength: float,
     ):
         params = hk.data_structures.merge(trainable_params, non_trainable_params, )
         is_training = True
@@ -366,6 +372,7 @@ class Objectives_hk:
             is_training,
             class_weight,
             loss_type,
+            l2_strength,
         )
 
         state = self.apply_fn(

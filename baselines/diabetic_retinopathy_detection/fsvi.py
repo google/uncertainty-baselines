@@ -33,10 +33,8 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
     to_one_hot,
 )
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import Training
-from baselines.diabetic_retinopathy_detection import utils
-from baselines.diabetic_retinopathy_detection.utils import (
-    log_epoch_metrics,
-)
+from baselines.diabetic_retinopathy_detection.old_utils import get_diabetic_retinopathy_base_metrics, \
+    get_diabetic_retinopathy_cpu_metrics, log_epoch_metrics
 
 # original flags
 flags.DEFINE_string(
@@ -255,6 +253,7 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     "b_init", "uniform", "initializer for bias",
 )
+flags.DEFINE_float('l2', 0.0, 'L2 regularization coefficient.')
 FLAGS = flags.FLAGS
 
 
@@ -386,14 +385,14 @@ def main(argv):
     )
 
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
-    metrics = utils.get_diabetic_retinopathy_base_metrics(
+    metrics = get_diabetic_retinopathy_base_metrics(
         use_tpu=use_tpu, num_bins=FLAGS.num_bins, use_validation=FLAGS.use_validation
     )
     # Define metrics outside the accelerator scope for CPU eval.
     # This will cause an error on TPU.
     if not use_tpu:
         metrics.update(
-            utils.get_diabetic_retinopathy_cpu_metrics(
+            get_diabetic_retinopathy_cpu_metrics(
                 use_validation=FLAGS.use_validation
             )
         )
@@ -426,6 +425,7 @@ def main(argv):
             rng_key,
             FLAGS.class_reweight_mode == "constant",
             FLAGS.loss_type,
+            FLAGS.l2,
         )
 
         zero_grads = jax.tree_map(lambda x: x * 0.0, non_trainable_params)

@@ -51,7 +51,7 @@ def initialize_random_keys(seed: int) -> KeyHelper:
 
 def to_one_hot(x, k, dtype=dtype_default):
     """Create a one-hot encoding of x of size k."""
-    return np.array(x[:, None] == np.arange(k), dtype)
+    return jnp.array(x[:, None] == jnp.arange(k), dtype)
 
 
 @jit

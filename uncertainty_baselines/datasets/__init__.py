@@ -26,6 +26,7 @@ from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
 from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedDataset
+from uncertainty_baselines.datasets.cityscapes import CityscapesDataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.datasets import DATASETS

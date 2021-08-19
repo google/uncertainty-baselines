@@ -36,7 +36,6 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import T
 from baselines.diabetic_retinopathy_detection import utils
 from baselines.diabetic_retinopathy_detection.utils import (
     log_epoch_metrics,
-    get_latest_fsvi_checkpoint,
 )
 
 # original flags
@@ -736,6 +735,13 @@ def reshape_to_multiple_cores(x_batch, y_batch, num_cores):
     func = lambda x: x.reshape([num_cores, -1] + list(x.shape)[1:])
     x_batch, y_batch = list(map(func, [x_batch, y_batch],))
     return x_batch, y_batch
+
+
+def get_latest_fsvi_checkpoint(path):
+    chkpts = [f for f in tf.io.gfile.listdir(path) if "chkpt_" in f]
+    if chkpts:
+        latest = max(chkpts, key=lambda x: int(x.split("_")[1]))
+        return os.path.join(path, latest)
 
 
 if __name__ == "__main__":

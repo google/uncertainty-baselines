@@ -529,17 +529,21 @@ def main(argv):
                 start = time.time()
             data = next(data_iterator)
             x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
+            orig_labels = labels
 
             if verbose:
                 print(f"reading data used {time.time() - start:.2f} seconds")
                 start = time.time()
 
+            _, rng_key = random.split(rng_key)
             if num_cores > 1:
-                rng_key = jax.random.split(rng_key, num_cores)
+                keys = random.split(rng_key, num_cores)
                 x_batch, labels = reshape_to_multiple_cores(x_batch, labels, num_cores)
+            else:
+                keys = rng_key
 
             log_likelihood, probs_of_labels = parallelizable_eval_per_batch_computation(
-                params, state, rng_key, x_batch, labels,
+                params, state, keys, x_batch, labels,
             )
             if verbose:
                 print(f"eval computation used {time.time() - start:.2f} seconds")
@@ -558,13 +562,13 @@ def main(argv):
             metrics[dataset_split + "/negative_log_likelihood"].update_state(
                 -log_likelihood
             )
-            metrics[dataset_split + "/accuracy"].update_state(labels, probs_of_labels)
-            metrics["test/accuracy"].update_state(labels, probs_of_labels)
-            metrics[dataset_split + "/auprc"].update_state(labels, probs_of_labels)
-            metrics[dataset_split + "/auroc"].update_state(labels, probs_of_labels)
+            metrics[dataset_split + "/accuracy"].update_state(orig_labels, probs_of_labels)
+            metrics["test/accuracy"].update_state(orig_labels, probs_of_labels)
+            metrics[dataset_split + "/auprc"].update_state(orig_labels, probs_of_labels)
+            metrics[dataset_split + "/auroc"].update_state(orig_labels, probs_of_labels)
 
             if not use_tpu:
-                metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=labels)
+                metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=orig_labels)
 
             if verbose:
                 print(f"compute metrics used {time.time() - start:.2f} seconds")
@@ -590,12 +594,16 @@ def main(argv):
                 start = time.time()
             data = next(train_iterator)
             x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
+            orig_labels = labels
             if verbose:
                 print(f"loading data used {time.time() - start:.2f} seconds")
                 start = time.time()
+            _, rng_key_train = random.split(rng_key_train)
             if num_cores > 1:
-                rng_key_train = random.split(rng_key_train, num_cores)
+                keys = random.split(rng_key_train, num_cores)
                 x_batch, labels = reshape_to_multiple_cores(x_batch, labels, num_cores)
+            else:
+                keys = rng_key_train
             (
                 params,
                 state,
@@ -603,7 +611,7 @@ def main(argv):
                 additional_info,
                 probs,
             ) = parallelisable_train_per_batch_computation(
-                params, state, opt_state, rng_key_train, x_batch, labels,
+                params, state, opt_state, keys, x_batch, labels,
             )
             if verbose:
                 print(f"per-batch computation used {time.time() - start:.2f} seconds")
@@ -618,18 +626,18 @@ def main(argv):
 
             metrics["train/loss"].update_state(additional_info["loss"].item())
             log_likelihood_per_input = (
-                additional_info["log_likelihood"].item() / labels.shape[0]
+                additional_info["log_likelihood"].item() / orig_labels.shape[0]
             )
             metrics["train/negative_log_likelihood"].update_state(
                 -log_likelihood_per_input
             )
             probs_of_labels = probs[:, 1]
-            metrics["train/accuracy"].update_state(labels, probs_of_labels)
-            metrics["train/auprc"].update_state(labels, probs_of_labels)
-            metrics["train/auroc"].update_state(labels, probs_of_labels)
+            metrics["train/accuracy"].update_state(orig_labels, probs_of_labels)
+            metrics["train/auprc"].update_state(orig_labels, probs_of_labels)
+            metrics["train/auroc"].update_state(orig_labels, probs_of_labels)
 
             if not use_tpu:
-                metrics["train/ece"].add_batch(probs_of_labels, label=labels)
+                metrics["train/ece"].add_batch(probs_of_labels, label=orig_labels)
             if verbose:
                 print(f"compute metric used {time.time() - start:.2f} seconds")
 

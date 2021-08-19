@@ -37,7 +37,8 @@ def get_config():
   config.train_split = 'train[:98%]'
   config.num_classes = 10
 
-  # OOD evaluation dataset
+  # OOD eval
+  # ood_split is the data split for both the ood_dataset and the dataset.
   config.ood_dataset = 'cifar100'
   config.ood_split = 'test'
 

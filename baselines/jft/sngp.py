@@ -740,4 +740,11 @@ def main(argv):
 
 
 if __name__ == '__main__':
-  app.run(main)
+  # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
+  # function that returns values for tests and does not directly access flags,
+  # and then have `main` return None.
+
+  def _main(argv):
+    main(argv)
+
+  app.run(_main)  # Ignore the returned values from `main`.

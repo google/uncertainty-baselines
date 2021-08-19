@@ -32,7 +32,9 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
       download_data: bool = False,
-      is_training: Optional[bool] = None):
+      is_training: Optional[bool] = None,
+      decision_threshold: Optional[str] = 'moderate'
+  ):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
     Args:
@@ -49,6 +51,10 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
+      decision_threshold: specifies where to binarize the labels {0, 1, 2, 3, 4}
+        to create the binary classification task.
+        'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?
+        'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?
     """
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
@@ -62,6 +68,9 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data)
+    self.decision_threshold = decision_threshold
+    print(f'Building Kaggle DR dataset with decision threshold: '
+          f'{decision_threshold}.')
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
@@ -70,7 +79,17 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)
       image = tf.image.resize(image, size=(512, 512), method='bilinear')
-      label = tf.cast(example['label'] > 1, tf.int32)  # Binarise task.
+
+      if self.decision_threshold == 'mild':
+        highest_negative_class = 0
+      elif self.decision_threshold == 'moderate':
+        highest_negative_class = 1
+      else:
+        raise NotImplementedError
+
+      # Binarize task.
+      label = tf.cast(example['label'] > highest_negative_class, tf.int32)
+
       parsed_example = {
           'features': image,
           'labels': label,

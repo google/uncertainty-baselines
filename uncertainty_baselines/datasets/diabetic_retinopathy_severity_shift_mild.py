@@ -31,7 +31,6 @@ Note that this allows us to use examples with underlying labels \in {2, 3, 4}
 
 import csv
 import os
-from itertools import chain
 from typing import Dict, Optional
 
 import tensorflow as tf
@@ -62,7 +61,7 @@ _BTGRAHAM_DESCRIPTION_PATTERN = (
     "are encoded with 72 JPEG quality.")
 
 
-class DiabeticRetinopathySeverityShiftDataset(base.BaseDataset):
+class DiabeticRetinopathySeverityShiftMildDataset(base.BaseDataset):
   """Kaggle DiabeticRetinopathySeverityShift builder class."""
   def __init__(
       self,
@@ -72,7 +71,6 @@ class DiabeticRetinopathySeverityShiftDataset(base.BaseDataset):
       data_dir: Optional[str] = None,
       download_data: bool = False,
       is_training: Optional[bool] = None,
-      # decision_threshold: Optional[str] = 'moderate'
   ):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
@@ -90,26 +88,22 @@ class DiabeticRetinopathySeverityShiftDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
-      decision_threshold: specifies where to binarize the labels {0, 1, 2, 3, 4}
-        to create the binary classification task.
-        'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?
-        'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?
     """
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
     dataset_builder = tfds.builder(
-        'diabetic_retinopathy_severity_shift/btgraham-300', data_dir=data_dir)
-    super(DiabeticRetinopathySeverityShiftDataset, self).__init__(
-        name='diabetic_retinopathy_severity_shift',
+        'diabetic_retinopathy_severity_shift_mild/btgraham-300',
+        data_dir=data_dir)
+    super(DiabeticRetinopathySeverityShiftMildDataset, self).__init__(
+        name='diabetic_retinopathy_severity_shift_mild',
         dataset_builder=dataset_builder,
         split=split,
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data)
-    # self.decision_threshold = decision_threshold
-    # print(f'Building Kaggle DR dataset with decision threshold: '
-    #       f'{decision_threshold}.')
+    print(f'Building Diabetic Retinopathy Severity Shift dataset with '
+          f'mild decision threshold.')
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
@@ -119,16 +113,11 @@ class DiabeticRetinopathySeverityShiftDataset(base.BaseDataset):
       image = tf.image.convert_image_dtype(image, tf.float32)
       image = tf.image.resize(image, size=(512, 512), method='bilinear')
 
-      # if self.decision_threshold == 'mild':
-      #   highest_negative_class = 0
-      # elif self.decision_threshold == 'moderate':
-      #   highest_negative_class = 1
-      # else:
-      #   raise NotImplementedError
+      # We place the decision threshold between 0 and 1 in the 'mild' case
+      highest_negative_class = 0
 
       # Binarize task.
-      label = tf.cast(example['label'] > 0, tf.int32)
-      # label = tf.cast(example['label'], tf.int32)
+      label = tf.cast(example['label'] > highest_negative_class, tf.int32)
 
       parsed_example = {
           'features': image,
@@ -140,17 +129,17 @@ class DiabeticRetinopathySeverityShiftDataset(base.BaseDataset):
     return _example_parser
 
 
-class DiabeticRetinopathySeverityShiftConfig(tfds.core.BuilderConfig):
-  """BuilderConfig for DiabeticRetinopathySeverityShift."""
+class DiabeticRetinopathySeverityShiftMildConfig(tfds.core.BuilderConfig):
+  """BuilderConfig for DiabeticRetinopathySeverityShiftMild."""
 
   def __init__(self, target_pixels=None, **kwargs):
-    """BuilderConfig for DiabeticRetinopathySeverityShift.
+    """BuilderConfig for DiabeticRetinopathySeverityShiftMild.
     Args:
       target_pixels: If given, rescale the images so that the total number of
         pixels is roughly this value.
       **kwargs: keyword arguments forward to super.
     """
-    super(DiabeticRetinopathySeverityShiftConfig, self).__init__(
+    super(DiabeticRetinopathySeverityShiftMildConfig, self).__init__(
         version=tfds.core.Version("1.0.0"),
         release_notes={
             "1.0.0": "Initial release",
@@ -163,7 +152,7 @@ class DiabeticRetinopathySeverityShiftConfig(tfds.core.BuilderConfig):
     return self._target_pixels
 
 
-class DiabeticRetinopathySeverityShift(tfds.core.GeneratorBasedBuilder):
+class DiabeticRetinopathySeverityShiftMild(tfds.core.GeneratorBasedBuilder):
   """A partitioning of the Kaggle/EyePACS Diabetic Retinopathy Detection
   that allows for the formation of an out-of-distribution dataset with
   underlying severity labels unseen at training time.
@@ -178,18 +167,18 @@ class DiabeticRetinopathySeverityShift(tfds.core.GeneratorBasedBuilder):
   """
 
   BUILDER_CONFIGS = [
-      DiabeticRetinopathySeverityShiftConfig(
+      DiabeticRetinopathySeverityShiftMildConfig(
           name="original",
           description="Images at their original resolution and quality."),
-      DiabeticRetinopathySeverityShiftConfig(
+      DiabeticRetinopathySeverityShiftMildConfig(
           name="1M",
           description="Images have roughly 1,000,000 pixels, at 72 quality.",
           target_pixels=1000000),
-      DiabeticRetinopathySeverityShiftConfig(
+      DiabeticRetinopathySeverityShiftMildConfig(
           name="250K",
           description="Images have roughly 250,000 pixels, at 72 quality.",
           target_pixels=250000),
-      DiabeticRetinopathySeverityShiftConfig(
+      DiabeticRetinopathySeverityShiftMildConfig(
           name="btgraham-300",
           description=_BTGRAHAM_DESCRIPTION_PATTERN.format(300),
           target_pixels=300),
@@ -228,8 +217,8 @@ class DiabeticRetinopathySeverityShift(tfds.core.GeneratorBasedBuilder):
 
     # Each dataset split is specified by a list of subsets of the data.
     # These subsets are specified by:
-    # * is_in_domain, divides between the in-domain and OOD severity labels
     # * images_dir_path, location of images
+    # * is_in_domain, divides between the in-domain and OOD severity labels
     # * csv_path, location of labels and image names
     # * csv_usage, divides between validation and test
     return {

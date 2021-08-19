@@ -351,8 +351,13 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
           process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     if (not self._is_training and
-        self.name not in {'diabetic_retinopathy_detection',
-                          'diabetic_retinopathy_severity_shift'}):
+        # self.name not in {'diabetic_retinopathy_detection',
+        #                   'diabetic_retinopathy_severity_shift'}):
+        self.name not in {
+          'diabetic_retinopathy_detection',
+          'diabetic_retinopathy_severity_shift_mild',
+          'diabetic_retinopathy_severity_shift_moderate',
+          'aptos'}):
       dataset = dataset.cache()
     else:
       logging.info(f'Not caching dataset {self.name} '

@@ -37,7 +37,7 @@ def get_config():
 
   config.trial = 0
   config.batch_size = 4096
-  config.num_epochs = 7
+  config.num_epochs = 56
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'

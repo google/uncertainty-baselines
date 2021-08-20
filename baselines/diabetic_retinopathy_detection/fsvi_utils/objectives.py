@@ -188,12 +188,9 @@ class Objectives_hk:
             )
         elif self.kl_type == 1:
             print('*' * 100)
-            print("new kl_type is used!")
-            preds_f_samples, _, _ = self.predict_f_multisample_jitted(
-                params, state, inducing_inputs, rng_key, self.n_samples, True,
-            )
-            mean = jnp.mean(preds_f_samples, 0)
-            cov = jnp.square(jnp.std(preds_f_samples, 0))
+            print(f"new kl_type is used! The inducing inputs has shape {inducing_inputs}")
+            mean = jnp.mean(inducing_inputs, 0)
+            cov = jnp.square(jnp.std(inducing_inputs, 0))
         else:
             raise NotImplementedError(self.kl_type)
 
@@ -241,11 +238,19 @@ class Objectives_hk:
         preds_f_samples, _, _ = self.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
         )
+        if self.kl_type == 1:
+            permutation = jax.random.permutation(key=rng_key, x=inputs.shape[0])
+            inducing_inputs_output_vals = preds_f_samples[:, permutation[:inducing_inputs.shape[0]], :]
+            kl, scale = self.function_kl(
+                params, state, prior_mean, prior_cov, inputs, inducing_inputs_output_vals, rng_key,
+            )
+        else:
+            kl, scale = self.function_kl(
+                params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
+            )
+
         log_likelihood = self.crossentropy_log_likelihood(preds_f_samples, targets,
                                                           class_weight)
-        kl, scale = self.function_kl(
-            params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
-        )
         if loss_type == 1:
             elbo = log_likelihood - scale * kl
         elif loss_type == 2:

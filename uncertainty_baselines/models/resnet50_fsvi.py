@@ -464,10 +464,10 @@ class BlockV1(hk.Module):
             out = conv_i(out, rng_key, stochastic)
             out = bn_i(out, is_training, test_local_stats)
             if i < len(self.layers) - 1:  # Don't apply relu or dropout on last layer
+                out = jax.nn.relu(out)
                 # DROPOUT
                 if self.dropout and is_training:
                     out = hk.dropout(rng_key, self.dropout_rate, out)
-                out = jax.nn.relu(out)
 
         return jax.nn.relu(out + shortcut)
 

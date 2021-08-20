@@ -253,6 +253,9 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     "b_init", "uniform", "initializer for bias",
 )
+flags.DEFINE_integer(
+    "kl_type", 0, "Type of KL",
+)
 flags.DEFINE_float('l2', 0.0, 'L2 regularization coefficient.')
 FLAGS = flags.FLAGS
 

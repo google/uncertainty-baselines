@@ -83,6 +83,7 @@ class Training:
         uniform_init_maxval,
         w_init,
         b_init,
+        kl_type=0,
         **kwargs,
     ):
         """
@@ -123,6 +124,7 @@ class Training:
         self.uniform_init_maxval = uniform_init_maxval
         self.w_init = w_init
         self.b_init = b_init
+        self.kl_type = kl_type
 
         self.map_initialization = map_initialization
 
@@ -409,6 +411,7 @@ class Training:
             stochastic_linearization=self.stochastic_linearization,
             linear_model=self.linear_model,
             full_ntk=self.full_ntk,
+            kl_type=self.kl_type,
         )
         return metrics
 

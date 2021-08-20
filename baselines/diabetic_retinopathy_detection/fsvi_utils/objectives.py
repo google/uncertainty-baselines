@@ -42,6 +42,7 @@ class Objectives_hk:
         stochastic_linearization,
         linear_model,
         full_ntk=False,
+        kl_type=0,
     ):
         self.architecture = architecture
         self.apply_fn = apply_fn
@@ -62,6 +63,7 @@ class Objectives_hk:
         self.stochastic_linearization = stochastic_linearization
         self.linear_model = linear_model
         self.full_ntk = full_ntk
+        self.kl_type = kl_type
 
     @partial(jit, static_argnums=(0, 10, 11))
     def objective_and_state(
@@ -172,17 +174,29 @@ class Objectives_hk:
         #     rng_key=rng_key,
         # )
 
-        mean, cov = utils_linearization.bnn_linearized_predictive(
-            self.apply_fn,
-            params_mean,
-            params_log_var,
-            params_deterministic,
-            state,
-            inducing_inputs,
-            rng_key,
-            self.stochastic_linearization,
-            self.full_ntk,
-        )
+        if self.kl_type == 0:
+            mean, cov = utils_linearization.bnn_linearized_predictive(
+                self.apply_fn,
+                params_mean,
+                params_log_var,
+                params_deterministic,
+                state,
+                inducing_inputs,
+                rng_key,
+                self.stochastic_linearization,
+                self.full_ntk,
+            )
+        elif self.kl_type == 1:
+            print('*' * 100)
+            print("new kl_type is used!")
+            preds_f_samples, _, _ = self.predict_f_multisample_jitted(
+                params, state, inducing_inputs, rng_key, self.n_samples, True,
+            )
+            mean = jnp.mean(preds_f_samples, 0)
+            cov = jnp.square(jnp.std(preds_f_samples, 0))
+        else:
+            raise NotImplementedError(self.kl_type)
+
 
         kl = utils.kl_divergence(
             mean,

@@ -1,6 +1,4 @@
 import datetime
-import functools
-import pdb
 import time
 from typing import Union, List
 
@@ -12,11 +10,7 @@ from absl import logging
 from sklearn.metrics import (log_loss, roc_auc_score, accuracy_score,
                              roc_curve, precision_recall_curve, auc)
 from sklearn.preprocessing import LabelBinarizer
-import jax
-import jax.numpy as jnp
-
 # from swag_utils import utils as swag_utils
-from tqdm import tqdm
 
 from .metric_utils import log_epoch_metrics_new
 from .results_storage_utils import (
@@ -123,73 +117,10 @@ def eval_tpu_step(
   return results_arrs
 
 
-def eval_step_jax(
-  dataset_iterator, dataset_steps, num_cores, estimator,
-  estimator_args, uncertainty_estimator_fn, is_deterministic
-):
-  @jax.jit
-  def reshape_to_one_core(x):
-    return jnp.reshape(x, [-1] + list(x.shape[2:]))
-
-  @jax.jit
-  def reshape_to_multiple_cores(images, labels):
-    func = lambda x: x.reshape([num_cores, -1] + list(x.shape)[1:])
-    images, labels = list(map(func, [images, labels], ))
-    return images, labels
-
-  def _merge_list_of_dicts(list_of_dicts):
-    if not list_of_dicts:
-      return list_of_dicts
-    keys = list_of_dicts[0].keys()
-    merged_dict = {k: jnp.stack([d[k] for d in list_of_dicts]) for k in keys}
-    return merged_dict
-
-  def parallelizable_computation(x_batch, labels):
-    # Compute prediction, total, aleatoric, and epistemic
-    # uncertainty estimates
-    pred_and_uncert = uncertainty_estimator_fn(
-      x_batch, estimator, training_setting=False, **estimator_args)
-
-    result = {
-      "y_true": labels,
-      "y_pred": pred_and_uncert['prediction'],
-      "y_pred_entropy": pred_and_uncert['predictive_entropy'],
-      "y_pred_variance": pred_and_uncert['predictive_variance'],
-    }
-
-    if not is_deterministic:
-      result["y_aleatoric_uncert"] = pred_and_uncert["aleatoric_uncertainty"]
-      result["y_epistemic_uncert"] = pred_and_uncert["epistemic_uncertainty"]
-
-    return result
-
-  if num_cores > 1:
-    parallelizable_computation = jax.pmap(parallelizable_computation)
-
-  def step_fn(inputs):
-    images = inputs['features']._numpy()
-    labels = inputs['labels']._numpy()
-    if num_cores > 1:
-      images, labels = reshape_to_multiple_cores(images, labels)
-
-    # Compute prediction, total, aleatoric, and epistemic
-    # uncertainty estimates
-    arrays_dict = parallelizable_computation(images, labels)
-    tuple_of_arrays = {name: reshape_to_one_core(array) for name, array in arrays_dict.items()}
-
-    return tuple_of_arrays
-
-  list_of_results = []
-  for _ in tqdm(range(dataset_steps), "evaluation loop"):
-    list_of_results.append(step_fn(next(dataset_iterator)))
-  results_arrs = _merge_list_of_dicts(list_of_results)
-  return results_arrs
-
-
 def evaluate_model_on_datasets_tpu(
   strategy, datasets, steps, estimator, estimator_args,
   uncertainty_estimator_fn, eval_batch_size, is_deterministic=False,
-  backend="tf", num_cores=None
+  backend="tf", eval_step_jax=None,
 ):
 
   # Need to collect these so we can form joint datasets:
@@ -204,8 +135,7 @@ def evaluate_model_on_datasets_tpu(
     logging.info(f'Evaluating split {dataset_split}.')
     if backend == "jax":
       eval_epoch_arrs = eval_step_jax(
-        dataset_iterator, dataset_steps, num_cores,
-        estimator, estimator_args, uncertainty_estimator_fn, is_deterministic)
+        dataset_iterator, dataset_steps, is_deterministic)
     elif backend == "tf":
       eval_epoch_arrs = eval_tpu_step(
         dataset_iterator, tf.convert_to_tensor(dataset_steps), strategy,
@@ -317,7 +247,7 @@ def evaluate_model_and_compute_metrics(
     strategy, eval_datasets, steps, metrics, eval_estimator,
     uncertainty_estimator_fn, eval_batch_size, available_splits,
     estimator_args, is_deterministic=False, num_bins=15, use_tpu=True,
-    backend="tf", num_cores=None,
+    backend="tf", eval_step_jax=None,
 ):
   """Main method for evaluation and computing metrics using arbitrary TF
   distribution strategies. Usable for evaluation during tuning."""
@@ -327,7 +257,7 @@ def evaluate_model_and_compute_metrics(
     estimator=eval_estimator, estimator_args=estimator_args,
     uncertainty_estimator_fn=uncertainty_estimator_fn,
     eval_batch_size=eval_batch_size, is_deterministic=is_deterministic,
-    num_cores=num_cores, backend=backend)
+    backend=backend, eval_step_jax=eval_step_jax)
 
   # For each eval dataset, add NLL and accuracy for each example
   eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)

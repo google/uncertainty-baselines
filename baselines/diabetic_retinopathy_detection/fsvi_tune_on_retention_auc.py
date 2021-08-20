@@ -1,8 +1,9 @@
 import json
 import logging
 import os
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
+import tensorflow as tf
+tf.config.experimental.set_visible_devices([], "GPU")
+print('WARNING: TensorFlow is set to only use CPU.')
 import pdb
 import pickle
 import time
@@ -17,11 +18,7 @@ import numpy as np
 from absl import app, flags
 from jax import jit
 from jax import random
-tf_cpu_only = True  # TODO: check how this affects determinism -- keep set to False
-if tf_cpu_only:
-    import tensorflow as tf
-    tf.config.experimental.set_visible_devices([], "GPU")
-    print('WARNING: TensorFlow is set to only use CPU.')
+
 from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
@@ -504,6 +501,57 @@ def main(argv):
             out_axes=(None, None, None, None, 0),
         )
 
+    def parallelizable_evaluate_per_batch_computation(x_batch, labels, is_deterministic):
+        """
+        Captured variables:
+            eval_estimator, estimator_args,
+        """
+        # Compute prediction, total, aleatoric, and epistemic
+        # uncertainty estimates
+        pred_and_uncert = uncertainty_estimator_fn(
+            x_batch, eval_estimator, training_setting=False, **estimator_args)
+
+        result = {
+            "y_true": labels,
+            "y_pred": pred_and_uncert['prediction'],
+            "y_pred_entropy": pred_and_uncert['predictive_entropy'],
+            "y_pred_variance": pred_and_uncert['predictive_variance'],
+        }
+
+        if not is_deterministic:
+            result["y_aleatoric_uncert"] = pred_and_uncert["aleatoric_uncertainty"]
+            result["y_epistemic_uncert"] = pred_and_uncert["epistemic_uncertainty"]
+
+        return result
+
+    if num_cores > 1:
+        parallelizable_evaluate_per_batch_computation = jax.pmap(
+            parallelizable_evaluate_per_batch_computation,
+            in_axes=(0, 0, None),
+            static_broadcasted_argnums=(2,))
+
+    def eval_step_jax(
+        dataset_iterator, dataset_steps, is_deterministic
+    ):
+        """
+        Captured variables:
+            parallelizable_evaluate_per_batch_computation,
+        """
+        list_of_results = []
+        for _ in tqdm(range(dataset_steps), "evaluation loop"):
+            data = next(dataset_iterator)
+            images = data['features']._numpy()
+            labels = data['labels']._numpy()
+            if num_cores > 1:
+                images, labels = reshape_to_multiple_cores(images, labels, num_cores)
+            # Compute prediction, total, aleatoric, and epistemic
+            # uncertainty estimates
+            arrays_dict = parallelizable_evaluate_per_batch_computation(images, labels, is_deterministic)
+            reshaped_arrays_dict = {name: reshape_to_one_core(array) for name, array in arrays_dict.items()}
+            list_of_results.append(reshaped_arrays_dict)
+        results_arrs = merge_list_of_dicts(list_of_results)
+        return results_arrs
+
     ########################## train-eval loop ##########################
 
     verbose = False
@@ -512,57 +560,57 @@ def main(argv):
     train_iterator = iter(dataset_train)
     for epoch in range(initial_epoch, FLAGS.epochs):
         t0 = time.time()
-        # for _ in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
-        #     if verbose:
-        #         start = time.time()
-        #     data = next(train_iterator)
-        #     x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
-        #     orig_labels = labels
-        #     if verbose:
-        #         print(f"loading data used {time.time() - start:.2f} seconds")
-        #         start = time.time()
-        #     _, rng_key_train = random.split(rng_key_train)
-        #     if num_cores > 1:
-        #         keys = random.split(rng_key_train, num_cores)
-        #         x_batch, labels = reshape_to_multiple_cores(x_batch, labels, num_cores)
-        #     else:
-        #         keys = rng_key_train
-        #     (
-        #         params,
-        #         state,
-        #         opt_state,
-        #         additional_info,
-        #         probs,
-        #     ) = parallelisable_train_per_batch_computation(
-        #         params, state, opt_state, keys, x_batch, labels,
-        #     )
-        #     if verbose:
-        #         print(f"per-batch computation used {time.time() - start:.2f} seconds")
-        #         start = time.time()
-        #
-        #     if num_cores > 1:
-        #         probs = reshape_to_one_core(probs)
-        #
-        #     if verbose:
-        #         print(f"reshape again used {time.time() - start:.2f} seconds")
-        #         start = time.time()
-        #
-        #     metrics["train/loss"].update_state(additional_info["loss"].item())
-        #     log_likelihood_per_input = (
-        #         additional_info["log_likelihood"].item() / orig_labels.shape[0]
-        #     )
-        #     metrics["train/negative_log_likelihood"].update_state(
-        #         -log_likelihood_per_input
-        #     )
-        #     probs_of_labels = probs[:, 1]
-        #     metrics["train/accuracy"].update_state(orig_labels, probs_of_labels)
-        #     metrics["train/auprc"].update_state(orig_labels, probs_of_labels)
-        #     metrics["train/auroc"].update_state(orig_labels, probs_of_labels)
-        #
-        #     if not use_tpu:
-        #         metrics["train/ece"].add_batch(probs_of_labels, label=orig_labels)
-        #     if verbose:
-        #         print(f"compute metric used {time.time() - start:.2f} seconds")
+        for _ in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
+            if verbose:
+                start = time.time()
+            data = next(train_iterator)
+            x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
+            orig_labels = labels
+            if verbose:
+                print(f"loading data used {time.time() - start:.2f} seconds")
+                start = time.time()
+            _, rng_key_train = random.split(rng_key_train)
+            if num_cores > 1:
+                keys = random.split(rng_key_train, num_cores)
+                x_batch, labels = reshape_to_multiple_cores(x_batch, labels, num_cores)
+            else:
+                keys = rng_key_train
+            (
+                params,
+                state,
+                opt_state,
+                additional_info,
+                probs,
+            ) = parallelisable_train_per_batch_computation(
+                params, state, opt_state, keys, x_batch, labels,
+            )
+            if verbose:
+                print(f"per-batch computation used {time.time() - start:.2f} seconds")
+                start = time.time()
+
+            if num_cores > 1:
+                probs = reshape_to_one_core(probs)
+
+            if verbose:
+                print(f"reshape again used {time.time() - start:.2f} seconds")
+                start = time.time()
+
+            metrics["train/loss"].update_state(additional_info["loss"].item())
+            log_likelihood_per_input = (
+                additional_info["log_likelihood"].item() / orig_labels.shape[0]
+            )
+            metrics["train/negative_log_likelihood"].update_state(
+                -log_likelihood_per_input
+            )
+            probs_of_labels = probs[:, 1]
+            metrics["train/accuracy"].update_state(orig_labels, probs_of_labels)
+            metrics["train/auprc"].update_state(orig_labels, probs_of_labels)
+            metrics["train/auroc"].update_state(orig_labels, probs_of_labels)
+
+            if not use_tpu:
+                metrics["train/ece"].add_batch(probs_of_labels, label=orig_labels)
+            if verbose:
+                print(f"compute metric used {time.time() - start:.2f} seconds")
 
         # Wrap our estimator to predict probabilities
         # the signature of the estimator is (inputs, training, num_samples, rng_key) -> np.ndarray
@@ -579,7 +627,7 @@ def main(argv):
             None, eval_datasets, steps, metrics, eval_estimator,
             uncertainty_estimator_fn, per_core_batch_size, available_splits,
             estimator_args=estimator_args, is_deterministic=True, num_bins=FLAGS.num_bins,
-            use_tpu=use_tpu, num_cores=num_cores, backend="jax")
+            use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax)
 
         with summary_writer.as_default():
             for name, result in total_results.items():
@@ -681,6 +729,14 @@ def get_latest_fsvi_checkpoint(path):
     if chkpts:
         latest = max(chkpts, key=lambda x: int(x.split("_")[1]))
         return os.path.join(path, latest)
+
+
+def merge_list_of_dicts(list_of_dicts):
+    if not list_of_dicts:
+        return list_of_dicts
+    keys = list_of_dicts[0].keys()
+    merged_dict = {k: jnp.stack([d[k] for d in list_of_dicts]) for k in keys}
+    return merged_dict
 
 
 if __name__ == "__main__":

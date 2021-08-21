@@ -83,6 +83,13 @@ class Training:
         uniform_init_maxval,
         w_init,
         b_init,
+        init_strategy,
+        one_minus_momentum,
+        lr_warmup_epochs,
+        lr_decay_ratio,
+        lr_decay_epochs,
+        final_decay_factor,
+        lr_schedule,
         kl_type=0,
         **kwargs,
     ):
@@ -124,9 +131,27 @@ class Training:
         self.uniform_init_maxval = uniform_init_maxval
         self.w_init = w_init
         self.b_init = b_init
+        self.init_strategy = init_strategy
         self.kl_type = kl_type
+        self.one_minus_momentum = one_minus_momentum
+        self.lr_warmup_epochs = lr_warmup_epochs
+        self.lr_decay_ratio = lr_decay_ratio
+        self.lr_decay_epochs = lr_decay_epochs
+        self.final_decay_factor = final_decay_factor
+        self.lr_schedule = lr_schedule
 
         self.map_initialization = map_initialization
+
+
+        if self.init_strategy == "he_normal_and_zeros":
+            self.w_init = "he_normal"
+            self.b_init = "zeros"
+        elif self.init_strategy == "uniform":
+            self.w_init = "uniform"
+            self.b_init = "uniform"
+        else:
+            raise NotImplementedError(self.init_strategy)
+
 
         self.dropout = "dropout" in self.model_type
         if not self.dropout and self.dropout_rate > 0:
@@ -281,92 +306,42 @@ class Training:
 
     def _compose_optimizer(self) -> optax.GradientTransformation:
         if "adam" in self.optimizer:
-            # epoch_points = self.optimizer.split("_")[1:]
-            # for i in range(len(epoch_points)):
-            #     epoch_points[i] = int(epoch_points[i])
-            # epoch_points = (jnp.array(epoch_points) * self.n_batches).tolist()
-            #
-            # def schedule_fn(learning_rate, n_batches):
-            #     # return piecewise_constant_schedule(learning_rate, epoch_points, 0.5)
-            #     return optax.polynomial_schedule(
-            #         init_value=learning_rate,
-            #         end_value=1e-5,
-            #         power=0.95,
-            #         transition_steps=epoch_points[-1]
-            #     )
-            # schedule_fn_final = schedule_fn(self.learning_rate, self.n_batches)
-            #
-            # def make_adam_optimizer():
-            #     return optax.chain(
-            #         optax.scale_by_schedule(schedule_fn_final),
-            #         optax.scale_by_adam(),
-            #         optax.scale(-self.learning_rate),
-            #     )
-            #
-            # opt = make_adam_optimizer()
             opt = optax.adam(self.learning_rate)
-        elif "sgd_reprod_linear" == self.optimizer:
+        elif "sgd" == self.optimizer and self.lr_schedule == "linear":
             print("*" * 100)
             print("The linear learning schedule to reproducing deterministic is used")
-            final_decay_factor = 1e-3
-            lr_warmup_epochs = 1
-            one_minus_momentum = 0.0052243
             lr_schedule = warm_up_polynomial_schedule(
                 base_learning_rate=self.learning_rate,
-                end_learning_rate=final_decay_factor * self.learning_rate,
-                decay_steps=(self.n_batches * (self.epochs - lr_warmup_epochs)),
-                warmup_steps=self.n_batches * lr_warmup_epochs,
+                end_learning_rate=self.final_decay_factor * self.learning_rate,
+                decay_steps=(self.n_batches * (self.epochs - self.lr_warmup_epochs)),
+                warmup_steps=self.n_batches * self.lr_warmup_epochs,
                 decay_power=1.0
             )
-            momentum = 1 - one_minus_momentum
+            momentum = 1 - self.one_minus_momentum
             opt = optax.chain(
                 optax.trace(decay=momentum, nesterov=True),
                 optax.scale_by_schedule(lr_schedule),
                 optax.scale(-1),
             )
-        elif "sgd_reprod" in self.optimizer:
+        elif "sgd" in self.optimizer and self.lr_schedule == "step":
             DEFAULT_NUM_EPOCHS = 90
-            lr_decay_epochs = ['30', '60']
-            one_minus_momentum = 0.0052243
-            lr_warmup_epochs = 1
-            lr_decay_ratio = 0.2
             lr_decay_epochs = [
                 (int(start_epoch_str) * self.epochs) // DEFAULT_NUM_EPOCHS
-                for start_epoch_str in lr_decay_epochs
+                for start_epoch_str in self.lr_decay_epochs
             ]
             lr_schedule = warm_up_piecewise_constant_schedule(
                 steps_per_epoch=self.n_batches,
                 base_learning_rate=self.learning_rate,
-                decay_ratio=lr_decay_ratio,
+                decay_ratio=self.lr_decay_ratio,
                 decay_epochs=lr_decay_epochs,
-                warmup_epochs=lr_warmup_epochs)
+                warmup_epochs=self.lr_warmup_epochs)
 
-            momentum = 1 - one_minus_momentum
+            momentum = 1 - self.one_minus_momentum
             opt = optax.chain(
                 optax.trace(decay=momentum, nesterov=True),
                 optax.scale_by_schedule(lr_schedule),
                 optax.scale(-1),
             )
-        elif "sgd" in self.optimizer:
-            epoch_points = self.optimizer.split("_")[1:]
-            for i in range(len(epoch_points)):
-                epoch_points[i] = int(epoch_points[i])
-            epoch_points = (jnp.array(epoch_points) * self.n_batches).tolist()
-
-            def schedule_fn(learning_rate, n_batches):
-                return piecewise_constant_schedule(learning_rate, epoch_points, 0.3)
-
-            schedule_fn_final = schedule_fn(self.learning_rate, self.n_batches)
-            momentum = 0.9
-
-            def make_sgd_optimizer():
-                return optax.chain(
-                    optax.trace(decay=momentum, nesterov=False),
-                    optax.scale_by_schedule(schedule_fn_final),
-                    optax.scale(-1),
-                )
-
-            opt = make_sgd_optimizer()
         else:
             raise ValueError("No optimizer specified.")
         return opt

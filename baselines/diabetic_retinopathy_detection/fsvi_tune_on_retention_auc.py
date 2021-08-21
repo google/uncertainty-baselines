@@ -109,8 +109,6 @@ flags.DEFINE_integer(
     "n_samples", default=1, help="Number of exp log lik samples (default: 1)",
 )
 
-flags.DEFINE_float("tau", default=1.0, help="Likelihood precision (default: 1)")
-
 flags.DEFINE_float("noise_std", default=1.0, help="Likelihood variance (default: 1)")
 
 flags.DEFINE_list(
@@ -119,25 +117,7 @@ flags.DEFINE_list(
     help="Inducing point range (default: [-1, 1])",
 )
 
-flags.DEFINE_integer(
-    "logging_frequency",
-    default=10,
-    help="Logging frequency in number of epochs (default: 10)",
-)
-
-flags.DEFINE_list(
-    "figsize", default="10,4", help="Size of figures (default: (10, 4))",
-)
-
 flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")
-
-flags.DEFINE_string(
-    "save_path", default="debug", help="Path to save results (default: debug)",
-)
-
-flags.DEFINE_bool("save", default=False, help="Save output to file")
-
-flags.DEFINE_bool("resume_training", default=False, help="Resume training")
 
 flags.DEFINE_bool("map_initialization", default=False, help="MAP initialization")
 
@@ -152,25 +132,11 @@ flags.DEFINE_bool("linear_model", default=False, help="Linear model")
 
 flags.DEFINE_bool("features_fixed", default=False, help="Fixed feature maps")
 
-flags.DEFINE_bool("debug", default=False, help="Debug model")
-
-flags.DEFINE_string(
-    "logroot",
-    default=None,
-    help="The root result folder that store runs for this type of experiment",
-)
-
-flags.DEFINE_string(
-    "subdir",
-    default=None,
-    help="The subdirectory in logroot/runs/ corresponding to this run",
-)
 
 flags.DEFINE_integer('per_core_batch_size', 32,
                      'The per-core batch size for both training '
                      'and evaluation.')
 
-# new flags copied from deterministic.py
 flags.DEFINE_string(
     "output_dir",
     "/tmp/diabetic_retinopathy_detection/deterministic",
@@ -182,7 +148,6 @@ flags.DEFINE_string(
 flags.DEFINE_string("data_dir", None, "Path to training and testing data.")
 
 flags.DEFINE_bool("use_validation", True, "Whether to use a validation split.")
-
 flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
 flags.DEFINE_string(
   'dr_decision_threshold', 'moderate',
@@ -190,10 +155,8 @@ flags.DEFINE_string(
    "binary classification task. Only affects the APTOS dataset partitioning. "
    "'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?"
    "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
-# TODO: implementing load_from_checkpoint
 flags.DEFINE_bool(
   'load_from_checkpoint', False, "Attempt to load from checkpoint")
-
 flags.DEFINE_string(
     "class_reweight_mode",
     None,
@@ -203,9 +166,13 @@ flags.DEFINE_string(
     "entropy loss. `minibatch` will use the proportions of each minibatch to "
     "reweight the loss.",
 )
+flags.DEFINE_integer(
+    "loss_type",
+    3,
+    "type of loss, see objectives.py for details",
+)
 
 # General model flags.
-# TODO: decide if we keep this
 flags.DEFINE_integer(
     "checkpoint_interval",
     25,
@@ -217,7 +184,7 @@ flags.DEFINE_integer("num_bins", 15, "Number of bins for ECE.")
 
 # Learning rate / SGD flags.
 flags.DEFINE_float("final_decay_factor", 1e-3, "How much to decay the LR by.")
-flags.DEFINE_float("one_minus_momentum", 0.1, "Optimizer momentum.")
+flags.DEFINE_float("one_minus_momentum", 0.0052243, "Optimizer momentum.")
 flags.DEFINE_string("lr_schedule", "step", "Type of LR schedule.")
 flags.DEFINE_integer(
     "lr_warmup_epochs",
@@ -229,18 +196,12 @@ flags.DEFINE_float("lr_decay_ratio", 0.2, "Amount to decay learning rate.")
 flags.DEFINE_list("lr_decay_epochs", ["30", "60"], "Epochs to decay learning rate by.")
 
 # Accelerator flags.
-flags.DEFINE_bool("force_use_cpu", False, "If True, force usage of CPU")
-flags.DEFINE_bool("use_gpu", True, "Whether to run on GPU or otherwise TPU.")
-flags.DEFINE_bool("use_bfloat16", False, "Whether to use mixed precision.")
 flags.DEFINE_integer("num_cores", 1, "Number of TPU cores or number of GPUs.")
-flags.DEFINE_string(
-    "tpu",
-    None,
-    "Name of the TPU. Only used if force_use_cpu and use_gpu are both False.",
-)
 flags.DEFINE_integer(
     "n_samples_test", 1, "Number of MC samples used for validation and testing",
 )
+
+# Parameter Initialization flags.
 flags.DEFINE_float(
     "uniform_init_minval",
     -20.0,
@@ -251,14 +212,21 @@ flags.DEFINE_float(
     -18.0,
     "lower bound of uniform distribution for variational log variance",
 )
-flags.DEFINE_integer(
-    "loss_type", 1, "type of loss",
+flags.DEFINE_string(
+    "w_init",
+    "uniform",
+    "initializer for weights (he_normal or uniform)",
 )
 flags.DEFINE_string(
-    "w_init", "uniform", "initializer for weights",
+    "b_init",
+    "uniform",
+    "initializer for bias (zeros or uniform)",
 )
 flags.DEFINE_string(
-    "b_init", "uniform", "initializer for bias",
+    "init_strategy",
+    "uniform",
+    "if init_strategy==he_normal_and_zeros, then w_init=he_normal, b_init=zeros,"
+    "if init_strategy==uniform, then w_init=uniform, b_init=uniform",
 )
 flags.DEFINE_float('l2', 0.0, 'L2 regularization coefficient.')
 
@@ -386,7 +354,7 @@ def main(argv):
 
     latest_checkpoint = get_latest_fsvi_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
-    if latest_checkpoint:
+    if latest_checkpoint and FLAGS.load_from_checkpoint:
         with tf.io.gfile.GFile(latest_checkpoint, mode="rb") as f:
             chkpt = pickle.load(f)
         # TODO: need to validate the chkpt has compatible hyperparameters, such as
@@ -407,7 +375,7 @@ def main(argv):
         rng_key=rng_key,
     )
 
-    use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
+    use_tpu = any(["tpu" in str(d).lower() for d in jax.devices()])
     metrics = utils.get_diabetic_retinopathy_base_metrics(
         use_tpu=use_tpu,
         num_bins=FLAGS.num_bins,

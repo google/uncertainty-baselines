@@ -1,10 +1,13 @@
-import json
-import logging
 import os
+# os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], "GPU")
 print('WARNING: TensorFlow is set to only use CPU.')
-import pdb
+import json
+import logging
 import pickle
 import time
 import types
@@ -34,8 +37,6 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
     to_one_hot,
 )
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import Training
-from baselines.diabetic_retinopathy_detection.old_utils import get_diabetic_retinopathy_base_metrics, \
-    get_diabetic_retinopathy_cpu_metrics
 from baselines.diabetic_retinopathy_detection import utils
 
 # original flags
@@ -407,18 +408,21 @@ def main(argv):
     )
 
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
-    metrics = get_diabetic_retinopathy_base_metrics(
-        use_tpu=use_tpu, num_bins=FLAGS.num_bins, use_validation=FLAGS.use_validation
-    )
+    metrics = utils.get_diabetic_retinopathy_base_metrics(
+        use_tpu=use_tpu,
+        num_bins=FLAGS.num_bins,
+        use_validation=FLAGS.use_validation,
+        available_splits=available_splits)
     # Define metrics outside the accelerator scope for CPU eval.
     # This will cause an error on TPU.
     if not use_tpu:
         metrics.update(
-            get_diabetic_retinopathy_cpu_metrics(
-                use_validation=FLAGS.use_validation
-            )
-        )
-    metrics.update({"test/ms_per_example": tf.keras.metrics.Mean()})
+            utils.get_diabetic_retinopathy_cpu_metrics(
+                available_splits=available_splits,
+                use_validation=FLAGS.use_validation))
+
+    for test_split in test_splits:
+        metrics.update({f'{test_split}/ms_per_example': tf.keras.metrics.Mean()})
 
     ########################## specify functions ##########################
     @jit
@@ -501,15 +505,17 @@ def main(argv):
             out_axes=(None, None, None, None, 0),
         )
 
-    def parallelizable_evaluate_per_batch_computation(x_batch, labels, is_deterministic):
+    def parallelizable_evaluate_per_batch_computation(x_batch, labels, rng_key,
+                                                      params, state, is_deterministic,):
         """
         Captured variables:
-            eval_estimator, estimator_args,
+            model,
         """
         # Compute prediction, total, aleatoric, and epistemic
         # uncertainty estimates
         pred_and_uncert = uncertainty_estimator_fn(
-            x_batch, eval_estimator, training_setting=False, **estimator_args)
+            x_batch, model, training_setting=False, params=params, state=state,
+        num_samples=FLAGS.n_samples_test, rng_key=rng_key,)
 
         result = {
             "y_true": labels,
@@ -527,30 +533,105 @@ def main(argv):
     if num_cores > 1:
         parallelizable_evaluate_per_batch_computation = jax.pmap(
             parallelizable_evaluate_per_batch_computation,
-            in_axes=(0, 0, None),
-            static_broadcasted_argnums=(2,))
+            in_axes=(0, 0, 0, None, None, None),
+            static_broadcasted_argnums=(5,))
+
+    # collector = defaultdict(list)
 
     def eval_step_jax(
-        dataset_iterator, dataset_steps, is_deterministic
+        dataset_iterator, dataset_steps, is_deterministic, params, state, rng_key,
     ):
         """
         Captured variables:
-            parallelizable_evaluate_per_batch_computation,
+            parallelizable_evaluate_per_batch_computation, FLAGS
         """
         list_of_results = []
         for _ in tqdm(range(dataset_steps), "evaluation loop"):
             data = next(dataset_iterator)
             images = data['features']._numpy()
             labels = data['labels']._numpy()
+            _, rng_key = random.split(rng_key)
             if num_cores > 1:
                 images, labels = reshape_to_multiple_cores(images, labels, num_cores)
+                keys = random.split(rng_key, num_cores)
+            else:
+                keys = rng_key
             # Compute prediction, total, aleatoric, and epistemic
             # uncertainty estimates
-            arrays_dict = parallelizable_evaluate_per_batch_computation(images, labels, is_deterministic)
+            arrays_dict = parallelizable_evaluate_per_batch_computation(
+                images, labels, keys, params, state, is_deterministic,)
             reshaped_arrays_dict = {name: reshape_to_one_core(array) for name, array in arrays_dict.items()}
+            # print("*-" * 50)
+            # print("params, sum", jax_sum(params))
+            # print("state, sum", jax_sum(state))
+            # print("images, sum", jax_sum(images))
+            # print("labels, sum", jax_sum(labels))
+            # print("y_pred, sum", jnp.sum(reshaped_arrays_dict['y_pred']))
+            # print("x_batch, sum", jax_sum(reshaped_arrays_dict['x_batch']))
+
+            # estimator_args = {
+            #     "params": params,
+            #     "state": state,
+            #     "rng_key": rng_key
+            # }
+
+            # collector["estimator_args"].append(deepcopy_np(estimator_args))
+            # collector["reshaped_arrays_dict"].append(deepcopy_np(reshaped_arrays_dict))
+            # collector["images"].append({"images": images})
+            # collector["labels"].append({"labels": labels})
+            #
+            # if len(collector["estimator_args"]) == 2:
+            #     for k in collector:
+            #         print('-'*20)
+            #         aa, bb = collector[k]
+            #         print(k)
+            #         find_diff_dict(aa, bb)
+            #
+            #     c2 = []
+            #     for i in range(len(collector["estimator_args"])):
+            #         preds_y_samples, _, _ = model.predict_y_multisample_jitted(
+            #             params=collector["estimator_args"][i]["params"],
+            #             state=collector["estimator_args"][i]["state"],
+            #             inputs=collector["images"][i]["images"][0],
+            #             rng_key=collector["estimator_args"][i]["rng_key"][0],
+            #             n_samples=5,
+            #             is_training=False,
+            #         )
+            #         mc_samples = preds_y_samples[:, :, 1]
+            #         expected_entropy = binary_entropy_jax(mc_samples).mean(axis=0)
+            #         # Bernoulli output distribution
+            #         predictive_mean = mc_samples.mean(axis=0)
+            #         predictive_entropy = binary_entropy_jax(predictive_mean)
+            #         predictive_variance = predictive_mean * (1 - predictive_mean)
+            #         c2.append({
+            #             "mc_samples": mc_samples,
+            #             "expected_entropy":expected_entropy,
+            #             "predictive_mean":predictive_mean,
+            #             "predictive_entropy":predictive_entropy,
+            #             "predictive_variance":predictive_variance,
+            #         })
+            #
+            #     find_diff_dict(c2[0], c2[1])
+            #     print(find_diff(c2[0]["predictive_mean"], collector["reshaped_arrays_dict"][0]["y_pred"][:64]))
+            #     print(find_diff(c2[1]["predictive_mean"], collector["reshaped_arrays_dict"][1]["y_pred"][:64]))
+            #     print(find_diff(collector["reshaped_arrays_dict"][0]["y_pred"], collector["reshaped_arrays_dict"][1]["y_pred"]))
+            #
+            #     pdb.set_trace()
+
+
             list_of_results.append(reshaped_arrays_dict)
+            # break
+
         results_arrs = merge_list_of_dicts(list_of_results)
         return results_arrs
+
+    # it is important to define this variable `estimator_args` here instead
+    # of declaring it in the loop. This is to avoid JAX memory leak.
+    estimator_args = {
+        "rng_key": rng_key_test,
+        "params": params,
+        "state": state,
+    }
 
     ########################## train-eval loop ##########################
 
@@ -560,7 +641,7 @@ def main(argv):
     train_iterator = iter(dataset_train)
     for epoch in range(initial_epoch, FLAGS.epochs):
         t0 = time.time()
-        for _ in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
+        for grad_step in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
             if verbose:
                 start = time.time()
             data = next(train_iterator)
@@ -584,6 +665,10 @@ def main(argv):
             ) = parallelisable_train_per_batch_computation(
                 params, state, opt_state, keys, x_batch, labels,
             )
+            # print("*" * 100)
+            # print(f"training {grad_step}, the id of params is {id(params)}")
+            # print(f"id={id(params['res_net50_fsvi/~/block_group_1/~/block_1/~/conv_1']['w_mu'])}")
+
             if verbose:
                 print(f"per-batch computation used {time.time() - start:.2f} seconds")
                 start = time.time()
@@ -612,22 +697,36 @@ def main(argv):
             if verbose:
                 print(f"compute metric used {time.time() - start:.2f} seconds")
 
-        # Wrap our estimator to predict probabilities
-        # the signature of the estimator is (inputs, training, num_samples, rng_key) -> np.ndarray
-        # the required signature is (inputs, training)
-        eval_estimator = wrap_fsvi_estimator(
-            model=model, params=params, state=state,
-            use_mixed_precision=FLAGS.use_bfloat16)
+            # if grad_step == 3:
+            #     break
+
         _, rng_key_test = random.split(rng_key_test)
-        estimator_args = {
-            "rng_key": rng_key_test,
-            "num_samples": FLAGS.n_samples_test
-        }
+
+        estimator_args["rng_key"] = rng_key_test
+        # difference = find_diff(estimator_args["params"], params)
+        # print("*" * 100)
+        # print(f"difference in params is {difference}")
+        # pdb.set_trace()
+        estimator_args["params"] = params
+        # print("*" * 100)
+        # print(f"filling args, the id of params is {id(estimator_args['params'])}")
+        # print(f"id={id(estimator_args['params']['res_net50_fsvi/~/block_group_1/~/block_1/~/conv_1']['w_mu'])}")
+        estimator_args["state"] = state
+        # pdb.set_trace()
+
         total_results = utils.evaluate_model_and_compute_metrics(
-            None, eval_datasets, steps, metrics, eval_estimator,
-            uncertainty_estimator_fn, per_core_batch_size, available_splits,
-            estimator_args=estimator_args, is_deterministic=True, num_bins=FLAGS.num_bins,
+            None, eval_datasets, steps, metrics, None,
+            None, per_core_batch_size, available_splits,
+            estimator_args=estimator_args, is_deterministic=False, num_bins=FLAGS.num_bins,
             use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax)
+
+        # dataset_split = "in_domain_validation"
+        # dataset = eval_datasets[dataset_split]
+        # dataset_iterator = iter(dataset)
+        # dataset_steps = steps[dataset_split]
+        # logging.info(f'Evaluating split {dataset_split}.')
+        # eval_step_jax(dataset_iterator, dataset_steps, False, params, state,
+        #               rng_key_test)
 
         with summary_writer.as_default():
             for name, result in total_results.items():
@@ -636,9 +735,6 @@ def main(argv):
 
         for metric in metrics.values():
             metric.reset_states()
-
-        T0 = time.time()
-        print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
 
         if (
             FLAGS.checkpoint_interval > 0
@@ -663,6 +759,9 @@ def main(argv):
             with tf.io.gfile.GFile(chkpt_name, mode="wb") as f:
                 pickle.dump(to_save, f)
             logging.info("Saved checkpoint to %s", chkpt_name)
+
+        T0 = time.time()
+        print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
 
     to_save = {
         "params": params,
@@ -693,25 +792,6 @@ def main(argv):
         )
 
 
-def wrap_fsvi_estimator(model, params, state, use_mixed_precision):
-
-    def estimator_wrapper(inputs, training, num_samples, rng_key):
-        preds_y_samples, _, _ = model.predict_y_multisample_jitted(
-            params=params,
-            state=state,
-            inputs=inputs,
-            rng_key=rng_key,
-            n_samples=num_samples,
-            is_training=training,
-        )
-        if use_mixed_precision:
-            preds_y_samples = preds_y_samples.astype(jnp.float32)
-        probs = preds_y_samples[:, :, 1]
-        return probs
-
-    return estimator_wrapper
-
-
 @jax.jit
 def reshape_to_one_core(x):
     return jnp.reshape(x, [-1] + list(x.shape[2:]))
@@ -737,6 +817,27 @@ def merge_list_of_dicts(list_of_dicts):
     keys = list_of_dicts[0].keys()
     merged_dict = {k: jnp.stack([d[k] for d in list_of_dicts]) for k in keys}
     return merged_dict
+
+
+def find_diff(x, y):
+    difference = tree.map_structure(lambda a, b: jnp.abs(a - b).max(),
+                                    x,
+                                    y)
+    difference = np.max([x for x in tree.flatten(difference)])
+    return difference
+
+
+def find_diff_dict(x, y):
+    for k in x.keys():
+        print(k, find_diff(x[k], y[k]))
+
+
+def deepcopy_np(d):
+    return {k: tree.map_structure(lambda a: np.array(a), v) for k, v in d.items()}
+
+
+def jax_sum(x):
+    return np.sum([jnp.sum(a) for a in tree.flatten(x)])
 
 
 if __name__ == "__main__":

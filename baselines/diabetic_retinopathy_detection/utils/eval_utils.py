@@ -18,7 +18,6 @@ from .results_storage_utils import (
   store_eval_metadata)
 
 
-# Want to avoid using .numpy() within TPU or GPU strategy scope.
 @tf.function
 def eval_tpu_step(
   dataset_iterator, dataset_steps, strategy, estimator,
@@ -135,7 +134,7 @@ def evaluate_model_on_datasets_tpu(
     logging.info(f'Evaluating split {dataset_split}.')
     if backend == "jax":
       eval_epoch_arrs = eval_step_jax(
-        dataset_iterator, dataset_steps, is_deterministic)
+        dataset_iterator, dataset_steps, is_deterministic, **estimator_args)
     elif backend == "tf":
       eval_epoch_arrs = eval_tpu_step(
         dataset_iterator, tf.convert_to_tensor(dataset_steps), strategy,

@@ -20,11 +20,14 @@ and quality of uncertainty estimates of the given model.
 """
 
 import functools
+import pdb
 from typing import Dict
 
+import jax
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
+from jax import numpy as jnp
 from scipy.stats import bernoulli
 import jax.numpy as jnp
 
@@ -115,44 +118,6 @@ def predict_and_decompose_uncertainty(mc_samples: np.ndarray):
     'epistemic_uncertainty': predictive_entropy - expected_entropy,  # MI
     'aleatoric_uncertainty': expected_entropy
   }
-
-
-def predict_and_decompose_uncertainty_jax(mc_samples: jnp.ndarray):
-  """Given a set of MC samples, decomposes uncertainty into
-    aleatoric and epistemic parts.
-
-  Args:
-    mc_samples: `np.ndarray`, Monte Carlo samples from a sigmoid predictive
-      distribution, shape [T, B] where T is the number of samples and B
-      is the batch size.
-
-  Returns:
-    Dict: {
-      mean: `numpy.ndarray`, predictive mean, with shape [B].
-      predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
-      predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
-      epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
-      aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
-    }
-  """
-  expected_entropy = binary_entropy_jax(mc_samples).mean(axis=0)
-
-  # Bernoulli output distribution
-  predictive_mean = mc_samples.mean(axis=0)
-  predictive_entropy = binary_entropy_jax(predictive_mean)
-  predictive_variance = predictive_mean * (1 - predictive_mean)
-
-  return {
-    'prediction': predictive_mean,
-    'predictive_entropy': predictive_entropy,
-    'predictive_variance': predictive_variance,
-    'epistemic_uncertainty': predictive_entropy - expected_entropy,  # MI
-    'aleatoric_uncertainty': expected_entropy
-  }
-
-
-def binary_entropy_jax(array):
-  return -array * jnp.log(array) - (1 - array) * jnp.log(1 - array)
 
 
 def variational_predict_and_decompose_uncertainty(
@@ -255,42 +220,6 @@ def variational_predict_and_decompose_uncertainty_tf(
   mc_samples = tf.reshape(mc_samples, [-1, b])
 
   return predict_and_decompose_uncertainty_tf(mc_samples=mc_samples)
-
-
-def fsvi_predict_and_decompose_uncertainty(
-        x,
-        model,
-        rng_key,
-        training_setting,
-        num_samples,):
-  """
-  Args:
-    x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
-    where B the batch size and H, W the input images height and width
-    accordingly.
-    model: a probabilistic model (e.g., `tensorflow.keras.model`) which accepts
-      input with shape [B, H, W, 3] and outputs sigmoid probability [0.0, 1.0],
-      and also accepts boolean argument `training` for disabling e.g.,
-      BatchNorm, Dropout at test time, as well as rng_key as random key for the
-      forward passes.
-    rng_key: `jax.numpy.ndarray`, jax random key for the forward passes.
-    training_setting: bool, if True, run model prediction in training mode. See
-      note in docstring at top of file.
-
-  Returns:
-    mean: `numpy.ndarray`, predictive mean, with shape [B].
-    uncertainty: `numpy.ndarray`, uncertainty in prediction,
-      with shape [B].
-  """
-  # mc_samples has shape [T, B]
-  mc_samples = model(
-    inputs=x,
-    training=training_setting,
-    num_samples=num_samples,
-    rng_key=rng_key,
-  )
-
-  return predict_and_decompose_uncertainty_jax(mc_samples=mc_samples)
 
 
 def variational_ensemble_predict_and_decompose_uncertainty(
@@ -778,6 +707,86 @@ def deterministic_predict_tf(x, model, training_setting):
 #       dist=dist, uncertainty_type=uncertainty_type)
 #
 #
+
+
+def binary_entropy_jax(array):
+  return jax.scipy.special.entr(array) + jax.scipy.special.entr(1 - array)
+
+
+def fsvi_predict_and_decompose_uncertainty(
+        x,
+        model,
+        rng_key,
+        training_setting,
+        num_samples,
+        params,
+        state,
+):
+  """
+  Args:
+    x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
+    where B the batch size and H, W the input images height and width
+    accordingly.
+    model: a probabilistic model (e.g., `tensorflow.keras.model`) which accepts
+      input with shape [B, H, W, 3] and outputs sigmoid probability [0.0, 1.0],
+      and also accepts boolean argument `training` for disabling e.g.,
+      BatchNorm, Dropout at test time, as well as rng_key as random key for the
+      forward passes.
+    rng_key: `jax.numpy.ndarray`, jax random key for the forward passes.
+    training_setting: bool, if True, run model prediction in training mode. See
+      note in docstring at top of file.
+
+  Returns:
+    mean: `numpy.ndarray`, predictive mean, with shape [B].
+    uncertainty: `numpy.ndarray`, uncertainty in prediction,
+      with shape [B].
+  """
+  # mc_samples has shape [T, B]
+  preds_y_samples, _, _ = model.predict_y_multisample_jitted(
+    params=params,
+    state=state,
+    inputs=x,
+    rng_key=rng_key,
+    n_samples=num_samples,
+    is_training=training_setting,
+  )
+  mc_samples = preds_y_samples[:, :, 1]
+
+  return predict_and_decompose_uncertainty_jax(mc_samples=mc_samples)
+
+
+def predict_and_decompose_uncertainty_jax(mc_samples: jnp.ndarray):
+  """Given a set of MC samples, decomposes uncertainty into
+    aleatoric and epistemic parts.
+
+  Args:
+    mc_samples: `np.ndarray`, Monte Carlo samples from a sigmoid predictive
+      distribution, shape [T, B] where T is the number of samples and B
+      is the batch size.
+
+  Returns:
+    Dict: {
+      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
+      predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
+      epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
+      aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
+    }
+  """
+  expected_entropy = binary_entropy_jax(mc_samples).mean(axis=0)
+
+  # Bernoulli output distribution
+  predictive_mean = mc_samples.mean(axis=0)
+  predictive_entropy = binary_entropy_jax(predictive_mean)
+  predictive_variance = predictive_mean * (1 - predictive_mean)
+
+  return {
+    'prediction': predictive_mean,
+    'predictive_entropy': predictive_entropy,
+    'predictive_variance': predictive_variance,
+    'epistemic_uncertainty': predictive_entropy - expected_entropy,  # MI
+    'aleatoric_uncertainty': expected_entropy
+  }
 
 
 def get_dist_mean_and_uncertainty(dist: bernoulli):

@@ -697,7 +697,8 @@ def main(argv):
             None, eval_datasets, steps, metrics, None,
             None, per_core_batch_size, available_splits,
             estimator_args=estimator_args, is_deterministic=False, num_bins=FLAGS.num_bins,
-            use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax, return_per_pred_results=True)
+            use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax, return_per_pred_results=True,
+            call_dataset_iter=False)
 
         # dataset_split = "in_domain_validation"
         # dataset = eval_datasets[dataset_split]

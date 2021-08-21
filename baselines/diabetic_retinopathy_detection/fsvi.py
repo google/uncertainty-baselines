@@ -1,3 +1,8 @@
+import os
+# os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
 import json
 import logging
 import os
@@ -6,6 +11,7 @@ import pickle
 import time
 import types
 from functools import partial
+import sys
 
 import haiku as hk
 import jax
@@ -21,12 +27,8 @@ from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
 
-abspath = os.path.abspath(__file__)
-dname = os.path.dirname(abspath)
-path = dname + "/../.."
-# print(f'Setting working directory to {path}\n')
-os.chdir(path)
-
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, root_path)
 from baselines.diabetic_retinopathy_detection.fsvi_utils import datasets
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
     initialize_random_keys,
@@ -85,7 +87,7 @@ flags.DEFINE_integer(
 )
 
 flags.DEFINE_float(
-    "learning_rate", default=1e-3, help="Learning rate (default: 1e-3)",
+    "base_learning_rate", default=1e-3, help="Learning rate (default: 1e-3)",
 )
 
 flags.DEFINE_float("dropout_rate", default=0.0, help="Dropout rate (default: 0.0)")
@@ -257,6 +259,12 @@ flags.DEFINE_integer(
     "kl_type", 0, "Type of KL",
 )
 flags.DEFINE_float('l2', 0.0, 'L2 regularization coefficient.')
+flags.DEFINE_string(
+    "init_strategy",
+    "uniform",
+    "if init_strategy==he_normal_and_zeros, then w_init=he_normal, b_init=zeros,"
+    "if init_strategy==uniform, then w_init=uniform, b_init=uniform",
+)
 FLAGS = flags.FLAGS
 
 
@@ -724,7 +732,7 @@ def main(argv):
 
     with summary_writer.as_default():
         hp.hparams(
-            {"learning_rate": FLAGS.learning_rate,}
+            {"base_learning_rate": FLAGS.base_learning_rate,}
         )
 
 

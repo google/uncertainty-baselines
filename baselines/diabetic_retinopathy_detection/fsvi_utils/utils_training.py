@@ -58,7 +58,7 @@ class Training:
         prior_type,
         architecture,
         activation: str,
-        learning_rate,
+        base_learning_rate,
         dropout_rate,
         batch_normalization: bool,
         input_shape: List[int],
@@ -106,7 +106,7 @@ class Training:
         self.prior_type = prior_type
         self.architecture = architecture
         self.activation = activation
-        self.learning_rate = learning_rate
+        self.base_learning_rate = base_learning_rate
         self.dropout_rate = dropout_rate
         self.batch_normalization = batch_normalization
         self.input_shape = input_shape
@@ -306,13 +306,13 @@ class Training:
 
     def _compose_optimizer(self) -> optax.GradientTransformation:
         if "adam" in self.optimizer:
-            opt = optax.adam(self.learning_rate)
+            opt = optax.adam(self.base_learning_rate)
         elif "sgd" == self.optimizer and self.lr_schedule == "linear":
             print("*" * 100)
             print("The linear learning schedule to reproducing deterministic is used")
             lr_schedule = warm_up_polynomial_schedule(
-                base_learning_rate=self.learning_rate,
-                end_learning_rate=self.final_decay_factor * self.learning_rate,
+                base_learning_rate=self.base_learning_rate,
+                end_learning_rate=self.final_decay_factor * self.base_learning_rate,
                 decay_steps=(self.n_batches * (self.epochs - self.lr_warmup_epochs)),
                 warmup_steps=self.n_batches * self.lr_warmup_epochs,
                 decay_power=1.0
@@ -331,7 +331,7 @@ class Training:
             ]
             lr_schedule = warm_up_piecewise_constant_schedule(
                 steps_per_epoch=self.n_batches,
-                base_learning_rate=self.learning_rate,
+                base_learning_rate=self.base_learning_rate,
                 decay_ratio=self.lr_decay_ratio,
                 decay_epochs=lr_decay_epochs,
                 warmup_epochs=self.lr_warmup_epochs)
@@ -551,7 +551,7 @@ class Training:
 
     def get_trainable_params_fn(self, params):
         if self.linear_model and self.features_fixed:
-            trainable_layers = list(params.keys())[-2]  # TODO: set via input parameter
+            trainable_layers = list(params.keys())[-1]  # TODO: set via input parameter
         else:
             trainable_layers = list(params.keys())
         get_trainable_params = lambda params: hk.data_structures.partition(lambda m, n, p: m in trainable_layers, params)

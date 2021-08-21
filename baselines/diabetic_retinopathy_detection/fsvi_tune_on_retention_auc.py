@@ -14,6 +14,7 @@ import pickle
 import time
 import types
 from functools import partial
+import sys
 
 import haiku as hk
 import jax
@@ -23,17 +24,12 @@ import numpy as np
 from absl import app, flags
 from jax import jit
 from jax import random
-
 from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
 
-abspath = os.path.abspath(__file__)
-dname = os.path.dirname(abspath)
-path = dname + "/../.."
-# print(f'Setting working directory to {path}\n')
-os.chdir(path)
-
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, root_path)
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
     initialize_random_keys,
     to_one_hot,
@@ -177,7 +173,7 @@ flags.DEFINE_integer(
 # General model flags.
 flags.DEFINE_integer(
     "checkpoint_interval",
-    25,
+    1,
     "Number of epochs between saving checkpoints. " "Use -1 to never save checkpoints.",
 )
 
@@ -244,7 +240,7 @@ flags.DEFINE_string(
 flags.DEFINE_bool(
   'load_train_split', True,
   "Should always be enabled - required to load train split of the dataset.")
-
+flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 FLAGS = flags.FLAGS
 
 
@@ -258,7 +254,6 @@ def process_args():
     @return:
     """
     # FLAGS doesn't accept renaming!
-    FLAGS.figsize = (int(v) for v in FLAGS.figsize)
     FLAGS.inducing_inputs_bound = [float(v) for v in FLAGS.inducing_inputs_bound]
 
 
@@ -309,7 +304,7 @@ def main(argv):
     test_splits = [split for split in available_splits if 'test' in split]
     eval_splits = [split for split in available_splits
                    if 'validation' in split or 'test' in split]
-    eval_datasets = {split: datasets[split] for split in eval_splits}
+    eval_datasets = {split: iter(datasets[split]) for split in eval_splits}
     input_shape = [1] + utils.load_input_shape(dataset_train=datasets["train"])
     # TODO: remove this hardcoded value
     output_dim = 2

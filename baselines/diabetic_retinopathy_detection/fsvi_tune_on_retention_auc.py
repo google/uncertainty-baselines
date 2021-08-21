@@ -515,8 +515,6 @@ def main(argv):
             in_axes=(0, 0, 0, None, None, None),
             static_broadcasted_argnums=(5,))
 
-    # collector = defaultdict(list)
-
     def eval_step_jax(
         dataset_iterator, dataset_steps, is_deterministic, params, state, rng_key,
     ):
@@ -540,66 +538,7 @@ def main(argv):
             arrays_dict = parallelizable_evaluate_per_batch_computation(
                 images, labels, keys, params, state, is_deterministic,)
             reshaped_arrays_dict = {name: reshape_to_one_core(array) for name, array in arrays_dict.items()}
-            # print("*-" * 50)
-            # print("params, sum", jax_sum(params))
-            # print("state, sum", jax_sum(state))
-            # print("images, sum", jax_sum(images))
-            # print("labels, sum", jax_sum(labels))
-            # print("y_pred, sum", jnp.sum(reshaped_arrays_dict['y_pred']))
-            # print("x_batch, sum", jax_sum(reshaped_arrays_dict['x_batch']))
-
-            # estimator_args = {
-            #     "params": params,
-            #     "state": state,
-            #     "rng_key": rng_key
-            # }
-
-            # collector["estimator_args"].append(deepcopy_np(estimator_args))
-            # collector["reshaped_arrays_dict"].append(deepcopy_np(reshaped_arrays_dict))
-            # collector["images"].append({"images": images})
-            # collector["labels"].append({"labels": labels})
-            #
-            # if len(collector["estimator_args"]) == 2:
-            #     for k in collector:
-            #         print('-'*20)
-            #         aa, bb = collector[k]
-            #         print(k)
-            #         find_diff_dict(aa, bb)
-            #
-            #     c2 = []
-            #     for i in range(len(collector["estimator_args"])):
-            #         preds_y_samples, _, _ = model.predict_y_multisample_jitted(
-            #             params=collector["estimator_args"][i]["params"],
-            #             state=collector["estimator_args"][i]["state"],
-            #             inputs=collector["images"][i]["images"][0],
-            #             rng_key=collector["estimator_args"][i]["rng_key"][0],
-            #             n_samples=5,
-            #             is_training=False,
-            #         )
-            #         mc_samples = preds_y_samples[:, :, 1]
-            #         expected_entropy = binary_entropy_jax(mc_samples).mean(axis=0)
-            #         # Bernoulli output distribution
-            #         predictive_mean = mc_samples.mean(axis=0)
-            #         predictive_entropy = binary_entropy_jax(predictive_mean)
-            #         predictive_variance = predictive_mean * (1 - predictive_mean)
-            #         c2.append({
-            #             "mc_samples": mc_samples,
-            #             "expected_entropy":expected_entropy,
-            #             "predictive_mean":predictive_mean,
-            #             "predictive_entropy":predictive_entropy,
-            #             "predictive_variance":predictive_variance,
-            #         })
-            #
-            #     find_diff_dict(c2[0], c2[1])
-            #     print(find_diff(c2[0]["predictive_mean"], collector["reshaped_arrays_dict"][0]["y_pred"][:64]))
-            #     print(find_diff(c2[1]["predictive_mean"], collector["reshaped_arrays_dict"][1]["y_pred"][:64]))
-            #     print(find_diff(collector["reshaped_arrays_dict"][0]["y_pred"], collector["reshaped_arrays_dict"][1]["y_pred"]))
-            #
-            #     pdb.set_trace()
-
-
             list_of_results.append(reshaped_arrays_dict)
-            # break
 
         results_arrs = merge_list_of_dicts(list_of_results)
         return results_arrs
@@ -620,7 +559,7 @@ def main(argv):
     train_iterator = iter(dataset_train)
     for epoch in range(initial_epoch, FLAGS.epochs):
         t0 = time.time()
-        for grad_step in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
+        for _ in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
             if verbose:
                 start = time.time()
             data = next(train_iterator)
@@ -644,9 +583,6 @@ def main(argv):
             ) = parallelisable_train_per_batch_computation(
                 params, state, opt_state, keys, x_batch, labels,
             )
-            # print("*" * 100)
-            # print(f"training {grad_step}, the id of params is {id(params)}")
-            # print(f"id={id(params['res_net50_fsvi/~/block_group_1/~/block_1/~/conv_1']['w_mu'])}")
 
             if verbose:
                 print(f"per-batch computation used {time.time() - start:.2f} seconds")
@@ -676,22 +612,11 @@ def main(argv):
             if verbose:
                 print(f"compute metric used {time.time() - start:.2f} seconds")
 
-            # if grad_step == 3:
-            #     break
-
         _, rng_key_test = random.split(rng_key_test)
 
         estimator_args["rng_key"] = rng_key_test
-        # difference = find_diff(estimator_args["params"], params)
-        # print("*" * 100)
-        # print(f"difference in params is {difference}")
-        # pdb.set_trace()
         estimator_args["params"] = params
-        # print("*" * 100)
-        # print(f"filling args, the id of params is {id(estimator_args['params'])}")
-        # print(f"id={id(estimator_args['params']['res_net50_fsvi/~/block_group_1/~/block_1/~/conv_1']['w_mu'])}")
         estimator_args["state"] = state
-        # pdb.set_trace()
 
         per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
             None, eval_datasets, steps, metrics, None,
@@ -699,14 +624,6 @@ def main(argv):
             estimator_args=estimator_args, is_deterministic=False, num_bins=FLAGS.num_bins,
             use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax, return_per_pred_results=True,
             call_dataset_iter=False)
-
-        # dataset_split = "in_domain_validation"
-        # dataset = eval_datasets[dataset_split]
-        # dataset_iterator = iter(dataset)
-        # dataset_steps = steps[dataset_split]
-        # logging.info(f'Evaluating split {dataset_split}.')
-        # eval_step_jax(dataset_iterator, dataset_steps, False, params, state,
-        #               rng_key_test)
 
         with summary_writer.as_default():
             for name, result in total_results.items():

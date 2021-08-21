@@ -262,7 +262,7 @@ class Objectives_hk:
         elif loss_type == 5:
             batch_norm_params = hk.data_structures.filter(predicate_batchnorm, params)
             l2_loss = jnp.sum(jnp.stack([jnp.sum(x * x) for x in tree.flatten(batch_norm_params)]))
-            elbo = (log_likelihood - scale * kl) / inputs.shape[0] + l2_loss * l2_strength
+            elbo = (log_likelihood - scale * kl) / inputs.shape[0] - l2_loss * l2_strength
         else:
             raise NotImplementedError(loss_type)
 

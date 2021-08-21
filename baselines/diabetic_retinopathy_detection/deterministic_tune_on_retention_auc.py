@@ -49,6 +49,7 @@ flags.DEFINE_string(
    "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
 flags.DEFINE_bool(
   'load_from_checkpoint', False, "Attempt to load from checkpoint")
+flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
 # OOD flags.
 flags.DEFINE_string(
@@ -147,7 +148,9 @@ def main(argv):
   test_splits = [split for split in available_splits if 'test' in split]
   eval_splits = [split for split in available_splits
                  if 'validation' in split or 'test' in split]
-  eval_datasets = {split: datasets[split] for split in eval_splits}
+
+  # Iterate eval datasets
+  eval_datasets = {split: iter(datasets[split]) for split in eval_splits}
   dataset_train = datasets['train']
   train_steps_per_epoch = steps['train']
 
@@ -306,7 +309,8 @@ def main(argv):
     per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
       strategy, eval_datasets, steps, metrics, eval_estimator,
       uncertainty_estimator_fn, per_core_batch_size, available_splits,
-      estimator_args={}, is_deterministic=True, num_bins=FLAGS.num_bins,
+      estimator_args={}, call_dataset_iter=False,
+      is_deterministic=True, num_bins=FLAGS.num_bins,
       use_tpu=use_tpu, return_per_pred_results=True)
 
     with summary_writer.as_default():

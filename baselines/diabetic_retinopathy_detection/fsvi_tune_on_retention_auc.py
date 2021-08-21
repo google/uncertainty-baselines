@@ -3,6 +3,8 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
+from pprint import pformat
+
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], "GPU")
 print('WARNING: TensorFlow is set to only use CPU.')
@@ -82,7 +84,7 @@ flags.DEFINE_integer(
 )
 
 flags.DEFINE_float(
-    "learning_rate", default=1e-3, help="Learning rate (default: 1e-3)",
+    "base_learning_rate", default=1e-3, help="Learning rate (default: 1e-3)",
 )
 
 flags.DEFINE_float("dropout_rate", default=0.0, help="Dropout rate (default: 0.0)")
@@ -148,7 +150,7 @@ flags.DEFINE_string(
 flags.DEFINE_string("data_dir", None, "Path to training and testing data.")
 
 flags.DEFINE_bool("use_validation", True, "Whether to use a validation split.")
-flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
+flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
 flags.DEFINE_string(
   'dr_decision_threshold', 'moderate',
   ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
@@ -275,9 +277,18 @@ def main(argv):
     del argv
 
     write_flags(os.path.join(FLAGS.output_dir, "flags.txt"))
+    # Log Run Hypers
+    hypers_dict = {
+        'per_core_batch_size': FLAGS.per_core_batch_size,
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'final_decay_factor': FLAGS.final_decay_factor,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2
+    }
+    logging.info('Hypers:')
+    logging.info(pformat(hypers_dict))
 
     from jax.lib import xla_bridge
-
     print("*" * 100)
     print("Platform that is used by JAX:", xla_bridge.get_backend().platform)
     print("*" * 100)
@@ -682,11 +693,11 @@ def main(argv):
         estimator_args["state"] = state
         # pdb.set_trace()
 
-        total_results = utils.evaluate_model_and_compute_metrics(
+        per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
             None, eval_datasets, steps, metrics, None,
             None, per_core_batch_size, available_splits,
             estimator_args=estimator_args, is_deterministic=False, num_bins=FLAGS.num_bins,
-            use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax)
+            use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax, return_per_pred_results=True)
 
         # dataset_split = "in_domain_validation"
         # dataset = eval_datasets[dataset_split]
@@ -728,9 +739,18 @@ def main(argv):
                 pickle.dump(to_save, f)
             logging.info("Saved checkpoint to %s", chkpt_name)
 
+            # Save per-prediction metrics
+            utils.save_per_prediction_results(
+                FLAGS.output_dir, epoch + 1, per_pred_results, verbose=False)
+
         T0 = time.time()
         print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
 
+    hparams = {
+        k: v
+        for k, v in get_dict_of_flags().items()
+        if not isinstance(v, types.GeneratorType)
+    }
     to_save = {
         "params": params,
         "state": state,
@@ -738,18 +758,21 @@ def main(argv):
         # TODO: figure out why the figsize has type generator
         "hparams": hparams,
         "opt_state": opt_state,
-        "epoch": epoch,
+        "epoch": FLAGS.epochs,
     }
     final_checkpoint_name = os.path.join(FLAGS.output_dir, "final_checkpoint")
     with tf.io.gfile.GFile(final_checkpoint_name, mode="wb") as f:
         pickle.dump(to_save, f)
     logging.info("Saved last checkpoint to %s", final_checkpoint_name)
 
+    # Save per-prediction metrics
+    utils.save_per_prediction_results(
+        FLAGS.output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
 
     with summary_writer.as_default():
         hp.hparams(
             {
-                "learning_rate": FLAGS.learning_rate,
+                "base_learning_rate": FLAGS.base_learning_rate,
                 'per_core_batch_size': FLAGS.per_core_batch_size,
                 'final_decay_factor': FLAGS.final_decay_factor,
                 'one_minus_momentum': FLAGS.one_minus_momentum,

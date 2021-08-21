@@ -72,6 +72,8 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
       data_dir: Optional[str] = None,
       download_data: bool = False,
       is_training: Optional[bool] = None,
+      drop_remainder: bool = True,
+      cache: bool = False
   ):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
@@ -102,7 +104,9 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        download_data=download_data)
+        download_data=download_data,
+        drop_remainder=drop_remainder,
+        cache=cache)
     print(f'Building Diabetic Retinopathy Severity Shift dataset with '
           f'moderate decision threshold.')
 

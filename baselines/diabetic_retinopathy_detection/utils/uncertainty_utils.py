@@ -207,8 +207,15 @@ def variational_predict_and_decompose_uncertainty_tf(
 
   # Monte Carlo samples from different dropout mask at test time
   # See note in docstring regarding `training` mode
-  mc_samples = tf.convert_to_tensor(
-    [model(x, training=training_setting) for _ in range(num_samples)])
+  # mc_samples = tf.convert_to_tensor(
+  #   [model(x, training=training_setting) for _ in range(num_samples)])
+  mc_samples = []
+
+  for _ in range(num_samples):
+    print('retracing')
+    mc_samples.append(model(x, training=training_setting))
+
+  mc_samples = tf.convert_to_tensor(mc_samples)
 
   # TPU-friendly
   # mc_samples = tf.TensorArray(tf.float32, size=0, dynamic_size=True)

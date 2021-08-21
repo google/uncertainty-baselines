@@ -10,6 +10,7 @@ from absl import logging
 from sklearn.metrics import (log_loss, roc_auc_score, accuracy_score,
                              roc_curve, precision_recall_curve, auc)
 from sklearn.preprocessing import LabelBinarizer
+from sklearn.utils import check_array, check_consistent_length
 
 from swag_utils import utils as swag_utils
 from .metric_utils import log_epoch_metrics_new
@@ -24,7 +25,9 @@ def eval_tpu_step(
   dataset_iterator, dataset_steps, strategy, estimator,
   estimator_args, uncertainty_estimator_fn, is_deterministic
 ):
+  print('tracing eval step in eval_tpu_step')
   def step_fn(inputs):
+    print('tracing eval step in step_fn')
     images = inputs['features']
     labels = inputs['labels']
 
@@ -119,7 +122,8 @@ def eval_tpu_step(
 
 def evaluate_model_on_datasets_tpu(
   strategy, datasets, steps, estimator, estimator_args,
-  uncertainty_estimator_fn, eval_batch_size, is_deterministic=False
+  uncertainty_estimator_fn, eval_batch_size, call_dataset_iter,
+  is_deterministic=False
 ):
 
   # Need to collect these so we can form joint datasets:
@@ -129,7 +133,13 @@ def evaluate_model_on_datasets_tpu(
   for dataset_split, dataset in datasets.items():
     # Begin iteration for this dataset split
     start_time = time.time()
-    dataset_iterator = iter(dataset)
+
+    if call_dataset_iter:
+      dataset_iterator = iter(dataset)
+    else:
+      dataset_iterator = dataset
+
+    print(f'Creating iterator took {time.time() - start_time} seconds.')
     dataset_steps = steps[dataset_split]
     logging.info(f'Evaluating split {dataset_split}.')
     eval_epoch_arrs = eval_tpu_step(
@@ -239,32 +249,40 @@ def evaluate_swag_on_datasets(
 def evaluate_model_and_compute_metrics(
     strategy, eval_datasets, steps, metrics, eval_estimator,
     uncertainty_estimator_fn, eval_batch_size, available_splits,
-    estimator_args, is_deterministic=False, num_bins=15, use_tpu=True
+    estimator_args, call_dataset_iter, is_deterministic=False,
+    num_bins=15, use_tpu=True,
+    return_per_pred_results=False
 ):
   """Main method for evaluation and computing metrics using arbitrary TF
   distribution strategies. Usable for evaluation during tuning."""
   # Compute predictions on all evaluation datasets
+  # When we eval during training we don't need to re-iterate the
+  # evaluation datasets
   eval_results = evaluate_model_on_datasets_tpu(
     strategy=strategy, datasets=eval_datasets, steps=steps,
     estimator=eval_estimator, estimator_args=estimator_args,
     uncertainty_estimator_fn=uncertainty_estimator_fn,
-    eval_batch_size=eval_batch_size, is_deterministic=is_deterministic)
+    eval_batch_size=eval_batch_size, call_dataset_iter=call_dataset_iter,
+    is_deterministic=is_deterministic)
 
   # For each eval dataset, add NLL and accuracy for each example
   eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)
 
   # Compute all metrics for each dataset --
   # Robustness, Open Set Recognition, Retention AUC
-  eval_results = compute_metrics_for_all_datasets(
+  metrics_results = compute_metrics_for_all_datasets(
     eval_results, ece_num_bins=num_bins, compute_retention_auc=True,
     verbose=False)
 
   # Log metrics
-  total_results = log_epoch_metrics_new(
-    metrics=metrics, eval_results=eval_results,
+  metrics_results = log_epoch_metrics_new(
+    metrics=metrics, eval_results=metrics_results,
     use_tpu=use_tpu, dataset_splits=available_splits)
 
-  return total_results
+  if return_per_pred_results:
+    return eval_results, metrics_results
+  else:
+    return metrics_results
 
 
 def evaluate_model_on_datasets(
@@ -404,18 +422,19 @@ def compute_metrics_for_all_datasets(
     eval_results, ece_num_bins=15, compute_retention_auc=False,
     verbose=False
 ):
+  metric_results = {}
   for dataset_key, results_dict in eval_results.items():
     if verbose:
       logging.info(
         f'Computing metrics for dataset split {dataset_key}.')
 
     compute_open_set_recognition = 'joint' in dataset_key
-    eval_results[dataset_key] = compute_dataset_eval_metrics(
+    metric_results[dataset_key] = compute_dataset_eval_metrics(
       dataset_key, results_dict, ece_num_bins=ece_num_bins,
       compute_open_set_recognition=compute_open_set_recognition,
       compute_retention_auc=compute_retention_auc)
 
-  return eval_results
+  return metric_results
 
 
 def compute_loss_and_accuracy_arrs_for_all_datasets(eval_results):
@@ -442,15 +461,36 @@ def compute_loss_and_accuracy_arrs(results):
   return results
 
 
-def compute_log_loss_arr(results, eps=1e-15):
+def compute_log_loss_arr(results, labels=np.asarray([0, 1]), eps=1e-15,
+                         sample_weight=None):
   """Based on sklearn.preprocessing.log_loss, no aggregation."""
   y_pred, y_true = results['y_pred'], results['y_true']
-  assert y_pred.shape == y_true.shape
+  y_pred = check_array(y_pred, ensure_2d=False)
+  check_consistent_length(y_pred, y_true, sample_weight)
+
   lb = LabelBinarizer()
-  transformed_labels = lb.fit_transform(y_true)
+
+  if labels is not None:
+    lb.fit(labels)
+  else:
+    lb.fit(y_true)
+
+  if len(lb.classes_) == 1:
+    if labels is None:
+      raise ValueError('y_true contains only one label ({0}). Please '
+                       'provide the true labels explicitly through the '
+                       'labels argument.'.format(lb.classes_[0]))
+    else:
+      raise ValueError('The labels array needs to contain at least two '
+                       'labels for log_loss, '
+                       'got {0}.'.format(lb.classes_))
+
+  transformed_labels = lb.transform(y_true)
+
   if transformed_labels.shape[1] == 1:
     transformed_labels = np.append(1 - transformed_labels,
                                    transformed_labels, axis=1)
+
   # Clipping
   y_pred = np.clip(y_pred, eps, 1 - eps)
 
@@ -461,11 +501,73 @@ def compute_log_loss_arr(results, eps=1e-15):
   if y_pred.shape[1] == 1:
     y_pred = np.append(1 - y_pred, y_pred, axis=1)
 
+  # Check if dimensions are consistent.
+  transformed_labels = check_array(transformed_labels)
+  if len(lb.classes_) != y_pred.shape[1]:
+    if labels is None:
+      raise ValueError("y_true and y_pred contain different number of "
+                       "classes {0}, {1}. Please provide the true "
+                       "labels explicitly through the labels argument. "
+                       "Classes found in "
+                       "y_true: {2}".format(transformed_labels.shape[1],
+                                            y_pred.shape[1],
+                                            lb.classes_))
+    else:
+      raise ValueError('The number of classes in labels is different '
+                       'from that in y_pred. Classes found in '
+                       'labels: {0}'.format(lb.classes_))
+
+  # Renormalize
   y_pred /= y_pred.sum(axis=1)[:, np.newaxis]
   loss = -(transformed_labels * np.log(y_pred)).sum(axis=1)
-
   results['nll_arr'] = loss
   return results
+
+
+def compute_rebalanced_retention_curves(results: dict):
+  y_pred_entropy, is_ood = results['y_pred_entropy'], results['is_ood']
+
+  # Convert the boolean list to numpy array
+  is_ood = np.array(is_ood)
+
+  in_domain_indices = np.where(is_ood == 0)[0]
+
+  n_in_domain = in_domain_indices.shape[0]
+  ood_indices = np.where(is_ood == 1)[0]
+  n_ood = ood_indices.shape[0]
+
+  # We first tile the OOD indices this many times
+  n_ood_repeats = int(n_in_domain / n_ood)
+
+  # To bring the number of OOD indices = the number of ID indices, we sample
+  # the necessary indices without replacement
+  remaining_n_ood_indices = n_in_domain - (n_ood_repeats * n_ood)
+
+  remaining_ood_indices = np.random.choice(
+    ood_indices, size=remaining_n_ood_indices, replace=False)
+
+  # Construct a list of all of the indices to retrieve
+  all_indices = (in_domain_indices.tolist() +
+                 (n_ood_repeats * ood_indices.tolist()) +
+                 remaining_ood_indices.tolist())
+
+  # Construct predictive entropy, accuracy, NLL arrays with these indices
+  rebalanced_y_pred_entropy = y_pred_entropy[all_indices]
+  rebalanced_accuracy = results['accuracy_arr'][all_indices]
+  rebalanced_nll = results['nll_arr'][all_indices]
+
+  rebalanced_accuracy_retention_curve = compute_retention_curve_on_accuracies(
+    accuracies=rebalanced_accuracy, uncertainty=rebalanced_y_pred_entropy)
+  rebalanced_nll_retention_curve = compute_retention_curve_on_losses(
+    losses=rebalanced_nll, uncertainty=rebalanced_y_pred_entropy)
+  return rebalanced_accuracy_retention_curve, rebalanced_nll_retention_curve
+
+
+def compute_rebalanced_retention_scores(results: dict):
+  rebalanced_accuracy_retention_curve, rebalanced_nll_retention_curve = (
+    compute_rebalanced_retention_curves(results))
+  return (np.mean(rebalanced_accuracy_retention_curve),
+          np.mean(rebalanced_nll_retention_curve))
 
 
 def compute_dataset_eval_metrics(
@@ -488,9 +590,12 @@ def compute_dataset_eval_metrics(
 
   # Standard predictive metrics
   eval_metrics[f'{dataset_key}/negative_log_likelihood'] = log_loss(
-    y_pred=y_pred, y_true=y_true)
-  eval_metrics[f'{dataset_key}/auroc'] = roc_auc_score(
-    y_true=y_true, y_score=y_pred)
+    y_pred=y_pred, y_true=y_true, labels=np.asarray([0, 1]))
+  try:
+    eval_metrics[f'{dataset_key}/auroc'] = roc_auc_score(
+      y_true=y_true, y_score=y_pred, labels=np.asarray([0, 1]))
+  except ValueError:
+    eval_metrics[f'{dataset_key}/auroc'] = None
   precision, recall, _ = precision_recall_curve(
     y_true=y_true, probas_pred=y_pred)
   eval_metrics[f'{dataset_key}/auprc'] = auc(recall, precision)
@@ -509,11 +614,25 @@ def compute_dataset_eval_metrics(
     precision, recall, _ = precision_recall_curve(
       y_true=is_ood, probas_pred=y_pred_entropy)
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = auc(recall, precision)
+
+    # For the joint datasets, we also compute a rebalanced retention metric,
+    # in which we duplicate the OOD dataset to match the size of the in-domain
+    # dataset, and then compute the retention metrics.
+    rebalanced_retention_scores = compute_rebalanced_retention_scores(results)
+    rebalanced_retention_accuracy_auc, rebalanced_retention_nll_auc = (
+      rebalanced_retention_scores)
+    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = (
+      rebalanced_retention_accuracy_auc)
+    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = (
+      rebalanced_retention_nll_auc)
+
   else:
     # This is added for convenience when logging (so the entry exists
     # in tabular format)
     eval_metrics[f'{dataset_key}/ood_detection_auroc'] = None
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = None
 
   if compute_retention_auc:
     assert 'accuracy_arr' in results

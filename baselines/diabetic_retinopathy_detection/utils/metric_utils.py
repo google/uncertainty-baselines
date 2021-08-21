@@ -356,11 +356,13 @@ def log_epoch_metrics_new(metrics, eval_results, use_tpu, dataset_splits):
   # Standard evaluation, robustness, and uncertainty quantification metrics
   eval_columns = [
     'Eval Dataset', 'NLL', 'Accuracy', 'AUPRC', 'AUROC', 'ECE', 'OOD AUROC',
-    'OOD AUPRC', 'R-Accuracy AUC', 'R-NLL AUC']
+    'OOD AUPRC', 'R-Accuracy AUC', 'R-NLL AUC', 'Balanced R-Accuracy AUC',
+    'Balanced R-NLL AUC']
   eval_metrics = [
     'negative_log_likelihood', 'accuracy', 'auprc', 'auroc', 'ece',
     'ood_detection_auroc', 'ood_detection_auprc', 'retention_accuracy_auc',
-    'retention_nll_auc']
+    'retention_nll_auc', 'balanced_retention_accuracy_auc',
+    'balanced_retention_nll_auc']
   eval_values = list()
   for dataset_key, results_dict in eval_results.items():
     dataset_values = list()

@@ -18,6 +18,7 @@
 
 import os
 import time
+from pprint import pformat
 
 import tensorflow as tf
 from absl import app
@@ -39,7 +40,7 @@ flags.DEFINE_string(
     'avoid overwriting.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
-flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
+flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
 flags.DEFINE_string(
   'dr_decision_threshold', 'moderate',
   ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
@@ -113,6 +114,17 @@ def main(argv):
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
+
+  # Log Run Hypers
+  hypers_dict = {
+    'per_core_batch_size': FLAGS.per_core_batch_size,
+    'base_learning_rate': FLAGS.base_learning_rate,
+    'final_decay_factor': FLAGS.final_decay_factor,
+    'one_minus_momentum': FLAGS.one_minus_momentum,
+    'l2': FLAGS.l2
+  }
+  logging.info('Hypers:')
+  logging.info(pformat(hypers_dict))
 
   # Initialize distribution strategy on flag-specified accelerator
   strategy = utils.init_distribution_strategy(
@@ -227,6 +239,7 @@ def main(argv):
   def train_step(iterator):
     """Training step function."""
 
+    print('retracing train')
     def step_fn(inputs):
       """Per-replica step function."""
       images = inputs['features']
@@ -290,11 +303,11 @@ def main(argv):
     logging.info(message)
 
     # Run evaluation on all evaluation datasets, and compute metrics
-    total_results = utils.evaluate_model_and_compute_metrics(
+    per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
       strategy, eval_datasets, steps, metrics, eval_estimator,
       uncertainty_estimator_fn, per_core_batch_size, available_splits,
       estimator_args={}, is_deterministic=True, num_bins=FLAGS.num_bins,
-      use_tpu=use_tpu)
+      use_tpu=use_tpu, return_per_pred_results=True)
 
     with summary_writer.as_default():
       for name, result in total_results.items():
@@ -317,6 +330,10 @@ def main(argv):
       model.save(keras_model_name)
       logging.info('Saved keras model to %s', keras_model_name)
 
+      # Save per-prediction metrics
+      utils.save_per_prediction_results(
+        FLAGS.output_dir, epoch + 1, per_pred_results, verbose=False)
+
   # final_checkpoint_name = checkpoint.save(
   #     os.path.join(FLAGS.output_dir, 'checkpoint'))
   # logging.info('Saved last checkpoint to %s', final_checkpoint_name)
@@ -325,6 +342,11 @@ def main(argv):
                                   f'keras_model_{FLAGS.train_epochs}')
   model.save(keras_model_name)
   logging.info('Saved keras model to %s', keras_model_name)
+
+  # Save per-prediction metrics
+  utils.save_per_prediction_results(
+    FLAGS.output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
+
   with summary_writer.as_default():
     hp.hparams({
         'per_core_batch_size': FLAGS.per_core_batch_size,

@@ -216,7 +216,8 @@ class APTOSDataset(base.BaseDataset):
       data_dir: Optional[str] = None,
       download_data: bool = False,
       drop_remainder: bool = True,
-      decision_threshold: Optional[str] = 'moderate'
+      decision_threshold: Optional[str] = 'moderate',
+      cache: bool = False
   ):
     """Create a APTOS 2019 Blindness Detection tf.data.Dataset builder.
 
@@ -250,7 +251,8 @@ class APTOSDataset(base.BaseDataset):
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         download_data=download_data,
-        drop_remainder=drop_remainder)
+        drop_remainder=drop_remainder,
+        cache=cache)
     self.decision_threshold = decision_threshold
     print(f'Building APTOS OOD dataset with decision threshold: '
           f'{decision_threshold}.')

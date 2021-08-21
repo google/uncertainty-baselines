@@ -26,6 +26,7 @@ from tensorboard.plugins.hparams import api as hp
 
 import uncertainty_baselines as ub
 import utils
+from pprint import pformat
 
 DEFAULT_TRAIN_BATCH_SIZE = 16
 DEFAULT_NUM_EPOCHS = 90
@@ -39,7 +40,7 @@ flags.DEFINE_string(
     'avoid overwriting.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
-flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
+flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
 flags.DEFINE_string(
   'dr_decision_threshold', 'moderate',
   ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
@@ -48,6 +49,7 @@ flags.DEFINE_string(
    "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
 flags.DEFINE_bool(
   'load_from_checkpoint', False, "Attempt to load from checkpoint")
+flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
 # OOD flags.
 flags.DEFINE_string(
@@ -94,7 +96,7 @@ flags.DEFINE_integer(
 
 # Dropout-related flags.
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate, between [0.0, 1.0).')
-flags.DEFINE_integer('num_dropout_samples_eval', 10,
+flags.DEFINE_integer('num_dropout_samples_eval', 5,
                      'Number of dropout samples to use for prediction.')
 flags.DEFINE_bool(
     'filterwise_dropout', False,
@@ -123,6 +125,17 @@ def main(argv):
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
+  # Log Run Hypers
+  hypers_dict = {
+    'per_core_batch_size': FLAGS.per_core_batch_size,
+    'base_learning_rate': FLAGS.base_learning_rate,
+    'one_minus_momentum': FLAGS.one_minus_momentum,
+    'dropout_rate': FLAGS.dropout_rate,
+    'l2': FLAGS.l2,
+  }
+  logging.info('Hypers:')
+  logging.info(pformat(hypers_dict))
+
   # Initialize distribution strategy on flag-specified accelerator
   strategy = utils.init_distribution_strategy(
     FLAGS.force_use_cpu, FLAGS.use_gpu, FLAGS.tpu)
@@ -145,7 +158,9 @@ def main(argv):
   test_splits = [split for split in available_splits if 'test' in split]
   eval_splits = [split for split in available_splits
                  if 'validation' in split or 'test' in split]
-  eval_datasets = {split: datasets[split] for split in eval_splits}
+
+  # Iterate eval datasets
+  eval_datasets = {split: iter(datasets[split]) for split in eval_splits}
   dataset_train = datasets['train']
   train_steps_per_epoch = steps['train']
 
@@ -298,11 +313,12 @@ def main(argv):
     logging.info(message)
 
     # Run evaluation on all evaluation datasets, and compute metrics
-    total_results = utils.evaluate_model_and_compute_metrics(
+    per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
       strategy, eval_datasets, steps, metrics, eval_estimator,
       uncertainty_estimator_fn, per_core_batch_size, available_splits,
-      estimator_args=estimator_args, is_deterministic=False,
-      num_bins=FLAGS.num_bins, use_tpu=use_tpu)
+      estimator_args=estimator_args, call_dataset_iter=False,
+      is_deterministic=False, num_bins=FLAGS.num_bins,
+      use_tpu=use_tpu, return_per_pred_results=True)
 
     with summary_writer.as_default():
       for name, result in total_results.items():
@@ -325,6 +341,10 @@ def main(argv):
       model.save(keras_model_name)
       logging.info('Saved keras model to %s', keras_model_name)
 
+      # Save per-prediction metrics
+      utils.save_per_prediction_results(
+        FLAGS.output_dir, epoch + 1, per_pred_results, verbose=False)
+
   # final_checkpoint_name = checkpoint.save(
   #     os.path.join(FLAGS.output_dir, 'checkpoint'))
   # logging.info('Saved last checkpoint to %s', final_checkpoint_name)
@@ -333,6 +353,11 @@ def main(argv):
                                   f'keras_model_{FLAGS.train_epochs}')
   model.save(keras_model_name)
   logging.info('Saved keras model to %s', keras_model_name)
+
+  # Save per-prediction metrics
+  utils.save_per_prediction_results(
+    FLAGS.output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
+
   with summary_writer.as_default():
     hp.hparams({
       'per_core_batch_size': FLAGS.per_core_batch_size,

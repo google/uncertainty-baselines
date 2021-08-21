@@ -31,12 +31,26 @@ import json
 import datetime
 from typing import Optional, List, Union, Dict
 import pathlib
+from tensorflow.python.lib.io import file_io
 
 
 JOINT_SPLIT_TO_CONSTITUENT_SPLITS = {
   'joint_validation': ['in_domain_validation', 'ood_validation'],
   'joint_test': ['in_domain_test', 'ood_test']
 }
+
+
+def save_per_prediction_results(
+    output_dir, epoch, per_prediction_results, verbose=True
+):
+  for dataset_key, results_dict in per_prediction_results.items():
+    if verbose:
+      logging.info(
+        f'Storing per-prediction metrics for dataset split {dataset_key}.')
+      logging.info(f'Keys: {list(results_dict.keys())}')
+
+    dataset_output_dir = os.path.join(output_dir, dataset_key)
+    store_eval_results(dataset_output_dir, results_dict, epoch=epoch)
 
 
 def add_joint_dicts(dataset_split_containers: Dict[str, Dict], is_deterministic):
@@ -166,28 +180,59 @@ def store_eval_metadata(
   logging.info(f'Stored eval metadata to {eval_metadata_path}')
 
 
-def store_eval_results(eval_results_dir, dict_of_lists):
+def store_eval_results(eval_results_dir, dict_of_lists, epoch=None):
   """Store image names, predictions, ground truth, uncertainty estimates,
   and optionally, an array with binary indicators of whether or not the
   prediction is OOD (`is_ood`).
   """
-  np_eval_results_path = os.path.join(eval_results_dir, 'eval_results.npz')
 
-  with tf.io.gfile.GFile(np_eval_results_path, 'wb') as f:
-    np.savez(f, **dict_of_lists)
-  logging.info(f'Stored eval results to {np_eval_results_path}')
+  if epoch is None:
+    eval_results_name = 'eval_results'
+  else:
+    eval_results_name = f'eval_results_{epoch}'
+
+  eval_results_dir = os.path.join(eval_results_dir, eval_results_name)
+
+  tf.io.gfile.makedirs(eval_results_dir)
+  assert tf.io.gfile.isdir(eval_results_dir)
+
+  for key, arr in dict_of_lists.items():
+    np_eval_results_path = os.path.join(eval_results_dir, f'{key}.npy')
+    with tf.io.gfile.GFile(np_eval_results_path, 'w') as f:
+      np.save(f, np.array(arr))
+
+  # print(eval_results_dir)
+  # with file_io.FileIO(eval_results_dir, 'wb') as f:
+  #   np.savez(f, **dict_of_lists)
+
+    # np_eval_results_path = os.path.join(eval_results_dir, f'{key}.npy')
+    # np.savez(file_io.FileIO(np_eval_results_path, 'w'), arr)
+    # with tf.io.gfile.GFile(np_eval_results_path, 'wb') as f:
+    # with file_io.FileIO(np_eval_results_path, 'wb') as f:
+
+  logging.info(f'Stored eval results to {eval_results_dir}')
 
 
-def load_eval_results(eval_results_dir):
-  np_eval_results_path = os.path.join(eval_results_dir, 'eval_results.npz')
+def load_eval_results(eval_results_dir, epoch=None):
+  if epoch is None:
+    eval_results_name = 'eval_results'
+  else:
+    eval_results_name = f'eval_results_{epoch}'
+
+  eval_results_dir = os.path.join(eval_results_dir, eval_results_name)
+
+  arr_names = tf.io.gfile.listdir(eval_results_dir)
   eval_results = {}
-  with tf.io.gfile.GFile(np_eval_results_path, 'rb') as f:
-    arrs = np.load(f, allow_pickle=True)
-    for file in list(arrs.keys()):
-      eval_results[file] = arrs[file]
+  for arr_name in arr_names:
+    np_eval_results_path = os.path.join(eval_results_dir, arr_name)
+    with tf.io.gfile.GFile(np_eval_results_path, 'rb') as f:
+      arr = np.load(f, allow_pickle=True)
+      eval_results[arr_name.split('.')[0]] = arr
+      # for file in list(arrs.keys()):
+      #   eval_results[file] = arrs[file]
 
-  logging.info(f'Loaded eval results from {np_eval_results_path}')
-  return arrs
+  logging.info(f'Loaded eval results from {eval_results_dir}')
+  return eval_results
 
 
 def cache_eval_results(output_dir, metadata_df, results_df):

@@ -46,13 +46,26 @@ def load_kaggle_severity_shift_dataset(
   # training set (the 2,3,4 ones) which we now group into the OOD test set.
 
   # We have split sizes:
-  split_to_num_examples = {
-    'train': 28253,
-    'in_domain_validation': 8850,
-    'ood_validation': 2056,
-    'in_domain_test': 34445,
-    'ood_test': 15098
-  }
+  if flags.dr_decision_threshold == 'mild':
+    split_to_num_examples = {
+      'train': 28253,
+      'in_domain_validation': 8850,
+      'ood_validation': 2056,
+      'in_domain_test': 34445,
+      'ood_test': 15098
+    }
+  elif flags.dr_decision_threshold == 'moderate':
+    split_to_num_examples = {
+      'train': 33545,
+      'in_domain_validation': 10429,
+      'ood_validation': 477,
+      'in_domain_test': 40727,
+      'ood_test': 3524
+    }
+  else:
+    raise NotImplementedError(
+      f'Unknown decision threshold {flags.dr_decision_threshold}.')
+
   split_to_batch_size = {
     'train': train_batch_size,
     'in_domain_validation': eval_batch_size,
@@ -75,7 +88,9 @@ def load_kaggle_severity_shift_dataset(
   split_to_dataset = {}
   for split in splits_to_return:
     dataset_builder = ub.datasets.get(
-      'diabetic_retinopathy_severity_shift', split=split, data_dir=data_dir)
+      f'diabetic_retinopathy_severity_shift_{flags.dr_decision_threshold}',
+      split=split, data_dir=data_dir,
+      cache=(flags.cache_eval_datasets and split != 'train'))
     dataset = dataset_builder.load(batch_size=split_to_batch_size[split])
 
     if strategy is not None:
@@ -113,6 +128,7 @@ def load_kaggle_aptos_country_shift_dataset(
   if load_train_split:
     split_to_steps_per_epoch['train'] = (
       ds_info.splits['train'].num_examples // train_batch_size)
+      # ds_info.splits['sample'].num_examples // train_batch_size)
   split_to_steps_per_epoch['in_domain_validation'] = (
     ds_info.splits['validation'].num_examples // eval_batch_size)
   split_to_steps_per_epoch['in_domain_test'] = (
@@ -129,7 +145,8 @@ def load_kaggle_aptos_country_shift_dataset(
   dataset_validation_builder = ub.datasets.get(
     'diabetic_retinopathy_detection', split='validation', data_dir=data_dir,
     is_training=not flags.use_validation,
-    decision_threshold=flags.dr_decision_threshold)
+    decision_threshold=flags.dr_decision_threshold,
+    cache=flags.cache_eval_datasets)
   validation_batch_size = (
     eval_batch_size if flags.use_validation else train_batch_size)
   dataset_validation = dataset_validation_builder.load(
@@ -142,7 +159,8 @@ def load_kaggle_aptos_country_shift_dataset(
     # Load APTOS validation dataset
     aptos_validation_builder = ub.datasets.get(
       'aptos', split='validation', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold)
+      decision_threshold=flags.dr_decision_threshold,
+      cache=flags.cache_eval_datasets)
     dataset_ood_validation = aptos_validation_builder.load(
       batch_size=eval_batch_size)
 
@@ -159,6 +177,7 @@ def load_kaggle_aptos_country_shift_dataset(
     # Load EyePACS train data
     dataset_train_builder = ub.datasets.get(
       'diabetic_retinopathy_detection', split='train', data_dir=data_dir,
+      # 'diabetic_retinopathy_detection', split='sample', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold)
     dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
 
@@ -181,7 +200,8 @@ def load_kaggle_aptos_country_shift_dataset(
     # In-Domain Test
     dataset_test_builder = ub.datasets.get(
       'diabetic_retinopathy_detection', split='test', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold)
+      decision_threshold=flags.dr_decision_threshold,
+      cache=flags.cache_eval_datasets)
     dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_test = strategy.experimental_distribute_dataset(dataset_test)
@@ -191,7 +211,8 @@ def load_kaggle_aptos_country_shift_dataset(
     # OOD (APTOS) Test
     aptos_test_builder = ub.datasets.get(
       'aptos', split='test', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold)
+      decision_threshold=flags.dr_decision_threshold,
+      cache=flags.cache_eval_datasets)
     dataset_ood_test = aptos_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_ood_test = strategy.experimental_distribute_dataset(

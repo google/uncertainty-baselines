@@ -33,8 +33,10 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
       download_data: bool = False,
+      drop_remainder: bool = True,
       is_training: Optional[bool] = None,
-      decision_threshold: Optional[str] = 'moderate'
+      decision_threshold: Optional[str] = 'moderate',
+      cache: bool = False
   ):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
@@ -68,7 +70,9 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        download_data=download_data)
+        download_data=download_data,
+        drop_remainder=drop_remainder,
+        cache=cache)
     self.decision_threshold = decision_threshold
     print(f'Building Kaggle DR dataset with decision threshold: '
           f'{decision_threshold}.')

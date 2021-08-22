@@ -682,7 +682,7 @@ def main(argv):
 
     # Save per-prediction metrics
     utils.save_per_prediction_results(
-        FLAGS.output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
+        FLAGS.output_dir, FLAGS.epochs, per_pred_results, verbose=False)
 
     with summary_writer.as_default():
         hp.hparams(

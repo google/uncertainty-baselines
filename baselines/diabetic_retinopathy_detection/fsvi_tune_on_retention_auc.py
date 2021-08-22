@@ -3,6 +3,8 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
+import pathlib
+from datetime import datetime
 from pprint import pformat
 
 import tensorflow as tf
@@ -27,6 +29,7 @@ from jax import random
 from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
+import wandb
 
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, root_path)
@@ -234,6 +237,15 @@ flags.DEFINE_bool(
   'load_train_split', True,
   "Should always be enabled - required to load train split of the dataset.")
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
+
+# Logging and hyperparameter tuning.
+flags.DEFINE_bool('use_wandb', True, 'Use wandb for logging.')
+flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
+flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
+flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
+flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
+
+
 flags.DEFINE_integer(
     "layer_to_linearize",
     1,
@@ -274,7 +286,26 @@ def main(argv):
     del argv
     process_args()
 
+    # Wandb Setup
+    if FLAGS.use_wandb:
+        pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
+        wandb_args = dict(
+            project=FLAGS.project,
+            entity="uncertainty-baselines",
+            dir=FLAGS.wandb_dir,
+            reinit=True,
+            name=FLAGS.exp_name,
+            group=FLAGS.exp_group)
+        wandb_run = wandb.init(**wandb_args)
+        wandb.config.update(FLAGS, allow_val_change=True)
+        output_dir = os.path.join(
+            FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    else:
+        wandb_run = None
+        output_dir = FLAGS.output_dir
+
     write_flags(os.path.join(FLAGS.output_dir, "flags.txt"))
+    
     # Log Run Hypers
     hypers_dict = {
         'per_core_batch_size': FLAGS.per_core_batch_size,
@@ -358,10 +389,10 @@ def main(argv):
     )
 
     summary_writer = tf.summary.create_file_writer(
-        os.path.join(FLAGS.output_dir, "summaries")
+        os.path.join(output_dir, "summaries")
     )
 
-    latest_checkpoint = get_latest_fsvi_checkpoint(FLAGS.output_dir)
+    latest_checkpoint = None # get_latest_fsvi_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
     if latest_checkpoint and FLAGS.load_from_checkpoint:
         with tf.io.gfile.GFile(latest_checkpoint, mode="rb") as f:
@@ -623,6 +654,10 @@ def main(argv):
             use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax, return_per_pred_results=True,
             call_dataset_iter=False)
 
+        # Optionally log to wandb
+        if FLAGS.use_wandb:
+            wandb.log(total_results, step=epoch)
+
         with summary_writer.as_default():
             for name, result in total_results.items():
                 if result is not None:
@@ -649,15 +684,15 @@ def main(argv):
                 "opt_state": opt_state,
                 "epoch": epoch,
             }
-            # Also save Keras model, due to checkpoint.save issue
-            chkpt_name = os.path.join(FLAGS.output_dir, f"chkpt_{epoch + 1}")
+
+            chkpt_name = os.path.join(output_dir, f"chkpt_{epoch + 1}")
             with tf.io.gfile.GFile(chkpt_name, mode="wb") as f:
                 pickle.dump(to_save, f)
             logging.info("Saved checkpoint to %s", chkpt_name)
 
             # Save per-prediction metrics
             utils.save_per_prediction_results(
-                FLAGS.output_dir, epoch + 1, per_pred_results, verbose=False)
+                output_dir, epoch + 1, per_pred_results, verbose=False)
 
         T0 = time.time()
         print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
@@ -676,14 +711,14 @@ def main(argv):
         "opt_state": opt_state,
         "epoch": FLAGS.epochs,
     }
-    final_checkpoint_name = os.path.join(FLAGS.output_dir, "final_checkpoint")
+    final_checkpoint_name = os.path.join(output_dir, "final_checkpoint")
     with tf.io.gfile.GFile(final_checkpoint_name, mode="wb") as f:
         pickle.dump(to_save, f)
     logging.info("Saved last checkpoint to %s", final_checkpoint_name)
 
     # Save per-prediction metrics
     utils.save_per_prediction_results(
-        FLAGS.output_dir, FLAGS.epochs, per_pred_results, verbose=False)
+        output_dir, FLAGS.epochs, per_pred_results, verbose=False)
 
     with summary_writer.as_default():
         hp.hparams(
@@ -697,6 +732,8 @@ def main(argv):
                 'l2': FLAGS.l2
             }
         )
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 @jax.jit

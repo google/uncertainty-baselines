@@ -25,10 +25,8 @@ class Model:
         activation_fn: str = "relu",
         stochastic_parameters: bool = False,
         linear_model: bool = False,
-        regularization=0.0,
         dropout=False,
         dropout_rate=0.0,
-        batch_normalization=False,
     ):
         """
 
@@ -36,7 +34,6 @@ class Model:
         @param linear_model: if True, then all the parameters except the last layer are set to be deterministic.
         """
         self.output_dim = output_dim
-        self.regularization = regularization
         self.linear_model = linear_model
         self.dropout = dropout
         self.dropout_rate = dropout_rate
@@ -186,16 +183,13 @@ class CNN(Model):
         activation_fn: str = "relu",
         stochastic_parameters: bool = False,
         linear_model: bool = False,
-        regularization=0.0,
         dropout=False,
         dropout_rate=0.0,
-        batch_normalization=False,
         uniform_init_minval: float = -20.,
         uniform_init_maxval: float = -18.,
         w_init: str = "uniform",
         b_init: str = "uniform",
     ):
-        self.batch_normalization = batch_normalization
         self.uniform_init_minval = uniform_init_minval
         self.uniform_init_maxval = uniform_init_maxval
         self.w_init = w_init
@@ -206,7 +200,6 @@ class CNN(Model):
             activation_fn=activation_fn,
             stochastic_parameters=stochastic_parameters,
             linear_model=linear_model,
-            regularization=regularization,
             dropout=dropout,
             dropout_rate=dropout_rate,
         )

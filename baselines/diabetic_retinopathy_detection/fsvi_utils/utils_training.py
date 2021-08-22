@@ -60,7 +60,6 @@ class Training:
         activation: str,
         base_learning_rate,
         dropout_rate,
-        batch_normalization: bool,
         input_shape: List[int],
         output_dim: int,
         full_ntk: bool,
@@ -90,6 +89,7 @@ class Training:
         lr_decay_epochs,
         final_decay_factor,
         lr_schedule,
+        layer_to_linearize=1,
         kl_type=0,
         **kwargs,
     ):
@@ -108,7 +108,6 @@ class Training:
         self.activation = activation
         self.base_learning_rate = base_learning_rate
         self.dropout_rate = dropout_rate
-        self.batch_normalization = batch_normalization
         self.input_shape = input_shape
         self.output_dim = output_dim
         self.full_ntk = full_ntk
@@ -139,6 +138,7 @@ class Training:
         self.lr_decay_epochs = lr_decay_epochs
         self.final_decay_factor = final_decay_factor
         self.lr_schedule = lr_schedule
+        self.layer_to_linearize = layer_to_linearize
 
         self.map_initialization = map_initialization
 
@@ -291,12 +291,10 @@ class Training:
             architecture=self.architecture,
             output_dim=self.output_dim,
             activation_fn=self.activation,
-            regularization=self.regularization,
             stochastic_parameters=stochastic_parameters,
             linear_model=self.linear_model,
             dropout=self.dropout,
             dropout_rate=self.dropout_rate,
-            batch_normalization=self.batch_normalization,
             uniform_init_minval=self.uniform_init_minval,
             uniform_init_maxval=self.uniform_init_maxval,
             w_init=self.w_init,
@@ -324,6 +322,8 @@ class Training:
                 optax.scale(-1),
             )
         elif "sgd" in self.optimizer and self.lr_schedule == "step":
+            print("*" * 100)
+            print("The step learning schedule to reproducing deterministic is used")
             DEFAULT_NUM_EPOCHS = 90
             lr_decay_epochs = [
                 (int(start_epoch_str) * self.epochs) // DEFAULT_NUM_EPOCHS
@@ -537,7 +537,7 @@ class Training:
     def get_params_partition_fn(self, params):
         if "fsvi" in self.model_type or "mfvi" in self.model_type:
             if self.linear_model:
-                variational_layers = list(params.keys())[-2]  # TODO: set via input parameter
+                variational_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
             else:
                 variational_layers = list(params.keys())
         else:
@@ -551,7 +551,7 @@ class Training:
 
     def get_trainable_params_fn(self, params):
         if self.linear_model and self.features_fixed:
-            trainable_layers = list(params.keys())[-1]  # TODO: set via input parameter
+            trainable_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
         else:
             trainable_layers = list(params.keys())
         get_trainable_params = lambda params: hk.data_structures.partition(lambda m, n, p: m in trainable_layers, params)

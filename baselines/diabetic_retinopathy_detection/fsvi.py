@@ -212,7 +212,7 @@ flags.DEFINE_integer("num_bins", 15, "Number of bins for ECE.")
 
 # Learning rate / SGD flags.
 flags.DEFINE_float("final_decay_factor", 1e-3, "How much to decay the LR by.")
-flags.DEFINE_float("one_minus_momentum", 0.1, "Optimizer momentum.")
+flags.DEFINE_float("one_minus_momentum", 0.0052243, "Optimizer momentum.")
 flags.DEFINE_string("lr_schedule", "step", "Type of LR schedule.")
 flags.DEFINE_integer(
     "lr_warmup_epochs",
@@ -264,6 +264,11 @@ flags.DEFINE_string(
     "uniform",
     "if init_strategy==he_normal_and_zeros, then w_init=he_normal, b_init=zeros,"
     "if init_strategy==uniform, then w_init=uniform, b_init=uniform",
+)
+flags.DEFINE_integer(
+    "layer_to_linearize",
+    2,
+    "The layer number to use",
 )
 FLAGS = flags.FLAGS
 

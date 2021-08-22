@@ -49,13 +49,13 @@ def get_config():
       'output_dir': output_dir,
       'data_dir': 'gs://ub-data/retinopathy',
       'layer_to_linearize': 1,
+      'per_core_batch_size': 64,
   }
   return config
 
 def get_sweep(hyper):
   num_trials = 50
   return hyper.zipit([
-    hyper.uniform('per_core_batch_size', hyper.discrete([32, 64])),
     hyper.uniform('prior_cov', hyper.interval(1, 20)),
     hyper.uniform('n_inducing_inputs', hyper.discrete([10, 20, 50])),
     hyper.uniform('base_learning_rate', hyper.interval(0.020824, 0.031448)),

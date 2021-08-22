@@ -265,6 +265,7 @@ def get_dict_of_flags():
 def write_flags(path):
     d = get_dict_of_flags()
     string = json.dumps(d, indent=4, separators=(",", ":"))
+    tf.io.gfile.makedirs(os.path.dirname(path))
     with tf.io.gfile.GFile(path, "w") as f:
         f.write(string)
 

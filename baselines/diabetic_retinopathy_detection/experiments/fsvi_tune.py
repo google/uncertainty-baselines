@@ -34,17 +34,17 @@ def get_config():
   config.user = getpass.getuser()
   config.priority = 'prod'
   config.platform = 'gpu'
-  config.experiment_name = ('nband' + '_' +
+  config.experiment_name = ('qfeng' + '_' +
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-  output_dir = 'gs://drd-dropout-severity-results/{}'.format(
+  output_dir = 'gs://drd-fsvi-aptos-results/{}'.format(
     config.experiment_name)
   config.args = {
       # 'per_core_batch_size': 64,
       'epochs': 90,
       'num_cores': 4,
       'dr_decision_threshold': 'moderate',
-      'distribution_shift': 'severity',
+      'distribution_shift': 'aptos',
       'checkpoint_interval': 1,
       'output_dir': output_dir,
       'data_dir': 'gs://ub-data/retinopathy',

@@ -50,16 +50,16 @@ from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitie
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
 # pylint: enable=g-bad-import-order
 
-try:
-  from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
-  from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
-  from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
-except ImportError:
-  logging.warning('Skipped due to ImportError: {e}. Try installing uncertainty '
-                  'baselines with the `datasets` extras.', exc_info=True)
-  SpeechCommandsDataset = None
-  MultiWoZDataset = None
-  SMCalflowDataset = None
+# try:
+#   # from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
+#   # from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
+#   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
+# except ImportError:
+#   logging.warning('Skipped due to ImportError: {e}. Try installing uncertainty '
+#                   'baselines with the `datasets` extras.', exc_info=True)
+#   SpeechCommandsDataset = None
+#   MultiWoZDataset = None
+#   SMCalflowDataset = None
 
 DATASETS = {
     'aptos': APTOSDataset,
@@ -78,13 +78,13 @@ DATASETS = {
     'mnist': MnistDataset,
     'mnli': MnliDataset,
     'movielens': MovieLensDataset,
-    'multiwoz': MultiWoZDataset,
+    # 'multiwoz': MultiWoZDataset,
     'places365': Places365Dataset,
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,
     'simdial': SimDialDataset,
-    'smcalflow': SMCalflowDataset,
-    'speech_commands': SpeechCommandsDataset,
+    # 'smcalflow': SMCalflowDataset,
+    # 'speech_commands': SpeechCommandsDataset,
     'svhn_cropped': SvhnDataset,
     'glue/cola': GlueDatasets['glue/cola'],
     'glue/sst2': GlueDatasets['glue/sst2'],

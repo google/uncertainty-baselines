@@ -69,8 +69,8 @@ try:
   # Try to import ViT models.
   # from uncertainty_baselines.models import vit_batchensemble
   from uncertainty_baselines.models.vit import vision_transformer
-  from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
-  from uncertainty_baselines.models.vit_gp import vision_transformer_gp
+  # from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
+  # from uncertainty_baselines.models.vit_gp import vision_transformer_gp
   from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
@@ -90,14 +90,14 @@ except ImportError:
 except tf.errors.NotFoundError:
   logging.warning('Skipped BERT models due to NotFoundError.', exc_info=True)
 
-try:
-  # Try to import models depending on edward2.experimental.mimo.
-  from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
-  from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
-except ImportError:
-  logging.warning('Skipped MIMO models due to ImportError.', exc_info=True)
-except tf.errors.NotFoundError:
-  logging.warning('Skipped MIMO models due to NotFoundError.', exc_info=True)
+# try:
+#   # Try to import models depending on edward2.experimental.mimo.
+#   from uncertainty_baselines.models.resnet50_mimo import resnet50_mimo
+#   from uncertainty_baselines.models.wide_resnet_mimo import wide_resnet_mimo
+# except ImportError:
+#   logging.warning('Skipped MIMO models due to ImportError.', exc_info=True)
+# except tf.errors.NotFoundError:
+#   logging.warning('Skipped MIMO models due to NotFoundError.', exc_info=True)
 
 # This is necessary because we cannot depend on torch internally, so the torch
 # model modules cannot be imported at all, so we cannot just wrap the imports in

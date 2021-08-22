@@ -19,7 +19,7 @@ import functools
 import logging
 import os
 from typing import Any, Dict, List, Optional, Union
-from deferred_prediction import negative_log_likelihood_metric
+# from deferred_prediction import negative_log_likelihood_metric
 import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow.keras.backend as K

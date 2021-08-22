@@ -40,7 +40,7 @@ from baselines.diabetic_retinopathy_detection import utils
 # original flags
 flags.DEFINE_string(
     "data_training",
-    "not_specified",
+    "dr",
     "Training and in-distribution dataset used (default: not_specified)\n"
     "Examples: 'continual_learning_pmnist', 'continual_learning_smnist', "
     "'continual_learning_sfashionmnist'",
@@ -49,69 +49,65 @@ flags.DEFINE_string(
 
 flags.DEFINE_string(
     "model_type",
-    "not_specified",
+    "fsvi_cnn",
     "Model used (default: not_specified). Example: 'fsvi_mlp', 'mfvi_cnn'",
 )
 
-flags.DEFINE_string("optimizer", "adam", "Optimizer used (default: adam)")
+flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")
 
 flags.DEFINE_string(
-    "architecture", "not_specified", "Architecture of NN (default: not_specified)",
+    "architecture", "resnet", "Architecture of NN (default: not_specified)",
 )
 
 flags.DEFINE_string(
     "activation",
-    "not_specified",
+    "relu",
     "Activation function used in NN (default: not_specified)",
 )
 
 flags.DEFINE_string("prior_mean", "0", "Prior mean function (default: 0)")
 
-flags.DEFINE_string("prior_cov", "0", help="Prior cov function (default: 0)")
+flags.DEFINE_string("prior_cov", "10", help="Prior cov function (default: 0)")
 
 flags.DEFINE_string(
     "prior_type",
-    default="not_specified",
+    default="fixed",
     help="Type of prior (default: not_specified)",
 )
 
 flags.DEFINE_integer(
-    "epochs", default=100, help="Number of epochs for each task (default: 100)",
+    "epochs", default=90, help="Number of epochs for each task (default: 100)",
 )
 
 flags.DEFINE_float(
-    "base_learning_rate", default=1e-3, help="Learning rate (default: 1e-3)",
+    "base_learning_rate", default=0.031448, help="Learning rate (default: 1e-3)",
 )
 
 flags.DEFINE_float("dropout_rate", default=0.0, help="Dropout rate (default: 0.0)")
 
-flags.DEFINE_float(
-    "regularization", default=0, help="Regularization parameter (default: 0)",
-)
-
 flags.DEFINE_integer(
-    "n_inducing_inputs", default=0, help="Number of BNN inducing points (default: 0)",
+    "n_inducing_inputs", default=10, help="Number of BNN inducing points (default: 0)",
 )
 
 flags.DEFINE_string(
     "inducing_input_type",
-    default="not_specified",
+    default="train_pixel_rand_1.0",
     help="Inducing input selection method (default: not_specified)",
 )
 
-flags.DEFINE_string("kl_scale", default="1", help="KL scaling factor (default: 1)")
+flags.DEFINE_string("kl_scale", default="normalized", help="KL scaling factor (default: 1)")
 
 flags.DEFINE_boolean("full_cov", default=False, help="Use full covariance")
 
 flags.DEFINE_integer(
-    "n_samples", default=1, help="Number of exp log lik samples (default: 1)",
+    "n_samples", default=5, help="Number of exp log lik samples (default: 1)",
 )
 
 flags.DEFINE_float("noise_std", default=1.0, help="Likelihood variance (default: 1)")
 
 flags.DEFINE_list(
     "inducing_inputs_bound",
-    default="-1.,1.",
+    default="0,0",
     help="Inducing point range (default: [-1, 1])",
 )
 
@@ -120,18 +116,15 @@ flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")
 flags.DEFINE_bool("map_initialization", default=False, help="MAP initialization")
 
 flags.DEFINE_bool(
-    "stochastic_linearization", default=False, help="Stochastic linearization"
+    "stochastic_linearization", default=True, help="Stochastic linearization"
 )
 
-# TODO: remove this option
-flags.DEFINE_bool("batch_normalization", default=False, help="Batch normalization")
-
-flags.DEFINE_bool("linear_model", default=False, help="Linear model")
+flags.DEFINE_bool("linear_model", default=True, help="Linear model")
 
 flags.DEFINE_bool("features_fixed", default=False, help="Fixed feature maps")
 
 
-flags.DEFINE_integer('per_core_batch_size', 32,
+flags.DEFINE_integer('per_core_batch_size', 64,
                      'The per-core batch size for both training '
                      'and evaluation.')
 
@@ -194,9 +187,9 @@ flags.DEFINE_float("lr_decay_ratio", 0.2, "Amount to decay learning rate.")
 flags.DEFINE_list("lr_decay_epochs", ["30", "60"], "Epochs to decay learning rate by.")
 
 # Accelerator flags.
-flags.DEFINE_integer("num_cores", 1, "Number of TPU cores or number of GPUs.")
+flags.DEFINE_integer("num_cores", 4, "Number of TPU cores or number of GPUs.")
 flags.DEFINE_integer(
-    "n_samples_test", 1, "Number of MC samples used for validation and testing",
+    "n_samples_test", 5, "Number of MC samples used for validation and testing",
 )
 
 # Parameter Initialization flags.
@@ -241,6 +234,14 @@ flags.DEFINE_bool(
   'load_train_split', True,
   "Should always be enabled - required to load train split of the dataset.")
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
+flags.DEFINE_integer(
+    "layer_to_linearize",
+    1,
+    "The layer number to use",
+)
+flags.DEFINE_float(
+    "regularization", default=0, help="Regularization parameter (default: 0)",
+)
 FLAGS = flags.FLAGS
 
 
@@ -270,6 +271,7 @@ def write_flags(path):
 
 def main(argv):
     del argv
+    process_args()
 
     write_flags(os.path.join(FLAGS.output_dir, "flags.txt"))
     # Log Run Hypers
@@ -278,7 +280,8 @@ def main(argv):
         'base_learning_rate': FLAGS.base_learning_rate,
         'final_decay_factor': FLAGS.final_decay_factor,
         'one_minus_momentum': FLAGS.one_minus_momentum,
-        'l2': FLAGS.l2
+        'l2': FLAGS.l2,
+        'loss_type': FLAGS.loss_type,
     }
     logging.info('Hypers:')
     logging.info(pformat(hypers_dict))
@@ -288,7 +291,6 @@ def main(argv):
     print("Platform that is used by JAX:", xla_bridge.get_backend().platform)
     print("*" * 100)
 
-    process_args()
     kh = initialize_random_keys(seed=FLAGS.seed)
     rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 

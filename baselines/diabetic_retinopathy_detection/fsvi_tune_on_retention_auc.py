@@ -356,6 +356,7 @@ def main(argv):
         'one_minus_momentum': FLAGS.one_minus_momentum,
         'l2': FLAGS.l2,
         'loss_type': FLAGS.loss_type,
+        'stochastic_linearization': FLAGS.stochastic_linearization
     }
     logging.info('Hypers:')
     logging.info(pformat(hypers_dict))

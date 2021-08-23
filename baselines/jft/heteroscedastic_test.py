@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the ViT-SNGP on JFT-300M model script."""
+"""Tests for the heteroscedastic ViT on JFT-300M model script."""
 import os
 import pathlib
 import tempfile
@@ -25,9 +25,9 @@ import jax
 import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import sngp  # local file import
+import heteroscedastic  # local file import
 
-flags.adopt_module_key_flags(sngp)
+flags.adopt_module_key_flags(heteroscedastic)
 FLAGS = flags.FLAGS
 
 
@@ -80,8 +80,6 @@ def get_config(classifier, representation_size):
   config.model.transformer.num_layers = 1
   config.model.classifier = classifier
   config.model.representation_size = representation_size
-  # Reinitialize GP output layer.
-  config.model.reinit = ['head/output_layer/kernel', 'head/output_layer/bias']
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -108,23 +106,24 @@ def get_config(classifier, representation_size):
   config.fewshot.pp_train = 'decode|resize(256)|central_crop(224)|value_range(-1,1)'
   config.fewshot.pp_eval = 'decode|resize(256)|central_crop(224)|value_range(-1,1)'
   config.fewshot.shots = [10]
-  config.fewshot.l2_regs = [2.0**-7]
+  config.fewshot.l2_regs = [2.0**-6]
   config.fewshot.walk_first = ('imagenet', config.fewshot.shots[0])
 
   return config
 
 
-class SNGPTest(parameterized.TestCase, tf.test.TestCase):
+class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      ('token', 2, 82027.5781, 281.8759, 0.22999999672174454),
-      ('token', None, 475.9011, 188.6002, 0.20999999344348907),
-      ('gap', 2, 1299.9533, 369.9055, 0.23999999463558197),
-      ('gap', None, 1049.3100, 494.6824, 0.2199999988079071),
+      ('token', 2, 16206.417, 15395.884114583334, 0.13999999314546585),
+      # TODO(dusenberrymw): This test is flaky due to the fewshot result.
+      # ('token', None, 15023.7295, 12328.896267361111, 0.17999999225139619),
+      ('gap', 2, 14886.842, 14083.331597222223, 0.1599999964237213),
+      ('gap', None, 14607.297, 13829.973090277777, 0.25999999046325684),
   )
-  def test_sngp_script(self, classifier, representation_size,
-                       correct_train_loss, correct_val_loss,
-                       correct_fewshot_acc_sum):
+  def test_heteroscedastic_script(self, classifier, representation_size,
+                                  correct_train_loss, correct_val_loss,
+                                  correct_fewshot_acc_sum):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
@@ -139,17 +138,15 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
     # Check for any errors.
     with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      train_loss, val_loss, fewshot_results = sngp.main(None)
+      train_loss, val_loss, fewshot_results = heteroscedastic.main(None)
 
     # Check for reproducibility.
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss, fewshot_acc_sum)
-    # Allow small amount of numeric error due to stochastic nature of GP model.
-    self.assertAllClose(train_loss, correct_train_loss, atol=0.02, rtol=1e-5)
-    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=1e-5)
-    self.assertAllClose(
-        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.025, rtol=0.15)
+    self.assertAllClose(train_loss, correct_train_loss)
+    self.assertAllClose(val_loss, correct_val_loss)
+    self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
 
     # TODO(dusenberrymw): Check for ability to restart from previous checkpoint
     # (after failure, etc.).

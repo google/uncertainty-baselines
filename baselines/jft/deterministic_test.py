@@ -141,7 +141,7 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
 
     # Check for reproducibility.
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
-    logging.info('train_loss = %s, val_loss = %s, fewshot_acc_sum = %s',
+    logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss, fewshot_acc_sum)
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss, correct_val_loss)

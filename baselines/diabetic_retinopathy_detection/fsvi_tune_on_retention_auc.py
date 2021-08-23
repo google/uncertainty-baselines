@@ -2,7 +2,7 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
-# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
 import pathlib
 from datetime import datetime
 from pprint import pformat
@@ -280,7 +280,6 @@ class LoggerStdout:
         self.stream.write(message)
         self.stream.flush()
         self.log.write(message)
-        self.log.flush()
 
     def flush(self):
         #this flush method is needed for python 3 compatibility.
@@ -299,7 +298,6 @@ class LoggerStderr:
         self.stream.write(message)
         self.stream.flush()
         self.log.write(message)
-        self.log.flush()
 
     def flush(self):
         #this flush method is needed for python 3 compatibility.

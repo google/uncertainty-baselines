@@ -270,6 +270,48 @@ def process_args():
     FLAGS.inducing_inputs_bound = [float(v) for v in FLAGS.inducing_inputs_bound]
 
 
+class LoggerStdout:
+    def __init__(self, stream):
+        self.stream = stream
+        self.encoding = stream.encoding
+        self.log = tf.io.gfile.GFile(os.path.join(FLAGS.output_dir, "stdout"), "a")
+
+    def write(self, message):
+        self.stream.write(message)
+        self.stream.flush()
+        self.log.write(message)
+        self.log.flush()
+
+    def flush(self):
+        #this flush method is needed for python 3 compatibility.
+        #this handles the flush command by doing nothing.
+        #you might want to specify some extra behavior here.
+        pass
+
+
+class LoggerStderr:
+    def __init__(self, stream):
+        self.stream = stream
+        self.encoding = stream.encoding
+        self.log = tf.io.gfile.GFile(os.path.join(FLAGS.output_dir, "stderr"), "a")
+
+    def write(self, message):
+        self.stream.write(message)
+        self.stream.flush()
+        self.log.write(message)
+        self.log.flush()
+
+    def flush(self):
+        #this flush method is needed for python 3 compatibility.
+        #this handles the flush command by doing nothing.
+        #you might want to specify some extra behavior here.
+        pass
+
+
+# redirect stdout to both file and terminal for debugging
+# https://stackoverflow.com/questions/14906764/how-to-redirect-stdout-to-both-file-and-console-with-scripting
+
+
 def get_dict_of_flags():
     return {k: getattr(FLAGS, k) for k in dir(FLAGS)}
 
@@ -285,6 +327,8 @@ def write_flags(path):
 def main(argv):
     del argv
     process_args()
+    sys.stdout = LoggerStdout(sys.stdout)
+    sys.stderr = LoggerStderr(sys.stderr)
 
     # Wandb Setup
     if FLAGS.use_wandb:

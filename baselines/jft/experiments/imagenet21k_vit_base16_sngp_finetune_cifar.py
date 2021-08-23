@@ -92,7 +92,7 @@ def get_config():
   config.gp_layer.ridge_penalty = 1.
   # Disable momentum in order to use exact covariance update for finetuning.
   config.gp_layer.covmat_momentum = -1.
-  config.gp_layer.mean_field_factor = -1.  # Disabled for now.
+  config.gp_layer.mean_field_factor = 20.
 
   # Optimizer section
   config.optim_name = 'Momentum'
@@ -102,7 +102,7 @@ def get_config():
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.001
+  config.lr.base = 0.0005
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
   config.lr.scale_with_batchsize = False

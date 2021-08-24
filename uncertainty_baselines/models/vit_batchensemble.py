@@ -27,7 +27,10 @@ import jax.numpy as jnp
 import numpy as np
 import scipy
 
+import uncertainty_baselines.models.vit as vit
+
 # TODO(dusenberrymw): Open-source remaining imports.
+checkpoints_model = None
 
 DType = type(jnp.float32)
 InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
@@ -136,7 +139,7 @@ class BatchEnsembleEncoder(nn.Module):
         return lyr == min(be_layers)
       return False
 
-    x = patch_transformer_lib.AddPositionEmbs(name="posembed_input")(
+    x = vit.AddPositionEmbs(name="posembed_input")(
         inputs, inputs_positions)
     x = nn.Dropout(rate=self.dropout_rate, deterministic=not self.train)(x)
 
@@ -145,14 +148,14 @@ class BatchEnsembleEncoder(nn.Module):
     mlp_params = dict(dtype=dtype, deterministic=not self.train, name="mlp")
     mlp_params_dense = dict(dropout_rate=self.dropout_rate,
                             mlp_dim=self.mlp_dim)
-    mlp_dense = functools.partial(patch_transformer_lib.MlpBlock, **mlp_params,
+    mlp_dense = functools.partial(vit.MlpBlock, **mlp_params,
                                   **mlp_params_dense)
     be_block = functools.partial(BatchEnsembleMlpBlock, **mlp_params,
                                  **mlp_params_dense, **be_params)
     extra_info = dict()
     for lyr in range(self.num_layers):
       encoder_block = functools.partial(
-          patch_transformer_lib.Encoder1DBlock,
+          vit.Encoder1DBlock,
           num_heads=self.num_heads,
           dtype=dtype,
           dropout_rate=self.dropout_rate,
@@ -276,7 +279,7 @@ class PatchTransformerBE(nn.Module):
               patch_size: Optional[Tuple[int, int]] = None,
               patch_grid: Optional[Tuple[int, int]] = None) -> jnp.ndarray:
     n, h, w, _ = images.shape
-    if patch_size is None == patch_grid is None:
+    if (patch_size is None) != (patch_grid is None):
       raise ValueError(
           "You must specify either patch_size or patch_grid, and not both "
           f"(patch_size = {patch_size}, patch_grid = {patch_grid})")
@@ -319,7 +322,7 @@ class PatchTransformerBE(nn.Module):
           kernel_init=nn.initializers.xavier_uniform())
       x = attention(inputs_q=probe, inputs_kv=x)
       y = nn.LayerNorm()(x)
-      y = patch_transformer_lib.MlpBlock(
+      y = vit.MlpBlock(
           mlp_dim=transformer["mlp_dim"],
           dropout_rate=0,
           deterministic=not train)(y)
@@ -328,7 +331,7 @@ class PatchTransformerBE(nn.Module):
       raise ValueError(f"Unknown classifier: {self.classifier}")
 
     if self.representation_size is None:
-      x = identity.IdentityLayer(name="pre_logits")(x)
+      x = vit.IdentityLayer(name="pre_logits")(x)
     else:
       x = nn.Dense(self.representation_size, name="pre_logits")(x)
       x = nn.tanh(x)

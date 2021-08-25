@@ -195,7 +195,7 @@ class PatchTransformerBE(nn.Module):
       prefix: str,
       init_params: Mapping[str, Any],
       model_params: Mapping[str, Any],
-      partition_specs: Sequence[checkpoints_model.PartitionSpec],
+      partition_specs: Sequence[Any],
       keep_head: bool = False,
   ) -> Mapping[str, Any]:
     """Loads from Transformer checkpoint except head parameters.
@@ -214,9 +214,7 @@ class PatchTransformerBE(nn.Module):
     local_devices = sorted(jax.local_devices(), key=lambda device: device.id)
     if partition_specs:
       raise ValueError("Partition specs cannot be used for Batchensemble.")
-    restored = checkpoints_model.tree_restore_and_stack_from_sharded_checkpoint(
-        prefix=prefix, tree=None, partition_specs=partition_specs,
-        local_devices=local_devices)
+    restored = None
     if restored is None:
       raise ValueError(f"No valid checkpoints with prefix {prefix!r}")
     # Checkpoints contain FrozenDicts, which are immutable.

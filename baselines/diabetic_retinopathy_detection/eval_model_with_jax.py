@@ -100,6 +100,14 @@ flags.DEFINE_string(
 flags.DEFINE_bool(
   'use_distribution_strategy', False,
   'If specified, use a distribution strategy.')
+flags.DEFINE_bool(
+  'single_model_multi_train_seeds', False,
+  'If true, then evaluate a single model with multiple train seeds instead of multiple '
+  'evaluation seeds. If this option is true, then all the checkpoints in the'
+  '`checkpoint_dir` will be loaded')
+flags.DEFINE_integer(
+  'seed', 0,
+  'Used as evaluation seed when `single_model_multi_train_seeds` is True')
 FLAGS = flags.FLAGS
 
 
@@ -119,8 +127,11 @@ def main(argv):
   wandb.config.update(FLAGS, allow_val_change=True)
 
   model_type = FLAGS.model_type
+  single_model_multi_train_seeds = FLAGS.single_model_multi_train_seeds
   k = FLAGS.k
   use_ensemble = k > 1
+  assert not (use_ensemble and single_model_multi_train_seeds), "can not both use ensemble and" \
+                                                                " single_model_multi_train_seeds"
   dist_shift = FLAGS.distribution_shift
   tuning_domain = FLAGS.tuning_domain
   n_samples = FLAGS.num_mc_samples
@@ -200,7 +211,8 @@ def main(argv):
                 return_epoch=False)
       else:
         model = utils.load_keras_checkpoints(
-            checkpoint_dir=checkpoint_dir, load_ensemble=use_ensemble,
+            checkpoint_dir=checkpoint_dir,
+            load_ensemble=use_ensemble or single_model_multi_train_seeds,
             return_epoch=False
           )
       logging.info('Successfully loaded.')
@@ -216,7 +228,7 @@ def main(argv):
           estimator = model.model
           k = None
       else:
-        if use_ensemble:
+        if use_ensemble or single_model_multi_train_seeds:
           estimator = [
             utils.wrap_retinopathy_estimator(
               loaded_model, use_mixed_precision=FLAGS.use_bfloat16,
@@ -246,8 +258,7 @@ def main(argv):
 
   scalar_results_arr = []
 
-  # Evaluation Loop
-  for eval_seed in range(FLAGS.num_eval_seeds):
+  def iter_step(eval_seed, estimator_args, estimator, scalar_results_arr):
     logging.info(f'Evaluating with eval_seed: {eval_seed}.')
 
     # Set seeds
@@ -270,6 +281,25 @@ def main(argv):
     utils.save_per_prediction_results(
       output_dir, epoch=eval_seed,
       per_prediction_results=per_pred_results, verbose=True)
+
+  # Evaluation Loop
+  if single_model_multi_train_seeds:
+    for model_index in range(len(estimator)):
+      logging.info(f"Evaluating with model_index={model_index}/{len(estimator)}")
+      iter_step(
+        eval_seed=FLAGS.seed,
+        estimator_args=estimator_args,
+        estimator=estimator[model_index],
+        scalar_results_arr=scalar_results_arr,
+      )
+  else:
+    for eval_seed in range(FLAGS.num_eval_seeds):
+      iter_step(
+        eval_seed=eval_seed,
+        estimator_args=estimator_args,
+        estimator=estimator,
+        scalar_results_arr=scalar_results_arr,
+      )
 
   # Scalar results stored as pd.DataFrame
   utils.merge_and_store_scalar_results(

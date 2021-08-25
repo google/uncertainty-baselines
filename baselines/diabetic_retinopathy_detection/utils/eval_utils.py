@@ -15,8 +15,8 @@ from sklearn.utils import check_array, check_consistent_length
 from .metric_utils import log_epoch_metrics_new
 from .results_storage_utils import (
   create_eval_results_dir, store_eval_results, add_joint_dicts,
-  store_eval_metadata)
-
+  store_eval_metadata, load_dataframe_gfile)
+from collections import defaultdict
 
 @tf.function
 def eval_tpu_step(
@@ -57,16 +57,26 @@ def eval_tpu_step(
 
   # Cannot handle strings on TPU
   # names = tf.TensorArray(tf.string, size=0, dynamic_size=True)
-  y_true = tf.TensorArray(tf.int32, size=0, dynamic_size=True)
-  y_pred = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-  y_pred_entropy = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-  y_pred_variance = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+  # y_true = tf.TensorArray(tf.int32, size=0, dynamic_size=True)
+  # y_pred = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+  # y_pred_entropy = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+  # y_pred_variance = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
   #
   # Have to define even if we don't use them
-  y_aleatoric_uncert = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-  y_epistemic_uncert = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+  # y_aleatoric_uncert = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+  # y_epistemic_uncert = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
 
-  for _ in tf.range(dataset_steps):
+  n_per_core_batches = dataset_steps * strategy.num_replicas_in_sync
+  y_true = tf.TensorArray(tf.int32, size=n_per_core_batches)
+  y_pred = tf.TensorArray(tf.float32, size=n_per_core_batches)
+  y_pred_entropy = tf.TensorArray(tf.float32, size=n_per_core_batches)
+  y_pred_variance = tf.TensorArray(tf.float32, size=n_per_core_batches)
+  y_aleatoric_uncert = tf.TensorArray(tf.float32, size=n_per_core_batches)
+  y_epistemic_uncert = tf.TensorArray(tf.float32, size=n_per_core_batches)
+
+  for i in tf.range(dataset_steps):
+    # tf.print('step:')
+    # tf.print(i)
     result = strategy.run(step_fn, args=(next(dataset_iterator),))
 
     # Parse results
@@ -87,23 +97,38 @@ def eval_tpu_step(
     # Iterate through per-batch results
     # This is written in a very un-Pythonic manner to have updates only
     # rely on arguments successfully passed to TPU scope
-    for batch_result in y_true_:
-      y_true = y_true.write(y_true.size(), batch_result)
-    for batch_result in y_pred_:
-      y_pred = y_pred.write(y_pred.size(), batch_result)
-    for batch_result in y_pred_entropy_:
-      y_pred_entropy = y_pred_entropy.write(y_pred_entropy.size(), batch_result)
-    for batch_result in y_pred_variance_:
-      y_pred_variance = y_pred_variance.write(
-        y_pred_variance.size(), batch_result)
+    # for batch_result in y_true_:
+    #   y_true = y_true.write(y_true.size(), batch_result)
+    # for batch_result in y_pred_:
+    #   y_pred = y_pred.write(y_pred.size(), batch_result)
+    # for batch_result in y_pred_entropy_:
+    #   y_pred_entropy = y_pred_entropy.write(y_pred_entropy.size(), batch_result)
+    # for batch_result in y_pred_variance_:
+    #   y_pred_variance = y_pred_variance.write(
+    #     y_pred_variance.size(), batch_result)
 
-    if not is_deterministic:
-      for batch_result in y_aleatoric_uncert_:
-        y_aleatoric_uncert = y_aleatoric_uncert.write(
-          y_aleatoric_uncert.size(), batch_result)
-      for batch_result in y_epistemic_uncert_:
-        y_epistemic_uncert = y_epistemic_uncert.write(
-          y_epistemic_uncert.size(), batch_result)
+    for replica_id in tf.range(strategy.num_replicas_in_sync):
+      index = (strategy.num_replicas_in_sync * i) + replica_id
+      for batch_result in y_true_:
+        y_true = y_true.write(index, batch_result)
+      for batch_result in y_pred_:
+        y_pred = y_pred.write(index, batch_result)
+      for batch_result in y_pred_entropy_:
+        y_pred_entropy = y_pred_entropy.write(index, batch_result)
+      for batch_result in y_pred_variance_:
+        y_pred_variance = y_pred_variance.write(index, batch_result)
+
+      if not is_deterministic:
+        # for batch_result in y_aleatoric_uncert_:
+        #   y_aleatoric_uncert = y_aleatoric_uncert.write(
+        #     y_aleatoric_uncert.size(), batch_result)
+        # for batch_result in y_epistemic_uncert_:
+        #   y_epistemic_uncert = y_epistemic_uncert.write(
+        #     y_epistemic_uncert.size(), batch_result)
+        for batch_result in y_aleatoric_uncert_:
+          y_aleatoric_uncert = y_aleatoric_uncert.write(index, batch_result)
+        for batch_result in y_epistemic_uncert_:
+          y_epistemic_uncert = y_epistemic_uncert.write(index, batch_result)
 
   results_arrs = {
     'y_true': y_true.stack(),
@@ -111,6 +136,8 @@ def eval_tpu_step(
     'y_pred_entropy': y_pred_entropy.stack(),
     'y_pred_variance': y_pred_variance.stack()
   }
+  # tf.print('ytrue size')
+  # tf.print(tf.shape(y_true))
   if not is_deterministic:
     results_arrs['y_aleatoric_uncert'] = y_aleatoric_uncert.stack()
     results_arrs['y_epistemic_uncert'] = y_epistemic_uncert.stack()
@@ -159,7 +186,8 @@ def evaluate_model_on_datasets_tpu(
 
     # Use vectorized NumPy containers
     for eval_key, eval_arr in eval_epoch_arrs.items():
-      dataset_split_dict[eval_key] = np.concatenate(eval_arr).flatten()
+      dataset_split_dict[eval_key] = np.concatenate(eval_arr.numpy()).flatten()
+      print(dataset_split_dict[eval_key].shape)
       # print(
       #   f'Concatenated {eval_key} into shape '
       #   f'{dataset_split_dict[eval_key].shape}')
@@ -247,9 +275,6 @@ def evaluate_swag_on_datasets(
 
 
 
-
-
-
 def evaluate_model_and_compute_metrics(
     strategy, eval_datasets, steps, metrics, eval_estimator,
     uncertainty_estimator_fn, eval_batch_size, available_splits,
@@ -292,7 +317,7 @@ def evaluate_model_and_compute_metrics(
 
 def evaluate_model_on_datasets(
   datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-  eval_batch_size
+  eval_batch_size, is_deterministic
 ):
   # Need to collect these so we can form joint datasets:
   # e.g., joint_test = in_domain_test UNION ood_test
@@ -306,8 +331,10 @@ def evaluate_model_on_datasets(
     y_pred = list()
     y_pred_entropy = list()
     y_pred_variance = list()
-    y_aleatoric_uncert = list()
-    y_epistemic_uncert = list()
+
+    if not is_deterministic:
+      y_aleatoric_uncert = list()
+      y_epistemic_uncert = list()
 
     # Begin iteration for this dataset split
     start_time = time.time()
@@ -315,7 +342,7 @@ def evaluate_model_on_datasets(
     dataset_steps = steps[dataset_split]
     logging.info(f'Evaluating split {dataset_split}.')
     for step in range(dataset_steps):
-      if step % 100 == 0:
+      if step % 10 == 0:
         logging.info('Evaluated %d/%d batches.', step, dataset_steps)
 
       inputs = next(dataset_iterator)  # pytype: disable=attribute-error
@@ -333,8 +360,9 @@ def evaluate_model_on_datasets(
       y_pred.append(pred_and_uncert['prediction'])
       y_pred_entropy.append(pred_and_uncert['predictive_entropy'])
       y_pred_variance.append(pred_and_uncert['predictive_variance'])
-      y_aleatoric_uncert.append(pred_and_uncert['aleatoric_uncertainty'])
-      y_epistemic_uncert.append(pred_and_uncert['epistemic_uncertainty'])
+      if not is_deterministic:
+        y_aleatoric_uncert.append(pred_and_uncert['aleatoric_uncertainty'])
+        y_epistemic_uncert.append(pred_and_uncert['epistemic_uncertainty'])
 
     # Update metadata
     time_elapsed = time.time() - start_time
@@ -351,28 +379,95 @@ def evaluate_model_on_datasets(
       np.concatenate(y_pred_entropy).flatten())
     dataset_split_dict['y_pred_variance'] = (
       np.concatenate(y_pred_variance).flatten())
-    dataset_split_dict['y_aleatoric_uncert'] = (
-      np.concatenate(y_aleatoric_uncert).flatten())
-    dataset_split_dict['y_epistemic_uncert'] = (
-      np.concatenate(y_epistemic_uncert).flatten())
+
+    if not is_deterministic:
+      dataset_split_dict['y_aleatoric_uncert'] = (
+        np.concatenate(y_aleatoric_uncert).flatten())
+      dataset_split_dict['y_epistemic_uncert'] = (
+        np.concatenate(y_epistemic_uncert).flatten())
 
   # Add Joint Dicts
-  dataset_split_to_containers = add_joint_dicts(dataset_split_to_containers)
+  dataset_split_to_containers = add_joint_dicts(
+    dataset_split_to_containers, is_deterministic=is_deterministic)
 
   return dataset_split_to_containers
 
 
-def eval_model_and_store_results(
-  datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
+def eval_model(
+  strategy, datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
   eval_batch_size, model_type, eval_seed, output_dir,
-  train_seed: Union[int, List[int]], k=None
+  is_deterministic, train_seed: Union[int, List[int]], num_bins=15, k=None
 ):
-  dataset_split_to_containers = evaluate_model_on_datasets(
+  eval_results = evaluate_model_on_datasets_tpu(
+    strategy, datasets, steps, estimator, estimator_args,
+    uncertainty_estimator_fn, eval_batch_size, call_dataset_iter=True,
+    is_deterministic=False)
+
+  # eval_results = evaluate_model_on_datasets(
+  #   datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
+  #   eval_batch_size, is_deterministic=is_deterministic)
+
+  # For each eval dataset, add NLL and accuracy for each example
+  eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)
+
+  # Compute all metrics for each dataset --
+  # Robustness, Open Set Recognition, Retention AUC
+  metrics_results = compute_metrics_for_all_datasets(
+    eval_results, ece_num_bins=num_bins, compute_retention_auc=True,
+    verbose=False)
+
+  # Log metrics
+  available_splits = [split for split in eval_results.keys()]
+  metrics_results = log_epoch_metrics_new(
+    metrics=None, eval_results=metrics_results,
+    use_tpu=False, dataset_splits=available_splits)
+
+  return eval_results, metrics_results
+
+  # Store scalar metrics as a JSON
+
+  # store_eval_results_and_metadata(
+  #   dataset_split_to_containers, model_type, eval_seed,
+  #   output_dir, train_seed, k=k)
+
+
+def eval_model_numpy(
+   datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
+    eval_batch_size, is_deterministic, distribution_shift, num_bins=15,
+):
+  eval_results = evaluate_model_on_datasets(
     datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-    eval_batch_size)
-  store_eval_results_and_metadata(
-    dataset_split_to_containers, model_type, eval_seed,
-    output_dir, train_seed, k=k)
+    eval_batch_size, is_deterministic=is_deterministic)
+
+  if distribution_shift == 'aptos':
+    # TODO: generalize
+    aptos_metadata_path = 'gs://ub-data/aptos/metadata.csv'
+    eval_results['ood_test_balanced'] = compute_rebalanced_aptos_dataset(
+      aptos_dataset=eval_results['ood_test'],
+      aptos_metadata_path=aptos_metadata_path,
+      new_aptos_size=10000)
+
+  # For each eval dataset, add NLL and accuracy for each example
+  eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)
+
+  # Precompute ROC/PR curves, retention and balanced retention curves
+  logging.info('Precomputing ROC/PR curves, retention and balanced'
+               ' retention curves.')
+  eval_results = precompute_arrs_for_all_datasets(
+    eval_results=eval_results)
+
+  logging.info('Computing metrics with precomputed arrs.')
+  metrics_results = compute_metrics_with_precomputed_arrs_for_all_datasets(
+    eval_results, ece_num_bins=num_bins, compute_retention_auc=True,
+    verbose=False)
+
+  # Log metrics
+  available_splits = [split for split in eval_results.keys()]
+  metrics_results = log_epoch_metrics_new(
+    metrics=None, eval_results=metrics_results,
+    use_tpu=False, dataset_splits=available_splits)
+
+  return eval_results, metrics_results
 
 
 def store_eval_results_and_metadata(
@@ -389,7 +484,6 @@ def store_eval_results_and_metadata(
     store_eval_results(eval_results_dir, results_dict)
     ms_per_example = results_dict['ms_per_example']
     store_eval_metadata(eval_results_dir, ms_per_example, k=k)
-
 
   # # Construct results df
   # results_df = pd.DataFrame(
@@ -440,6 +534,42 @@ def compute_metrics_for_all_datasets(
       compute_retention_auc=compute_retention_auc)
 
   return metric_results
+
+
+def compute_metrics_with_precomputed_arrs_for_all_datasets(
+    eval_results, ece_num_bins=15, compute_retention_auc=False,
+    verbose=False
+):
+  metric_results = {}
+  for dataset_key, results_dict in eval_results.items():
+    if verbose:
+      logging.info(
+        f'Computing metrics for dataset split {dataset_key}.')
+
+    compute_open_set_recognition = 'joint' in dataset_key
+    metric_results[dataset_key] = (
+      compute_dataset_eval_metrics_with_precomputed_arrs(
+        dataset_key, results=results_dict, ece_num_bins=ece_num_bins,
+        compute_open_set_recognition=compute_open_set_recognition,
+        compute_retention_auc=compute_retention_auc))
+
+  return metric_results
+
+
+def precompute_arrs_for_all_datasets(
+    eval_results, verbose=False
+):
+  for dataset_key, results_dict in eval_results.items():
+    if verbose:
+      logging.info(
+        f'Computing metrics for dataset split {dataset_key}.')
+
+    compute_open_set_recognition = 'joint' in dataset_key
+    eval_results[dataset_key] = precompute_metric_arrs(
+      results=results_dict,
+      compute_open_set_recognition=compute_open_set_recognition)
+
+  return eval_results
 
 
 def compute_loss_and_accuracy_arrs_for_all_datasets(eval_results):
@@ -529,6 +659,64 @@ def compute_log_loss_arr(results, labels=np.asarray([0, 1]), eps=1e-15,
   return results
 
 
+def compute_rebalanced_aptos_dataset(
+    aptos_dataset, aptos_metadata_path, new_aptos_size=10000):
+  """
+  The APTOS dataset has a significantly different underlying distribution
+  of clinical severity (e.g., there are far more severe examples).
+  This will tend to inflate the performance of a model without rebalancing
+  of the dataset/metrics.
+  Here we match the test empirical distribution of EyePACS by sampling
+  from each underlying category with replacement, bringing the total size
+  of the dataset to NEW_APTOS_SIZE = 10000.
+  """
+  # EyePACS Test Data: clinical severity label to proportion of dataset
+  label_to_proportion = {
+    0: 0.7359503164,
+    1: 0.07129130537,
+    2: 0.1472228732,
+    3: 0.0228966487,
+    4: 0.02263885634}
+
+  # Load in APTOS metadata
+  aptos_metadata_df = load_dataframe_gfile(
+    file_path=aptos_metadata_path, sep=',')
+  name_to_diagnosis = dict(
+    zip(aptos_metadata_df['id_code'], aptos_metadata_df['diagnosis']))
+
+  # Determine location of indices corresponding to each diagnosis
+  diagnosis_to_indices = defaultdict(list)
+  names = aptos_dataset['names']
+  for i, name in enumerate(names):
+    try:
+      name = name.decode('utf-8')
+    except:
+      name = str(name)
+    diagnosis = int(name_to_diagnosis[name])
+    diagnosis_to_indices[diagnosis].append(i)
+
+  # Uniformly sample without replacement to form a new dataset,
+  # with approximately same proportions as EyePACS Test Data
+  # and total size ~10000
+  new_indices = []
+  for diagnosis, indices in diagnosis_to_indices.items():
+    total_count_in_new_dataset = int(
+      label_to_proportion[diagnosis] * new_aptos_size)
+    new_indices.append(np.random.choice(
+      indices, size=total_count_in_new_dataset, replace=True))
+
+  new_indices = np.concatenate(new_indices)
+  new_aptos_dataset = {}
+  arr_len = aptos_dataset['y_true']
+  for key, value in aptos_dataset.items():
+      try:
+        new_aptos_dataset[key] = value[new_indices]
+      except:
+        new_aptos_dataset[key] = value
+
+  return new_aptos_dataset
+
+
 def compute_rebalanced_retention_curves(results: dict):
   y_pred_entropy, is_ood = results['y_pred_entropy'], results['is_ood']
 
@@ -565,19 +753,165 @@ def compute_rebalanced_retention_curves(results: dict):
     accuracies=rebalanced_accuracy, uncertainty=rebalanced_y_pred_entropy)
   rebalanced_nll_retention_curve = compute_retention_curve_on_losses(
     losses=rebalanced_nll, uncertainty=rebalanced_y_pred_entropy)
-  return rebalanced_accuracy_retention_curve, rebalanced_nll_retention_curve
+
+  y_pred = results['y_pred']
+  y_true = results['y_true']
+  rebalanced_auroc_retention_curve = compute_auc_retention_curve(
+    y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
+  rebalanced_auprc_retention_curve = compute_auc_retention_curve(
+    y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
+
+  return {
+    'accuracy': rebalanced_accuracy_retention_curve,
+    'nll': rebalanced_nll_retention_curve,
+    'auroc': rebalanced_auroc_retention_curve,
+    'auprc': rebalanced_auprc_retention_curve
+  }
 
 
 def compute_rebalanced_retention_scores(results: dict):
-  rebalanced_accuracy_retention_curve, rebalanced_nll_retention_curve = (
-    compute_rebalanced_retention_curves(results))
-  return (np.mean(rebalanced_accuracy_retention_curve),
-          np.mean(rebalanced_nll_retention_curve))
+  rebalanced_curves = compute_rebalanced_retention_curves(results)
+  return {
+    'accuracy': np.mean(rebalanced_curves['accuracy']),
+    'nll': np.mean(rebalanced_curves['nll']),
+    'auroc': np.mean(rebalanced_curves['auroc']),
+    'auprc': np.mean(rebalanced_curves['auprc'])
+  }
+
+
+def precompute_metric_arrs(results, compute_open_set_recognition=False):
+  """
+  Compute retention arrays and ROC/PR curves, for caching to do
+  downstream plots and scalar metrics quickly.
+
+  Args:
+    results: dict, results for a particular dataset split.
+  """
+  y_true = results['y_true']
+  y_pred = results['y_pred']
+  y_pred_entropy = results['y_pred_entropy']
+
+  # Compute ROC curve
+  try:
+    results['fpr_arr'], results['tpr_arr'], _ = roc_curve(
+      y_true=y_true, y_score=y_pred)
+  except:
+    pass
+
+  # Compute PR curve
+  try:
+    results['precision_arr'], results['recall_arr'], _ = precision_recall_curve(
+      y_true=y_true, probas_pred=y_pred)
+  except:
+    pass
+
+  if compute_open_set_recognition:
+    is_ood = results['is_ood']
+    results['ood_detection_fpr_arr'], results['ood_detection_tpr_arr'], _ = (
+      roc_curve(y_true=is_ood, y_score=y_pred_entropy))
+    (results['ood_detection_precision_arr'],
+     results['ood_detection_recall_arr'], _) = (
+      precision_recall_curve(y_true=is_ood, probas_pred=y_pred_entropy))
+
+    # For the joint datasets, we also compute a rebalanced retention metric,
+    # in which we duplicate the OOD dataset to match the size of the in-domain
+    # dataset, and then compute the retention metrics.
+    ret_curves = compute_rebalanced_retention_curves(results)
+    results['balanced_retention_accuracy_arr'] = ret_curves['accuracy']
+    results['balanced_retention_nll_arr'] = ret_curves['nll']
+    results['balanced_retention_auroc_arr'] = ret_curves['auroc']
+    results['balanced_retention_auprc_arr'] = ret_curves['auprc']
+
+  # Retention curves
+  assert 'accuracy_arr' in results
+  assert 'nll_arr' in results
+  results['retention_accuracy_arr'] = compute_retention_curve_on_accuracies(
+      accuracies=results['accuracy_arr'], uncertainty=y_pred_entropy)
+  results['retention_nll_arr'] = compute_retention_curve_on_losses(
+      losses=results['nll_arr'], uncertainty=y_pred_entropy)
+  results['retention_auroc_arr'] = compute_auc_retention_curve(
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
+  results['retention_auprc_arr'] = compute_auc_retention_curve(
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
+
+  return results
+
+
+def compute_dataset_eval_metrics_with_precomputed_arrs(
+    dataset_key, results, ece_num_bins=15,
+    compute_open_set_recognition=False, compute_retention_auc=False
+):
+  y_pred, y_true, y_pred_entropy = (
+    results['y_pred'], results['y_true'], results['y_pred_entropy'])
+
+  eval_metrics = dict()
+
+  # Standard predictive metrics
+  eval_metrics[f'{dataset_key}/negative_log_likelihood'] = log_loss(
+    y_pred=y_pred, y_true=y_true, labels=np.asarray([0, 1]))
+  if 'fpr_arr' in results.keys() and 'tpr_arr' in results.keys():
+    eval_metrics[f'{dataset_key}/auroc'] = auc(
+      results['fpr_arr'], results['tpr_arr'])
+  else:
+    eval_metrics[f'{dataset_key}/auroc'] = None
+
+  if 'precision_arr' in results.keys() and 'recall_arr' in results.keys():
+    recall = results['recall_arr']
+    precision = results['precision_arr']
+    eval_metrics[f'{dataset_key}/auprc'] = auc(recall, precision)
+
+  eval_metrics[f'{dataset_key}/accuracy'] = (
+    accuracy_score(y_true=y_true, y_pred=(y_pred > 0.5)))
+
+  # Uncertainty metrics
+  ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+  ece.add_batch(y_pred, label=y_true)
+  eval_metrics[f'{dataset_key}/ece'] = ece.result()['ece']
+
+  if compute_open_set_recognition:
+    eval_metrics[f'{dataset_key}/ood_detection_auroc'] = auc(
+      results['ood_detection_fpr_arr'], results['ood_detection_tpr_arr'])
+    eval_metrics[f'{dataset_key}/ood_detection_auprc'] = auc(
+      results['ood_detection_recall_arr'],
+      results['ood_detection_precision_arr'])
+
+    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = np.mean(
+      results['balanced_retention_accuracy_arr'])
+    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = np.mean(
+      results['balanced_retention_nll_arr'])
+    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = np.mean(
+      results['balanced_retention_auroc_arr'])
+    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = np.mean(
+      results['balanced_retention_auprc_arr'])
+  else:
+    # This is added for convenience when logging (so the entry exists
+    # in tabular format)
+    eval_metrics[f'{dataset_key}/ood_detection_auroc'] = None
+    eval_metrics[f'{dataset_key}/ood_detection_auprc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = None
+
+  if compute_retention_auc:
+    assert 'accuracy_arr' in results
+    assert 'nll_arr' in results
+
+    eval_metrics[f'{dataset_key}/retention_accuracy_auc'] = np.mean(
+      results['retention_accuracy_arr'])
+    eval_metrics[f'{dataset_key}/retention_nll_auc'] = np.mean(
+      results['retention_nll_arr'])
+    eval_metrics[f'{dataset_key}/retention_auroc_auc'] = np.mean(
+      results['retention_auroc_arr'])
+    eval_metrics[f'{dataset_key}/retention_auprc_auc'] = np.mean(
+      results['retention_auprc_arr'])
+
+  return eval_metrics
 
 
 def compute_dataset_eval_metrics(
     dataset_key, results, ece_num_bins=15,
-    compute_open_set_recognition=False, compute_retention_auc=False
+    compute_open_set_recognition=False, compute_retention_auc=False,
 ):
   """
   Args:
@@ -623,14 +957,15 @@ def compute_dataset_eval_metrics(
     # For the joint datasets, we also compute a rebalanced retention metric,
     # in which we duplicate the OOD dataset to match the size of the in-domain
     # dataset, and then compute the retention metrics.
-    rebalanced_retention_scores = compute_rebalanced_retention_scores(results)
-    rebalanced_retention_accuracy_auc, rebalanced_retention_nll_auc = (
-      rebalanced_retention_scores)
+    rebal_ret_scores = compute_rebalanced_retention_scores(results)
     eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = (
-      rebalanced_retention_accuracy_auc)
+      rebal_ret_scores['accuracy'])
     eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = (
-      rebalanced_retention_nll_auc)
-
+      rebal_ret_scores['nll'])
+    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = (
+      rebal_ret_scores['auroc'])
+    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = (
+      rebal_ret_scores['auprc'])
   else:
     # This is added for convenience when logging (so the entry exists
     # in tabular format)
@@ -638,6 +973,8 @@ def compute_dataset_eval_metrics(
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = None
     eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = None
     eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = None
+    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = None
 
   if compute_retention_auc:
     assert 'accuracy_arr' in results
@@ -648,6 +985,14 @@ def compute_dataset_eval_metrics(
     eval_metrics[f'{dataset_key}/retention_nll_auc'] = np.mean(
       compute_retention_curve_on_losses(
         losses=results['nll_arr'], uncertainty=y_pred_entropy))
+    eval_metrics[f'{dataset_key}/retention_auroc_auc'] = np.mean(
+      compute_auc_retention_curve(
+        y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
+    )
+    eval_metrics[f'{dataset_key}/retention_auprc_auc'] = np.mean(
+      compute_auc_retention_curve(
+        y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
+    )
 
   return eval_metrics
 
@@ -687,6 +1032,60 @@ def compute_retention_curve_on_accuracies(accuracies, uncertainty):
 
   acc_rates = cumul_oracle_collaborative_acc[::-1] / n_objects
   return acc_rates
+
+
+def compute_auc_retention_curve(
+    y_pred, y_true, uncertainty, auc_str, n_buckets=100
+):
+  def compute_auroc(true, pred):
+    return roc_auc_score(y_true=true, y_score=pred)
+
+  def compute_auprc(true, pred):
+    precision, recall, _ = precision_recall_curve(
+      y_true=true, probas_pred=pred)
+    return auc(recall, precision)
+
+  if auc_str == 'roc':
+    auc_fn = compute_auroc
+  elif auc_str == 'prc':
+    auc_fn = compute_auprc
+  else:
+    raise NotImplementedError
+
+  n_objects = y_pred.shape[0]
+  bucket_indices = (np.arange(n_buckets) / n_buckets) * n_objects
+  bucket_indices = bucket_indices.astype(int)
+
+  uncertainty_order = uncertainty.argsort()
+  y_pred = y_pred[uncertainty_order]
+  y_true = y_true[uncertainty_order]
+  cumul_oracle_collaborative_auc = np.zeros(n_buckets + 1)
+  cumul_oracle_collaborative_auc[0] = n_objects
+  check_n_unique = True
+
+  for i_buckets in range(1, n_buckets):
+    i_objects = bucket_indices[i_buckets]
+    j_objects = n_objects - i_objects
+    y_pred_curr = y_pred[:i_objects]
+    y_true_curr = y_true[:i_objects]
+    if check_n_unique and len(np.unique(y_true_curr)) == 1:
+      cumul_oracle_collaborative_auc[i_buckets] = n_objects
+    else:
+      try:
+        cumul_oracle_collaborative_auc[i_buckets] = (i_objects * auc_fn(
+          true=y_true_curr, pred=y_pred_curr)) + j_objects
+      except ValueError:  # All of the preds are the same
+        cumul_oracle_collaborative_auc[i_buckets] = j_objects
+      check_n_unique = False
+
+  try:
+    cumul_oracle_collaborative_auc[-1] = n_objects * auc_fn(
+      true=y_true, pred=y_pred)
+  except ValueError:
+    cumul_oracle_collaborative_auc[-1] = 0
+
+  auc_retention = cumul_oracle_collaborative_auc[::-1] / n_objects
+  return auc_retention
 
 
 def compute_ood_calibration_curve(y_pred: np.ndarray):

@@ -134,6 +134,31 @@ def load_keras_model(checkpoint):
   return model
 
 
+def load_all_keras_checkpoints(checkpoint_dir):
+  checkpoint_filenames = parse_keras_models(checkpoint_dir)
+  if not checkpoint_filenames:
+    raise Exception(
+      f'Did not locate a Keras checkpoint in checkpoint directory '
+      f'{checkpoint_dir}')
+
+  checkpoint_epoch_and_file_name = []
+  for i, file_name in enumerate(checkpoint_filenames):
+    try:
+      checkpoint_epoch = file_name.split('/')[-2].split('_')[-1]
+    except ValueError:
+      raise Exception('Expected Keras checkpoint directory path of format '
+                      'gs://path_to_checkpoint/keras_model_{checkpoint_epoch}/')
+    checkpoint_epoch = int(checkpoint_epoch)
+    checkpoint_epoch_and_file_name.append((checkpoint_epoch, file_name))
+    if i > 5:
+      break
+
+  checkpoint_epoch_and_file_name = list(sorted(checkpoint_epoch_and_file_name))
+
+  for epoch, checkpoint_file in checkpoint_epoch_and_file_name:
+    yield epoch, load_keras_model(checkpoint=checkpoint_file)
+
+
 def load_keras_checkpoints(
     checkpoint_dir, load_ensemble=False, return_epoch=True):
   """Main checkpoint loading function.
@@ -153,6 +178,8 @@ def load_keras_checkpoints(
     for checkpoint_file in checkpoint_filenames:
       model.append(load_keras_model(checkpoint=checkpoint_file))
   else:
+    if len(checkpoint_filenames) == 1 and not return_epoch:
+      return load_keras_model(checkpoint_filenames[0])
     latest_checkpoint = get_latest_checkpoint(
       file_names=checkpoint_filenames, return_epoch=return_epoch)
     if return_epoch:

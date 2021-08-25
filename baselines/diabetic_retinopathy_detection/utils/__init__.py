@@ -6,3 +6,4 @@ from .model_utils import *
 from .uncertainty_utils import *
 from .results_storage_utils import *
 from .eval_utils import *
+from .plot_utils import *

@@ -23,7 +23,7 @@ import uncertainty_baselines as ub
 
 
 def load_kaggle_severity_shift_dataset(
-    train_batch_size, eval_batch_size, flags, strategy
+    train_batch_size, eval_batch_size, flags, strategy, load_for_eval=False
 ):
   """
   Partitioning of the Kaggle/EyePACS Diabetic Retinopathy dataset to
@@ -31,7 +31,8 @@ def load_kaggle_severity_shift_dataset(
 
   :param flags:
   :param strategy:
-  :param load_train_split:
+  :param load_for_eval:
+    Does not truncate the last batch.
   :return:
   """
   assert flags.use_validation
@@ -44,35 +45,39 @@ def load_kaggle_severity_shift_dataset(
   # We consider examples with levels 2,3,4 as OOD
   # This leaves a few thousand examples previously segmented in the Kaggle
   # training set (the 2,3,4 ones) which we now group into the OOD test set.
-
+#
   # We have split sizes:
   if flags.dr_decision_threshold == 'mild':
     split_to_num_examples = {
-      'train': 28253,
       'in_domain_validation': 8850,
       'ood_validation': 2056,
       'in_domain_test': 34445,
       'ood_test': 15098
     }
+    if train_batch_size is not None:
+      split_to_num_examples['train'] = 28253
   elif flags.dr_decision_threshold == 'moderate':
     split_to_num_examples = {
-      'train': 33545,
       'in_domain_validation': 10429,
       'ood_validation': 477,
       'in_domain_test': 40727,
       'ood_test': 3524
     }
+    if train_batch_size is not None:
+      split_to_num_examples['train'] = 33545
   else:
     raise NotImplementedError(
       f'Unknown decision threshold {flags.dr_decision_threshold}.')
 
   split_to_batch_size = {
-    'train': train_batch_size,
     'in_domain_validation': eval_batch_size,
     'ood_validation': eval_batch_size,
     'in_domain_test': eval_batch_size,
     'ood_test': eval_batch_size
   }
+
+  if train_batch_size is not None:
+    split_to_batch_size['train'] = train_batch_size
 
   split_to_steps_per_epoch = {
     split: num_examples // split_to_batch_size[split]
@@ -90,7 +95,8 @@ def load_kaggle_severity_shift_dataset(
     dataset_builder = ub.datasets.get(
       f'diabetic_retinopathy_severity_shift_{flags.dr_decision_threshold}',
       split=split, data_dir=data_dir,
-      cache=(flags.cache_eval_datasets and split != 'train'))
+      cache=(flags.cache_eval_datasets and split != 'train'),
+      drop_remainder=not load_for_eval)
     dataset = dataset_builder.load(batch_size=split_to_batch_size[split])
 
     if strategy is not None:
@@ -102,7 +108,7 @@ def load_kaggle_severity_shift_dataset(
 
 
 def load_kaggle_aptos_country_shift_dataset(
-    train_batch_size, eval_batch_size, flags, strategy
+    train_batch_size, eval_batch_size, flags, strategy, load_for_eval=False
 ):
   """
   Full Kaggle/EyePACS Diabetic Retinopathy dataset, including OOD
@@ -112,6 +118,8 @@ def load_kaggle_aptos_country_shift_dataset(
 
   :param flags:
   :param strategy:
+  :param load_for_eval:
+    if enabled, do not truncate last batch (for standardized evaluation).
   :return:
   """
   data_dir = flags.data_dir
@@ -146,7 +154,8 @@ def load_kaggle_aptos_country_shift_dataset(
     'diabetic_retinopathy_detection', split='validation', data_dir=data_dir,
     is_training=not flags.use_validation,
     decision_threshold=flags.dr_decision_threshold,
-    cache=flags.cache_eval_datasets)
+    cache=flags.cache_eval_datasets,
+    drop_remainder=not load_for_eval)
   validation_batch_size = (
     eval_batch_size if flags.use_validation else train_batch_size)
   dataset_validation = dataset_validation_builder.load(
@@ -160,7 +169,8 @@ def load_kaggle_aptos_country_shift_dataset(
     aptos_validation_builder = ub.datasets.get(
       'aptos', split='validation', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold,
-      cache=flags.cache_eval_datasets)
+      cache=flags.cache_eval_datasets,
+      drop_remainder=not load_for_eval)
     dataset_ood_validation = aptos_validation_builder.load(
       batch_size=eval_batch_size)
 
@@ -195,13 +205,12 @@ def load_kaggle_aptos_country_shift_dataset(
     split_to_dataset['train'] = dataset_train
 
   if flags.use_test:
-    print(flags.use_test)
-    print('Flags -- using test datasets.')
     # In-Domain Test
     dataset_test_builder = ub.datasets.get(
       'diabetic_retinopathy_detection', split='test', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold,
-      cache=flags.cache_eval_datasets)
+      cache=flags.cache_eval_datasets,
+      drop_remainder=not load_for_eval)
     dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_test = strategy.experimental_distribute_dataset(dataset_test)
@@ -212,7 +221,8 @@ def load_kaggle_aptos_country_shift_dataset(
     aptos_test_builder = ub.datasets.get(
       'aptos', split='test', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold,
-      cache=flags.cache_eval_datasets)
+      cache=flags.cache_eval_datasets,
+      drop_remainder=not load_for_eval)
     dataset_ood_test = aptos_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_ood_test = strategy.experimental_distribute_dataset(
@@ -223,17 +233,18 @@ def load_kaggle_aptos_country_shift_dataset(
   return split_to_dataset, split_to_steps_per_epoch
 
 
-def load_dataset(train_batch_size, eval_batch_size, flags, strategy):
+def load_dataset(train_batch_size, eval_batch_size, flags, strategy,
+                 load_for_eval=False):
   distribution_shift = flags.distribution_shift
 
   if distribution_shift == 'severity':
     datasets, steps = load_kaggle_severity_shift_dataset(
       train_batch_size, eval_batch_size,
-      flags=flags, strategy=strategy)
+      flags=flags, strategy=strategy, load_for_eval=load_for_eval)
   elif distribution_shift == 'aptos' or distribution_shift is None:
     datasets, steps = load_kaggle_aptos_country_shift_dataset(
       train_batch_size, eval_batch_size,
-      flags=flags, strategy=strategy)
+      flags=flags, strategy=strategy, load_for_eval=load_for_eval)
   else:
     raise NotImplementedError(
       'Only support `severity` and `aptos` dataset partitions '

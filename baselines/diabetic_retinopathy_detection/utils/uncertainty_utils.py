@@ -30,6 +30,16 @@ import tensorflow_probability as tfp
 from jax import numpy as jnp
 from scipy.stats import bernoulli
 import jax.numpy as jnp
+# import pdb
+from typing import Dict
+
+# import jax
+import numpy as np
+import tensorflow as tf
+import tensorflow_probability as tfp
+# from jax import numpy as jnp
+from scipy.stats import bernoulli
+# import jax.numpy as jnp
 
 tfd = tfp.distributions
 
@@ -59,10 +69,7 @@ def predict_and_decompose_uncertainty_tf(mc_samples: tf.Tensor):
       aleatoric_uncertainty: `tf.Tensor`, expected entropy, with shape [B].
     }
   """
-  num_samples = mc_samples.shape[0]
-  per_sample_entropies = tf.convert_to_tensor([
-    tfd.Bernoulli(probs=mc_samples[i, :]).entropy()
-    for i in range(num_samples)])
+  per_sample_entropies = tfd.Bernoulli(probs=mc_samples).entropy()
   expected_entropy = tf.reduce_mean(per_sample_entropies, axis=0)
 
   # Bernoulli output distribution
@@ -71,6 +78,12 @@ def predict_and_decompose_uncertainty_tf(mc_samples: tf.Tensor):
   predictive_entropy = predictive_dist.entropy()
   predictive_variance = predictive_dist.variance()
   predictive_mean = predictive_dist.mean()
+
+  # tf.print(tf.shape(predictive_mean))
+  # tf.print(tf.shape(predictive_entropy))
+  # tf.print(tf.shape(predictive_variance))
+  # tf.print(tf.shape(predictive_entropy - expected_entropy))
+  # tf.print(tf.shape(expected_entropy))
 
   return {
     'prediction': predictive_mean,
@@ -203,19 +216,30 @@ def variational_predict_and_decompose_uncertainty_tf(
     """
 
   # Get shapes of data
-  b = x.shape[0]
+  b = tf.shape(x)[0]
 
   # Monte Carlo samples from different dropout mask at test time
   # See note in docstring regarding `training` mode
-  # mc_samples = tf.convert_to_tensor(
-  #   [model(x, training=training_setting) for _ in range(num_samples)])
-  mc_samples = []
+  if num_samples > 1:
+    mc_samples = tf.convert_to_tensor(
+      [model(x, training=training_setting) for _ in range(num_samples)])
+    # mc_samples = tf.TensorArray(tf.float32, size=num_samples)
+    # for i in tf.range(num_samples):
+    #   probs = model(x, training=training_setting)
+    #   mc_samples = mc_samples.write(i, probs)
+    #
+    # mc_samples = mc_samples.stack()
+  else:
+    mc_samples = model(x, training=training_setting)
 
-  for _ in range(num_samples):
-    print('retracing')
-    mc_samples.append(model(x, training=training_setting))
-
-  mc_samples = tf.convert_to_tensor(mc_samples)
+  # Long-form Pythonic
+  # mc_samples = []
+  #
+  # for _ in range(num_samples):
+  #   print('retracing')
+  #   mc_samples.append(model(x, training=training_setting))
+  #
+  # mc_samples = tf.convert_to_tensor(mc_samples)
 
   # TPU-friendly
   # mc_samples = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
@@ -225,6 +249,9 @@ def variational_predict_and_decompose_uncertainty_tf(
   #
   # mc_samples = mc_samples.stack()
   mc_samples = tf.reshape(mc_samples, [-1, b])
+
+  # tf.print('Mc samples shape')
+  # tf.print(tf.shape(mc_samples))
 
   return predict_and_decompose_uncertainty_tf(mc_samples=mc_samples)
 
@@ -864,8 +891,8 @@ RETINOPATHY_MODEL_TO_DECOMPOSED_UNCERTAINTY_ESTIMATOR = {
     variational_predict_and_decompose_uncertainty),
   ('variational_inference', True): (
     variational_ensemble_predict_and_decompose_uncertainty),
-  ('rank1_bnn', False): variational_predict_and_decompose_uncertainty,
-  ('rank1_bnn', True): None,  # Built-in functionality for ensembling
+  ('rank1', False): variational_predict_and_decompose_uncertainty,
+  ('rank1', True): variational_ensemble_predict_and_decompose_uncertainty,
   ('swag', False): None,  # SWAG requires sampling outside the dataset loop
   ('swag', True): None,
   ('fsvi', False): fsvi_predict_and_decompose_uncertainty,
@@ -886,9 +913,9 @@ RETINOPATHY_MODEL_TO_TF_DECOMPOSED_UNCERTAINTY_ESTIMATOR = {
     variational_ensemble_predict_and_decompose_uncertainty_tf),
 
   # Rank 1 BNNs also have default functionality for mixture posteriors
-  ('rank1_bnn', False): (
+  ('rank1', False): (
     variational_predict_and_decompose_uncertainty_tf),
-  ('rank1_bnn', True): (
+  ('rank1', True): (
     variational_ensemble_predict_and_decompose_uncertainty_tf),
   ('swag', False): None,  # SWAG requires sampling outside the dataset loop
   ('swag', True): None,
@@ -955,9 +982,10 @@ def negative_log_likelihood_metric(labels, probs):
 
 
 def get_uncertainty_estimator(model_type, use_ensemble, use_tf):
-  if model_type == 'rank1_bnn' and use_ensemble:
-    raise NotImplementedError  # Special code for using ensemble
-  elif model_type == 'swag':
+  # if model_type == 'rank1' and use_ensemble:
+  #   raise NotImplementedError  # Special code for using ensemble
+  #
+  if model_type == 'swag':
     raise NotImplementedError  # Special eval loop
   try:
     if use_tf:

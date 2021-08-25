@@ -106,8 +106,14 @@ flags.DEFINE_bool(
   'evaluation seeds. If this option is true, then all the checkpoints in the'
   '`checkpoint_dir` will be loaded')
 flags.DEFINE_integer(
-  'seed', 0,
-  'Used as evaluation seed when `single_model_multi_train_seeds` is True')
+  'seed', None,
+  'Used as evaluation seed when `single_model_multi_train_seeds` is True.')
+flags.DEFINE_integer(
+  'k_ensemble_samples', None,
+  'The number of models to sample without replacement from a directory of ensemble checkpoints.')
+flags.DEFINE_integer(
+  'ensemble_sampling_repetitions', None,
+  'The number of times to sample a subset of models from a directory of ensemble checkpoints.')
 FLAGS = flags.FLAGS
 
 
@@ -129,9 +135,12 @@ def main(argv):
   model_type = FLAGS.model_type
   single_model_multi_train_seeds = FLAGS.single_model_multi_train_seeds
   k = FLAGS.k
-  use_ensemble = k > 1
+  N = FLAGS.ensemble_sampling_repetitions
+  sample_from_ensemble = N is not None
+  use_ensemble = k > 1 or sample_from_ensemble
   assert not (use_ensemble and single_model_multi_train_seeds), "can not both use ensemble and" \
                                                                 " single_model_multi_train_seeds"
+  k_ensemble_samples = FLAGS.k_ensemble_samples
   dist_shift = FLAGS.distribution_shift
   tuning_domain = FLAGS.tuning_domain
   n_samples = FLAGS.num_mc_samples
@@ -234,13 +243,15 @@ def main(argv):
               loaded_model, use_mixed_precision=FLAGS.use_bfloat16,
               numpy_outputs=not FLAGS.use_distribution_strategy)
             for loaded_model in model]
-          k = len(estimator)
         else:
           estimator = utils.wrap_retinopathy_estimator(
             model, use_mixed_precision=FLAGS.use_bfloat16,
             numpy_outputs=not FLAGS.use_distribution_strategy)
-          k = None
 
+  assert not sample_from_ensemble or len(estimator) >= k_ensemble_samples, \
+    f"The number of models in the ensemble ({len(estimator)}) " \
+    f"is smaller than the number of samples we want to draw {k_ensemble_samples}," \
+    f" it is not possible to sample without replacement."
   estimator_args = {}
 
   is_deterministic = model_type == 'deterministic'
@@ -285,11 +296,22 @@ def main(argv):
   # Evaluation Loop
   if single_model_multi_train_seeds:
     for model_index in range(len(estimator)):
-      logging.info(f"Evaluating with model_index={model_index}/{len(estimator)}")
+      logging.info(f"Evaluating model the {model_index}-th trained model")
       iter_step(
         eval_seed=FLAGS.seed,
         estimator_args=estimator_args,
         estimator=estimator[model_index],
+        scalar_results_arr=scalar_results_arr,
+      )
+  elif sample_from_ensemble:
+    for rep_index in range(N):
+      logging.info(f"Evaluating by sampling {k_ensemble_samples} models from an ensemble "
+                   f"of {len(estimator)} models, currently at repetition {rep_index}/{N}")
+      sampled_estimator = np.random.choice(estimator, size=k_ensemble_samples, replace=False)
+      iter_step(
+        eval_seed=FLAGS.seed,
+        estimator_args=estimator_args,
+        estimator=sampled_estimator,
         scalar_results_arr=scalar_results_arr,
       )
   else:

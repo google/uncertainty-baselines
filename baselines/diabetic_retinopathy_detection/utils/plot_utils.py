@@ -140,7 +140,7 @@ def grid_plot_wrapper(fn,
   if not get_args:
     get_args = lambda i: []
   if not get_kwargs:
-    get_kwargs = lambda: {}
+    get_kwargs = lambda i: {}
   if isinstance(get_args, list):
     get_args = lambda i: get_args[i]
   if isinstance(get_kwargs, list):

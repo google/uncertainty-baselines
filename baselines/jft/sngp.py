@@ -38,6 +38,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
+import cifar10h_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
@@ -267,6 +268,28 @@ def main(argv):
   else:
     val_ds = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
 
+  if config.get('eval_on_cifar_10h'):
+    val_steps = int(np.ceil(10000 / batch_size_eval))
+
+    cifar10h_dataset = cifar10h_utils.load_ds()
+
+    val_it = input_pipeline.make_pipeline(
+        data=cifar10h_dataset,
+        batch_size=local_batch_size_eval,
+        preprocess_fn=pp_builder.get_preprocess_fn(config.pp_eval_cifar_10h),
+        cache=config.get('val_cache', 'batched'),
+        repeats=None,
+        repeat_after_batching=True,
+        prefetch=0,
+        drop_remainder=False,
+        shuffle_buffer_size=None,
+        ignore_errors=False,
+        filter_fn=None)
+    val_it = u.start_input_pipeline(
+        val_it, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
+
+    val_ds['cifar_10h'] = (val_it, val_steps)
+
   ood_ds = None
   if config.get('ood_dataset'):
     logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
@@ -382,6 +405,32 @@ def main(argv):
     n = jax.lax.psum(mask, axis_name='batch')
 
     metric_args = jax.lax.all_gather([logits, labels, mask], axis_name='batch')
+    return ncorrect, loss, n, metric_args
+
+  @partial(jax.pmap, axis_name='batch')
+  def cifar_10h_evaluation_fn(params, states, images, labels, mask):
+    variable_dict = {'params': flax.core.freeze(params), **states}
+    logits, _ = model.apply(
+        variable_dict,
+        images,
+        train=False,
+        mean_field_factor=gp_config.get('mean_field_factor', -1.))
+
+    losses = getattr(u, config.get('loss', 'softmax_xent'))(
+        logits=logits, labels=labels, reduction=False)
+    loss = jax.lax.psum(losses, axis_name='batch')
+
+    top1_idx = jnp.argmax(logits, axis=1)
+    # Extracts the label at the highest logit index for each image.
+    one_hot_labels = jnp.eye(10)[jnp.argmax(labels, axis=1)]
+
+    top1_correct = jnp.take_along_axis(
+        one_hot_labels, top1_idx[:, None], axis=1)[:, 0]
+    ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
+    n = jax.lax.psum(one_hot_labels, axis_name='batch')
+
+    metric_args = jax.lax.all_gather([logits, labels, mask],
+                                     axis_name='batch')
     return ncorrect, loss, n, metric_args
 
   # Setup function for computing representation.
@@ -648,10 +697,19 @@ def main(argv):
         ncorrect, loss, nseen = 0, 0, 0
         ece_num_bins = config.get('ece_num_bins', 15)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+        label_diversity = tf.keras.metrics.Mean()
+        sample_diversity = tf.keras.metrics.Mean()
+        ged = tf.keras.metrics.Mean()
         for _, batch in zip(range(val_steps), val_iter):
-          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-              evaluation_fn(opt_repl.target, states_repl, batch['image'],
-                            batch['labels'], batch['mask']))
+          if val_name == 'cifar_10h':
+            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+                cifar_10h_evaluation_fn(
+                    opt_repl.target, states_repl, batch['image'],
+                    batch['labels'], batch['mask']))
+          else:
+            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+                evaluation_fn(opt_repl.target, states_repl, batch['image'],
+                              batch['labels'], batch['mask']))
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
           # with each local device's entry being identical as they got psum'd.
@@ -664,16 +722,29 @@ def main(argv):
           logits, labels, masks = batch_metric_args
           masks = np.array(masks[0], dtype=np.bool)
           # From one-hot to integer labels, as required by ECE.
-          labels = np.argmax(np.array(labels[0]), axis=-1)
+          int_labels = np.argmax(np.array(labels[0]), axis=-1)
           logits = np.array(logits[0])
           probs = jax.nn.softmax(logits)
-          for p, l, m in zip(probs, labels, masks):
+          for p, l, m, label in zip(probs, int_labels, masks, labels[0]):
             ece.add_batch(p[m, :], label=l[m])
+
+            if val_name == 'cifar_10h':
+              batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
+                  label[m], p[m, :], 10)
+              label_diversity.update_state(batch_label_diversity)
+              sample_diversity.update_state(batch_sample_diversity)
+              ged.update_state(batch_ged)
 
         val_loss = loss / nseen  # Keep to return for reproducibility tests.
         mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
         mw.measure(f'{val_name}_loss', val_loss)
         mw.measure(f'{val_name}_ece', float(ece.result()['ece']))
+        if val_name == 'cifar_10h':
+          mw.measure(
+              f'{val_name}_label_diversity', float(label_diversity.result()))
+          mw.measure(
+              f'{val_name}_sample_diversity', float(sample_diversity.result()))
+          mw.measure(f'{val_name}_ged', float(ged.result()))
 
       # Fewshot evaluation.
       if ood_ds:

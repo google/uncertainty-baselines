@@ -108,6 +108,8 @@ class DiabeticRetinopathySeverityShiftMildDataset(base.BaseDataset):
         cache=cache)
     print(f'Building Diabetic Retinopathy Severity Shift dataset with '
           f'mild decision threshold.')
+    if not drop_remainder:
+      print('Not dropping the remainder (i.e., not truncating last batch).')
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 

@@ -42,8 +42,13 @@ def init_distribution_strategy(
     logging.info('Use GPU')
 
   if force_use_cpu or use_gpu:
+    logging.info('Using MirroredStrategy.')
     strategy = tf.distribute.MirroredStrategy()
   else:
+    if tpu_name == 'read-from-file':
+      with open("tpu_name.txt", "r") as f:
+        tpu_name = f.readline().rstrip()
+
     logging.info('Use TPU at %s', tpu_name if tpu_name is not None else 'local')
     resolver = tf.distribute.cluster_resolver.TPUClusterResolver(tpu=tpu_name)
     tf.config.experimental_connect_to_cluster(resolver)

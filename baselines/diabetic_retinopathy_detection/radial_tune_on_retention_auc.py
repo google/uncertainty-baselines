@@ -43,6 +43,13 @@ from tensorboard.plugins.hparams import api as hp
 import uncertainty_baselines as ub
 import utils  # local file import
 
+import wandb
+
+import pathlib
+from datetime import datetime
+from pprint import pformat
+
+
 DEFAULT_BATCH_SIZE = 16
 DEFAULT_NUM_EPOCHS = 90
 
@@ -63,6 +70,13 @@ flags.DEFINE_string(
 flags.DEFINE_bool(
   'load_from_checkpoint', False, "Attempt to load from checkpoint")
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
+
+# Logging and hyperparameter tuning.
+flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
+flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
+flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
+flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
+flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 
 # OOD flags.
 flags.DEFINE_string(
@@ -89,7 +103,7 @@ flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
                   'Epochs to decay learning rate by.')
 
 # Radial BNN flags.
-flags.DEFINE_integer('num_mc_samples_train', 5,
+flags.DEFINE_integer('num_mc_samples_train', 1,
                      'Number of MC samples used during training.')
 flags.DEFINE_integer('num_mc_samples_eval', 5,
                      'Number of MC samples to use for prediction.')
@@ -136,20 +150,40 @@ flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 
 # Accelerator flags.
 flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
-flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string(
     'tpu', None,
-    'Name of the TPU. Only used if force_use_cpu and use_gpu are both False.')
+    'Name of the TPU. Only used if force_use_cpu and use_gpu are both False.'
+    'Specify `read-from-file` to retrieve the name from tpu_name.txt.')
 FLAGS = flags.FLAGS
 
 
 def main(argv):
   del argv  # unused arg
-  tf.io.gfile.makedirs(FLAGS.output_dir)
-  logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
+
+  # Wandb Setup
+  if FLAGS.use_wandb:
+    pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
+    wandb_args = dict(
+      project=FLAGS.project,
+      entity="uncertainty-baselines",
+      dir=FLAGS.wandb_dir,
+      reinit=True,
+      name=FLAGS.exp_name,
+      group=FLAGS.exp_group)
+    wandb_run = wandb.init(**wandb_args)
+    wandb.config.update(FLAGS, allow_val_change=True)
+    output_dir = str(os.path.join(
+      FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S")))
+  else:
+    wandb_run = None
+    output_dir = FLAGS.output_dir
+
+  tf.io.gfile.makedirs(output_dir)
+  logging.info('Saving checkpoints at %s', output_dir)
 
   # Log Run Hypers
   hypers_dict = {
@@ -257,7 +291,7 @@ def main(argv):
 
     # TODO: debug or remove
     # checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
-    # latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
+    # latest_checkpoint = tf.train.latest_checkpoint(output_dir)
     # if latest_checkpoint:
     #   # checkpoint.restore must be within a strategy.scope()
     #   # so that optimizer slot variables are mirrored.
@@ -312,49 +346,51 @@ def main(argv):
 
       with tf.GradientTape() as tape:
         # TODO: TPU-friendly implem
-        logits_arr = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-
-        for _ in tf.range(FLAGS.num_mc_samples_train):
-          logits = model(images, training=True)
-          # logits = tf.squeeze(logits, axis=-1)
-          # if FLAGS.use_bfloat16:
-          #   logits = tf.cast(logits, tf.float32)
-
-          logits_arr = logits_arr.write(logits_arr.size(), logits)
-
-        logits_list = logits_arr.stack()
+        # logits_arr = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
+        #
+        # for _ in tf.range(FLAGS.num_mc_samples_train):
+        #   logits = model(images, training=True)
+        #   # logits = tf.squeeze(logits, axis=-1)
+        #   # if FLAGS.use_bfloat16:
+        #   #   logits = tf.cast(logits, tf.float32)
+        #
+        #   logits_arr = logits_arr.write(logits_arr.size(), logits)
+        #
+        # logits_list = logits_arr.stack()
 
         # # Pythonic Implem
-        # logits_list = []
-        # for _ in range(FLAGS.num_mc_samples_train):
-        #   logits = model(images, training=True)
-        #   logits = tf.squeeze(logits, axis=-1)
-        #   if FLAGS.use_bfloat16:
-        #     logits = tf.cast(logits, tf.float32)
-        #
-        #   logits_list.append(logits)
-        #
-        # # Logits dimension is (num_samples, batch_size).
-        # logits_list = tf.stack(logits_list, axis=0)
+        if FLAGS.num_mc_samples_train > 1:
+          logits_list = []
+          for _ in range(FLAGS.num_mc_samples_train):
+            logits = model(images, training=True)
+            logits = tf.squeeze(logits, axis=-1)
+            if FLAGS.use_bfloat16:
+              logits = tf.cast(logits, tf.float32)
 
-        probs_list = tf.nn.sigmoid(logits_list)
-        probs = tf.reduce_mean(probs_list, axis=0)
-        negative_log_likelihood = tf.reduce_mean(
-          batch_loss_fn(
-            y_true=tf.expand_dims(labels, axis=-1),
-            y_pred=probs,
-            from_logits=False))
+            logits_list.append(logits)
 
-        # Single train step
-        # logits = model(images, training=True)
-        # if FLAGS.use_bfloat16:
-        #   logits = tf.cast(logits, tf.float32)
-        #
-        # negative_log_likelihood = tf.reduce_mean(
-        #     batch_loss_fn(
-        #         y_true=tf.expand_dims(labels, axis=-1),
-        #         y_pred=logits,
-        #         from_logits=True))
+          # Logits dimension is (num_samples, batch_size).
+          logits_list = tf.stack(logits_list, axis=0)
+
+          probs_list = tf.nn.sigmoid(logits_list)
+          probs = tf.reduce_mean(probs_list, axis=0)
+          negative_log_likelihood = tf.reduce_mean(
+            batch_loss_fn(
+              y_true=tf.expand_dims(labels, axis=-1),
+              y_pred=probs,
+              from_logits=False))
+        else:
+          # Single train step
+          logits = model(images, training=True)
+          if FLAGS.use_bfloat16:
+            logits = tf.cast(logits, tf.float32)
+
+          negative_log_likelihood = tf.reduce_mean(
+              batch_loss_fn(
+                  y_true=tf.expand_dims(labels, axis=-1),
+                  y_pred=logits,
+                  from_logits=True))
+          probs = tf.squeeze(tf.nn.sigmoid(logits))
 
         filtered_variables = []
         for var in model.trainable_variables:
@@ -421,6 +457,10 @@ def main(argv):
       is_deterministic=False, num_bins=FLAGS.num_bins, use_tpu=use_tpu,
       return_per_pred_results=True)
 
+    # Optionally log to wandb
+    if FLAGS.use_wandb:
+      wandb.log(total_results, step=epoch)
+
     with summary_writer.as_default():
       for name, result in total_results.items():
         if result is not None:
@@ -432,32 +472,32 @@ def main(argv):
     if (FLAGS.checkpoint_interval > 0 and
         (epoch + 1) % FLAGS.checkpoint_interval == 0):
       # checkpoint_name = checkpoint.save(
-      #     os.path.join(FLAGS.output_dir, 'checkpoint'))
+      #     os.path.join(output_dir, 'checkpoint'))
       # logging.info('Saved checkpoint to %s', checkpoint_name)
 
       # TODO(nband): debug checkpointing
       # Also save Keras model, due to checkpoint.save issue
-      keras_model_name = os.path.join(FLAGS.output_dir,
+      keras_model_name = os.path.join(output_dir,
                                       f'keras_model_{epoch + 1}')
       model.save(keras_model_name)
       logging.info('Saved keras model to %s', keras_model_name)
 
       # Save per-prediction metrics
       utils.save_per_prediction_results(
-        FLAGS.output_dir, epoch + 1, per_pred_results, verbose=False)
+        output_dir, epoch + 1, per_pred_results, verbose=False)
 
   # final_checkpoint_name = checkpoint.save(
-  #     os.path.join(FLAGS.output_dir, 'checkpoint'),)
+  #     os.path.join(output_dir, 'checkpoint'),)
   # logging.info('Saved last checkpoint to %s', final_checkpoint_name)
 
-  keras_model_name = os.path.join(FLAGS.output_dir,
+  keras_model_name = os.path.join(output_dir,
                                   f'keras_model_{FLAGS.train_epochs}')
   model.save(keras_model_name)
   logging.info('Saved keras model to %s', keras_model_name)
 
   # Save per-prediction metrics
   utils.save_per_prediction_results(
-    FLAGS.output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
+    output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
 
   with summary_writer.as_default():
     hp.hparams({
@@ -467,6 +507,9 @@ def main(argv):
         'stddev_mean_init': FLAGS.stddev_mean_init,
         'stddev_stddev_init': FLAGS.stddev_stddev_init,
     })
+
+  if wandb_run is not None:
+    wandb_run.finish()
 
 
 if __name__ == '__main__':

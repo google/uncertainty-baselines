@@ -256,6 +256,8 @@ class APTOSDataset(base.BaseDataset):
     self.decision_threshold = decision_threshold
     print(f'Building APTOS OOD dataset with decision threshold: '
           f'{decision_threshold}.')
+    if not drop_remainder:
+      print('Not dropping the remainder (i.e., not truncating last batch).')
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 

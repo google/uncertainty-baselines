@@ -33,11 +33,43 @@ from typing import Optional, List, Union, Dict
 import pathlib
 from tensorflow.python.lib.io import file_io
 
+from typing import List, Dict
+from collections import defaultdict
+import pandas as pd
+
 
 JOINT_SPLIT_TO_CONSTITUENT_SPLITS = {
   'joint_validation': ['in_domain_validation', 'ood_validation'],
   'joint_test': ['in_domain_test', 'ood_test']
 }
+
+
+def merge_and_store_scalar_results(
+    scalar_results_list: List[Dict], output_dir):
+  keys = scalar_results_list[0].keys()
+  total_results = defaultdict(list)
+
+  for key in keys:
+    for scalar_results_dict in scalar_results_list:
+      val = scalar_results_dict[key]
+      if val is None:
+        continue
+      total_results[key].append(val)
+
+  metric = []
+  mean = []
+  var = []
+  stderr = []
+  for key, values in total_results.items():
+    metric.append(key)
+    values = np.array(values)
+    mean.append(values.mean())
+    var.append(values.std() ** 2)
+    stderr.append(values.std() / np.sqrt(len(values)))
+
+  total_results_df = pd.DataFrame(
+    data={'metric': metric, 'mean': mean, 'var': var, 'stderr': stderr})
+  store_dataframe_gfile(output_dir, 'scalar_results.tsv', total_results_df)
 
 
 def save_per_prediction_results(
@@ -168,6 +200,25 @@ def get_most_recent_results(output_dir, dataset_keys: List[str],
     eval_results_dir = os.path.join(output_dir, eval_run_str)
 
 
+def store_dataframe_gfile(dir, file_name, df_to_store):
+  file_path = os.path.join(dir, file_name)
+  with tf.io.gfile.GFile(file_path, 'w') as f:
+    df_to_store.to_csv(path_or_buf=f, sep='\t', index=None)
+  logging.info(f'Stored {file_name} to {dir}')
+
+
+def load_dataframe_gfile(file_path, sep='\t'):
+  with tf.io.gfile.GFile(file_path, 'r') as f:
+    df = pd.read_csv(f, sep=sep)
+
+  logging.info(f'Loaded dataframe from {file_path}.')
+  return df
+
+def store_json_gfile(dir, file_name, dict_to_store):
+  file_path = os.path.join(dir, file_name)
+  with tf.io.gfile.GFile(file_path, 'w') as f:
+    json.dump(dict_to_store, f)
+  logging.info(f'Stored {file_name} to {dir}')
 
 
 def store_eval_metadata(

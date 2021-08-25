@@ -141,6 +141,8 @@ def main(argv):
     wandb_run = None
     output_dir = FLAGS.output_dir
 
+  tf.profiler.experimental.start('logdir')
+
   # Log Run Hypers
   hypers_dict = {
     'per_core_batch_size': FLAGS.per_core_batch_size,
@@ -388,6 +390,8 @@ def main(argv):
         'one_minus_momentum': FLAGS.one_minus_momentum,
         'l2': FLAGS.l2
     })
+
+  tf.profiler.experimental.stop()
 
   if wandb_run is not None:
     wandb_run.finish()

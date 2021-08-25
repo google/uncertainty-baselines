@@ -201,7 +201,9 @@ class _CifarDataset(base.BaseDataset):
       labels = example['label']
 
       if should_onehot:
-        parsed_example['labels'] = tf.one_hot(labels, 10, dtype=tf.float32)
+        num_classes = 100 if self.name == 'cifar100' else 10
+        parsed_example['labels'] = tf.one_hot(
+            labels, num_classes, dtype=tf.float32)
       else:
         parsed_example['labels'] = tf.cast(labels, tf.float32)
 

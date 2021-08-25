@@ -40,6 +40,7 @@ import tensorflow_probability as tfp
 # from jax import numpy as jnp
 from scipy.stats import bernoulli
 # import jax.numpy as jnp
+from baselines.diabetic_retinopathy_detection.utils import FSVICheckpoint
 
 tfd = tfp.distributions
 
@@ -769,11 +770,18 @@ def fsvi_predict_and_decompose_uncertainty(
     rng_key: `jax.numpy.ndarray`, jax random key for the forward passes.
     training_setting: bool, if True, run model prediction in training mode. See
       note in docstring at top of file.
+    num_samples: int, the number of MC samples for each member of ensenble
+    params: parameters of haiku model
+    state: state of haiku model
 
   Returns:
-    mean: `numpy.ndarray`, predictive mean, with shape [B].
-    uncertainty: `numpy.ndarray`, uncertainty in prediction,
-      with shape [B].
+    Dict: {
+      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
+      predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
+      epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
+      aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
+    }
   """
   # mc_samples has shape [T, B]
   preds_y_samples, _, _ = model.predict_y_multisample_jitted(
@@ -787,6 +795,56 @@ def fsvi_predict_and_decompose_uncertainty(
   mc_samples = preds_y_samples[:, :, 1]
 
   return predict_and_decompose_uncertainty_jax(mc_samples=mc_samples)
+
+
+def fsvi_ensemble_predict_and_decompose_uncertainty(
+      x,
+      model,
+      rng_key,
+      training_setting,
+      num_samples,
+      params,
+      state,
+):
+  """
+  Args:
+    x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
+    where B the batch size and H, W the input images height and width
+    accordingly.
+    model: a list of FSVI Model objects
+    rng_key: `jax.numpy.ndarray`, jax random key for the forward passes.
+    training_setting: bool, if True, run model prediction in training mode. See
+      note in docstring at top of file.
+    num_samples: int, the number of MC samples for each member of ensenble
+    params: parameters of haiku model
+    state: state of haiku model
+
+  Returns:
+    Dict: {
+      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
+      predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
+      epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
+      aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
+    }
+  """
+  # mc_samples has shape [T, B]
+  list_mc_samples = []
+  for i, m in enumerate(model):
+    preds_y_samples, _, _ = m.predict_y_multisample_jitted(
+      params=params[i],
+      state=state[i],
+      inputs=x,
+      rng_key=rng_key,
+      n_samples=num_samples,
+      is_training=training_setting,
+    )
+    list_mc_samples.append(preds_y_samples[:, :, 1])
+
+  mc_samples = jnp.concatenate(list_mc_samples)
+
+  return predict_and_decompose_uncertainty_jax(mc_samples=mc_samples)
+
 
 
 def predict_and_decompose_uncertainty_jax(mc_samples: jnp.ndarray):
@@ -896,6 +954,7 @@ RETINOPATHY_MODEL_TO_DECOMPOSED_UNCERTAINTY_ESTIMATOR = {
   ('swag', False): None,  # SWAG requires sampling outside the dataset loop
   ('swag', True): None,
   ('fsvi', False): fsvi_predict_and_decompose_uncertainty,
+  ('fsvi', True): fsvi_ensemble_predict_and_decompose_uncertainty,
 }
 
 # (model_type, use_ensemble): predict_and_decompose_uncertainty_fn

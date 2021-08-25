@@ -1,8 +1,12 @@
 import logging
 import os
+import pickle
+from typing import NamedTuple, List
 
 import tensorflow as tf
+import haiku as hk
 
+from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 
 """Model initialization and checkpointing utils."""
 
@@ -188,4 +192,56 @@ def load_keras_checkpoints(
     else:
       model = load_keras_model(checkpoint=latest_checkpoint)
 
+  return model
+
+
+class FSVICheckpoint(NamedTuple):
+  state: hk.State
+  params: hk.Params
+  model: Model
+
+
+def load_fsvi_checkpoint(path) -> FSVICheckpoint:
+  with tf.io.gfile.GFile(path, mode="rb") as f:
+    chkpt = pickle.load(f)
+
+  hparams = chkpt["hparams"]
+  model = CNN(
+    architecture=hparams["architecture"],
+    output_dim=2,
+    activation_fn=hparams["activation"],
+    stochastic_parameters=True,
+    linear_model=hparams["linear_model"],
+    dropout="dropout" in hparams["model_type"],
+    dropout_rate=hparams["dropout_rate"],
+  )
+
+  return FSVICheckpoint(state=chkpt["state"], params=chkpt["params"],
+                        model=model)
+
+
+def get_latest_fsvi_checkpoint_name(file_paths: List[str], return_epoch: bool):
+  file_names = [os.path.basename(path.strip("/")) for path in file_paths]
+  epochs_and_file_paths = [(int(file.split("_")[1]), file_paths[i]) for i, file in enumerate(file_names)]
+  max_epoch_and_file_path = max(epochs_and_file_paths)
+  return max_epoch_and_file_path if return_epoch else max_epoch_and_file_path[1]
+
+
+def load_fsvi_jax_checkpoints(checkpoint_dir, load_ensemble=False, return_epoch=True):
+  files = tf.io.gfile.listdir(checkpoint_dir)
+  checkpoint_filenames = [os.path.join(checkpoint_dir, file) for file in files if file[:5] == "chkpt"]
+  if load_ensemble:
+    model = []
+    for checkpoint_file in checkpoint_filenames:
+      model.append(load_fsvi_checkpoint(checkpoint_file))
+  else:
+    if len(checkpoint_filenames) == 1 and not return_epoch:
+      return load_fsvi_checkpoint(checkpoint_filenames[0])
+    latest_checkpoint = get_latest_fsvi_checkpoint_name(
+      file_paths=checkpoint_filenames, return_epoch=return_epoch)
+    if return_epoch:
+      epoch, latest_checkpoint = latest_checkpoint
+      model = (epoch, load_fsvi_checkpoint(latest_checkpoint))
+    else:
+      model = load_keras_model(checkpoint=latest_checkpoint)
   return model

@@ -109,7 +109,7 @@ flags.DEFINE_integer(
   'seed', None,
   'Used as evaluation seed when `single_model_multi_train_seeds` is True.')
 flags.DEFINE_integer(
-  'k_ensemble_samples', None,
+  'k_ensemble_members', None,
   'The number of models to sample without replacement from a directory of ensemble checkpoints.')
 flags.DEFINE_integer(
   'ensemble_sampling_repetitions', None,
@@ -142,7 +142,7 @@ def main(argv):
   use_ensemble = k > 1 or sample_from_ensemble
   assert not (use_ensemble and single_model_multi_train_seeds), "can not both use ensemble and" \
                                                                 " single_model_multi_train_seeds"
-  k_ensemble_samples = FLAGS.k_ensemble_samples
+  k_ensemble_members = FLAGS.k_ensemble_members
   dist_shift = FLAGS.distribution_shift
   tuning_domain = FLAGS.tuning_domain
   n_samples = FLAGS.num_mc_samples
@@ -250,9 +250,9 @@ def main(argv):
             model, use_mixed_precision=FLAGS.use_bfloat16,
             numpy_outputs=not FLAGS.use_distribution_strategy)
 
-  assert not sample_from_ensemble or len(estimator) >= k_ensemble_samples, \
+  assert not sample_from_ensemble or len(estimator) >= k_ensemble_members, \
     f"The number of models in the ensemble ({len(estimator)}) " \
-    f"is smaller than the number of samples we want to draw {k_ensemble_samples}," \
+    f"is smaller than the number of samples we want to draw {k_ensemble_members}," \
     f" it is not possible to sample without replacement."
   estimator_args = {}
 
@@ -312,9 +312,9 @@ def main(argv):
       )
   elif sample_from_ensemble:
     for rep_index in range(N):
-      logging.info(f"Evaluating by sampling {k_ensemble_samples} models from an ensemble "
+      logging.info(f"Evaluating by sampling {k_ensemble_members} models from an ensemble "
                    f"of {len(estimator)} models, currently at repetition {rep_index}/{N}")
-      sampled_indices = np.random.choice(len(estimator), size=k_ensemble_samples, replace=False)
+      sampled_indices = np.random.choice(len(estimator), size=k_ensemble_members, replace=False)
       sampled_estimator = [estimator[ind] for ind in sampled_indices]
       _estimator_args = {
         "num_samples": estimator_args["num_samples"],

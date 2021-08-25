@@ -243,5 +243,5 @@ def load_fsvi_jax_checkpoints(checkpoint_dir, load_ensemble=False, return_epoch=
       epoch, latest_checkpoint = latest_checkpoint
       model = (epoch, load_fsvi_checkpoint(latest_checkpoint))
     else:
-      model = load_keras_model(checkpoint=latest_checkpoint)
+      model = load_fsvi_checkpoint(latest_checkpoint)
   return model

@@ -1,3 +1,5 @@
+import os
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 import contextlib
 import pathlib
 import pickle
@@ -257,7 +259,7 @@ def main(argv):
       datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
       eval_batch_size, is_deterministic,
       distribution_shift=FLAGS.distribution_shift,
-      num_bins=FLAGS.num_bins)
+      num_bins=FLAGS.num_bins, np_input="fsvi" in model_type)
 
     # Store scalar results
     scalar_results_arr.append(scalar_results)

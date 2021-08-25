@@ -317,7 +317,7 @@ def evaluate_model_and_compute_metrics(
 
 def evaluate_model_on_datasets(
   datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-  eval_batch_size, is_deterministic
+  eval_batch_size, is_deterministic, np_input=False,
 ):
   # Need to collect these so we can form joint datasets:
   # e.g., joint_test = in_domain_test UNION ood_test
@@ -352,7 +352,8 @@ def evaluate_model_on_datasets(
       # Compute prediction, total, aleatoric, and epistemic
       # uncertainty estimates
       pred_and_uncert = uncertainty_estimator_fn(
-        images, estimator, training_setting=False, **estimator_args)
+        images._numpy() if np_input else images,
+        estimator, training_setting=False, **estimator_args)
 
       # Add this batch of predictions to the containers
       names.append(inputs['name'])
@@ -434,10 +435,11 @@ def eval_model(
 def eval_model_numpy(
    datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
     eval_batch_size, is_deterministic, distribution_shift, num_bins=15,
+  np_input=False,
 ):
   eval_results = evaluate_model_on_datasets(
     datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-    eval_batch_size, is_deterministic=is_deterministic)
+    eval_batch_size, is_deterministic=is_deterministic, np_input=np_input)
 
   if distribution_shift == 'aptos':
     # TODO: generalize

@@ -2,7 +2,6 @@ import os
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 import contextlib
 import pathlib
-import pickle
 
 import jax
 import numpy as np
@@ -212,8 +211,10 @@ def main(argv):
       if "fsvi" in model_type:
         if use_ensemble:
           estimator = [m.model for m in model]
+          k = len(estimator)
         else:
           estimator = model.model
+          k = None
       else:
         if use_ensemble:
           estimator = [

@@ -133,6 +133,8 @@ def main(argv):
   wandb.config.update(FLAGS, allow_val_change=True)
 
   model_type = FLAGS.model_type
+  assert not ("fsvi" in model_type and FLAGS.use_distribution_strategy), \
+    "This script doesn't support running FSVI in parallel yet."
   single_model_multi_train_seeds = FLAGS.single_model_multi_train_seeds
   k = FLAGS.k
   N = FLAGS.ensemble_sampling_repetitions
@@ -213,11 +215,13 @@ def main(argv):
       strategy_scope = strategy.scope()
 
     with strategy_scope:
-      logging.info(f'Loading Keras ResNet-50 {model_type} {ensemble_str}.')
+      model_str = "Jax" if "fsvi" in model_type else "Keras"
+      logging.info(f'Loading {model_str} ResNet-50 {model_type} {ensemble_str}.')
       if "fsvi" in model_type:
         model = utils.load_fsvi_jax_checkpoints(
-              checkpoint_dir=checkpoint_dir, load_ensemble=use_ensemble,
-                return_epoch=False)
+              checkpoint_dir=checkpoint_dir,
+              load_ensemble=use_ensemble or single_model_multi_train_seeds,
+              return_epoch=False)
       else:
         model = utils.load_keras_checkpoints(
             checkpoint_dir=checkpoint_dir,
@@ -230,12 +234,10 @@ def main(argv):
       # Wrap models: apply sigmoid on logits, use mixed precision,
       # and cast to NumPy array for use with generic Uncertainty Utils.
       if "fsvi" in model_type:
-        if use_ensemble:
+        if use_ensemble or single_model_multi_train_seeds:
           estimator = [m.model for m in model]
-          k = len(estimator)
         else:
           estimator = model.model
-          k = None
       else:
         if use_ensemble or single_model_multi_train_seeds:
           estimator = [
@@ -260,7 +262,7 @@ def main(argv):
     # Argument for stochastic forward passes
     estimator_args['num_samples'] = num_mc_samples
   if "fsvi" in model_type:
-    if use_ensemble:
+    if use_ensemble or single_model_multi_train_seeds:
       estimator_args["params"] = [m.params for m in model]
       estimator_args["state"] = [m.state for m in model]
     else:
@@ -297,9 +299,14 @@ def main(argv):
   if single_model_multi_train_seeds:
     for model_index in range(len(estimator)):
       logging.info(f"Evaluating model the {model_index}-th trained model")
+      _estimator_args = {
+        "num_samples": estimator_args["num_samples"],
+        "params": estimator_args["params"][model_index],
+        "state": estimator_args["state"][model_index],
+      }
       iter_step(
         eval_seed=FLAGS.seed,
-        estimator_args=estimator_args,
+        estimator_args=_estimator_args,
         estimator=estimator[model_index],
         scalar_results_arr=scalar_results_arr,
       )
@@ -307,7 +314,13 @@ def main(argv):
     for rep_index in range(N):
       logging.info(f"Evaluating by sampling {k_ensemble_samples} models from an ensemble "
                    f"of {len(estimator)} models, currently at repetition {rep_index}/{N}")
-      sampled_estimator = np.random.choice(estimator, size=k_ensemble_samples, replace=False)
+      sampled_indices = np.random.choice(len(estimator), size=k_ensemble_samples, replace=False)
+      sampled_estimator = [estimator[ind] for ind in sampled_indices]
+      _estimator_args = {
+        "num_samples": estimator_args["num_samples"],
+        "params": [estimator_args["params"][ind] for ind in sampled_indices],
+        "state": [estimator_args["state"][ind] for ind in sampled_indices],
+      }
       iter_step(
         eval_seed=FLAGS.seed,
         estimator_args=estimator_args,

@@ -438,7 +438,8 @@ def main(argv):
 
       if tf.equal(step, 0) and FLAGS.gp_cov_discount_factor < 0:
         # Resetting covaraince estimator at the begining of a new epoch.
-        model.layers[-1].reset_covariance_matrix()
+        if FLAGS.use_gp_layer:
+          model.layers[-1].reset_covariance_matrix()
 
       if FLAGS.augmix and FLAGS.aug_count >= 1:
         # Index 0 at augmix preprocessing is the unperturbed image.

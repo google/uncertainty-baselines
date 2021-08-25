@@ -296,7 +296,8 @@ def main(argv):
 
       if tf.equal(step, 0) and FLAGS.gp_cov_discount_factor < 0:
         # Reset covaraince estimator at the begining of a new epoch.
-        model.layers[-1].reset_covariance_matrix()
+        if FLAGS.use_gp_layer:
+          model.layers[-1].reset_covariance_matrix()
 
       with tf.GradientTape() as tape:
         logits = model(images, training=True)

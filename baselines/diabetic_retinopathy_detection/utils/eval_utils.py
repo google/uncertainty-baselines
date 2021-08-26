@@ -186,7 +186,8 @@ def evaluate_model_on_datasets_tpu(
 
     # Use vectorized NumPy containers
     for eval_key, eval_arr in eval_epoch_arrs.items():
-      dataset_split_dict[eval_key] = np.concatenate(eval_arr.numpy()).flatten()
+      _eval_arr = eval_arr if backend == "jax" else eval_arr.numpy()
+      dataset_split_dict[eval_key] = np.concatenate(_eval_arr).flatten()
       print(dataset_split_dict[eval_key].shape)
       # print(
       #   f'Concatenated {eval_key} into shape '

@@ -67,7 +67,7 @@ flags.DEFINE_bool(
 
 # General model flags.
 flags.DEFINE_integer(
-  'k', None,
+  'k', 1,
   "Number of ensemble members.")
 
 flags.DEFINE_integer(
@@ -106,13 +106,13 @@ flags.DEFINE_bool(
   'evaluation seeds. If this option is true, then all the checkpoints in the'
   '`checkpoint_dir` will be loaded')
 flags.DEFINE_integer(
-  'seed', None,
+  'seed', 0,
   'Used as evaluation seed when `single_model_multi_train_seeds` is True.')
 flags.DEFINE_integer(
-  'k_ensemble_members', None,
+  'k_ensemble_members', 3,
   'The number of models to sample without replacement from a directory of ensemble checkpoints.')
 flags.DEFINE_integer(
-  'ensemble_sampling_repetitions', None,
+  'ensemble_sampling_repetitions', 0,
   'The number of times to sample a subset of models from a directory of ensemble checkpoints.')
 FLAGS = flags.FLAGS
 
@@ -138,7 +138,7 @@ def main(argv):
   single_model_multi_train_seeds = FLAGS.single_model_multi_train_seeds
   k = FLAGS.k
   N = FLAGS.ensemble_sampling_repetitions
-  sample_from_ensemble = N is not None
+  sample_from_ensemble = N > 0
   use_ensemble = k > 1 or sample_from_ensemble
   assert not (use_ensemble and single_model_multi_train_seeds), "can not both use ensemble and" \
                                                                 " single_model_multi_train_seeds"
@@ -271,12 +271,14 @@ def main(argv):
 
   scalar_results_arr = []
 
-  def iter_step(eval_seed, estimator_args, estimator, scalar_results_arr):
+  def set_seeds(eval_seed):
     logging.info(f'Evaluating with eval_seed: {eval_seed}.')
 
     # Set seeds
     tf.random.set_seed(eval_seed)
     np.random.seed(eval_seed)
+
+  def iter_step(eval_seed, estimator_args, estimator, scalar_results_arr):
     if "fsvi" in model_type:
       estimator_args["rng_key"] = jax.random.PRNGKey(eval_seed)
 
@@ -299,6 +301,7 @@ def main(argv):
   if single_model_multi_train_seeds:
     for model_index in range(len(estimator)):
       logging.info(f"Evaluating the {model_index}-th trained model")
+      set_seeds(FLAGS.seed)
       if "fsvi" in model_type:
         _estimator_args = {
           "num_samples": estimator_args["num_samples"],
@@ -317,6 +320,7 @@ def main(argv):
     for rep_index in range(N):
       logging.info(f"Evaluating by sampling {k_ensemble_members} models from an ensemble "
                    f"of {len(estimator)} models, currently at repetition {rep_index}/{N}")
+      set_seeds(FLAGS.seed)
       sampled_indices = np.random.choice(len(estimator), size=k_ensemble_members, replace=False)
       sampled_estimator = [estimator[ind] for ind in sampled_indices]
       if "fsvi" in model_type:
@@ -335,6 +339,7 @@ def main(argv):
       )
   else:
     for eval_seed in range(FLAGS.num_eval_seeds):
+      set_seeds(eval_seed)
       iter_step(
         eval_seed=eval_seed,
         estimator_args=estimator_args,

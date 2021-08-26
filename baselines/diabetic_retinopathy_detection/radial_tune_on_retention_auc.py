@@ -29,7 +29,7 @@ We use a few additional, noteworthy techniques in training:
     dense layer (Wen et al., 2018).
 3. KL annealing (Bowman et al., 2015).
 """
-
+import sys
 import os
 import time
 from pprint import pformat
@@ -40,6 +40,8 @@ from absl import flags
 from absl import logging
 from tensorboard.plugins.hparams import api as hp
 
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, root_path)
 import uncertainty_baselines as ub
 import utils  # local file import
 

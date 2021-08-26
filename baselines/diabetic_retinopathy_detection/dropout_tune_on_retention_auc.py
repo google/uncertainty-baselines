@@ -16,6 +16,7 @@
 """ResNet50 with Monte Carlo Dropout (Gal and Ghahramani 2016) on Kaggle's Diabetic Retinopathy Detection dataset."""
 
 import os
+import sys
 import time
 
 import tensorflow as tf
@@ -24,6 +25,8 @@ from absl import flags
 from absl import logging
 from tensorboard.plugins.hparams import api as hp
 
+root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, root_path)
 import uncertainty_baselines as ub
 import utils
 from pprint import pformat

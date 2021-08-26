@@ -298,12 +298,15 @@ def main(argv):
   # Evaluation Loop
   if single_model_multi_train_seeds:
     for model_index in range(len(estimator)):
-      logging.info(f"Evaluating model the {model_index}-th trained model")
-      _estimator_args = {
-        "num_samples": estimator_args["num_samples"],
-        "params": estimator_args["params"][model_index],
-        "state": estimator_args["state"][model_index],
-      }
+      logging.info(f"Evaluating the {model_index}-th trained model")
+      if "fsvi" in model_type:
+        _estimator_args = {
+          "num_samples": estimator_args["num_samples"],
+          "params": estimator_args["params"][model_index],
+          "state": estimator_args["state"][model_index],
+        }
+      else:
+        _estimator_args = estimator_args
       iter_step(
         eval_seed=FLAGS.seed,
         estimator_args=_estimator_args,
@@ -316,14 +319,17 @@ def main(argv):
                    f"of {len(estimator)} models, currently at repetition {rep_index}/{N}")
       sampled_indices = np.random.choice(len(estimator), size=k_ensemble_members, replace=False)
       sampled_estimator = [estimator[ind] for ind in sampled_indices]
-      _estimator_args = {
-        "num_samples": estimator_args["num_samples"],
-        "params": [estimator_args["params"][ind] for ind in sampled_indices],
-        "state": [estimator_args["state"][ind] for ind in sampled_indices],
-      }
+      if "fsvi" in model_type:
+        _estimator_args = {
+          "num_samples": estimator_args["num_samples"],
+          "params": [estimator_args["params"][ind] for ind in sampled_indices],
+          "state": [estimator_args["state"][ind] for ind in sampled_indices],
+        }
+      else:
+        _estimator_args = estimator_args
       iter_step(
         eval_seed=FLAGS.seed,
-        estimator_args=estimator_args,
+        estimator_args=_estimator_args,
         estimator=sampled_estimator,
         scalar_results_arr=scalar_results_arr,
       )

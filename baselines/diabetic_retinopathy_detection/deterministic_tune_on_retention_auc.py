@@ -55,7 +55,7 @@ flags.DEFINE_bool(
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
 # Logging and hyperparameter tuning.
-flags.DEFINE_bool('use_wandb', True, 'Use wandb for logging.')
+flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
 flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
 
 # OOD flags.
@@ -108,7 +108,7 @@ flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 
 # Accelerator flags.
 flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
-flags.DEFINE_bool('use_gpu', True, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string(

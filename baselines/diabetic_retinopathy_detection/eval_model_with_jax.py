@@ -114,6 +114,10 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
   'ensemble_sampling_repetitions', 0,
   'The number of times to sample a subset of models from a directory of ensemble checkpoints.')
+flags.DEFINE_string('chkpt_bucket', 'drd-final-eval-multi-seeds',
+  'The name of the bucket containing checkpoints.')
+flags.DEFINE_string('output_bucket', 'drd-final-results-multi-seeds',
+  'The name of the output bucket.')
 FLAGS = flags.FLAGS
 
 
@@ -147,9 +151,9 @@ def main(argv):
   tuning_domain = FLAGS.tuning_domain
   n_samples = FLAGS.num_mc_samples
   checkpoint_dir = (
-      f'gs://drd-final-eval/{dist_shift}/{model_type}_k{k}_{tuning_domain}')
+      f'gs://{FLAGS.chkpt_bucket}/{dist_shift}/{model_type}_k{k}_{tuning_domain}')
   output_dir = (
-      f'gs://drd-final-results/{dist_shift}/'
+      f'gs://{FLAGS.output_bucket}/{dist_shift}/'
       f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}')
 
 

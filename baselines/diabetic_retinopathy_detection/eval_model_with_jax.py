@@ -229,6 +229,10 @@ def main(argv):
             return_epoch=False
           )
       logging.info('Successfully loaded.')
+
+      if sample_from_ensemble:
+        assert len(model) >= 6, "Running in sample_from_ensemble mode, but only found " \
+                                f"{len(model)} checkpoints in folder {checkpoint_dir}"
       # logging.info(f'Loaded model from epoch {epoch}.')
 
       # Wrap models: apply sigmoid on logits, use mixed precision,

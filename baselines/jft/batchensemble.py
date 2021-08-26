@@ -40,8 +40,7 @@ import batchensemble_utils  # local file import
 # TODO(dusenberrymw): Open-source remaining imports.
 u = None
 ensemble = None
-default_input_pipeline = None
-jft_latest_pipeline = None
+experts_pipeline = None
 metric_writers = None
 partitioning = None
 train = None
@@ -172,13 +171,7 @@ def main(_):
   batch_size_per_host = config.batch_size // jax.host_count()
   batch_size_per_core = config.batch_size // jax.device_count()
   batch_size_per_host_eval = config.batch_size_eval // jax.host_count()
-  # TODO(basilm): Remove when JFT2.6B is properly submitted.
-  if config.dataset in jft_latest_pipeline.DATA_INFO:
-    input_pipeline = jft_latest_pipeline
-    cache = 'loaded'
-  else:
-    input_pipeline = default_input_pipeline
-    cache = 'batched'
+  input_pipeline, eval_cache = experts_pipeline.get_pipeline(config)
 
   train_ds = input_pipeline.get_data(
       dataset=config.dataset,
@@ -287,7 +280,7 @@ def main(_):
 
   train_iter = u.start_input_pipeline(train_iter, config.prefetch_to_device)
   eval_iters = train.get_dataset_eval_iters_from_config(
-      config, batch_size_per_host_eval, cache, input_pipeline)
+      config, batch_size_per_host_eval, eval_cache, input_pipeline)
   lr_fn = u.create_learning_rate_schedule(
       config.batch_size, total_steps, steps_per_epoch, **config.lr)
   lr_iter = u.prefetch_scalar(map(lr_fn, range(first_step, total_steps)),

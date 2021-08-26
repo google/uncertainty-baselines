@@ -20,27 +20,12 @@ and quality of uncertainty estimates of the given model.
 """
 
 import functools
-import pdb
 from typing import Dict
 
-import jax
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-from jax import numpy as jnp
 from scipy.stats import bernoulli
-import jax.numpy as jnp
-# import pdb
-from typing import Dict
-
-# import jax
-import numpy as np
-import tensorflow as tf
-import tensorflow_probability as tfp
-# from jax import numpy as jnp
-from scipy.stats import bernoulli
-# import jax.numpy as jnp
-from baselines.diabetic_retinopathy_detection.utils import FSVICheckpoint
 
 tfd = tfp.distributions
 
@@ -745,6 +730,7 @@ def deterministic_predict_tf(x, model, training_setting):
 
 
 def binary_entropy_jax(array):
+  import jax
   return jax.scipy.special.entr(array) + jax.scipy.special.entr(1 - array)
 
 
@@ -806,6 +792,7 @@ def fsvi_ensemble_predict_and_decompose_uncertainty(
       params,
       state,
 ):
+  import jax.numpy as jnp
   """
   Args:
     x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
@@ -847,7 +834,7 @@ def fsvi_ensemble_predict_and_decompose_uncertainty(
 
 
 
-def predict_and_decompose_uncertainty_jax(mc_samples: jnp.ndarray):
+def predict_and_decompose_uncertainty_jax(mc_samples):
   """Given a set of MC samples, decomposes uncertainty into
     aleatoric and epistemic parts.
 

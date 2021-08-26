@@ -1,0 +1,53 @@
+# sweep.yaml
+name: aptos-vi-indomain-aug25
+program: baselines/diabetic_retinopathy_detection/variational_inference_tune_on_retention_auc.py
+method: grid
+project: aptos-vi-indomain-aug25
+entity: uncertainty-baselines
+
+parameters:
+  # Fixed
+  tpu:
+    value: 'read-from-file'
+  batch_size:
+    value: 32 # TPU V3
+  num_mc_samples_train:
+    value: 1
+  num_mc_samples_eval:
+    value: 5
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'aptos'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-vi-aptos-finetune/indomain'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+
+  # 2021-08-25-10-01-33/summaries
+
+  base_learning_rate:
+    value: 0.48065
+
+  one_minus_momentum:
+    value: 0.076935
+
+  l2:
+    value: 0.00013178
+
+  stddev_mean_init:
+    value: 0.00097618
+
+  stddev_stddev_init:
+    value: 0.41994
+
+  seed:
+    values: [42, 43, 44, 45, 46, 47]

@@ -189,14 +189,14 @@ def main(argv):
       FLAGS.force_use_cpu, FLAGS.use_gpu, FLAGS.tpu)
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
-  model_type = FLAGS.model_type
   eval_batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
   num_mc_samples = FLAGS.num_mc_samples
 
   # Get the wrapper function which will produce uncertainty estimates for
   # our choice of method and Y/N ensembling.
+  model_type_str = "variational_inference" if model_type == "vi" else model_type
   uncertainty_estimator_fn = utils.get_uncertainty_estimator(
-    model_type, use_ensemble=use_ensemble,
+    model_type_str, use_ensemble=use_ensemble,
     use_tf=FLAGS.use_distribution_strategy)
 
   # Load in evaluation datasets.

@@ -20,6 +20,7 @@ and quality of uncertainty estimates of the given model.
 """
 
 import functools
+import pdb
 from typing import Dict
 
 import numpy as np
@@ -99,8 +100,16 @@ def predict_and_decompose_uncertainty(mc_samples: np.ndarray):
     }
   """
   num_samples = mc_samples.shape[0]
-  per_sample_entropies = np.array([
-    bernoulli(mc_samples[i, :]).entropy() for i in range(num_samples)])
+  try:
+    per_sample_entropies = np.array([
+      bernoulli(mc_samples[i, :]).entropy() for i in range(num_samples)])
+  except KeyboardInterrupt:
+    raise
+  except:
+    print(mc_samples)
+    print(mc_samples.shape)
+    print(num_samples)
+    print(bernoulli(mc_samples[0, :]))
   expected_entropy = per_sample_entropies.mean(axis=0)
 
   # Bernoulli output distribution

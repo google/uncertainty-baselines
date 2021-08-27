@@ -272,10 +272,11 @@ def main(argv):
     f" it is not possible to sample without replacement."
   estimator_args = {}
 
-  is_deterministic = model_type == 'deterministic'
+  is_deterministic_single_model = model_type == 'deterministic' and not use_ensemble
 
-  if not is_deterministic:
+  if model_type != 'deterministic':
     # Argument for stochastic forward passes
+    # we don't sample MC samples for either a single deterministic model or deep ensemble
     estimator_args['num_samples'] = num_mc_samples
   if "fsvi" in model_type:
     if use_ensemble or single_model_multi_train_seeds:
@@ -300,7 +301,7 @@ def main(argv):
 
     per_pred_results, scalar_results = utils.eval_model_numpy(
       datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-      eval_batch_size, is_deterministic,
+      eval_batch_size, is_deterministic_single_model,
       distribution_shift=FLAGS.distribution_shift,
       num_bins=FLAGS.num_bins, np_input="fsvi" in model_type)
 

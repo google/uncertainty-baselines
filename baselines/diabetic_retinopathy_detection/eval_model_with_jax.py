@@ -313,7 +313,7 @@ def main(argv):
     utils.save_per_prediction_results(
       output_dir, epoch=iter_id,
       per_prediction_results=per_pred_results, verbose=True,
-      allow_overwrite=False,
+      allow_overwrite=True,
     )
 
   # Evaluation Loop
@@ -372,7 +372,7 @@ def main(argv):
   # Scalar results stored as pd.DataFrame
   utils.merge_and_store_scalar_results(
     scalar_results_arr, output_dir=output_dir,
-    allow_overwrite=False,
+    allow_overwrite=True,
   )
   logging.info('Wrote out scalar results.')
 

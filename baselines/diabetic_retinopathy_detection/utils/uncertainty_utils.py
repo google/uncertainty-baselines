@@ -110,6 +110,7 @@ def predict_and_decompose_uncertainty(mc_samples: np.ndarray):
     print(mc_samples.shape)
     print(num_samples)
     print(bernoulli(mc_samples[0, :]))
+
   expected_entropy = per_sample_entropies.mean(axis=0)
 
   # Bernoulli output distribution
@@ -168,9 +169,17 @@ def variational_predict_and_decompose_uncertainty(
 
   # Monte Carlo samples from different dropout mask at test time
   # See note in docstring regarding `training` mode
-  mc_samples = np.asarray([
-    model(x, training=training_setting) for _ in range(num_samples)
-  ]).reshape(-1, b)
+  list_samples = []
+  nb_trials = 0
+  while len(list_samples) < num_samples:
+    nb_trials += 1
+    new_vals = model(x, training=training_setting)
+    if np.isnan(new_vals).sum() == 0:
+      list_samples.append(new_vals)
+    if nb_trials == 20:
+      raise ValueError(f"The model always returns nan!! {list_samples}")
+
+  mc_samples = np.asarray([list_samples]).reshape(-1, b)
 
   return predict_and_decompose_uncertainty(mc_samples=mc_samples)
 

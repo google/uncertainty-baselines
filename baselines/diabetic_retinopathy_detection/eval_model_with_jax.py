@@ -242,8 +242,9 @@ def main(argv):
           )
       logging.info('Successfully loaded.')
 
-      if sample_from_ensemble:
-        assert len(model) >= 6, "Running in sample_from_ensemble mode, but only found " \
+      if sample_from_ensemble or single_model_multi_train_seeds:
+        assert len(model) == 6, "Running in sample_from_ensemble/single_model_multi_train_seeds mode, " \
+                                "but only found " \
                                 f"{len(model)} checkpoints in folder {checkpoint_dir}"
       # logging.info(f'Loaded model from epoch {epoch}.')
 
@@ -297,7 +298,7 @@ def main(argv):
 
   def iter_step(eval_seed, estimator_args, estimator, scalar_results_arr, iter_id):
     if "fsvi" in model_type:
-      estimator_args["rng_key"] = jax.random.PRNGKey(eval_seed)
+      estimator_args["rng_key"] = jax.random.PRNGKey(eval_seed + iter_id)
 
     per_pred_results, scalar_results = utils.eval_model_numpy(
       datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
@@ -316,11 +317,12 @@ def main(argv):
       allow_overwrite=True,
     )
 
+  set_seeds(FLAGS.seed)
+
   # Evaluation Loop
   if single_model_multi_train_seeds:
     for model_index in range(len(estimator)):
       logging.info(f"Evaluating the {model_index}-th trained model")
-      set_seeds(FLAGS.seed)
       if "fsvi" in model_type:
         _estimator_args = {
           "num_samples": estimator_args["num_samples"],
@@ -340,7 +342,6 @@ def main(argv):
     for rep_index in range(N):
       logging.info(f"Evaluating by sampling {k_ensemble_members} models from an ensemble "
                    f"of {len(estimator)} models, currently at repetition {rep_index}/{N}")
-      set_seeds(FLAGS.seed)
       sampled_indices = np.random.choice(len(estimator), size=k_ensemble_members, replace=False)
       sampled_estimator = [estimator[ind] for ind in sampled_indices]
       if "fsvi" in model_type:

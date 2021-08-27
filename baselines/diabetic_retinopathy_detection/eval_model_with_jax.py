@@ -152,9 +152,10 @@ def main(argv):
   n_samples = FLAGS.num_mc_samples
   checkpoint_dir = (
       f'gs://{FLAGS.chkpt_bucket}/{dist_shift}/{model_type}_k{k}_{tuning_domain}')
+  output_suffix = "single" if single_model_multi_train_seeds else "ensemble"
   output_dir = (
       f'gs://{FLAGS.output_bucket}/{dist_shift}/'
-      f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}')
+      f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}/{output_suffix}')
 
   if ("radial" in model_type or "rank1" in model_type) \
           and dist_shift == "severity" \
@@ -293,7 +294,7 @@ def main(argv):
     tf.random.set_seed(eval_seed)
     np.random.seed(eval_seed)
 
-  def iter_step(eval_seed, estimator_args, estimator, scalar_results_arr):
+  def iter_step(eval_seed, estimator_args, estimator, scalar_results_arr, iter_id):
     if "fsvi" in model_type:
       estimator_args["rng_key"] = jax.random.PRNGKey(eval_seed)
 
@@ -309,8 +310,10 @@ def main(argv):
     # Save all predictions, ground truths, uncertainty measures, etc.
     # as NumPy arrays, for use with the plotting module.
     utils.save_per_prediction_results(
-      output_dir, epoch=eval_seed,
-      per_prediction_results=per_pred_results, verbose=True)
+      output_dir, epoch=iter_id,
+      per_prediction_results=per_pred_results, verbose=True,
+      allow_overwrite=False,
+    )
 
   # Evaluation Loop
   if single_model_multi_train_seeds:
@@ -330,6 +333,7 @@ def main(argv):
         estimator_args=_estimator_args,
         estimator=estimator[model_index],
         scalar_results_arr=scalar_results_arr,
+        iter_id=model_index,
       )
   elif sample_from_ensemble:
     for rep_index in range(N):
@@ -351,6 +355,7 @@ def main(argv):
         estimator_args=_estimator_args,
         estimator=sampled_estimator,
         scalar_results_arr=scalar_results_arr,
+        iter_id=rep_index,
       )
   else:
     for eval_seed in range(FLAGS.num_eval_seeds):
@@ -360,11 +365,14 @@ def main(argv):
         estimator_args=estimator_args,
         estimator=estimator,
         scalar_results_arr=scalar_results_arr,
+        iter_id=eval_seed,
       )
 
   # Scalar results stored as pd.DataFrame
   utils.merge_and_store_scalar_results(
-    scalar_results_arr, output_dir=output_dir)
+    scalar_results_arr, output_dir=output_dir,
+    allow_overwrite=False,
+  )
   logging.info('Wrote out scalar results.')
 
   wandb_run.finish()

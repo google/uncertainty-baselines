@@ -45,7 +45,7 @@ JOINT_SPLIT_TO_CONSTITUENT_SPLITS = {
 
 
 def merge_and_store_scalar_results(
-    scalar_results_list: List[Dict], output_dir):
+    scalar_results_list: List[Dict], output_dir, allow_overwrite=True):
   keys = scalar_results_list[0].keys()
   total_results = defaultdict(list)
 
@@ -69,11 +69,12 @@ def merge_and_store_scalar_results(
 
   total_results_df = pd.DataFrame(
     data={'metric': metric, 'mean': mean, 'var': var, 'stderr': stderr})
-  store_dataframe_gfile(output_dir, 'scalar_results.tsv', total_results_df)
+  store_dataframe_gfile(output_dir, 'scalar_results.tsv', total_results_df,
+                        allow_overwrite=allow_overwrite)
 
 
 def save_per_prediction_results(
-    output_dir, epoch, per_prediction_results, verbose=True
+    output_dir, epoch, per_prediction_results, verbose=True, allow_overwrite=True
 ):
   for dataset_key, results_dict in per_prediction_results.items():
     if verbose:
@@ -82,7 +83,8 @@ def save_per_prediction_results(
       logging.info(f'Keys: {list(results_dict.keys())}')
 
     dataset_output_dir = os.path.join(output_dir, dataset_key)
-    store_eval_results(dataset_output_dir, results_dict, epoch=epoch)
+    store_eval_results(dataset_output_dir, results_dict, epoch=epoch,
+                       allow_overwrite=allow_overwrite)
 
 
 def add_joint_dicts(dataset_split_containers: Dict[str, Dict], is_deterministic):
@@ -200,8 +202,10 @@ def get_most_recent_results(output_dir, dataset_keys: List[str],
     eval_results_dir = os.path.join(output_dir, eval_run_str)
 
 
-def store_dataframe_gfile(dir, file_name, df_to_store):
+def store_dataframe_gfile(dir, file_name, df_to_store, allow_overwrite=True):
   file_path = os.path.join(dir, file_name)
+  if not allow_overwrite and tf.io.gfile.exists(file_path):
+    raise ValueError(f"{file_path} exists already!!!")
   with tf.io.gfile.GFile(file_path, 'w') as f:
     df_to_store.to_csv(path_or_buf=f, sep='\t', index=None)
   logging.info(f'Stored {file_name} to {dir}')
@@ -231,7 +235,7 @@ def store_eval_metadata(
   logging.info(f'Stored eval metadata to {eval_metadata_path}')
 
 
-def store_eval_results(eval_results_dir, dict_of_lists, epoch=None):
+def store_eval_results(eval_results_dir, dict_of_lists, epoch=None, allow_overwrite=True):
   """Store image names, predictions, ground truth, uncertainty estimates,
   and optionally, an array with binary indicators of whether or not the
   prediction is OOD (`is_ood`).
@@ -249,6 +253,8 @@ def store_eval_results(eval_results_dir, dict_of_lists, epoch=None):
 
   for key, arr in dict_of_lists.items():
     np_eval_results_path = os.path.join(eval_results_dir, f'{key}.npy')
+    if not allow_overwrite and tf.io.gfile.exists(np_eval_results_path):
+      raise ValueError(f"The file {np_eval_results_path} exists already!!!")
     with tf.io.gfile.GFile(np_eval_results_path, 'w') as f:
       np.save(f, np.array(arr))
 

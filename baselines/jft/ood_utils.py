@@ -29,21 +29,23 @@ import sklearn.metrics
 
 
 
-# TODO(dusenberrymw) Move it to robustness metrics
-def auc(targets, predictions, targets_threshold=None):
-  """Computes Area Under the ROC and PR curves.
+# TODO(dusenberrymw): Move it to robustness metrics.
+def ood_metrics(targets, predictions, tpr_thres=0.95, targets_threshold=None):
+  """Computes Area Under the ROC and PR curves and FPRN.
 
   ROC - Receiver Operating Characteristic
   PR  - Precision and Recall
+  FPRN - False positive rate at which true positive rate is N.
 
   Args:
     targets: np.ndarray of targets, either 0 or 1, or continuous values.
     predictions: np.ndarray of predictions, any value.
+    tpr_thres: float, threshold for true positive rate.
     targets_threshold: float, if target values are continuous values, this
       threshold binarizes them.
 
   Returns:
-    A dictionary with AUC-ROC and AUC-PR scores.
+    A dictionary with AUC-ROC, AUC-PR, and FPRN scores.
   """
 
   if targets_threshold is not None:
@@ -52,9 +54,13 @@ def auc(targets, predictions, targets_threshold=None):
                        np.zeros_like(targets, dtype=np.int32),
                        np.ones_like(targets, dtype=np.int32))
 
+  fpr, tpr, _ = sklearn.metrics.roc_curve(targets, predictions)
+  fprn = fpr[np.argmax(tpr >= tpr_thres)]
+
   return {
       "auc-roc": sklearn.metrics.roc_auc_score(targets, predictions),
       "auc-pr": sklearn.metrics.average_precision_score(targets, predictions),
+      "fprn": fprn,
   }
 
 

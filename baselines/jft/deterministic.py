@@ -655,9 +655,11 @@ def main(argv):
             mw.measure(f'{val_name}_loss', val_loss)
 
         for metric_name, metric in ood_metrics.items():
-          aucs = ood_utils.auc(metric['label'], metric['score'])
-          mw.measure(f'ood_{metric_name}_auroc', aucs['auc-roc'])
-          mw.measure(f'ood_{metric_name}_auprc', aucs['auc-pr'])
+          metric_values = ood_utils.ood_metrics(metric['label'],
+                                                metric['score'])
+          mw.measure(f'ood_{metric_name}_auroc', metric_values['auc-roc'])
+          mw.measure(f'ood_{metric_name}_auprc', metric_values['auc-pr'])
+          mw.measure(f'ood_{metric_name}_fprn', metric_values['fprn'])
       chrono.resume()
 
     if 'fewshot' in config:

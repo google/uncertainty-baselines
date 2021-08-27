@@ -48,12 +48,13 @@ class OodUtilsTest(tf.test.TestCase):
                                                    self.cov)
     self.assertAllEqual(np.array([0, 0, 81]), np.min(dists, axis=-1))
 
-  def test_auc(self):
+  def test_ood_metrics(self):
     self.assertDictEqual(
-        ood_utils.auc([0, 0, 1, 1], [0.2, 0.4, 0.35, 0.1]),
+        ood_utils.ood_metrics([0, 0, 1, 1], [0.2, 0.4, 0.35, 0.1]),
         {
             "auc-roc": 0.25,
-            "auc-pr": 0.5
+            "auc-pr": 0.5,
+            "fprn": 1.0
         },
     )
 

@@ -343,6 +343,7 @@ def main(argv):
       logging.info(f"Evaluating by sampling {k_ensemble_members} models from an ensemble "
                    f"of {len(estimator)} models, currently at repetition {rep_index}/{N}")
       sampled_indices = np.random.choice(len(estimator), size=k_ensemble_members, replace=False)
+      logging.info(f"sampled indices are {sampled_indices}")
       sampled_estimator = [estimator[ind] for ind in sampled_indices]
       if "fsvi" in model_type:
         _estimator_args = {

@@ -303,11 +303,21 @@ def variational_ensemble_predict_and_decompose_uncertainty(
   # test time from different models
   # See note in docstring regarding `training` mode
   # pylint: disable=g-complex-comprehension
-  mc_samples = np.asarray([
-      model(x, training=training_setting)
-      for _ in range(num_samples)
-      for model in models
-  ]).reshape(-1, b)
+  list_samples = []
+  nb_trials = 0
+  i = 0
+  while len(list_samples) < num_samples * len(models):
+    nb_trials += 1
+    model_index = i % len(models)
+    model = models[model_index]
+    new_vals = model(x, training=training_setting)
+    if np.isnan(new_vals).sum() == 0:
+      list_samples.append(new_vals)
+    if nb_trials == 20:
+      raise ValueError(f"The model always returns nan!! {list_samples}")
+    i += 1
+
+  mc_samples = np.asarray(list_samples).reshape(-1, b)
   # pylint: enable=g-complex-comprehension
 
   # TODO: TPU friendly implementation

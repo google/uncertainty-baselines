@@ -156,6 +156,13 @@ def main(argv):
       f'gs://{FLAGS.output_bucket}/{dist_shift}/'
       f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}')
 
+  if ("radial" in model_type or "rank1" in model_type) \
+          and dist_shift == "severity" \
+          and tuning_domain == "joint":
+    logging.info(f"Doesn't have to run {model_type}, {dist_shift}, {tuning_domain}!")
+    wandb_run.finish()
+    return
+
 
   tf.io.gfile.makedirs(output_dir)
   logging.info(

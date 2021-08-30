@@ -55,7 +55,7 @@ def get_config():
   config.model.transformer.dropout_rate = 0.0
   config.model.transformer.mlp_dim = 2048
   config.model.transformer.num_heads = 8
-  config.model.transformer.attention_dropout_rate = 1.0
+  config.model.transformer.attention_dropout_rate = 0.0
 
   # BatchEnsemblee parameters.
   config.model.transformer.be_layers = (1, 3, 5, 7)
@@ -107,11 +107,12 @@ def get_sweep(hyper):
   return hyper.product([
       # Use this as a sensible sweep over other hyperparameters.
       # hyper.sweep('config.seed', list(range(3))),
-      # hyper.sweep('config.model.transformer.ens_size', [2, 4, 8, 16]),
-      # hyper.sweep('config.num_epochs', [5, 8, 10]),
-      # hyper.sweep('config.model.transformer.be_layers',
-      #             [(1, 3, 5, 7), (0, 1, 2, 3, 4, 5, 6, 7)]),
-      # hyper.sweep('config.model.transformer.random_sign_init',
-      #             [-1.0, -0.75, -0.5, 0.0, 0.5, 0.75, 1.0]),
-      hyper.sweep('config.fast_weight_lr_multiplier', [0.2, 0.5, 1.0, 2.0]),
+      hyper.sweep('config.model.transformer.ens_size', [4]),
+      hyper.sweep('config.num_epochs', [14]),
+      hyper.sweep('config.model.transformer.be_layers',
+                  [(1, 3, 5, 7)]),  # Every two layers.
+      hyper.sweep('config.model.transformer.random_sign_init',
+                  [-.5, .5]),
+      hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
+      hyper.sweep('config.lr.base', [1e-3]),
   ])

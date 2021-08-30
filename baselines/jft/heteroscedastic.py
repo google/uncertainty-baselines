@@ -158,7 +158,7 @@ def main(argv):
         preprocess_fn=pp_builder.get_preprocess_fn(pp_eval),
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
-        prefetch=0,  # Save memory since we cache.
+        prefetch=config.get('prefetch_to_host', 2),
         drop_remainder=False,
         shuffle_files=False)
     val_it = u.start_input_pipeline(
@@ -187,7 +187,7 @@ def main(argv):
         cache=config.get('val_cache', 'batched'),
         repeats=None,
         repeat_after_batching=True,
-        prefetch=0,
+        prefetch=config.get('prefetch_to_host', 2),
         drop_remainder=False,
         shuffle_buffer_size=None,
         ignore_errors=False,
@@ -255,6 +255,23 @@ def main(argv):
     if 'head' in params:
       params['head']['loc_layer']['bias'] = jnp.full_like(
           params['head']['loc_layer']['bias'], config.get('init_head_bias', 0))
+
+    # init head kernel to all zeros for fine-tuning
+    if config.get('model_init'):
+      params['head']['loc_layer']['kernel'] = jnp.full_like(
+          params['head']['loc_layer']['kernel'], 0)
+      params['head']['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
+          params['head']['scale_layer_homoscedastic']['kernel'], 0)
+      params['head']['scale_layer_homoscedastic']['bias'] = jnp.full_like(
+          params['head']['scale_layer_homoscedastic']['bias'], 0)
+      params['head']['scale_layer_heteroscedastic']['kernel'] = jnp.full_like(
+          params['head']['scale_layer_heteroscedastic']['kernel'], 0)
+      params['head']['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
+          params['head']['scale_layer_heteroscedastic']['bias'], 0)
+      params['head']['diag_layer']['kernel'] = jnp.full_like(
+          params['head']['diag_layer']['kernel'], 0)
+      params['head']['diag_layer']['bias'] = jnp.full_like(
+          params['head']['diag_layer']['bias'], 0)
 
     return params
 

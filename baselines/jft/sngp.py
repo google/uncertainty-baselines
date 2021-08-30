@@ -16,6 +16,7 @@
 """ViT-SNGP on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
+import itertools
 import multiprocessing
 import numbers
 import os
@@ -262,20 +263,20 @@ def main(argv):
     return (val_it, val_steps)
 
   if isinstance(config.val_split, str):
-    val_ds = {
+    val_iter_splits = {
         'val':
             _get_val_split(config.dataset, config.val_split, config.pp_eval,
                            config.get('dataset_dir'))
     }
   else:
-    val_ds = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
+    val_iter_splits = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
 
   if config.get('eval_on_cifar_10h'):
     val_steps = int(np.ceil(10000 / batch_size_eval))
 
     cifar10h_dataset = cifar10h_utils.load_ds()
 
-    val_it = input_pipeline.make_pipeline(
+    val_ds_cifar10h = input_pipeline.make_pipeline(
         data=cifar10h_dataset,
         batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(config.pp_eval_cifar_10h),
@@ -287,10 +288,12 @@ def main(argv):
         shuffle_buffer_size=None,
         ignore_errors=False,
         filter_fn=None)
-    val_it = u.start_input_pipeline(
-        val_it, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
+    val_iter_cifar10h = u.start_input_pipeline(
+        val_ds_cifar10h,
+        config.get('prefetch_to_device', 1),
+        pad=local_batch_size_eval)
 
-    val_ds['cifar_10h'] = (val_it, val_steps)
+    val_iter_splits['cifar_10h'] = (val_iter_cifar10h, val_steps)
 
   ood_ds = None
   if config.get('ood_dataset'):
@@ -541,7 +544,9 @@ def main(argv):
     return opt, s, l, rng, measurements
 
   # Other things besides optimizer state to be stored.
-  checkpoint_extra = dict(accum_train_time=0.0)
+  rng, rng_loop = jax.random.split(rng, 2)
+  rngs_loop = flax_utils.replicate(rng_loop)
+  checkpoint_extra = dict(accum_train_time=0.0, rngs_loop=rngs_loop)
 
   # Decide how to initialize training. The order is important.
   # 1. Always resumes from the existing checkpoint, e.g. resumes a finetune job.
@@ -595,8 +600,8 @@ def main(argv):
       batch_size, total_steps, steps_per_epoch, **config.get('lr', {}))
   # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
   # necessary for TPUs.
-  lr_iter = u.prefetch_scalar(map(lr_fn, range(first_step, total_steps)),
-                              config.get('prefetch_to_device', 1))
+  lr_iter = u.prefetch_scalar(
+      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
   # Prepare the precision matrix resetting schedule, and pre-fetch it to device.
   reset_covmat_fn = lambda step: float(step % steps_per_epoch == 0)
@@ -614,8 +619,7 @@ def main(argv):
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
 
-  rng, rng_loop = jax.random.split(rng, 2)
-  rngs_loop = flax_utils.replicate(rng_loop)
+  rngs_loop = checkpoint_extra['rngs_loop']
   checkpoint_writer = None
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
@@ -625,6 +629,22 @@ def main(argv):
   results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
+  logging.info('first_step = %s', first_step)
+  # Advance the iterators if we are restarting from an earlier checkpoint.
+  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+  if first_step > 0:
+    write_note('Advancing iterators after resuming from a checkpoint...')
+    lr_iter = itertools.islice(lr_iter, first_step, None)
+    train_iter = itertools.islice(train_iter, first_step, None)
+    # NOTE: Validation eval is only run on certain steps, so determine how many
+    # times it was run previously.
+    num_val_runs = sum(
+        map(lambda i: u.itstime(i, config.log_eval_steps, total_steps),
+            range(1, first_step + 1)))
+    for val_name, (val_iter, val_steps) in val_iter_splits.items():
+      val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
+      val_iter_splits[val_name] = (val_iter, val_steps)
+
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
   for step, train_batch, lr_repl, reset_covmat_repl in zip(
@@ -695,7 +715,7 @@ def main(argv):
     if u.itstime(step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
-      for val_name, (val_iter, val_steps) in val_ds.items():
+      for val_name, (val_iter, val_steps) in val_iter_splits.items():
         ncorrect, loss, nseen = 0, 0, 0
         ece_num_bins = config.get('ece_num_bins', 15)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
@@ -780,9 +800,8 @@ def main(argv):
               metric.update_state(ood_labels, confs)
           # For in-domain data, also compute model accuracy.
           if val_name == 'ind':
-            val_loss = loss / nseen  # Keep to return for reproducibility tests.
             mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
-            mw.measure(f'{val_name}_loss', val_loss)
+            mw.measure(f'{val_name}_loss', loss / nseen)
         for name, value in ood_metrics.items():
           mw.measure(f'ood_{name}', value.result())
 
@@ -801,6 +820,10 @@ def main(argv):
         fewshotter.walk_results(mw.measure, results, best_l2)
         chrono.resume()
     mw.step_end()
+    if config.get('testing_failure_step'):
+      # Break early to simulate infra failures in test cases.
+      if config.testing_failure_step == step:
+        break
 
   write_note(f'Done!\n{chrono.note}')
   pool.close()

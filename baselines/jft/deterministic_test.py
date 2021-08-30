@@ -147,8 +147,25 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(val_loss, correct_val_loss)
     self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
 
-    # TODO(dusenberrymw): Check for ability to restart from previous checkpoint
-    # (after failure, etc.).
+    # Check for the ability to restart from a previous checkpoint (after
+    # failure, etc.).
+    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    # NOTE: Use this flag to simulate failing at a certain step.
+    FLAGS.config.testing_failure_step = FLAGS.config.total_steps - 1
+    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      deterministic.main(None)
+
+    # This should resume from the failed step.
+    del FLAGS.config.testing_failure_step
+    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      train_loss, val_loss, fewshot_results = deterministic.main(None)
+
+    fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
+    logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
+                 train_loss, val_loss, fewshot_acc_sum)
+    self.assertAllClose(train_loss, correct_train_loss)
+    self.assertAllClose(val_loss, correct_val_loss)
+    self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
 
 
 if __name__ == '__main__':

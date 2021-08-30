@@ -78,10 +78,10 @@ def main(argv):
     logging.info('data_dir=%s', config.data_dir)
   logging.info('Output dir: %s', output_dir)
 
-  save_checkpoint_path = None
+  save_checkpoint_dir = None
   if config.get('checkpoint_steps'):
     gfile.makedirs(output_dir)
-    save_checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
+    save_checkpoint_dir = os.path.join(output_dir, 'checkpoints')
 
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
@@ -409,19 +409,17 @@ def main(argv):
   # 2. Resume from a previous checkpoint, e.g. start a cooldown training job.
   # 3. Initialize model from something, e,g, start a fine-tuning job.
   # 4. Train from scratch.
-  resume_checkpoint_path = None
-  if save_checkpoint_path and gfile.exists(save_checkpoint_path):
-    resume_checkpoint_path = save_checkpoint_path
+  resume_checkpoint_dir = None
+  if save_checkpoint_dir and gfile.exists(save_checkpoint_dir):
+    resume_checkpoint_dir = save_checkpoint_dir
   elif config.get('resume'):
-    resume_checkpoint_path = fillin(config.resume)
-  if resume_checkpoint_path:
+    resume_checkpoint_dir = fillin(config.resume)
+  if resume_checkpoint_dir:
     write_note('Resume training from checkpoint...')
-    checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
-    _, checkpoint_tree = jax.tree_flatten(checkpoint)
-    loaded = u.load_checkpoint(checkpoint_tree, resume_checkpoint_path)
-    # bfloat16 type gets lost when data is saved to disk, so we recover it.
-    checkpoint = jax.tree_map(u.recover_dtype, loaded)
-    opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
+    state = {'opt': opt_cpu, 'extra': checkpoint_extra}
+    restored_state = flax.training.checkpoints.restore_checkpoint(
+        resume_checkpoint_dir, target=state)
+    opt_cpu, checkpoint_extra = restored_state['opt'], restored_state['extra']
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
     # TODO(dusenberrymw): Replace and test load function.
@@ -515,17 +513,15 @@ def main(argv):
       # memory errors (see b/160593526). Also, takes device 0's params only.
       opt_cpu = jax.tree_map(lambda x: np.array(x[0]), opt_repl)
 
-      # Check whether we want to keep a copy of the current checkpoint.
-      copy_step = None
-      if u.itstime(step, config.get('keep_checkpoint_steps'), total_steps):
-        write_note('Keeping a checkpoint copy...')
-        copy_step = step
-
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
       # `flax.struct`. Both can be present in a checkpoint.
-      checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
+      state = {'opt': opt_cpu, 'extra': checkpoint_extra}
       checkpoint_writer = pool.apply_async(
-          u.save_checkpoint, (checkpoint, save_checkpoint_path, copy_step))
+          flax.training.checkpoints.save_checkpoint, (save_checkpoint_dir,), {
+              'target': state,
+              'step': step,
+              'keep': int(total_steps / config.get('keep_checkpoint_steps'))
+          })
       chrono.resume()
 
     # Report training progress

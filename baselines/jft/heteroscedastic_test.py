@@ -49,7 +49,7 @@ def get_config(classifier, representation_size):
 
   config.batch_size = 3
   config.prefetch_to_device = 1
-  config.shuffle_buffer_size = 10
+  config.shuffle_buffer_size = 20
 
   config.total_steps = 3
   config.log_training_steps = config.total_steps
@@ -115,11 +115,10 @@ def get_config(classifier, representation_size):
 class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      ('token', 2, 16206.417, 15395.884114583334, 0.13999999314546585),
-      # TODO(dusenberrymw): This test is flaky due to the fewshot result.
-      # ('token', None, 15023.7295, 12328.896267361111, 0.17999999225139619),
-      ('gap', 2, 14886.842, 14083.331597222223, 0.1599999964237213),
-      ('gap', None, 14607.297, 13829.973090277777, 0.25999999046325684),
+      ('token', 2, 15925.0, 14882.082899305555, 0.1899999976158142),
+      ('token', None, 15594.578, 12385.49609375, 0.19999999552965164),
+      ('gap', 2, 14589.023, 14325.224392361111, 0.16999999433755875),
+      ('gap', None, 14479.479, 14084.083333333334, 0.25),
   )
   def test_heteroscedastic_script(self, classifier, representation_size,
                                   correct_train_loss, correct_val_loss,

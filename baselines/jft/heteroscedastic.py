@@ -84,10 +84,11 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  # This seed makes the Jax part of things (like model init) deterministic.
-  # However, full training still won't be deterministic, for example due to the
-  # tf.data pipeline not being deterministic even if we would set TF seed.
-  rng = jax.random.PRNGKey(config.get('seed', 0))
+  # TODO(dusenberrymw): Also add function-level seeds in the tf.data input
+  # pipeline once that code is open-sourced.
+  seed = config.get('seed', 0)
+  rng = jax.random.PRNGKey(seed)
+  tf.random.set_seed(seed)
 
   xm_xp = None
   xm_wu = None
@@ -122,6 +123,7 @@ def main(argv):
       local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
+  # TODO(dusenberrymw): Pass in seed for function-level seeds once open-sourced.
   train_ds = input_pipeline.get_data(
       dataset=config.dataset,
       split=config.train_split,

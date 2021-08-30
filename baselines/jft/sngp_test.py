@@ -49,7 +49,7 @@ def get_config(classifier, representation_size):
 
   config.batch_size = 3
   config.prefetch_to_device = 1
-  config.shuffle_buffer_size = 10
+  config.shuffle_buffer_size = 20
 
   config.total_steps = 3
   config.log_training_steps = config.total_steps
@@ -117,10 +117,10 @@ def get_config(classifier, representation_size):
 class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      ('token', 2, 82027.5781, 281.8759, 0.22999999672174454),
-      ('token', None, 475.9011, 188.6002, 0.20999999344348907),
-      ('gap', 2, 1299.9533, 369.9055, 0.23999999463558197),
-      ('gap', None, 1049.3100, 494.6824, 0.2199999988079071),
+      ('token', 2, 2099.0857, 1852.83056640625, 0.17999999225139618),
+      ('token', None, 276.63004, 379.5230645073785, 0.2199999988079071),
+      ('gap', 2, 1335.5664, 491.4996744791667, 0.20999999344348907),
+      ('gap', None, 1377.8821, 292.89059109157984, 0.16999999433755875),
   )
   def test_sngp_script(self, classifier, representation_size,
                        correct_train_loss, correct_val_loss,

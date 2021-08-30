@@ -49,7 +49,7 @@ def get_config(classifier, representation_size):
 
   config.batch_size = 3
   config.prefetch_to_device = 1
-  config.shuffle_buffer_size = 10
+  config.shuffle_buffer_size = 20
 
   config.total_steps = 3
   config.log_training_steps = config.total_steps
@@ -115,10 +115,10 @@ def get_config(classifier, representation_size):
 class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      ('token', 2, 13877.0625, 12517.542100694445, 0.17999999225139618),
-      ('token', None, 10922.836, 9120.224175347223, 0.1899999976158142),
-      ('gap', 2, 13866.779, 12934.386284722223, 0.19999999552965164),
-      ('gap', None, 13569.819, 12855.133680555555, 0.23999999463558197),
+      ('token', 2, 13601.465, 11799.640190972223, 0.14999999105930328),
+      ('token', None, 10874.713, 9360.7265625, 0.1899999976158142),
+      ('gap', 2, 13881.022, 13214.797743055555, 0.2199999913573265),
+      ('gap', None, 13278.581, 12868.815972222223, 0.28999999165534973),
   )
   def test_deterministic_script(self, classifier, representation_size,
                                 correct_train_loss, correct_val_loss,

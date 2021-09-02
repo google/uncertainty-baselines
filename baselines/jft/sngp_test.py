@@ -174,7 +174,7 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
         fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.025, rtol=0.15)
 
   @parameterized.parameters(
-      ('token', 2, 15.611534, 8.534147050645617, 0.09999999776482582),
+      ('token', 2, 15.39574, 8.557904773288303, 0.11999999545514584),
       ('token', None, 3.8683228, 21.762818230523003, 0.1199999954551458),
       ('gap', 2, 40.402115, 29.980573866102432, 0.08999999985098839),
       ('gap', None, 41.147945, 25.7630132039388, 0.08999999985098839),

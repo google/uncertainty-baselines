@@ -131,9 +131,12 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
                              dtype=tf.int32)
     label_spec = tf.TensorSpec((batch_size, max_dial_len), dtype=tf.int32)
 
-    self.assertEqual(dataset_spec['sys_utt'], utt_spec)
-    self.assertEqual(dataset_spec['usr_utt'], utt_spec)
-    self.assertEqual(dataset_spec['label'], label_spec)
+    self.assertEqual(dataset_spec['sys_utt'].shape[1:], utt_spec.shape[1:])
+    self.assertEqual(dataset_spec['sys_utt'].dtype, utt_spec.dtype)
+    self.assertEqual(dataset_spec['usr_utt'].shape[1:], utt_spec.shape[1:])
+    self.assertEqual(dataset_spec['usr_utt'].dtype, utt_spec.dtype)
+    self.assertEqual(dataset_spec['label'].shape[1:], label_spec.shape[1:])
+    self.assertEqual(dataset_spec['label'].dtype, label_spec.dtype)
 
 
 class MultiWoZSynthDatasetTest(SimDialDatasetTest):

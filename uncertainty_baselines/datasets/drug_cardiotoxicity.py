@@ -242,7 +242,7 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
       data_dir: Optional[str] = None,
       download_data: bool = False,
       is_training: Optional[bool] = None,
-      drop_remainder: bool = True):
+      drop_remainder: bool = False):
     """Create a tf.data.Dataset builder.
 
     Args:

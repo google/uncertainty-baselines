@@ -260,14 +260,16 @@ def main(argv):
     if config.get('model_init'):
       params['head']['loc_layer']['kernel'] = jnp.full_like(
           params['head']['loc_layer']['kernel'], 0)
-      params['head']['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
-          params['head']['scale_layer_homoscedastic']['kernel'], 0)
-      params['head']['scale_layer_homoscedastic']['bias'] = jnp.full_like(
-          params['head']['scale_layer_homoscedastic']['bias'], 0)
-      params['head']['scale_layer_heteroscedastic']['kernel'] = jnp.full_like(
-          params['head']['scale_layer_heteroscedastic']['kernel'], 0)
-      params['head']['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
-          params['head']['scale_layer_heteroscedastic']['bias'], 0)
+      if 'scale_layer_homoscedastic' in params['head']:
+        params['head']['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
+            params['head']['scale_layer_homoscedastic']['kernel'], 0)
+        params['head']['scale_layer_homoscedastic']['bias'] = jnp.full_like(
+            params['head']['scale_layer_homoscedastic']['bias'], 0)
+      if 'scale_layer_heteroscedastic' in params['head']:
+        params['head']['scale_layer_heteroscedastic']['kernel'] = jnp.full_like(
+            params['head']['scale_layer_heteroscedastic']['kernel'], 0)
+        params['head']['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
+            params['head']['scale_layer_heteroscedastic']['bias'], 0)
       params['head']['diag_layer']['kernel'] = jnp.full_like(
           params['head']['diag_layer']['kernel'], 0)
       params['head']['diag_layer']['bias'] = jnp.full_like(

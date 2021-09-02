@@ -167,6 +167,58 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(val_loss, correct_val_loss)
     self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
 
+  @parameterized.parameters(
+      ('token', 2, 5.3612347, 4.898042678833008, 0.09999999776482582),
+      ('token', None, 5.631799, 5.07450728946262, 0.11999999359250069),
+      ('gap', 2, 6.4580526, 6.147392484876844, 0.08999999985098839),
+      ('gap', None, 6.4652596, 6.158123440212673, 0.08999999985098839),
+  )
+  def test_loading_pretrained_model(self, classifier, representation_size,
+                                    correct_train_loss, correct_val_loss,
+                                    correct_fewshot_acc_sum):
+    # Set flags.
+    FLAGS.xm_runlocal = True
+    FLAGS.config = get_config(
+        classifier=classifier, representation_size=representation_size)
+    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+
+    # Go two directories up to the root of the UB directory.
+    ub_root_dir = pathlib.Path(__file__).parents[2]
+    data_dir = str(ub_root_dir) + '/.tfds/metadata'
+    logging.info('data_dir contents: %s', os.listdir(data_dir))
+    FLAGS.config.dataset_dir = data_dir
+
+    # Run to save a checkpoint, then use that as a pretrained model.
+    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      heteroscedastic.main(None)
+
+    previous_output_dir = FLAGS.output_dir
+    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    FLAGS.config.model_init = os.path.join(previous_output_dir,
+                                           'checkpoint.npz')
+    FLAGS.config.model.representation_size = None
+    FLAGS.config.dataset = 'cifar10'
+    FLAGS.config.val_split = 'train[:9]'
+    FLAGS.config.train_split = 'train[30:60]'
+    FLAGS.config.num_classes = 10
+    pp_common = '|value_range(-1, 1)'
+    pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
+    pp_common += '|keep("image", "labels")'
+    FLAGS.config.pp_train = 'decode|resize_small(512)|central_crop(384)|flip_lr' + pp_common
+    FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
+    FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
+    FLAGS.config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'
+    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      train_loss, val_loss, fewshot_results = heteroscedastic.main(None)
+
+    fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
+    logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
+                 train_loss, val_loss, fewshot_acc_sum)
+    self.assertAllClose(train_loss, correct_train_loss)
+    self.assertAllClose(val_loss, correct_val_loss)
+    self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
+
 
 if __name__ == '__main__':
   tf.test.main()

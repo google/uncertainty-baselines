@@ -37,13 +37,13 @@ import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
+import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
 import ood_utils  # local file import
 
 
 fewshot = None
 input_pipeline = None
-resformer = None
 u = None
 pp_builder = None
 xm = None
@@ -416,16 +416,16 @@ def main(argv):
     resume_checkpoint_path = fillin(config.resume)
   if resume_checkpoint_path:
     write_note('Resume training from checkpoint...')
-    checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
-    _, checkpoint_tree = jax.tree_flatten(checkpoint)
-    loaded = u.load_checkpoint(checkpoint_tree, resume_checkpoint_path)
-    # bfloat16 type gets lost when data is saved to disk, so we recover it.
-    checkpoint = jax.tree_map(u.recover_dtype, loaded)
+    checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}
+    checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
+                                                  resume_checkpoint_path)
     opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
-    # TODO(dusenberrymw): Replace and test load function.
-    loaded = resformer.load(params_cpu, config.model_init, config.get('model'))
+    loaded = checkpoint_utils.load_from_pretrained_checkpoint(
+        params_cpu, config.model_init, config.model.representation_size,
+        config.model.classifier,
+        config.model.get('reinit_params', ('head/kernel', 'head/bias')))
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')
@@ -525,7 +525,8 @@ def main(argv):
       # `flax.struct`. Both can be present in a checkpoint.
       checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
       checkpoint_writer = pool.apply_async(
-          u.save_checkpoint, (checkpoint, save_checkpoint_path, copy_step))
+          checkpoint_utils.save_checkpoint,
+          (checkpoint, save_checkpoint_path, copy_step))
       chrono.resume()
 
     # Report training progress

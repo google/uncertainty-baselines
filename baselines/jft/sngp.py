@@ -39,13 +39,13 @@ import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
+import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
 import ood_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
 input_pipeline = None
-resformer = None
 u = None
 pp_builder = None
 xm = None
@@ -123,7 +123,7 @@ def get_gp_kwargs(gp_config):
   return gp_layer_kwargs
 
 
-def resformer_sngp_load(init_params, init_file, model_params):
+def pretrained_sngp_load(init_params, init_file, model_params):
   """Load model parameters from checkpoint and align that with ViT-SNGP."""
 
   def _flatten_dict(params):
@@ -134,7 +134,12 @@ def resformer_sngp_load(init_params, init_file, model_params):
     return trav_utils.unflatten_dict(tuple_to_value)
 
   # Restores parameters from the checkpoint.
-  restored_params = resformer.load(init_params, init_file, model_params)
+  restored_params = checkpoint_utils.load_from_pretrained_checkpoint(
+      init_params, init_file, model_params.representation_size,
+      model_params.classifier,
+      model_params.get('reinit_params',
+                       ('head/output_layer/kernel', 'head/output_layer/bias',
+                        'head/kernel', 'head/bias')))
 
   # Align restored parameter dict (restored_params) with model parameters
   # (init_params) by adding in missing parameters and removing extra parameters.
@@ -574,13 +579,13 @@ def main(argv):
     resume_checkpoint_path = fillin(config.resume)
   if resume_checkpoint_path:
     write_note('Resume training from checkpoint...')
-    checkpoint = {
-        'opt': opt_cpu, 'states': states_cpu, 'extra': checkpoint_extra
+    checkpoint_tree = {
+        'opt': opt_cpu,
+        'states': states_cpu,
+        'extra': checkpoint_extra
     }
-    _, checkpoint_tree = jax.tree_flatten(checkpoint)
-    loaded = u.load_checkpoint(checkpoint_tree, resume_checkpoint_path)
-    # bfloat16 type gets lost when data is saved to disk, so we recover it.
-    checkpoint = jax.tree_map(u.recover_dtype, loaded)
+    checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
+                                                  resume_checkpoint_path)
     opt_cpu, states_cpu, checkpoint_extra = (checkpoint['opt'],
                                              checkpoint['states'],
                                              checkpoint['extra'])
@@ -590,9 +595,8 @@ def main(argv):
     # (random feature, precision matrix, etc) are last-layer parameters that
     # should be re-trained during fine-tuning.
     write_note(f'Initialize trainable parameters from {config.model_init}...')
-    # TODO(dusenberrymw): Replace and test load function.
-    loaded = resformer_sngp_load(params_cpu, config.model_init,
-                                 config.get('model'))
+    loaded = pretrained_sngp_load(params_cpu, config.model_init,
+                                  config.get('model'))
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')
@@ -712,7 +716,8 @@ def main(argv):
           'extra': checkpoint_extra
       }
       checkpoint_writer = pool.apply_async(
-          u.save_checkpoint, (checkpoint, save_checkpoint_path, copy_step))
+          checkpoint_utils.save_checkpoint,
+          (checkpoint, save_checkpoint_path, copy_step))
       chrono.resume()
 
     # Report training progress

@@ -15,6 +15,9 @@
 
 r"""Deterministic baseline for Diabetic Retinopathy Detection.
 
+Refining based off
+baselines/diabetic_retinopathy_detection/experiments/deterministic_tune.py.
+
 """
 
 import datetime
@@ -29,22 +32,22 @@ def get_config(launch_on_gcp):
   config = config_dict.ConfigDict()
   config.user = getpass.getuser()
   config.priority = 'prod'
-  config.platform = 'gpu'
-  config.gpu_type = 't4'
-  config.num_gpus = 1
+  config.platform = 'tpu-v3'
+  config.tpu_topology = '2x2'
   config.experiment_name = (
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
-  output_dir = 'gs://launcher-beta-test-bucket/{}'.format(
+  output_dir = 'gs://launcher-beta-test-bucket/diabetic_retinopathy_detection/{}'.format(
       config.experiment_name)
   data_dir = 'gs://ub-data/retinopathy'
   config.args = {
       'train_epochs': 90,
+      'use_gpu': False,  # Use TPU.
       'train_batch_size': 64,
       'eval_batch_size': 64,
-      'checkpoint_interval': -1,
-      'lr_schedule': 'step',
       'output_dir': output_dir,
+      'checkpoint_interval': -1,
+      'lr_schedule': 'linear',
       'data_dir': data_dir,
   }
   return config
@@ -53,7 +56,8 @@ def get_config(launch_on_gcp):
 def get_sweep(hyper):
   num_trials = 50
   return hyper.zipit([
-      hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.1)),
-      hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.1)),
-      hyper.loguniform('l2', hyper.interval(1e-5, 1e-3)),
+      hyper.loguniform('base_learning_rate', hyper.interval(0.03, 0.5)),
+      hyper.uniform('final_decay_factor', hyper.discrete([1e-3, 1e-2, 0.1])),
+      hyper.loguniform('one_minus_momentum', hyper.interval(5e-3, 0.05)),
+      hyper.loguniform('l2', hyper.interval(1e-6, 2e-4)),
   ], length=num_trials)

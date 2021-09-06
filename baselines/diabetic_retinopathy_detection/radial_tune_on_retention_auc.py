@@ -237,7 +237,7 @@ def main(argv):
     tf.keras.mixed_precision.experimental.set_policy(policy)
 
   summary_writer = tf.summary.create_file_writer(
-      os.path.join(FLAGS.output_dir, 'summaries'))
+      os.path.join(output_dir, 'summaries'))
 
   if FLAGS.prior_stddev is None:
     logging.info(

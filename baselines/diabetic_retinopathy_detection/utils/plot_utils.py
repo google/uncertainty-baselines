@@ -1,24 +1,14 @@
 import os
-import time
-
-import numpy as np
-import pandas as pd
-import robustness_metrics as rm
-import tensorflow as tf
-import torch
-from absl import flags
-from absl import logging
-from sklearn.metrics import (log_loss, roc_auc_score, accuracy_score,
-                             roc_curve, precision_recall_curve, auc)
-import datetime
-import utils  # local file import
-from itertools import cycle
+import os.path as osp
+from collections import defaultdict
+from typing import Tuple, Dict, List, Any, Union, Callable
 
 import matplotlib.pyplot as plt
+import numpy as np
 import seaborn as sns
-import os.path as osp
-from typing import Tuple
-
+from absl import logging
+from scipy.stats import sem
+from sklearn.metrics import roc_curve
 
 # Format: model_type, is_ensemble
 MODEL_TYPE_TO_FULL_NAME = {
@@ -84,6 +74,11 @@ RETENTION_ARR_TO_FULL_NAME = {
   'retention_auprc_arr': 'AUPRC'
 }
 
+ROC_TYPE_TO_FULL_NAME = {
+  'drd': 'Diabetic Retinopathy Detection',
+  'ood_detection': 'OOD Detection'
+}
+
 def set_matplotlib_constants():
   plt.rcParams["figure.figsize"] = (6, 4)
   plt.rcParams["axes.titlesize"] = 12
@@ -115,9 +110,130 @@ def get_model_name(model_key: Tuple):
     return f'{MODEL_TYPE_TO_FULL_NAME[(model_type, False)]}'
 
 
+def plot_roc_curves(
+    distribution_shift_name, dataset_to_model_results, plot_dir: str):
+  """TODO
+  :param distribution_shift_name:
+  :param dataset_to_model_results: 
+  :param plot_dir: 
+  :return: 
+  """"""
+  """
+  set_matplotlib_constants()
+  datasets = list(sorted(list(dataset_to_model_results.keys())))
+
+  roc_types = {
+    'drd': {
+      'y_true': 'y_true',
+      'y_pred': 'y_pred'
+    },
+    'ood_detection': {
+      'y_true': 'is_ood',
+      'y_score': 'y_pred_entropy'
+    },
+  }
+
+  thresholds = np.arange(0, 1.02, 0.02)
+
+  for dataset in datasets:
+    dataset_results = dataset_to_model_results[dataset]
+    for tuning_domain in ['indomain', 'joint']:
+      for roc_type, roc_dict in roc_types.items():
+        # Need the joint datasets, which have an `is_ood` field
+        if roc_type == 'ood_detection' and not 'joint' in dataset:
+          continue
+
+        y_true_key = roc_dict['y_true']
+        y_pred_key = roc_dict['y_pred']
+
+        fig, ax = plt.subplots()
+        plt.subplots_adjust(left=0.20, bottom=0.20)
+
+        # The actual DRD predictions are quite far from the diagonal,
+        # whereas OOD detection is close. Set frame accordingly.
+        if roc_type == 'ood_detection':
+          ax.plot([0, 1], [0, 1], linestyle=":", color="black")
+
+        roc_name = ROC_TYPE_TO_FULL_NAME[roc_type]
+
+        plot_name = (f'retention-{distribution_shift_name}-{dataset}'
+                     f'-{tuning_domain}-{roc_name}')
+
+        model_names = []
+        for i, (
+            (mt, k, is_d, key_tuning_domain, n_mc),
+                model_dict) in enumerate(dataset_results.items()):
+          if tuning_domain != key_tuning_domain:
+            continue
+
+          model_name = get_model_name(
+            (mt, k, is_d, key_tuning_domain, n_mc))
+          model_names.append(model_name)
+
+          y_true = np.array(model_dict[y_true_key])
+          y_pred = np.array(model_dict[y_pred_key])
+
+          tpr_values = np.zeros(
+            shape=(thresholds.shape[0], y_true.shape[0]))
+
+          # TODO: this should be the case, but our test data may be corrupted
+          #   in some way from partial runs
+          # assert y_true.shape[0] == y_pred.shape[0]
+
+          for seed_idx in range(y_true.shape[0]):
+            y_true_seed = y_true[seed_idx, :]
+            y_pred_seed = y_pred[seed_idx, :]
+            fpr, tpr, _ = roc_curve(y_true=y_true_seed, y_score=y_pred_seed)
+
+            for j in range(thresholds.shape[0]):
+              fpr_idx = np.abs(fpr - thresholds[j]).argmin()
+              tpr_values[j, i] = tpr[fpr_idx]
+
+          tpr_value_mean = tpr_values.mean(1)
+          # tpr_value_std = tpr_values.std(1)
+          tpr_value_ste = sem(tpr_values, axis=1)
+
+          color, linestyle = get_colors_and_linestyle(
+            MODEL_TYPE_TO_FULL_NAME[(mt, k > 1)])
+
+          # Visualize mean with standard error
+          ax.plot(thresholds,
+                  tpr_value_mean,
+                  color=color,
+                  label=model_name,
+                  linestyle=linestyle)
+          ax.fill_between(
+            thresholds,
+            tpr_value_mean - tpr_value_ste,
+            tpr_value_mean + tpr_value_ste,
+            color=color,
+            alpha=0.25,
+          )
+
+          # ax.legend(facecolor="white")
+          ax.set_xlabel(f"False Positive Rate")
+          ax.set_ylabel(f"True Positive Rate")
+          ax.set_ylim([-0.05, 1.05])
+          ax.set_xlim([-0.03, 1.03])
+          ax.legend()
+          fig.tight_layout()
+
+        if isinstance(plot_dir, str):
+          os.makedirs(plot_dir, exist_ok=True)
+          metric_plot_path = os.path.join(
+            plot_dir, f'{plot_name}.pdf')
+          fig.savefig(
+            metric_plot_path, transparent=True, dpi=300, format='pdf')
+          logging.info(
+            f'Saved ROC plot for distribution shift {distribution_shift_name},'
+            f'dataset {dataset}, tuning domain {tuning_domain}, '
+            f'roc_type {roc_name}, models {model_names} to '
+            f'{metric_plot_path}')
+
+
 def plot_retention_curves(
     distribution_shift_name, dataset_to_model_results, plot_dir: str,
-    no_oracle=False):
+    no_oracle=True):
   """Creates a deferred prediction plot for each metric in the results_df.
 
   For a particular model, aggregates metric values (e.g., accuracy) when retain
@@ -146,7 +262,7 @@ def plot_retention_curves(
       for retention_type in retention_types:
         fig, ax = plt.subplots()
         plt.subplots_adjust(left=0.20, bottom=0.20)
-        ax.plot([0, 1], [0, 1], linestyle=":", color="black")
+        # ax.plot([0, 1], [0, 1], linestyle=":", color="black")
 
         retention_name = RETENTION_ARR_TO_FULL_NAME[retention_type]
         plot_name = (f'retention-{distribution_shift_name}-{dataset}'
@@ -172,8 +288,9 @@ def plot_retention_curves(
             prop_model = 1 - prop_expert
             retention_arr = (retention_arr - prop_expert) / prop_model
 
-          subsample_factor = max(2, int(retention_arr.shape[1] / 500))
-          retention_arr = retention_arr[::subsample_factor]
+          if retention_arr.shape[1] > 3000:
+            subsample_factor = max(2, int(retention_arr.shape[1] / 3000))
+            retention_arr = retention_arr[::subsample_factor]
 
           retain_percs = np.arange(
             retention_arr.shape[1]) / retention_arr.shape[1]
@@ -213,7 +330,7 @@ def plot_retention_curves(
           fig.savefig(
             metric_plot_path, transparent=True, dpi=300, format='pdf')
           logging.info(
-            f'Saved plot for distribution shift {distribution_shift_name},'
+            f'Saved retention plot for distribution shift {distribution_shift_name},'
             f'dataset {dataset}, tuning domain {tuning_domain}, '
             f'metric {retention_type}, models {model_names} to '
             f'{metric_plot_path}')
@@ -247,87 +364,114 @@ def plot_predictive_entropy_histogram(
   plt.savefig(osp.join(plt_path, f'predictive_{uncertainty_type}.svg'))
 
 
-# def plot_roc_curve(fpr, tpr, roc_auc, title='', plt_path='.'):
-#   """
-#   Based on scikit-learn examples.
-#   https://scikit-learn.org/stable/auto_examples/model_selection/
-#   plot_roc.html#sphx-glr-auto-examples-model-selection-plot-roc-py
-#   """
-#   plt.figure()
-#   lw = 2
-#   plt.plot(fpr, tpr, color='darkorange',
-#            lw=lw, label='ROC curve (area = %0.2f)' % roc_auc)
-#   plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-#   plt.xlim([0.0, 1.0])
-#   plt.ylim([0.0, 1.05])
-#   plt.xlabel('False Positive Rate')
-#   plt.ylabel('True Positive Rate')
-#   plt.title(f'{title} ROC Curve')
-#   plt.legend(loc="lower right")
-#   plt.savefig(osp.join(plt_path, 'roc_curve.svg'))
+RESULT_DICT = Dict[str, List[np.ndarray]]
+# RESULT_DICT contains keys [‘y_pred’, ‘y_true’, ‘y_aleatoric_uncert’,
+#   ‘y_epistemic_uncert’, ‘y_total_uncert’, ‘is_ood']
+MODEL_RESULT_DICT = Dict[Tuple, RESULT_DICT]
+DATA_RESULT_DICT = Dict[str, MODEL_RESULT_DICT]
 
-  def plot_auroc_entropy_all(preds_ood_dict: dict,
-                             preds_test_dict: dict,
-                             model_list: list,
-                             data_training: str,
-                             data_ood: str,
-                             save_folder: str
-                             ):
-    fig, ax = plt.subplots()
-    plt.subplots_adjust(left=0.20, bottom=0.20)
-    ax.plot([0, 1], [0, 1], linestyle=":", color="black")
 
-    thresholds = np.arange(0, 1.02, 0.02)
-    for model in tqdm(model_list):
-      tpr_values = np.zeros(
-        shape=(thresholds.shape[0], preds_ood_dict[model].shape[0]))
-      for i in range(preds_ood_dict[model].shape[0]):
-        predicted_labels_ood = preds_ood_dict[model].mean(1)[i, :]
-        predicted_labels_test = preds_test_dict[model].mean(1)[i, :]
+def grid_plot_wrapper(fn,
+                      n_plots,
+                      ncols,
+                      nrows=None,
+                      get_args: Union[List[List], Callable[[int], List]]=None,
+                      get_kwargs: Union[List[Dict], Callable[[int], Dict]]=None):
+  if not get_args:
+    get_args = lambda i: []
+  if not get_kwargs:
+    get_kwargs = lambda i: {}
+  if isinstance(get_args, list):
+    get_args = lambda i: get_args[i]
+  if isinstance(get_kwargs, list):
+    get_kwargs = lambda i: get_kwargs[i]
+  if not nrows:
+    nrows = int(np.ceil(n_plots / ncols))
+  fig, axes = plt.subplots(nrows=nrows, ncols=ncols)
+  flatten_axes = [a for axs in axes for a in axs]
+  for i, ax in enumerate(flatten_axes):
+    fn(*get_args(i), ax=ax, **get_kwargs(i))
+  return fig
 
-        ood_size = predicted_labels_ood.shape[0]
-        test_size = predicted_labels_test.shape[0]
-        anomaly_targets = jnp.concatenate(
-          (np.zeros(test_size), np.ones(ood_size)))
+def transpose_dict(d: Dict[Any, Dict[Any, Any]]):
+  new_d = defaultdict(dict)
+  for k1, v1 in d.items():
+    for k2, v2 in v1.items():
+      assert k1 not in new_d[k2]
+      new_d[k2][k1] = v2
+  return new_d
 
-        entropy_test = -(
-            predicted_labels_test * jnp.log(predicted_labels_test + eps)
-        ).sum(1)
-        entropy_ood = -(
-            predicted_labels_ood * jnp.log(predicted_labels_ood + eps)
-        ).sum(1)
-        scores = jnp.concatenate((entropy_test, entropy_ood))
-        fpr, tpr, _ = sklearn.metrics.roc_curve(anomaly_targets, scores)
+def plot_predictive_entropy_histogram_all_methods(data_result_dict: DATA_RESULT_DICT):
+  transposed = transpose_dict(data_result_dict)
+  return grid_plot_wrapper(
+    fn=plot_predictive_entropy_histogram_one_method,
+    ncols=3,
+    n_plots=len(transposed),
+    get_kwargs=[],
+  )
 
-        for j in range(thresholds.shape[0]):
-          fpr_idx = np.abs(fpr - thresholds[j]).argmin()
-          tpr_values[j, i] = tpr[fpr_idx]
-
-      tpr_value_mean = tpr_values.mean(1)
-      tpr_value_std = tpr_values.std(1)
-      tpr_value_ste = scipy.stats.sem(tpr_values, axis=1)
-      ax.plot(thresholds,
-              tpr_value_mean,
-              color=color_list[model],
-              label=label_list[model],
-              linestyle=linestyle_list[model])
-      ax.fill_between(
-        thresholds,
-        tpr_value_mean - tpr_value_ste,
-        tpr_value_mean + tpr_value_ste,
-        color=color_list[model],
-        alpha=alpha,
-      )
-    # ax.legend(facecolor="white")
-    ax.set_xlabel(f"False Positive Rate")
-    ax.set_ylabel(f"True Positive Rate")
-    ax.set_ylim([-0.05, 1.05])
-    ax.set_xlim([-0.03, 1.03])
-    # ax.set_title(f"Trained on {train_name}, Evaluated on {ood_name}")
-    os.makedirs(f"{save_folder}", exist_ok=True)
-    fig.savefig(
-      f"{save_folder}/{data_training.lower()}"
-      + "_"
-      + f"{data_ood.lower()}_auroc_entropy.pdf",
-    )
-    return fig, ax
+# def plot_auroc_entropy_all(preds_ood_dict: dict,
+#                            preds_test_dict: dict,
+#                            model_list: list,
+#                            data_training: str,
+#                            data_ood: str,
+#                            save_folder: str
+#                            ):
+#   fig, ax = plt.subplots()
+#   plt.subplots_adjust(left=0.20, bottom=0.20)
+#   ax.plot([0, 1], [0, 1], linestyle=":", color="black")
+#
+#   thresholds = np.arange(0, 1.02, 0.02)
+#   for model in tqdm(model_list):
+#     tpr_values = np.zeros(
+#       shape=(thresholds.shape[0], preds_ood_dict[model].shape[0]))
+#     for i in range(preds_ood_dict[model].shape[0]):
+#       predicted_labels_ood = preds_ood_dict[model].mean(1)[i, :]
+#       predicted_labels_test = preds_test_dict[model].mean(1)[i, :]
+#
+#       ood_size = predicted_labels_ood.shape[0]
+#       test_size = predicted_labels_test.shape[0]
+#       anomaly_targets = jnp.concatenate(
+#         (np.zeros(test_size), np.ones(ood_size)))
+#
+#       entropy_test = -(
+#           predicted_labels_test * jnp.log(predicted_labels_test + eps)
+#       ).sum(1)
+#       entropy_ood = -(
+#           predicted_labels_ood * jnp.log(predicted_labels_ood + eps)
+#       ).sum(1)
+#       scores = jnp.concatenate((entropy_test, entropy_ood))
+#       fpr, tpr, _ = sklearn.metrics.roc_curve(anomaly_targets, scores)
+#
+#       for j in range(thresholds.shape[0]):
+#         fpr_idx = np.abs(fpr - thresholds[j]).argmin()
+#         tpr_values[j, i] = tpr[fpr_idx]
+#
+#     tpr_value_mean = tpr_values.mean(1)
+#     tpr_value_std = tpr_values.std(1)
+#     tpr_value_ste = scipy.stats.sem(tpr_values, axis=1)
+#     ax.plot(thresholds,
+#             tpr_value_mean,
+#             color=color_list[model],
+#             label=label_list[model],
+#             linestyle=linestyle_list[model])
+#     ax.fill_between(
+#       thresholds,
+#       tpr_value_mean - tpr_value_ste,
+#       tpr_value_mean + tpr_value_ste,
+#       color=color_list[model],
+#       alpha=alpha,
+#     )
+#   # ax.legend(facecolor="white")
+#   ax.set_xlabel(f"False Positive Rate")
+#   ax.set_ylabel(f"True Positive Rate")
+#   ax.set_ylim([-0.05, 1.05])
+#   ax.set_xlim([-0.03, 1.03])
+#   # ax.set_title(f"Trained on {train_name}, Evaluated on {ood_name}")
+#   os.makedirs(f"{save_folder}", exist_ok=True)
+#   fig.savefig(
+#     f"{save_folder}/{data_training.lower()}"
+#     + "_"
+#     + f"{data_ood.lower()}_auroc_entropy.pdf",
+#   )
+#   return fig, ax

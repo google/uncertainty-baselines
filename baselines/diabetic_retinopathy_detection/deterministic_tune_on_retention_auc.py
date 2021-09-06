@@ -57,6 +57,9 @@ flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 # Logging and hyperparameter tuning.
 flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
 flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
+flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
+flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
+flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 
 # OOD flags.
 flags.DEFINE_string(
@@ -119,29 +122,30 @@ FLAGS = flags.FLAGS
 
 def main(argv):
   del argv  # unused arg
-  tf.io.gfile.makedirs(FLAGS.output_dir)
-  logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
   # Wandb Setup
   if FLAGS.use_wandb:
     pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
     wandb_args = dict(
-      project='ub',
-      entity="nband",
+      project=FLAGS.project,
+      entity="uncertainty-baselines",
       dir=FLAGS.wandb_dir,
       reinit=True,
-      name=None,
-      group=None)
+      name=FLAGS.exp_name,
+      group=FLAGS.exp_group)
     wandb_run = wandb.init(**wandb_args)
     wandb.config.update(FLAGS, allow_val_change=True)
-    output_dir = os.path.join(
-      FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    output_dir = str(os.path.join(
+      FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S")))
   else:
     wandb_run = None
     output_dir = FLAGS.output_dir
 
-  tf.profiler.experimental.start('logdir')
+  tf.io.gfile.makedirs(output_dir)
+  logging.info('Saving checkpoints at %s', output_dir)
+
+  # tf.profiler.experimental.start('logdir')
 
   # Log Run Hypers
   hypers_dict = {
@@ -391,7 +395,7 @@ def main(argv):
         'l2': FLAGS.l2
     })
 
-  tf.profiler.experimental.stop()
+  # tf.profiler.experimental.stop()
 
   if wandb_run is not None:
     wandb_run.finish()

@@ -176,8 +176,8 @@ def main(argv):
     wandb_run = None
     output_dir = FLAGS.output_dir
 
-  tf.io.gfile.makedirs(FLAGS.output_dir)
-  logging.info('Saving checkpoints at %s', FLAGS.output_dir)
+  tf.io.gfile.makedirs(output_dir)
+  logging.info('Saving checkpoints at %s', output_dir)
 
   # Log Run Hypers
   hypers_dict = {

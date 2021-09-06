@@ -23,10 +23,13 @@ from absl import app
 from absl import flags
 from absl import logging
 from tensorboard.plugins.hparams import api as hp
+import wandb
 
 import uncertainty_baselines as ub
 import utils
 from pprint import pformat
+from datetime import datetime
+import pathlib
 
 DEFAULT_TRAIN_BATCH_SIZE = 16
 DEFAULT_NUM_EPOCHS = 90
@@ -50,6 +53,13 @@ flags.DEFINE_string(
 flags.DEFINE_bool(
   'load_from_checkpoint', False, "Attempt to load from checkpoint")
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
+
+# Logging and hyperparameter tuning.
+flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
+flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
+flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
+flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
+flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 
 # OOD flags.
 flags.DEFINE_string(
@@ -121,9 +131,28 @@ FLAGS = flags.FLAGS
 
 def main(argv):
   del argv  # unused arg
-  tf.io.gfile.makedirs(FLAGS.output_dir)
-  logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
+
+  # Wandb Setup
+  if FLAGS.use_wandb:
+    pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
+    wandb_args = dict(
+      project=FLAGS.project,
+      entity="uncertainty-baselines",
+      dir=FLAGS.wandb_dir,
+      reinit=True,
+      name=FLAGS.exp_name,
+      group=FLAGS.exp_group)
+    wandb_run = wandb.init(**wandb_args)
+    wandb.config.update(FLAGS, allow_val_change=True)
+    output_dir = str(os.path.join(
+      FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S")))
+  else:
+    wandb_run = None
+    output_dir = FLAGS.output_dir
+
+  tf.io.gfile.makedirs(output_dir)
+  logging.info('Saving checkpoints at %s', output_dir)
 
   # Log Run Hypers
   hypers_dict = {
@@ -169,7 +198,7 @@ def main(argv):
     tf.keras.mixed_precision.experimental.set_policy(policy)
 
   summary_writer = tf.summary.create_file_writer(
-      os.path.join(FLAGS.output_dir, 'summaries'))
+      os.path.join(output_dir, 'summaries'))
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 MC Dropout model.')
@@ -208,7 +237,7 @@ def main(argv):
 
     # TODO: debug or remove
     # checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
-    # latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
+    # latest_checkpoint = tf.train.latest_checkpoint(output_dir)
     # if latest_checkpoint:
     #   # checkpoint.restore must be within a strategy.scope()
     #   # so that optimizer slot variables are mirrored.
@@ -320,6 +349,10 @@ def main(argv):
       is_deterministic=False, num_bins=FLAGS.num_bins,
       use_tpu=use_tpu, return_per_pred_results=True)
 
+    # Optionally log to wandb
+    if FLAGS.use_wandb:
+      wandb.log(total_results, step=epoch)
+
     with summary_writer.as_default():
       for name, result in total_results.items():
         if result is not None:
@@ -331,32 +364,32 @@ def main(argv):
     if (FLAGS.checkpoint_interval > 0 and
         (epoch + 1) % FLAGS.checkpoint_interval == 0):
       # checkpoint_name = checkpoint.save(
-      #     os.path.join(FLAGS.output_dir, 'checkpoint'))
+      #     os.path.join(output_dir, 'checkpoint'))
       # logging.info('Saved checkpoint to %s', checkpoint_name)
 
       # TODO(nband): debug checkpointing
       # Also save Keras model, due to checkpoint.save issue
-      keras_model_name = os.path.join(FLAGS.output_dir,
+      keras_model_name = os.path.join(output_dir,
                                       f'keras_model_{epoch + 1}')
       model.save(keras_model_name)
       logging.info('Saved keras model to %s', keras_model_name)
 
       # Save per-prediction metrics
       utils.save_per_prediction_results(
-        FLAGS.output_dir, epoch + 1, per_pred_results, verbose=False)
+        output_dir, epoch + 1, per_pred_results, verbose=False)
 
   # final_checkpoint_name = checkpoint.save(
-  #     os.path.join(FLAGS.output_dir, 'checkpoint'))
+  #     os.path.join(output_dir, 'checkpoint'))
   # logging.info('Saved last checkpoint to %s', final_checkpoint_name)
 
-  keras_model_name = os.path.join(FLAGS.output_dir,
+  keras_model_name = os.path.join(output_dir,
                                   f'keras_model_{FLAGS.train_epochs}')
   model.save(keras_model_name)
   logging.info('Saved keras model to %s', keras_model_name)
 
   # Save per-prediction metrics
   utils.save_per_prediction_results(
-    FLAGS.output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
+    output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
 
   with summary_writer.as_default():
     hp.hparams({
@@ -367,6 +400,8 @@ def main(argv):
       'l2': FLAGS.l2,
     })
 
+  if wandb_run is not None:
+    wandb_run.finish()
 
 if __name__ == '__main__':
   app.run(main)

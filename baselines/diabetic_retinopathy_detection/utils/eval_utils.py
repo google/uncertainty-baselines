@@ -376,6 +376,8 @@ def evaluate_model_on_datasets(
     dataset_split_dict['names'] = np.concatenate(names).flatten()
     dataset_split_dict['y_true'] = np.concatenate(y_true).flatten()
     dataset_split_dict['y_pred'] = np.concatenate(y_pred).flatten()
+    dataset_split_dict['y_pred'] = dataset_split_dict['y_pred'].astype('float64')
+
     # Use vectorized NumPy containers
     dataset_split_dict['y_pred_entropy'] = (
       np.concatenate(y_pred_entropy).flatten())

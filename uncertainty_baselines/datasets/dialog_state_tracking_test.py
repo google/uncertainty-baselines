@@ -76,6 +76,26 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
                                   ('Test', tfds.Split.TEST))
+  def testDomainLabelShape(self, split):
+    """Tests domain labels are correctly loaded."""
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
+    dataset_builder = self.dataset_class(split=split, shuffle_buffer_size=20)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
+    element = next(iter(dataset))
+
+    if dataset_builder.load_domain_label:
+      domain_labels = element['domain_label']
+      domain_labels_shape = domain_labels.shape
+
+      max_dial_len = MAX_DIALOG_LEN[dataset_builder.name]
+      self.assertEqual(domain_labels_shape, (batch_size, max_dial_len))
+    else:
+      # Domain label shouldn't exist in the example.
+      with self.assertRaises(KeyError):
+        _ = element['domain_label']
+
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Test', tfds.Split.TEST))
   def testDialogLength(self, split):
     """Checks dialog length matches with that in dialog_len."""
     batch_size = 9 if split == tfds.Split.TRAIN else 5
@@ -131,9 +151,12 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
                              dtype=tf.int32)
     label_spec = tf.TensorSpec((batch_size, max_dial_len), dtype=tf.int32)
 
-    self.assertEqual(dataset_spec['sys_utt'], utt_spec)
-    self.assertEqual(dataset_spec['usr_utt'], utt_spec)
-    self.assertEqual(dataset_spec['label'], label_spec)
+    self.assertEqual(dataset_spec['sys_utt'].shape[1:], utt_spec.shape[1:])
+    self.assertEqual(dataset_spec['sys_utt'].dtype, utt_spec.dtype)
+    self.assertEqual(dataset_spec['usr_utt'].shape[1:], utt_spec.shape[1:])
+    self.assertEqual(dataset_spec['usr_utt'].dtype, utt_spec.dtype)
+    self.assertEqual(dataset_spec['label'].shape[1:], label_spec.shape[1:])
+    self.assertEqual(dataset_spec['label'].dtype, label_spec.dtype)
 
 
 class MultiWoZSynthDatasetTest(SimDialDatasetTest):

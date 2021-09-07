@@ -34,6 +34,7 @@ flags.DEFINE_string(
     'avoid overwriting.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
+flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
 flags.DEFINE_string(
   'dr_decision_threshold', 'moderate',
   ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
@@ -140,9 +141,12 @@ def main(argv):
   datasets, steps = utils.load_dataset(
     train_batch_size, eval_batch_size, flags=FLAGS, strategy=None)
   available_splits = list(datasets.keys())
-  validation_datasets = [key for key in available_splits if 'validation' in key]
-  test_datasets = [key for key in available_splits if 'test' in key]
+  test_splits = [split for split in available_splits if 'test' in split]
+  eval_splits = [split for split in available_splits
+                 if 'validation' in split or 'test' in split]
+  eval_datasets = {split: datasets[split] for split in eval_splits}
   dataset_train = datasets['train']
+  train_steps_per_epoch = steps['train']
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))
@@ -176,8 +180,8 @@ def main(argv):
       available_splits=available_splits,
       use_validation=FLAGS.use_validation))
 
-  for test_dataset in test_datasets:
-    metrics.update({f'{test_dataset}/ms_per_example': tf.keras.metrics.Mean()})
+  for test_split in test_splits:
+    metrics.update({f'{test_split}/ms_per_example': tf.keras.metrics.Mean()})
 
   # * Init Loss *
   # Initialize loss function based on class reweighting setting
@@ -377,6 +381,9 @@ def main(argv):
       eval_model = model
       num_samples = 1
 
+    eval_datasets = {
+      dataset_key: dataset for dataset_key, dataset in datasets.items()
+      if 'validation' in dataset_key or 'test' in dataset_key}
     dataset_split_to_probs = {}
     dataset_split_to_labels = {}
 

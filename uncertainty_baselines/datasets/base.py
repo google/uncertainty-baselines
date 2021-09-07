@@ -105,7 +105,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       is_training: Optional[bool] = None,
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
-      drop_remainder: bool = True,
+      drop_remainder: bool = False,
       fingerprint_key: Optional[str] = None,
       download_data: bool = False,
       decoders: Optional[Dict[str, tfds.decode.Decoder]] = None,
@@ -134,8 +134,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
       drop_remainder: whether or not to drop the last batch of data if the
-        number of points is not exactly equal to the batch size. This option
-        needs to be True for running on TPUs.
+        number of points is not exactly equal to the batch size.
       fingerprint_key: The name of the feature holding a string that will be
         used to create an element id using a fingerprinting function. If None,
         then `ds.enumerate()` is added before the `ds.map(preprocessing_fn)` is
@@ -310,8 +309,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
     # If we are:
     # Truncating the validation/test dataset (self._drop_remainder)
-    # We may as well repeat to speed things up
-    # TODO(@nband): benchmark
+    # we may as well repeat to speed things up
+    # TODO(nband): benchmark
     if (self.name in {
       'diabetic_retinopathy_detection',
       'diabetic_retinopathy_severity_shift_mild',
@@ -364,10 +363,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       dataset = dataset.map(
           process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    # TODO(@nband): clean up
     if (not self._is_training and
-        # self.name not in {'diabetic_retinopathy_detection',
-        #                   'diabetic_retinopathy_severity_shift'}):
         self.name not in {
           'diabetic_retinopathy_detection',
           'diabetic_retinopathy_severity_shift_mild',
@@ -487,8 +483,6 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
       dataset = self._in_distribution_dataset.load(
           preprocess_fn=dataset_preprocess_fn,
           batch_size=batch_size)
-      dataset = dataset.map(
-          _remove_fingerprint_id_key(self._in_distribution_dataset))
 
       # Set up the OOD dataset using this class.
       if preprocess_fn:
@@ -502,7 +496,7 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
       ood_dataset = super(_OodBaseDataset, self).load(
           preprocess_fn=ood_dataset_preprocess_fn,
           batch_size=batch_size)
-      ood_dataset = ood_dataset.map(_remove_fingerprint_id_key(self))
+      # We keep the fingerprint id in both dataset and ood_dataset
 
       # Combine the two datasets.
       try:
@@ -532,18 +526,6 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
           super(_OodBaseDataset, self).num_examples)
 
   return _OodBaseDataset
-
-
-# We may be able to refactor this to be part of preprocess_fn so we don't
-# need to do a second `ds.map()`, but the ordering of composed functions is
-# tricky.
-def _remove_fingerprint_id_key(dataset):
-
-  def f(example: types.Features) -> types.Features:
-    del example[dataset._fingerprint_key]  # pylint: disable=protected-access
-    return example
-
-  return f
 
 
 def _create_ood_label_fn(is_in_distribution: bool) -> PreProcessFn:

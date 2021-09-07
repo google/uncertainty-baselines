@@ -38,6 +38,22 @@ import uncertainty_baselines as ub
 import batchensemble_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
+u = None
+ensemble = None
+experts_pipeline = None
+metric_writers = None
+partitioning = None
+train = None
+experts_utils = None
+xprof = None
+core = None
+metrics = None
+ema = None
+pp_builder = None
+config_flags = None
+xm = None
+xm_api = None
+BIG_VISION_DIR = None
 
 
 config_flags.DEFINE_config_file(
@@ -58,7 +74,7 @@ jax.config.parse_flags_with_absl()
 def restore_model_and_put_to_devices(
     config: ml_collections.ConfigDict,
     output_dir: str,
-    partition_specs: Sequence[PartitionSpec],
+    partition_specs: Sequence[partitioning.PartitionSpec],
     model: flax.nn.Module,
     optimizer: flax.optim.Optimizer,
     train_iter: Iterable[Any],
@@ -155,13 +171,7 @@ def main(_):
   batch_size_per_host = config.batch_size // jax.host_count()
   batch_size_per_core = config.batch_size // jax.device_count()
   batch_size_per_host_eval = config.batch_size_eval // jax.host_count()
-  # TODO(basilm): Remove when JFT2.6B is properly submitted.
-  if config.dataset in jft_latest_pipeline.DATA_INFO:
-    input_pipeline = jft_latest_pipeline
-    cache = 'loaded'
-  else:
-    input_pipeline = default_input_pipeline
-    cache = 'batched'
+  input_pipeline, eval_cache = experts_pipeline.get_pipeline(config)
 
   train_ds = input_pipeline.get_data(
       dataset=config.dataset,
@@ -170,6 +180,7 @@ def main(_):
       batch_size=batch_size_per_host,
       preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
       shuffle_buffer_size=config.shuffle_buffer_size,
+      shuffle_files=True,
       cache=False)
   steps_per_epoch = input_pipeline.get_num_examples(
       config.dataset, config.train_split,
@@ -269,7 +280,7 @@ def main(_):
 
   train_iter = u.start_input_pipeline(train_iter, config.prefetch_to_device)
   eval_iters = train.get_dataset_eval_iters_from_config(
-      config, batch_size_per_host_eval, cache, input_pipeline)
+      config, batch_size_per_host_eval, eval_cache, input_pipeline)
   lr_fn = u.create_learning_rate_schedule(
       config.batch_size, total_steps, steps_per_epoch, **config.lr)
   lr_iter = u.prefetch_scalar(map(lr_fn, range(first_step, total_steps)),

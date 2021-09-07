@@ -2,11 +2,16 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
-# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
+import pathlib
+from datetime import datetime
+from pprint import pformat
+
+import tensorflow as tf
+tf.config.experimental.set_visible_devices([], "GPU")
+print('WARNING: TensorFlow is set to only use CPU.')
 import json
 import logging
-import os
-import pdb
 import pickle
 import time
 import types
@@ -21,27 +26,24 @@ import numpy as np
 from absl import app, flags
 from jax import jit
 from jax import random
-from tensorflow_probability.substrates import jax as tfp
-import tensorflow as tf
 from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
+import wandb
 
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, root_path)
-from baselines.diabetic_retinopathy_detection.fsvi_utils import datasets
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
     initialize_random_keys,
     to_one_hot,
 )
 from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import Training
-from baselines.diabetic_retinopathy_detection.old_utils import get_diabetic_retinopathy_base_metrics, \
-    get_diabetic_retinopathy_cpu_metrics, log_epoch_metrics
+from baselines.diabetic_retinopathy_detection import utils
 
 # original flags
 flags.DEFINE_string(
     "data_training",
-    "not_specified",
+    "dr",
     "Training and in-distribution dataset used (default: not_specified)\n"
     "Examples: 'continual_learning_pmnist', 'continual_learning_smnist', "
     "'continual_learning_sfashionmnist'",
@@ -50,134 +52,85 @@ flags.DEFINE_string(
 
 flags.DEFINE_string(
     "model_type",
-    "not_specified",
+    "fsvi_cnn",
     "Model used (default: not_specified). Example: 'fsvi_mlp', 'mfvi_cnn'",
 )
 
-flags.DEFINE_string("optimizer", "adam", "Optimizer used (default: adam)")
+flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")
 
 flags.DEFINE_string(
-    "architecture", "not_specified", "Architecture of NN (default: not_specified)",
+    "architecture", "resnet", "Architecture of NN (default: not_specified)",
 )
 
 flags.DEFINE_string(
     "activation",
-    "not_specified",
+    "relu",
     "Activation function used in NN (default: not_specified)",
 )
 
 flags.DEFINE_string("prior_mean", "0", "Prior mean function (default: 0)")
 
-flags.DEFINE_string("prior_cov", "0", help="Prior cov function (default: 0)")
+flags.DEFINE_string("prior_cov", "10", help="Prior cov function (default: 0)")
 
 flags.DEFINE_string(
     "prior_type",
-    default="not_specified",
+    default="fixed",
     help="Type of prior (default: not_specified)",
 )
 
 flags.DEFINE_integer(
-    "epochs", default=100, help="Number of epochs for each task (default: 100)",
-)
-
-flags.DEFINE_integer(
-    "train_batch_size",
-    default=100,
-    help="Per-core batch size to use for training (default: 100)",
+    "epochs", default=90, help="Number of epochs for each task (default: 100)",
 )
 
 flags.DEFINE_float(
-    "base_learning_rate", default=1e-3, help="Learning rate (default: 1e-3)",
+    "base_learning_rate", default=0.031448, help="Learning rate (default: 1e-3)",
 )
 
 flags.DEFINE_float("dropout_rate", default=0.0, help="Dropout rate (default: 0.0)")
 
-flags.DEFINE_float(
-    "regularization", default=0, help="Regularization parameter (default: 0)",
-)
-
 flags.DEFINE_integer(
-    "n_inducing_inputs", default=0, help="Number of BNN inducing points (default: 0)",
+    "n_inducing_inputs", default=10, help="Number of BNN inducing points (default: 0)",
 )
 
 flags.DEFINE_string(
     "inducing_input_type",
-    default="not_specified",
+    default="train_pixel_rand_1.0",
     help="Inducing input selection method (default: not_specified)",
 )
 
-flags.DEFINE_string("kl_scale", default="1", help="KL scaling factor (default: 1)")
+flags.DEFINE_string("kl_scale", default="normalized", help="KL scaling factor (default: 1)")
 
 flags.DEFINE_boolean("full_cov", default=False, help="Use full covariance")
 
 flags.DEFINE_integer(
-    "n_samples", default=1, help="Number of exp log lik samples (default: 1)",
+    "n_samples", default=5, help="Number of exp log lik samples (default: 1)",
 )
-
-flags.DEFINE_float("tau", default=1.0, help="Likelihood precision (default: 1)")
 
 flags.DEFINE_float("noise_std", default=1.0, help="Likelihood variance (default: 1)")
 
 flags.DEFINE_list(
     "inducing_inputs_bound",
-    default="-1.,1.",
+    default="0,0",
     help="Inducing point range (default: [-1, 1])",
-)
-
-flags.DEFINE_integer(
-    "logging_frequency",
-    default=10,
-    help="Logging frequency in number of epochs (default: 10)",
-)
-
-flags.DEFINE_list(
-    "figsize", default="10,4", help="Size of figures (default: (10, 4))",
 )
 
 flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")
 
-flags.DEFINE_string(
-    "save_path", default="debug", help="Path to save results (default: debug)",
-)
-
-flags.DEFINE_bool("save", default=False, help="Save output to file")
-
-flags.DEFINE_bool("resume_training", default=False, help="Resume training")
-
 flags.DEFINE_bool("map_initialization", default=False, help="MAP initialization")
 
 flags.DEFINE_bool(
-    "stochastic_linearization", default=False, help="Stochastic linearization"
+    "stochastic_linearization", default=True, help="Stochastic linearization"
 )
 
-# TODO: remove this option
-flags.DEFINE_bool("batch_normalization", default=False, help="Batch normalization")
-
-flags.DEFINE_bool("linear_model", default=False, help="Linear model")
+flags.DEFINE_bool("linear_model", default=True, help="Linear model")
 
 flags.DEFINE_bool("features_fixed", default=False, help="Fixed feature maps")
 
-flags.DEFINE_bool("debug", default=False, help="Debug model")
 
-flags.DEFINE_string(
-    "logroot",
-    default=None,
-    help="The root result folder that store runs for this type of experiment",
-)
+flags.DEFINE_integer('per_core_batch_size', 64,
+                     'The per-core batch size for both training '
+                     'and evaluation.')
 
-flags.DEFINE_string(
-    "subdir",
-    default=None,
-    help="The subdirectory in logroot/runs/ corresponding to this run",
-)
-flags.DEFINE_integer(
-    "loader_n_batches", None, "Number of batches to use",
-)
-flags.DEFINE_integer(
-    "eval_batch_size", 32, "Number of batches for evaluation",
-)
-
-# new flags copied from deterministic.py
 flags.DEFINE_string(
     "output_dir",
     "/tmp/diabetic_retinopathy_detection/deterministic",
@@ -189,6 +142,15 @@ flags.DEFINE_string(
 flags.DEFINE_string("data_dir", None, "Path to training and testing data.")
 
 flags.DEFINE_bool("use_validation", True, "Whether to use a validation split.")
+flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
+flags.DEFINE_string(
+  'dr_decision_threshold', 'moderate',
+  ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
+   "binary classification task. Only affects the APTOS dataset partitioning. "
+   "'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?"
+   "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
+flags.DEFINE_bool(
+  'load_from_checkpoint', False, "Attempt to load from checkpoint")
 flags.DEFINE_string(
     "class_reweight_mode",
     None,
@@ -198,12 +160,16 @@ flags.DEFINE_string(
     "entropy loss. `minibatch` will use the proportions of each minibatch to "
     "reweight the loss.",
 )
+flags.DEFINE_integer(
+    "loss_type",
+    3,
+    "type of loss, see objectives.py for details",
+)
 
 # General model flags.
-# TODO: decide if we keep this
 flags.DEFINE_integer(
     "checkpoint_interval",
-    25,
+    1,
     "Number of epochs between saving checkpoints. " "Use -1 to never save checkpoints.",
 )
 
@@ -224,18 +190,12 @@ flags.DEFINE_float("lr_decay_ratio", 0.2, "Amount to decay learning rate.")
 flags.DEFINE_list("lr_decay_epochs", ["30", "60"], "Epochs to decay learning rate by.")
 
 # Accelerator flags.
-flags.DEFINE_bool("force_use_cpu", False, "If True, force usage of CPU")
-flags.DEFINE_bool("use_gpu", True, "Whether to run on GPU or otherwise TPU.")
-flags.DEFINE_bool("use_bfloat16", False, "Whether to use mixed precision.")
-flags.DEFINE_integer("num_cores", 1, "Number of TPU cores or number of GPUs.")
-flags.DEFINE_string(
-    "tpu",
-    None,
-    "Name of the TPU. Only used if force_use_cpu and use_gpu are both False.",
-)
+flags.DEFINE_integer("num_cores", 4, "Number of TPU cores or number of GPUs.")
 flags.DEFINE_integer(
-    "n_samples_test", 1, "Number of MC samples used for validation and testing",
+    "n_samples_test", 5, "Number of MC samples used for validation and testing",
 )
+
+# Parameter Initialization flags.
 flags.DEFINE_float(
     "uniform_init_minval",
     -20.0,
@@ -246,29 +206,53 @@ flags.DEFINE_float(
     -18.0,
     "lower bound of uniform distribution for variational log variance",
 )
-flags.DEFINE_integer(
-    "loss_type", 1, "type of loss",
+flags.DEFINE_string(
+    "w_init",
+    "uniform",
+    "initializer for weights (he_normal or uniform)",
 )
 flags.DEFINE_string(
-    "w_init", "uniform", "initializer for weights",
+    "b_init",
+    "uniform",
+    "initializer for bias (zeros or uniform)",
 )
-flags.DEFINE_string(
-    "b_init", "uniform", "initializer for bias",
-)
-flags.DEFINE_integer(
-    "kl_type", 0, "Type of KL",
-)
-flags.DEFINE_float('l2', 0.0, 'L2 regularization coefficient.')
 flags.DEFINE_string(
     "init_strategy",
     "uniform",
     "if init_strategy==he_normal_and_zeros, then w_init=he_normal, b_init=zeros,"
     "if init_strategy==uniform, then w_init=uniform, b_init=uniform",
 )
+flags.DEFINE_float('l2', 0.0, 'L2 regularization coefficient.')
+
+# OOD flags.
+flags.DEFINE_string(
+  'distribution_shift', None,
+  ("Specifies distribution shift to use, if any."
+   "aptos: loads APTOS (India) OOD validation and test datasets. "
+   "  Kaggle/EyePACS in-domain datasets are unchanged."
+   "severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision "
+   "  of the Kaggle/EyePACS dataset to hold out clinical severity labels "
+   "  as OOD."))
+flags.DEFINE_bool(
+  'load_train_split', True,
+  "Should always be enabled - required to load train split of the dataset.")
+flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
+
+# Logging and hyperparameter tuning.
+flags.DEFINE_bool('use_wandb', True, 'Use wandb for logging.')
+flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
+flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
+flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
+flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
+
+
 flags.DEFINE_integer(
     "layer_to_linearize",
-    2,
+    1,
     "The layer number to use",
+)
+flags.DEFINE_float(
+    "regularization", default=0, help="Regularization parameter (default: 0)",
 )
 FLAGS = flags.FLAGS
 
@@ -283,7 +267,6 @@ def process_args():
     @return:
     """
     # FLAGS doesn't accept renaming!
-    FLAGS.figsize = (int(v) for v in FLAGS.figsize)
     FLAGS.inducing_inputs_bound = [float(v) for v in FLAGS.inducing_inputs_bound]
 
 
@@ -294,57 +277,90 @@ def get_dict_of_flags():
 def write_flags(path):
     d = get_dict_of_flags()
     string = json.dumps(d, indent=4, separators=(",", ":"))
+    tf.io.gfile.makedirs(os.path.dirname(path))
     with tf.io.gfile.GFile(path, "w") as f:
         f.write(string)
 
 
 def main(argv):
     del argv
+    process_args()
+
+    # Wandb Setup
+    if FLAGS.use_wandb:
+        pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
+        wandb_args = dict(
+            project=FLAGS.project,
+            entity="uncertainty-baselines",
+            dir=FLAGS.wandb_dir,
+            reinit=True,
+            name=FLAGS.exp_name,
+            group=FLAGS.exp_group)
+        wandb_run = wandb.init(**wandb_args)
+        wandb.config.update(FLAGS, allow_val_change=True)
+        output_dir = os.path.join(
+            FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    else:
+        wandb_run = None
+        output_dir = FLAGS.output_dir
 
     write_flags(os.path.join(FLAGS.output_dir, "flags.txt"))
 
-    from jax.lib import xla_bridge
+    # Log Run Hypers
+    hypers_dict = {
+        'per_core_batch_size': FLAGS.per_core_batch_size,
+        'base_learning_rate': FLAGS.base_learning_rate,
+        'final_decay_factor': FLAGS.final_decay_factor,
+        'one_minus_momentum': FLAGS.one_minus_momentum,
+        'l2': FLAGS.l2,
+        'loss_type': FLAGS.loss_type,
+        'stochastic_linearization': FLAGS.stochastic_linearization
+    }
+    logging.info('Hypers:')
+    logging.info(pformat(hypers_dict))
 
+    from jax.lib import xla_bridge
     print("*" * 100)
     print("Platform that is used by JAX:", xla_bridge.get_backend().platform)
     print("*" * 100)
 
-    process_args()
     kh = initialize_random_keys(seed=FLAGS.seed)
     rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 
     # LOAD DATA
     num_cores = FLAGS.num_cores
-    train_batch_size = FLAGS.train_batch_size * num_cores
-    eval_batch_size = FLAGS.eval_batch_size * num_cores
 
-    (
-        dataset_train,
-        dataset_validation,
-        dataset_test,
-        input_shape,
-        output_dim,
-        n_train,
-        n_valid,
-        n_test,
-    ) = datasets.load_data(
-        train_batch_size=train_batch_size,
-        data_dir=FLAGS.data_dir,
-        eval_batch_size=eval_batch_size,
-        use_validation=FLAGS.use_validation,
-    )
-    steps_per_epoch = n_train // train_batch_size
-    steps_per_validation_eval = n_valid // eval_batch_size
-    steps_per_test_eval = n_test // eval_batch_size
+    per_core_batch_size = FLAGS.per_core_batch_size * num_cores
+
+    datasets, steps = utils.load_dataset(
+        train_batch_size=per_core_batch_size, eval_batch_size=per_core_batch_size,
+        flags=FLAGS, strategy=None)
+    available_splits = list(datasets.keys())
+    test_splits = [split for split in available_splits if 'test' in split]
+    eval_splits = [split for split in available_splits
+                   if 'validation' in split or 'test' in split]
+    eval_datasets = {split: iter(datasets[split]) for split in eval_splits}
+    input_shape = [1] + utils.load_input_shape(dataset_train=datasets["train"])
+    # TODO: remove this hardcoded value
+    output_dim = 2
+    # TODO: do we really need to keep all the inducing inputs selection methods?
+    n_train = steps["train"] * per_core_batch_size
+    dataset_train = datasets['train']
+    train_steps_per_epoch = steps["train"]
+
+    # Get the wrapper function which will produce uncertainty estimates for
+    # our choice of method and Y/N ensembling.
+    uncertainty_estimator_fn = utils.get_uncertainty_estimator(
+        "fsvi", use_ensemble=False, use_tf=False)
 
     # INITIALIZE TRAINING CLASS
     training = Training(
         input_shape=input_shape,
         output_dim=output_dim,
         n_train=n_train,
-        n_batches=steps_per_epoch,
+        n_batches=train_steps_per_epoch,
         full_ntk=False,
-        batch_size=train_batch_size,
+        batch_size=per_core_batch_size,
         # TODO: is there a better way than this?
         **get_dict_of_flags(),
     )
@@ -374,12 +390,12 @@ def main(argv):
     )
 
     summary_writer = tf.summary.create_file_writer(
-        os.path.join(FLAGS.output_dir, "summaries")
+        os.path.join(output_dir, "summaries")
     )
 
-    latest_checkpoint = get_latest_fsvi_checkpoint(FLAGS.output_dir)
+    latest_checkpoint = None # get_latest_fsvi_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
-    if latest_checkpoint:
+    if latest_checkpoint and FLAGS.load_from_checkpoint:
         with tf.io.gfile.GFile(latest_checkpoint, mode="rb") as f:
             chkpt = pickle.load(f)
         # TODO: need to validate the chkpt has compatible hyperparameters, such as
@@ -400,19 +416,22 @@ def main(argv):
         rng_key=rng_key,
     )
 
-    use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
-    metrics = get_diabetic_retinopathy_base_metrics(
-        use_tpu=use_tpu, num_bins=FLAGS.num_bins, use_validation=FLAGS.use_validation
-    )
+    use_tpu = any(["tpu" in str(d).lower() for d in jax.devices()])
+    metrics = utils.get_diabetic_retinopathy_base_metrics(
+        use_tpu=use_tpu,
+        num_bins=FLAGS.num_bins,
+        use_validation=FLAGS.use_validation,
+        available_splits=available_splits)
     # Define metrics outside the accelerator scope for CPU eval.
     # This will cause an error on TPU.
     if not use_tpu:
         metrics.update(
-            get_diabetic_retinopathy_cpu_metrics(
-                use_validation=FLAGS.use_validation
-            )
-        )
-    metrics.update({"test/ms_per_example": tf.keras.metrics.Mean()})
+            utils.get_diabetic_retinopathy_cpu_metrics(
+                available_splits=available_splits,
+                use_validation=FLAGS.use_validation))
+
+    for test_split in test_splits:
+        metrics.update({f'{test_split}/ms_per_example': tf.keras.metrics.Mean()})
 
     ########################## specify functions ##########################
     @jit
@@ -495,106 +514,72 @@ def main(argv):
             out_axes=(None, None, None, None, 0),
         )
 
-    def parallelizable_eval_per_batch_computation(
-        params, state, rng_key, x_batch, labels,
-    ):
+    def parallelizable_evaluate_per_batch_computation(x_batch, labels, rng_key,
+                                                      params, state, is_deterministic,):
         """
         Captured variables:
-            output_dim, FLAGS, objectives,
+            model,
         """
-        y_batch = to_one_hot(labels, output_dim)
-        preds_f_samples, preds_f_mean, _ = model.predict_f_multisample_jitted(
-            params=params,
-            state=state,
-            inputs=x_batch,
-            rng_key=rng_key,
-            n_samples=FLAGS.n_samples_test,
-            is_training=False,
-        )
+        # Compute prediction, total, aleatoric, and epistemic
+        # uncertainty estimates
+        pred_and_uncert = uncertainty_estimator_fn(
+            x_batch, model, training_setting=False, params=params, state=state,
+        num_samples=FLAGS.n_samples_test, rng_key=rng_key,)
 
-        log_likelihood = objectives.crossentropy_log_likelihood(
-            preds_f_samples=preds_f_samples, targets=y_batch, class_weight=False,
-        )
-        # to make it comparable to log likelihood reported in other scripts, e.g. deterministic.py
-        log_likelihood_per_input = log_likelihood / labels.shape[0]
+        result = {
+            "y_true": labels,
+            "y_pred": pred_and_uncert['prediction'],
+            "y_pred_entropy": pred_and_uncert['predictive_entropy'],
+            "y_pred_variance": pred_and_uncert['predictive_variance'],
+        }
 
-        probs = jax.nn.softmax(preds_f_mean, axis=-1)
-        probs_of_labels = probs[:, 1]
-        return log_likelihood_per_input, probs_of_labels
+        if not is_deterministic:
+            result["y_aleatoric_uncert"] = pred_and_uncert["aleatoric_uncertainty"]
+            result["y_epistemic_uncert"] = pred_and_uncert["epistemic_uncertainty"]
+
+        return result
 
     if num_cores > 1:
-        parallelizable_eval_per_batch_computation = jax.pmap(
-            parallelizable_eval_per_batch_computation,
-            in_axes=(None, None, 0, 0, 0),
-            out_axes=(0, 0),
-        )
+        parallelizable_evaluate_per_batch_computation = jax.pmap(
+            parallelizable_evaluate_per_batch_computation,
+            in_axes=(0, 0, 0, None, None, None),
+            static_broadcasted_argnums=(5,))
 
-    def evaluate_on_valid_or_test(
-        dataset_split: str, params, state, data_iterator, num_steps, rng_key,
+    def eval_step_jax(
+        dataset_iterator, dataset_steps, is_deterministic, params, state, rng_key,
     ):
         """
         Captured variables:
-            num_cores, parallelizable_eval_per_batch_computation
+            parallelizable_evaluate_per_batch_computation, FLAGS
         """
-        # list_labels = []
-        # list_probas = []
-        verbose = False
-        for _ in tqdm(range(num_steps), desc=f"evaluation on {dataset_split}"):
-            if verbose:
-                start = time.time()
-            data = next(data_iterator)
-            x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
-            orig_labels = labels
-
-            if verbose:
-                print(f"reading data used {time.time() - start:.2f} seconds")
-                start = time.time()
-
+        list_of_results = []
+        for _ in tqdm(range(dataset_steps), "evaluation loop"):
+            data = next(dataset_iterator)
+            images = data['features']._numpy()
+            labels = data['labels']._numpy()
             _, rng_key = random.split(rng_key)
             if num_cores > 1:
+                images, labels = reshape_to_multiple_cores(images, labels, num_cores)
                 keys = random.split(rng_key, num_cores)
-                x_batch, labels = reshape_to_multiple_cores(x_batch, labels, num_cores)
             else:
                 keys = rng_key
+            # Compute prediction, total, aleatoric, and epistemic
+            # uncertainty estimates
+            arrays_dict = parallelizable_evaluate_per_batch_computation(
+                images, labels, keys, params, state, is_deterministic,)
+            reshaped_arrays_dict = {name: reshape_to_one_core(array) for name, array in arrays_dict.items()}
+            list_of_results.append(reshaped_arrays_dict)
 
-            log_likelihood, probs_of_labels = parallelizable_eval_per_batch_computation(
-                params, state, keys, x_batch, labels,
-            )
-            if verbose:
-                print(f"eval computation used {time.time() - start:.2f} seconds")
-                start = time.time()
+        results_arrs = merge_list_of_dicts(list_of_results)
+        return results_arrs
 
-            if num_cores > 1:
-                probs_of_labels = reshape_to_one_core(probs_of_labels)
-                log_likelihood = jnp.mean(log_likelihood)
-
-            if verbose:
-                print(f"reshape data again used {time.time() - start:.2f} seconds")
-                start = time.time()
-
-            # list_labels.append(labels)
-            # list_probas.append(probs_of_labels)
-            metrics[dataset_split + "/negative_log_likelihood"].update_state(
-                -log_likelihood
-            )
-            metrics[dataset_split + "/accuracy"].update_state(orig_labels, probs_of_labels)
-            metrics["test/accuracy"].update_state(orig_labels, probs_of_labels)
-            metrics[dataset_split + "/auprc"].update_state(orig_labels, probs_of_labels)
-            metrics[dataset_split + "/auroc"].update_state(orig_labels, probs_of_labels)
-
-            if not use_tpu:
-                metrics[dataset_split + "/ece"].add_batch(probs_of_labels, label=orig_labels)
-
-            if verbose:
-                print(f"compute metrics used {time.time() - start:.2f} seconds")
-
-        # all_labels = jnp.concatenate(list_labels)
-        # all_probas = jnp.concatenate(list_probas)
-        # probas_positive = all_probas[all_labels == 1]
-        # percentiles = [90, 99, 99.9]
-        # print("*" * 100)
-        # print(f"The {dataset_split} percentiles {percentiles} are ",
-        #       jnp.percentile(probas_positive, percentiles))
+    # it is important to define this variable `estimator_args` here instead
+    # of declaring it in the loop. This is to avoid JAX memory leak.
+    estimator_args = {
+        "rng_key": rng_key_test,
+        "params": params,
+        "state": state,
+    }
 
     ########################## train-eval loop ##########################
 
@@ -604,7 +589,7 @@ def main(argv):
     train_iterator = iter(dataset_train)
     for epoch in range(initial_epoch, FLAGS.epochs):
         t0 = time.time()
-        for _ in tqdm(range(steps_per_epoch), desc="gradient steps..."):
+        for _ in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
             if verbose:
                 start = time.time()
             data = next(train_iterator)
@@ -628,6 +613,7 @@ def main(argv):
             ) = parallelisable_train_per_batch_computation(
                 params, state, opt_state, keys, x_batch, labels,
             )
+
             if verbose:
                 print(f"per-batch computation used {time.time() - start:.2f} seconds")
                 start = time.time()
@@ -656,46 +642,30 @@ def main(argv):
             if verbose:
                 print(f"compute metric used {time.time() - start:.2f} seconds")
 
-        # evaluation on validation set
-        if FLAGS.use_validation:
-            _, rng_key_test = jax.random.split(rng_key_test)
-            evaluate_on_valid_or_test(
-                "validation",
-                params,
-                state,
-                iter(dataset_validation),
-                steps_per_validation_eval,
-                rng_key_test,
-            )
-        # evaluation on test set
-        _, rng_key_test = jax.random.split(rng_key_test)
-        evaluate_on_valid_or_test(
-            "test",
-            params,
-            state,
-            iter(dataset_test),
-            steps_per_test_eval,
-            rng_key_test,
-        )
+        _, rng_key_test = random.split(rng_key_test)
 
-        log_epoch_metrics(metrics=metrics, use_tpu=use_tpu)
+        estimator_args["rng_key"] = rng_key_test
+        estimator_args["params"] = params
+        estimator_args["state"] = state
 
-        total_results = {name: metric.result() for name, metric in metrics.items()}
-        # Metrics from Robustness Metrics (like ECE) will return a dict with a
-        # single key/value, instead of a scalar.
-        total_results = {
-            k: (list(v.values())[0] if isinstance(v, dict) else v)
-            for k, v in total_results.items()
-        }
+        per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
+            None, eval_datasets, steps, metrics, None,
+            None, per_core_batch_size, available_splits,
+            estimator_args=estimator_args, is_deterministic=False, num_bins=FLAGS.num_bins,
+            use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax, return_per_pred_results=True,
+            call_dataset_iter=False)
+
+        # Optionally log to wandb
+        if FLAGS.use_wandb:
+            wandb.log(total_results, step=epoch)
+
         with summary_writer.as_default():
             for name, result in total_results.items():
-                tf.summary.scalar(name, result, step=epoch + 1)
+                if result is not None:
+                    tf.summary.scalar(name, result, step=epoch + 1)
 
         for metric in metrics.values():
             metric.reset_states()
-
-        T0 = time.time()
-        print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
 
         if (
             FLAGS.checkpoint_interval > 0
@@ -715,12 +685,24 @@ def main(argv):
                 "opt_state": opt_state,
                 "epoch": epoch,
             }
-            # Also save Keras model, due to checkpoint.save issue
-            chkpt_name = os.path.join(FLAGS.output_dir, f"chkpt_{epoch + 1}")
+
+            chkpt_name = os.path.join(output_dir, f"chkpt_{epoch + 1}")
             with tf.io.gfile.GFile(chkpt_name, mode="wb") as f:
                 pickle.dump(to_save, f)
             logging.info("Saved checkpoint to %s", chkpt_name)
 
+            # Save per-prediction metrics
+            utils.save_per_prediction_results(
+                output_dir, epoch + 1, per_pred_results, verbose=False)
+
+        T0 = time.time()
+        print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
+
+    hparams = {
+        k: v
+        for k, v in get_dict_of_flags().items()
+        if not isinstance(v, types.GeneratorType)
+    }
     to_save = {
         "params": params,
         "state": state,
@@ -728,17 +710,31 @@ def main(argv):
         # TODO: figure out why the figsize has type generator
         "hparams": hparams,
         "opt_state": opt_state,
-        "epoch": epoch,
+        "epoch": FLAGS.epochs,
     }
-    final_checkpoint_name = os.path.join(FLAGS.output_dir, "final_checkpoint")
+    final_checkpoint_name = os.path.join(output_dir, "final_checkpoint")
     with tf.io.gfile.GFile(final_checkpoint_name, mode="wb") as f:
         pickle.dump(to_save, f)
     logging.info("Saved last checkpoint to %s", final_checkpoint_name)
 
+    # Save per-prediction metrics
+    utils.save_per_prediction_results(
+        output_dir, FLAGS.epochs, per_pred_results, verbose=False)
+
     with summary_writer.as_default():
         hp.hparams(
-            {"base_learning_rate": FLAGS.base_learning_rate,}
+            {
+                "base_learning_rate": FLAGS.base_learning_rate,
+                'per_core_batch_size': FLAGS.per_core_batch_size,
+                'final_decay_factor': FLAGS.final_decay_factor,
+                'one_minus_momentum': FLAGS.one_minus_momentum,
+                'optimizer': FLAGS.optimizer,
+                'loss_type': FLAGS.loss_type,
+                'l2': FLAGS.l2
+            }
         )
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 @jax.jit
@@ -758,6 +754,35 @@ def get_latest_fsvi_checkpoint(path):
     if chkpts:
         latest = max(chkpts, key=lambda x: int(x.split("_")[1]))
         return os.path.join(path, latest)
+
+
+def merge_list_of_dicts(list_of_dicts):
+    if not list_of_dicts:
+        return list_of_dicts
+    keys = list_of_dicts[0].keys()
+    merged_dict = {k: jnp.stack([d[k] for d in list_of_dicts]) for k in keys}
+    return merged_dict
+
+
+def find_diff(x, y):
+    difference = tree.map_structure(lambda a, b: jnp.abs(a - b).max(),
+                                    x,
+                                    y)
+    difference = np.max([x for x in tree.flatten(difference)])
+    return difference
+
+
+def find_diff_dict(x, y):
+    for k in x.keys():
+        print(k, find_diff(x[k], y[k]))
+
+
+def deepcopy_np(d):
+    return {k: tree.map_structure(lambda a: np.array(a), v) for k, v in d.items()}
+
+
+def jax_sum(x):
+    return np.sum([jnp.sum(a) for a in tree.flatten(x)])
 
 
 if __name__ == "__main__":

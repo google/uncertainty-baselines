@@ -30,11 +30,14 @@ from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
 # from uncertainty_baselines.datasets.cifar import Cifar10HDataset
 from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedDataset
+from uncertainty_baselines.datasets.cityscapes import CityscapesDataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_mild import DiabeticRetinopathySeverityShiftMildDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_moderate import DiabeticRetinopathySeverityShiftModerateDataset
+from uncertainty_baselines.datasets.dialog_state_tracking import MultiWoZSynthDataset
+from uncertainty_baselines.datasets.dialog_state_tracking import SGDSynthDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
@@ -51,16 +54,16 @@ from uncertainty_baselines.datasets.toxic_comments import CivilCommentsIdentitie
 from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDataset
 # pylint: enable=g-bad-import-order
 
-# try:
-#   # from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
-#   # from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
-#   from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
-# except ImportError:
-#   logging.warning('Skipped due to ImportError: {e}. Try installing uncertainty '
-#                   'baselines with the `datasets` extras.', exc_info=True)
-#   SpeechCommandsDataset = None
-#   MultiWoZDataset = None
-#   SMCalflowDataset = None
+try:
+  from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
+  from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
+  from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
+except ImportError:
+  logging.warning('Skipped due to ImportError. Try installing uncertainty '
+                  'baselines with the `datasets` extras.', exc_info=True)
+  SpeechCommandsDataset = None
+  MultiWoZDataset = None
+  SMCalflowDataset = None
 
 DATASETS = {
     'aptos': APTOSDataset,
@@ -69,6 +72,7 @@ DATASETS = {
     # 'cifar10h': Cifar10HDataset,
     'cifar10_corrupted': Cifar10CorruptedDataset,
     'cifar100_corrupted': Cifar100CorruptedDataset,
+    'cityscapes': CityscapesDataset,
     'civil_comments': CivilCommentsDataset,
     'civil_comments_identities': CivilCommentsIdentitiesDataset,
     'clinic_intent': ClincIntentDetectionDataset,
@@ -80,10 +84,12 @@ DATASETS = {
     'mnist': MnistDataset,
     'mnli': MnliDataset,
     'movielens': MovieLensDataset,
-    # 'multiwoz': MultiWoZDataset,
+    'multiwoz': MultiWoZDataset,
+    'multiwoz_synth': MultiWoZSynthDataset,
     'places365': Places365Dataset,
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,
+    'sgd_synth': SGDSynthDataset,
     'simdial': SimDialDataset,
     # 'smcalflow': SMCalflowDataset,
     # 'speech_commands': SpeechCommandsDataset,

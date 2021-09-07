@@ -58,7 +58,7 @@ class _CifarDataset(base.BaseDataset):
       validation_percent: float = 0.0,
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
-      drop_remainder: bool = True,
+      drop_remainder: bool = False,
       normalize: bool = True,
       try_gcs: bool = False,
       download_data: bool = False,
@@ -201,7 +201,9 @@ class _CifarDataset(base.BaseDataset):
       labels = example['label']
 
       if should_onehot:
-        parsed_example['labels'] = tf.one_hot(labels, 10, dtype=tf.float32)
+        num_classes = 100 if self.name == 'cifar100' else 10
+        parsed_example['labels'] = tf.one_hot(
+            labels, num_classes, dtype=tf.float32)
       else:
         parsed_example['labels'] = tf.cast(labels, tf.float32)
 

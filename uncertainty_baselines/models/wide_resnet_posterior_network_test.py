@@ -15,6 +15,7 @@
 
 """Tests for Wide Posterior ResNet."""
 
+import edward2 as ed
 import tensorflow as tf
 import uncertainty_baselines as ub
 
@@ -49,7 +50,7 @@ class WideResnetPosteriorNetworkTest(tf.test.TestCase):
           version=2,
           class_counts=class_counts,
           flow_type=flow_type)
-      uce_loss_fn = ub.models.uce_loss(sparse=True,
+      uce_loss_fn = ed.losses.uce_loss(sparse=True,
                                        num_classes=num_classes)
       model.compile('adam', loss=uce_loss_fn)
       history = model.fit(

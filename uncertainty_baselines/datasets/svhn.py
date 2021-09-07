@@ -83,7 +83,7 @@ class SvhnDataset(base.BaseDataset):
       """A pre-process function to return images in [0, 1]."""
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)
-      label = tf.cast(example['label'], tf.int32)
+      label = tf.cast(example['label'], tf.float32)
       if self._normalize_by_cifar:
         # We use the convention of mean = np.mean(train_images, axis=(0,1,2))
         # and std = np.std(train_images, axis=(0,1,2)).

@@ -23,6 +23,7 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
+import edward2 as ed
 import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -277,7 +278,7 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
 
-      uce_loss_fn = ub.models.uce_loss(sparse=True,
+      uce_loss_fn = ed.losses.uce_loss(sparse=True,
                                        entropy_reg=FLAGS.entropy_reg,
                                        num_classes=num_classes)
 

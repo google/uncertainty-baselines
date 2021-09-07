@@ -20,7 +20,7 @@ r"""ViT-SNGP B/16.
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
+import get_fewshot  # local file import
 
 
 def get_config():
@@ -40,8 +40,8 @@ def get_config():
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  # To use ancestor "smearing", use this line instead:
-  # pp_common += f'|onehot({config.num_classes}, key="labels_extended", key_result="labels")  # pylint: disable=line-too-long
+  # To use ancestor 'smearing', use this line instead:
+  # pp_common += f'|onehot({config.num_classes}, key='labels_extended', key_result='labels')  # pylint: disable=line-too-long
   pp_common += '|keep("image", "labels")'
   config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
@@ -49,8 +49,9 @@ def get_config():
 
   config.log_training_steps = 50
   config.log_eval_steps = 1000
-  # NOTE: eval is very fast O(seconds) so it's fine to run it often.
-  config.checkpoint_steps = 1000
+  # NOTE: Save infrequently to prevent crowding the disk space.
+  config.checkpoint_steps = 17250
+  config.checkpoint_timeout = 10
 
   # Model section
   config.model = ml_collections.ConfigDict()
@@ -66,11 +67,15 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
   config.model.representation_size = 768
 
-  # GP layer parameters.
+  # Gaussian process layer section
   config.gp_layer = ml_collections.ConfigDict()
-  config.gp_layer.normalize_input = True
-  config.gp_layer.random_feature_scale = 1.  # 1. or None
-  config.gp_layer.random_feature_stddev = 0.025  # 1. or 0.025
+  # Use momentum-based (i.e., non-exact) covariance update for pre-training.
+  # This is because the exact covariance update can be unstable for pretraining,
+  # since it involves inverting a precision matrix accumulated over 300M data.
+  config.gp_layer.covmat_momentum = .999
+  config.gp_layer.ridge_penalty = 1.
+  # No need to use mean field adjustment for pretraining.
+  config.gp_layer.mean_field_factor = -1.
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -82,7 +87,8 @@ def get_config():
 
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 8e-4  # LR has to be lower for larger models!
+  # LR has to be lower for GP layer and on larger models.
+  config.lr.base = 4e-4
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
@@ -95,10 +101,3 @@ def get_config():
   return config
 
 
-def get_sweep(hyper):
-  # lr_grid = [3e-4, 4e-4, 5e-4, 6e-4]
-  # stddev_grid = [0.01, 0.02, 0.03, 0.04, 0.05]
-  return hyper.product([
-      # hyper.sweep('config.lr.base', lr_grid),
-      # hyper.sweep('config.gp_layer.random_feature_stddev', stddev_grid)
-  ])

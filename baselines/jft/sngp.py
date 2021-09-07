@@ -434,7 +434,7 @@ def main(argv):
   @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, states, images, labels, mask):
     variable_dict = {'params': flax.core.freeze(params), **states}
-    logits, _ = model.apply(
+    logits, out = model.apply(
         variable_dict,
         images,
         train=False,
@@ -453,7 +453,7 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, mask],
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 

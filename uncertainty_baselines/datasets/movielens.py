@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Data loader for the MovieLens dataset."""
 
 from typing import Dict, Optional
@@ -94,7 +93,7 @@ class MovieLensDataset(base.BaseDataset):
 
     name = 'movie_lens/1m-ratings'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs)
-    super(MovieLensDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=split,

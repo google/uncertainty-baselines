@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for uncertainty_baselines.baselines.toxic_comments.metrics."""
 from absl.testing import parameterized
 
@@ -30,7 +29,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
     self.y_true = np.array([0., 1., 0., 1., 0., 1., 1., 0.])
     self.y_pred = np.array([0.31, 0.42, 0.33, 0.84, 0.75, 0.86, 0.57, 0.68])
 
-  def test_no_examples_ROC(self):
+  def testNoExamplesROC(self):
     num_thresholds = 7
     num_bins = 14
     oracle_auc_roc = metrics.OracleCollaborativeAUC(
@@ -46,7 +45,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
                         tf.zeros([num_thresholds]))
     self.assertEqual(result, 0.)
 
-  def test_no_examples_PR(self):
+  def testNoExamplesPR(self):
     num_thresholds = 8
     num_bins = 23
     oracle_auc_pr = metrics.OracleCollaborativeAUC(
@@ -62,7 +61,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
                         tf.zeros([num_thresholds]))
     self.assertEqual(result, 0.)
 
-  def test_reduces_to_AUC_zero_oracle_fraction(self):
+  def testReducesToAUCZeroOracleFraction(self):
     num_thresholds = 11
     oracle_auc = metrics.OracleCollaborativeAUC(
         oracle_fraction=0., num_thresholds=num_thresholds, num_bins=7)
@@ -93,7 +92,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
     self.assertAllClose(oracle_auc.false_negatives, regular_auc.false_negatives)
     self.assertEqual(oracle_auc_result, regular_auc_result)
 
-  def test_ROC_perfect_AUC_with_unit_oracle_fraction(self):
+  def testROCPerfectAUCWithUnitOracleFraction(self):
     num_thresholds = 11
     curve = 'ROC'
     oracle_auc = metrics.OracleCollaborativeAUC(
@@ -114,7 +113,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
 
     self.assertEqual(result, 1.)
 
-  def test_PR_perfect_AUC_with_unit_oracle_fraction(self):
+  def testPRPerfectAUCWithUnitOracleFraction(self):
     num_thresholds = 11
     curve = 'PR'
     oracle_auc = metrics.OracleCollaborativeAUC(
@@ -135,7 +134,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
 
     self.assertEqual(result, 1.)
 
-  def test_reset_state(self):
+  def testResetState(self):
     num_thresholds = 12
     num_bins = 8
     oracle_auc = metrics.OracleCollaborativeAUC(
@@ -160,7 +159,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
     self.assertAllClose(oracle_auc.false_positives, tf.zeros((num_thresholds,)))
     self.assertAllClose(oracle_auc.false_negatives, tf.zeros((num_thresholds,)))
 
-  def test_PR_oracle_fraction_two_thirds(self):
+  def testPROracleFractionTwoThirds(self):
     y_true = np.array([0., 0., 1., 1., 0., 1., 1., 0.])
     y_pred = np.array([0.31, 0.33, 0.42, 0.58, 0.69, 0.76, 0.84, 0.87])
 
@@ -231,7 +230,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
 
     self.assertEqual(result, 0.9434595)
 
-  def test_custom_binning_score(self):
+  def testCustomBinningScore(self):
     y_true = np.array([1., 0., 0., 1.])
     y_pred = np.array([0.31, 0.32, 0.83, 0.64])
 
@@ -290,7 +289,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
 
     self.assertEqual(result, 0.625)
 
-  def test_monotonic_with_increasing_oracle_fraction_and_dtype(self):
+  def testMonotonicWithIncreasingOracleFractionAndDtype(self):
     y_true = np.array([1., 0., 0., 1., 1., 0., 1., 0., 1.])
     y_pred = np.array([0.11, 0.62, 0.33, 0.74, 0.35, 0.26, 0.67, 0.58, 0.89])
     tf_dtype = tf.float16
@@ -313,7 +312,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
     self.assertBetween(result06, minv=result03, maxv=result09)
     self.assertLessEqual(result09, 1.)
 
-  def test_oracle_fraction_and_max_count_both_set(self):
+  def testOracleFractionAndMaxCountBothSet(self):
     y_true = np.array([0., 0., 1., 1., 0., 1., 1., 0.])
     y_pred = np.array([0.31, 0.33, 0.42, 0.58, 0.69, 0.76, 0.84, 0.87])
 
@@ -385,7 +384,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
 
     self.assertEqual(result, 0.9434595)
 
-  def test_oracle_threshold_zero_reduces_to_regular_auc(self):
+  def testOracleThresholdZeroReducesToRegularAuc(self):
     num_thresholds = 5  # -1e-7, 0.25, 0.5, 0.75, 1.0000001
     num_bins = 3  # setting oracle_threshold will override this to 2
     curve = 'ROC'
@@ -424,7 +423,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
     self.assertAllClose(oracle_auc.false_negatives, regular_auc.false_negatives)
     self.assertEqual(oracle_auc_result, regular_auc_result)
 
-  def test_oracle_threshold_one_corrects_all_examples_perfect_auc(self):
+  def testOracleThresholdOneCorrectsAllExamplesPerfectAuc(self):
     num_thresholds = 5  # -1e-7, 0.25, 0.5, 0.75, 1.0000001
     num_bins = 3  # setting oracle_threshold will override this to 2
     curve = 'ROC'
@@ -450,7 +449,7 @@ class OracleCollaborativeAUCTest(tf.test.TestCase):
 
     self.assertEqual(result, 1.)
 
-  def test_oracle_threshold_set(self):
+  def testOracleThresholdSet(self):
     y_true = np.array([1., 0., 1., 1., 0., 0.])
     y_pred = np.array([0.5, 0.7, 0.2, 0.4, 0.3, 0.9])
     certainty_score = np.linspace(0.6, 0.7, 6)  # 0.6, 0.62, 0.64, ..., 0.7
@@ -523,7 +522,7 @@ class CalibrationAUCTest(tf.test.TestCase, parameterized.TestCase):
                                   ('medium', [1, 0.5, 0.5, 0.5, 0], 0.5),
                                   ('poor', [0.5, 0.5, 0.5, 0.5, 0.5], 0.5),
                                   ('wrong', [0.1, 0.9, 0.9, 0.9, 0.1], 0.))
-  def test_auc_roc(self, confidence, auc_expected):
+  def testAUCROC(self, confidence, auc_expected):
     m_auroc = metrics.CalibrationAUC(
         num_thresholds=self.num_thresholds, curve='ROC')
     m_auroc.update_state(self.y_true, self.y_pred, confidence)
@@ -535,14 +534,14 @@ class CalibrationAUCTest(tf.test.TestCase, parameterized.TestCase):
                                   ('medium', [1, 0.8, 0.5, 0.1, 0.5], 0.75),
                                   ('poor', [0.5, 0.5, 0.5, 0.5, 0.5], 0.4),
                                   ('wrong', [0.1, 0.9, 0.9, 0.9, 0.1], 0.234))
-  def test_auc_pr(self, confidence, auc_expected):
+  def testAUCPR(self, confidence, auc_expected):
     m_aupr = metrics.CalibrationAUC(
         num_thresholds=self.num_thresholds, curve='PR')
     m_aupr.update_state(self.y_true, self.y_pred, confidence)
 
     self.assertAllClose(m_aupr.result().numpy(), auc_expected, atol=1e-3)
 
-  def test_auc_rank_two(self):
+  def testAUCRankTwo(self):
     """Checks if AUC indeed does not accept tensors with rank >= 2."""
     y_pred_rank_2 = [self.y_pred]
     confidence = [0, 1, 1, 1, 0]
@@ -568,7 +567,7 @@ class AbstainPrecisionTest(tf.test.TestCase, parameterized.TestCase):
       ('abstain_none', 0., 0.), ('abstain_one', 0.25, 0.),
       ('abstain_three', 0.5, 1 / 3), ('abstain_four', 0.75, 2 / 4),
       ('abstain_five', 0.9, 2 / 5), ('abstain_all', 1.0, 2 / 6))
-  def test_fractions(self, fraction, precision_expected):
+  def testFractions(self, fraction, precision_expected):
     """Tests metric behavior with different fractions."""
     m = metrics.AbstainPrecision(abstain_fraction=fraction)
     precision_observed = m(self.y_true, self.y_pred, self.confidence)
@@ -579,7 +578,7 @@ class AbstainPrecisionTest(tf.test.TestCase, parameterized.TestCase):
       ('abstain_none', 0., 0.), ('abstain_one', 1 / 3, 0.),
       ('abstain_two', 2 / 3, 1 / 2), ('abstain_niety_percent', 0.9, 1 / 2),
       ('abstain_near_all', 0.99, 1 / 2), ('abstain_all', 1.0, 1 / 3))
-  def test_sample_weight(self, fraction, precision_expected):
+  def testSampleWeight(self, fraction, precision_expected):
     """Tests if metric value is correct with sample_weight."""
     sample_weight = np.array([0., 0., 1., 1., 1., 0.])
 
@@ -595,7 +594,7 @@ class AbstainPrecisionTest(tf.test.TestCase, parameterized.TestCase):
       ('abstain_none', 0., 0.), ('abstain_one', 0.25, 0.),
       ('abstain_three', 0.5, 1 / 3), ('abstain_four', 0.75, 2 / 4),
       ('abstain_five', 0.9, 2 / 4), ('abstain_all', 1.0, 2 / 4))
-  def test_max_count(self, fraction, precision_expected):
+  def testMaxCount(self, fraction, precision_expected):
     """Tests if precision value is correctly controlled by max_count."""
     max_count = 4
     m = metrics.AbstainPrecision(
@@ -608,8 +607,9 @@ class AbstainPrecisionTest(tf.test.TestCase, parameterized.TestCase):
 
   @parameterized.named_parameters(('all_correct', 'all_correct', 0.),
                                   ('all_incorrect', 'all_incorrect', 1.))
-  def test_extreme_predictions(self, extreme_prediction_mode,
-                               precision_expected):
+  def testExtremePredictions(self,
+                             extreme_prediction_mode,
+                             precision_expected):
     """Tests if metric is 0. / 1. if predictions are all correct / wrong."""
     if extreme_prediction_mode == 'all_correct':
       y_pred = self.y_true
@@ -626,7 +626,7 @@ class AbstainPrecisionTest(tf.test.TestCase, parameterized.TestCase):
   @parameterized.named_parameters(
       ('abstain_one', 0.25), ('abstain_two', 0.4), ('abstain_three', 0.5),
       ('abstain_four', 0.75), ('abstain_five', 0.9), ('abstain_all', 1.0))
-  def test_singular_confidence_distribution(self, fraction):
+  def testSingularConfidenceDistribution(self, fraction):
     """Tests if metric value is correct under singular conf. distributions."""
     # Under singular confidence distribution, the precision is always
     # 1- accuracy since there's no way to distinguish between examples.
@@ -640,7 +640,7 @@ class AbstainPrecisionTest(tf.test.TestCase, parameterized.TestCase):
       precision_observed = m(self.y_true, self.y_pred, singular_confidence)
       self.assertAllClose(precision_observed, precision_expected, atol=1e-06)
 
-  def test_reset_states(self):
+  def testResetStates(self):
     """Tests if metric statistics are correctly reset to zeros."""
     num_approx_bins = 42
     zero_bins = np.array([0.] * num_approx_bins)

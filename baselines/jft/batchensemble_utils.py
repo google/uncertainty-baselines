@@ -27,6 +27,7 @@ import jax
 import jax.numpy as jnp
 
 # TODO(dusenberrymw): Open-source remaining imports.
+core = None
 
 
 EvaluationOutput = Tuple[jnp.ndarray, ...]
@@ -100,7 +101,7 @@ def update_fn_be(
       batch_loss_fn, has_aux=True)(opt.target, images, labels, rngs=rngs)
 
   # Average gradients.
-  grads = jax.lax.pmean(grads, axis_name="batch")
+  grads = jax.lax.pmean(grads, axis_name='batch')
 
   # TODO(basilm, jpuigcerver): Find better ways to freeze/clip gradients.
   if frozen_vars_patterns:
@@ -108,33 +109,33 @@ def update_fn_be(
     match_fn = lambda name: any([regex.search(name) for regex in regexes])
     grads = core.tree_map_with_names(jnp.zeros_like, grads, match_fn)
 
-  loss = jax.lax.pmean(loss, axis_name="batch")
+  loss = jax.lax.pmean(loss, axis_name='batch')
 
   if plot_grads_nan_inf:
     # If you think that this is heavily affecting your training speed, use
     # `config.plot_grads_nan_inf = False` in the config file.
     num_infs, num_nans = tree_count_infs_nans(
-        grads, psum_axis_name="batch")
-    aux["debug/num_infs"] = num_infs
-    aux["debug/num_nans"] = num_nans
+        grads, psum_axis_name='batch')
+    aux['debug/num_infs'] = num_infs
+    aux['debug/num_nans'] = num_nans
 
   if plot_grad_norm_name_fn:
     # Compute norm of selected parameters and add them as auxiliary metrics.
     aux.update({
-        f"grads_norm/{name}": jnp.sqrt(jnp.vdot(grad, grad))
+        f'grads_norm/{name}': jnp.sqrt(jnp.vdot(grad, grad))
         for name, grad in core.tree_flatten_with_names(grads)[0]
         if plot_grad_norm_name_fn(name)
     })
 
   if max_grad_norm_global and max_grad_norm_global > 0.0:
-    # Normalize by "global" norm (i.e. flatten all parameters).
+    # Normalize by 'global' norm (i.e. flatten all parameters).
     grads, global_norm = core.tree_clip_norm_global_pmax(
-        grads, max_grad_norm_global, axis_name="batch")
-    aux["grad_norm_global"] = global_norm
+        grads, max_grad_norm_global, axis_name='batch')
+    aux['grad_norm_global'] = global_norm
 
   if fast_weight_lr_multiplier and fast_weight_lr_multiplier != 1.0:
     fast_weights_lr_fn = lambda x: x * fast_weight_lr_multiplier
-    match_fn = lambda name: ("fast_weight_alpha" in name or "fast_weight_gamma"  # pylint: disable=g-long-lambda
+    match_fn = lambda name: ('fast_weight_alpha' in name or 'fast_weight_gamma'  # pylint: disable=g-long-lambda
                              in name)
     grads = core.tree_map_with_names(fast_weights_lr_fn, grads, match_fn)
 

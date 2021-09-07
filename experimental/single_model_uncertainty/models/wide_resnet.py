@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Wide ResNet 28-10 with SNGP on CIFAR-10.
 
 Spectral-normalized neural GP (SNGP) [1] is a simple method to improve

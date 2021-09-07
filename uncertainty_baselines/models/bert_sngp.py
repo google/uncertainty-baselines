@@ -430,7 +430,7 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
       outputs = [layer_output_data[-1], cls_output]
 
     # Compile model with updated graph.
-    super(bert_encoder.EncoderScaffold, self).__init__(
+    super().__init__(
         inputs=inputs, outputs=outputs, **self._kwargs)
 
 

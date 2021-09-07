@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 r"""Speech commands covariate shift benchmark.
 
 This dataset consists of labeled audio samples. It is based on the
@@ -121,7 +120,7 @@ class _SpeechCommandsDatasetBuilder(tfds.core.DatasetBuilder):
       **kwargs):
     self._tfds_dataset_builder = tfds_dataset_builder
     self._label_filter_fn = label_filter_fn
-    super(_SpeechCommandsDatasetBuilder, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
   def _download_and_prepare(self, dl_manager, download_config=None):
     """Downloads and prepares dataset for reading."""
@@ -247,7 +246,7 @@ class SpeechCommandsDataset(base.BaseDataset):
     dataset_builder = _SpeechCommandsDatasetBuilder(
         tfds_dataset_builder=tfds_dataset_builder,
         label_filter_fn=label_filter_fn)
-    super(SpeechCommandsDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=tfds_split,

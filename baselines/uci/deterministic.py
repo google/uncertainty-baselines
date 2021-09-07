@@ -73,7 +73,7 @@ class VariableInputLayer(tf.keras.layers.Layer):
     self.initializer = ed.initializers.get(initializer)
     self.regularizer = ed.regularizers.get(regularizer)
     self.constraint = ed.constraints.get(constraint)
-    super(VariableInputLayer, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
   def build(self, input_shape):
     del input_shape  # unused arg
@@ -98,7 +98,7 @@ class VariableInputLayer(tf.keras.layers.Layer):
         'regularizer': ed.regularizers.serialize(self.regularizer),
         'constraint': ed.constraints.serialize(self.constraint),
     }
-    base_config = super(VariableInputLayer, self).get_config()
+    base_config = super().get_config()
     return dict(list(base_config.items()) + list(config.items()))
 
 

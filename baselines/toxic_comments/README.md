@@ -1,4 +1,25 @@
-# Toxic Comments Detection
+# Collaborative Human-AI Moderation of Toxic Comments
+
+The threat of abuse and harassment online means that many people stop expressing themselves and give up on seeking different opinions. Platforms struggle to effectively facilitate conversations, leading many communities to limit or completely shut down user comments. Currently, content moderation is often performed by a collaboration between humans and machine learning models. However, it is not well understood how to design the collaborative process so as to maximize the combined moderator-model system performance. This benchmark presents a rigorous study of this problem, focusing on an approach that incorporates model uncertainty into the collaborative process. 
+
+To reference this work, please cite:
+
+```none
+@inproceedings{kivlichan-etal-2021-measuring,
+    title = "Measuring and Improving Model-Moderator Collaboration using Uncertainty Estimation",
+    author = "Kivlichan, Ian  and
+      Lin, Zi  and
+      Liu, Jeremiah  and
+      Vasserman, Lucy",
+    booktitle = "Proceedings of the 5th Workshop on Online Abuse and Harms (WOAH 2021)",
+    month = aug,
+    year = "2021",
+    address = "Online",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2021.woah-1.5",
+    doi = "10.18653/v1/2021.woah-1.5",
+    pages = "36--53"}
+```
 
 ## Test Performance on Wikipedia Toxicity
 

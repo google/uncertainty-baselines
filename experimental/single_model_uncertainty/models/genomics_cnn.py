@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Genomics CNN with SNGP model.
 
 A 1D CNN model with spectral normalization and Gaussian process for genomic

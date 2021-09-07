@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for ImageNet."""
 
 import tensorflow as tf
@@ -23,7 +22,7 @@ import uncertainty_baselines as ub
 class ImageNetDatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
-    super(ImageNetDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.ImageNetDataset, (224, 224, 3), validation_percent=0.1)
 
 

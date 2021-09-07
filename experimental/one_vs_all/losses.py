@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Utilities related to custom losses for one_vs_all classifiers."""
 
 import tensorflow as tf

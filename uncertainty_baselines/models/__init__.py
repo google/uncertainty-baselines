@@ -18,6 +18,11 @@
 from absl import logging
 import tensorflow as tf
 
+# ==============================================================================
+# Add Vision Transformer, BERT, ed2.mimo, and PyTorch models to their
+# corresponding try/except blocks below these main imports, otherwise you will
+# break the external build.
+# ==============================================================================
 from uncertainty_baselines.models import efficientnet_utils
 from uncertainty_baselines.models.criteo_mlp import criteo_mlp
 from uncertainty_baselines.models.efficientnet import efficientnet
@@ -42,7 +47,6 @@ from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_la
 from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
 from uncertainty_baselines.models.resnet50_variational import resnet50_variational
 from uncertainty_baselines.models.textcnn import textcnn
-from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
 from uncertainty_baselines.models.wide_resnet import wide_resnet
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
 from uncertainty_baselines.models.wide_resnet_condconv import wide_resnet_condconv
@@ -51,6 +55,7 @@ from uncertainty_baselines.models.wide_resnet_heteroscedastic import wide_resnet
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import e_factory as hyperbatchensemble_e_factory
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import LambdaConfig as HyperBatchEnsembleLambdaConfig
 from uncertainty_baselines.models.wide_resnet_hyperbatchensemble import wide_resnet_hyperbatchensemble
+from uncertainty_baselines.models.wide_resnet_posterior_network import wide_resnet_posterior_network
 from uncertainty_baselines.models.wide_resnet_rank1 import wide_resnet_rank1
 from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be
@@ -64,6 +69,8 @@ try:
   from uncertainty_baselines.models import vit_batchensemble
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
+  from uncertainty_baselines.models.vit_gp import vision_transformer_gp
+  from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:

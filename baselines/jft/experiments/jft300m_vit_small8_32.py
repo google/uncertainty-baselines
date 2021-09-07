@@ -14,13 +14,13 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-B/16.
+r"""ViT-S/32.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
+import get_fewshot  # local file import
 
 
 def get_config():
@@ -36,12 +36,12 @@ def get_config():
 
   config.trial = 0
   config.batch_size = 4096
-  config.num_epochs = 7
+  config.num_epochs = 5
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  # To use ancestor "smearing", use this line instead:
-  # pp_common += f'|onehot({config.num_classes}, key="labels_extended", key_result="labels")  # pylint: disable=line-too-long
+  # To use ancestor 'smearing', use this line instead:
+  # pp_common += f'|onehot({config.num_classes}, key='labels_extended', key_result='labels')  # pylint: disable=line-too-long
   pp_common += '|keep("image", "labels")'
   config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
@@ -55,16 +55,16 @@ def get_config():
   # Model section
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
-  config.model.patches.size = [16, 16]
-  config.model.hidden_size = 768
+  config.model.patches.size = [32, 32]
+  config.model.hidden_size = 512
   config.model.transformer = ml_collections.ConfigDict()
   config.model.transformer.attention_dropout_rate = 0.
   config.model.transformer.dropout_rate = 0.
-  config.model.transformer.mlp_dim = 3072
-  config.model.transformer.num_heads = 12
-  config.model.transformer.num_layers = 12
+  config.model.transformer.mlp_dim = 2048
+  config.model.transformer.num_heads = 8
+  config.model.transformer.num_layers = 8
   config.model.classifier = 'token'  # Or 'gap'
-  config.model.representation_size = 768
+  config.model.representation_size = 512
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -76,7 +76,7 @@ def get_config():
 
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 8e-4  # LR has to be lower for larger models!
+  config.lr.base = 0.001
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
@@ -85,8 +85,9 @@ def get_config():
   config.fewshot = get_fewshot()
   config.fewshot.log_steps = 25_000
 
+  config.args = {}
   return config
 
 
-def get_hyper(hyper):
+def get_sweep(hyper):
   return hyper.product([])

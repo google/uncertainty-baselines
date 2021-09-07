@@ -22,7 +22,7 @@ import uncertainty_baselines as ub
 class FashionMnistDatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
-    super(FashionMnistDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.FashionMnistDataset, (28, 28, 1), validation_percent=0.1)
 
 

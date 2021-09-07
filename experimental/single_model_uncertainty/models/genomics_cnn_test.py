@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for uncertainty_baselines.models.genomicscnn."""
 
 from absl.testing import parameterized
@@ -26,7 +25,7 @@ import genomics_cnn  # local file import
 class GenomicsCNNTest(tf.test.TestCase, parameterized.TestCase):
 
   def setUp(self):
-    super(GenomicsCNNTest, self).setUp()
+    super().setUp()
     batch_size = 32
     num_classes = 10
     num_motifs = 16

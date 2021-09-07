@@ -24,7 +24,7 @@ import os.path
 from ml_collections import config_dict
 
 
-def get_config():
+def get_config(launch_on_gcp):
   """Returns the configuration for this experiment."""
   config = config_dict.ConfigDict()
   config.user = getpass.getuser()
@@ -37,6 +37,7 @@ def get_config():
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   output_dir = 'gs://launcher-beta-test-bucket/{}'.format(
       config.experiment_name)
+  data_dir = 'gs://ub-data/retinopathy'
   config.args = {
       'train_epochs': 90,
       'train_batch_size': 64,
@@ -44,13 +45,13 @@ def get_config():
       'checkpoint_interval': -1,
       'lr_schedule': 'step',
       'output_dir': output_dir,
-      'data_dir': 'gs://ub-data/retinopathy',
+      'data_dir': data_dir,
   }
   return config
 
 
 def get_sweep(hyper):
-  num_trials = 5
+  num_trials = 50
   return hyper.zipit([
       hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.1)),
       hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.1)),

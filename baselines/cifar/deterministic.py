@@ -87,6 +87,35 @@ def _extract_hyperparameter_dictionary():
   return hps
 
 
+def _generalized_energy_distance(labels, predictions, num_classes):
+  """Compute generalized energy distance.
+
+  See Eq. (8) https://arxiv.org/abs/2006.06015
+  where d(a, b) = (a - b)^2.
+
+  Args:
+    labels: [batch_size, num_classes] Tensor with empirical probabilities of
+      each class assigned by the labellers.
+    predictions: [batch_size, num_classes] Tensor of predicted probabilities.
+    num_classes: Integer.
+
+  Returns:
+    Tuple of Tensors (label_diversity, sample_diversity, ged).
+  """
+  y = tf.expand_dims(labels, -1)
+  y_hat = tf.expand_dims(predictions, -1)
+
+  non_diag = tf.expand_dims(1.0 - tf.eye(num_classes), 0)
+  distance = tf.reduce_sum(tf.reduce_sum(
+      non_diag * y * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
+  label_diversity = tf.reduce_sum(tf.reduce_sum(
+      non_diag * y * tf.transpose(y, perm=[0, 2, 1]), -1), -1)
+  sample_diversity = tf.reduce_sum(tf.reduce_sum(
+      non_diag * y_hat * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
+  ged = tf.reduce_mean(2 * distance - label_diversity - sample_diversity)
+  return label_diversity, sample_diversity, ged
+
+
 def main(argv):
   fmt = '[%(filename)s:%(lineno)s] %(message)s'
   formatter = logging.PythonFormatter(fmt)
@@ -346,6 +375,15 @@ def main(argv):
 
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
       metrics['cifar10h/nll'].update_state(negative_log_likelihood)
+
+      label_diversity, sample_diversity, ged = _generalized_energy_distance(
+          labels, tf.nn.softmax(logits), 10)
+
+      metrics['cifar10h/ged'].update_state(ged)
+      metrics['cifar10h/ged_label_diversity'].update_state(
+          tf.reduce_mean(label_diversity))
+      metrics['cifar10h/ged_sample_diversity'].update_state(
+          tf.reduce_mean(sample_diversity))
 
     for _ in tf.range(tf.cast(num_steps, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))

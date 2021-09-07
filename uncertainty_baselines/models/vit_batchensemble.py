@@ -126,6 +126,15 @@ class BatchEnsembleEncoder(nn.Module):
     be_layers = self.be_layers
     if be_layers is None:
       be_layers = list(range(1, self.num_layers, 2))
+    if self.ens_size > 1 and not be_layers:
+      raise ValueError(
+          "Must have `ens_size = 1` when not using any BE layers, but received "
+          f"ens_size = {self.ens_size}.")
+
+    def is_first_be_layer(lyr: int) -> bool:
+      if be_layers:
+        return lyr == min(be_layers)
+      return False
 
     x = patch_transformer_lib.AddPositionEmbs(name="posembed_input")(
         inputs, inputs_positions)
@@ -151,6 +160,10 @@ class BatchEnsembleEncoder(nn.Module):
           attention_dropout_rate=self.attention_dropout_rate,
           name=f"encoderblock_{lyr}")
       if lyr in be_layers:
+        # We need to tile inputs before the first BE layer.
+        if is_first_be_layer(lyr):
+          x = jnp.tile(x, [self.ens_size] + [1] * (x.ndim - 1))
+
         x = encoder_block(mlp_class=be_block)(x)
       else:
         x = encoder_block(mlp_class=mlp_dense)(x)
@@ -182,7 +195,7 @@ class PatchTransformerBE(nn.Module):
       prefix: str,
       init_params: Mapping[str, Any],
       model_params: Mapping[str, Any],
-      partition_specs: Sequence[checkpoints_model.PartitionSpec],
+      partition_specs: Sequence[Any],
       keep_head: bool = False,
   ) -> Mapping[str, Any]:
     """Loads from Transformer checkpoint except head parameters.
@@ -201,9 +214,7 @@ class PatchTransformerBE(nn.Module):
     local_devices = sorted(jax.local_devices(), key=lambda device: device.id)
     if partition_specs:
       raise ValueError("Partition specs cannot be used for Batchensemble.")
-    restored = checkpoints_model.tree_restore_and_stack_from_sharded_checkpoint(
-        prefix=prefix, tree=None, partition_specs=partition_specs,
-        local_devices=local_devices)
+    restored = None
     if restored is None:
       raise ValueError(f"No valid checkpoints with prefix {prefix!r}")
     # Checkpoints contain FrozenDicts, which are immutable.
@@ -298,7 +309,8 @@ class PatchTransformerBE(nn.Module):
       x = jnp.mean(x, axis=tuple(range(1, x.ndim - 1)))  # (1,) or (1, 2)
     elif self.classifier == "map":
       probe = self.param("probe", nn.initializers.xavier_uniform(), (1, 1, c))
-      probe = jnp.tile(probe, [n, 1, 1])
+      # x may have been subject to tiling, n can be different from x.shape[0].
+      probe = jnp.tile(probe, [x.shape[0], 1, 1])
       attention = nn.MultiHeadDotProductAttention(
           deterministic=not train,
           num_heads=transformer.get("attention", {}).get("num_heads", 1),

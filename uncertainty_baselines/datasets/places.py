@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Places-365 dataset builder."""
 
 from typing import Dict, Optional, Union
@@ -66,7 +65,7 @@ class Places365Dataset(base.BaseDataset):
         validation_percent,
         split,
         test_split=tfds.Split.VALIDATION)
-    super(Places365Dataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,

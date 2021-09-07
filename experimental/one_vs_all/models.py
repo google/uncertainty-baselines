@@ -31,7 +31,7 @@ class DisMax(tf.keras.layers.Layer):
   """
 
   def __init__(self, num_classes: int = 10):
-    super(DisMax, self).__init__()
+    super().__init__()
     self.num_classes = num_classes
 
   def build(self, input_shape):

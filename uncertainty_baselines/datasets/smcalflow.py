@@ -94,7 +94,7 @@ class _SMCalflowDatasetBuilder(tfds.core.DatasetBuilder):
     self._task = self._build_task(name, data_dir, vocabulary)
     self._feature_converter = feature_converter_cls()
 
-    super(_SMCalflowDatasetBuilder, self).__init__(
+    super().__init__(
         data_dir=data_dir, **unused_kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
@@ -227,7 +227,7 @@ class _SMCalflowDataset(base.BaseDataset):
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
     """
-    super(_SMCalflowDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=_SMCalflowDatasetBuilder(
             name=name,
@@ -254,7 +254,7 @@ class SMCalflowDataset(_SMCalflowDataset):
   """SMCalflow dataset builder class."""
 
   def __init__(self, data_dir: Optional[str] = None, **kwargs: Dict[str, Any]):
-    super(SMCalflowDataset, self).__init__(
+    super().__init__(
         name='smcalflow', data_dir=data_dir, **kwargs)
 
 
@@ -262,5 +262,5 @@ class MultiWoZDataset(_SMCalflowDataset):
   """MultiWoZ dataset builder class."""
 
   def __init__(self, data_dir: Optional[str] = None, **kwargs: Dict[str, Any]):
-    super(MultiWoZDataset, self).__init__(
+    super().__init__(
         name='multiwoz', data_dir=data_dir, **kwargs)

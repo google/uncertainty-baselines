@@ -35,7 +35,7 @@ class WarmUpPiecewiseConstantSchedule(
                decay_ratio,
                decay_epochs,
                warmup_epochs):
-    super(WarmUpPiecewiseConstantSchedule, self).__init__()
+    super().__init__()
     self.steps_per_epoch = steps_per_epoch
     self.base_learning_rate = base_learning_rate
     self.decay_ratio = decay_ratio
@@ -74,7 +74,7 @@ class AddWarmupDecaySchedule(
       warmup_steps: number of warmup steps
 
     """
-    super(AddWarmupDecaySchedule, self).__init__()
+    super().__init__()
     self._lr_schedule = lr_schedule
     self._warmup_steps = warmup_steps
 
@@ -110,7 +110,7 @@ class WarmUpPolynomialSchedule(
                decay_steps,
                warmup_steps,
                decay_power=1.0):
-    super(WarmUpPolynomialSchedule, self).__init__()
+    super().__init__()
     poly_schedule = tf.keras.optimizers.schedules.PolynomialDecay(
         base_learning_rate,
         decay_steps,

@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for CIFAR."""
 
 from absl.testing import parameterized
@@ -24,15 +23,15 @@ import uncertainty_baselines as ub
 class CifarDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
 
   def testCifar10DatasetShape(self):
-    super(CifarDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.Cifar10Dataset, (32, 32, 3), validation_percent=0.1)
 
   def testCifar100DatasetShape(self):
-    super(CifarDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.Cifar100Dataset, (32, 32, 3), validation_percent=0.1)
 
   def testCifar10CorruptedDatasetShape(self):
-    super(CifarDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.Cifar10CorruptedDataset,
         (32, 32, 3),
         splits=['test'],

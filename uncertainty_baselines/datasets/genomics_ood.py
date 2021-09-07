@@ -62,7 +62,7 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
   }
 
   def __init__(self, data_dir, data_mode, **kwargs):
-    super(_GenomicsOodDatasetBuilder, self).__init__(
+    super().__init__(
         data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
@@ -133,15 +133,16 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
 class GenomicsOodDataset(base.BaseDataset):
   """Genomics OOD dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      eval_filter_class_id: int = -1,
-      data_mode: str = 'ind',
-      data_dir: Optional[str] = None,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               split: str,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               eval_filter_class_id: int = -1,
+               data_mode: str = 'ind',
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None,
+               validation_percent: Optional[float] = None,
+               normalize_by_cifar: Optional[bool] = None):
     """Create an Genomics OOD tf.data.Dataset builder.
 
     Args:
@@ -160,12 +161,18 @@ class GenomicsOodDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
+      validation_percent: the percent of the training set to use as a validation
+        set. It is not used.
+      normalize_by_cifar: Whether normalize SVHN by CIFAR statistics. It is
+        not used.
     """
+    del validation_percent
+    del normalize_by_cifar
     if data_dir is None:
       builder = tfds.builder('genomics_ood')
       data_dir = builder.data_dir
 
-    super(GenomicsOodDataset, self).__init__(
+    super().__init__(
         name='genomics_ood',
         dataset_builder=_GenomicsOodDatasetBuilder(data_dir, data_mode),
         split=split,
@@ -194,6 +201,7 @@ class GenomicsOodDataset(base.BaseDataset):
               'domain': tf.io.VarLenFeature(tf.string),
           })
 
+      parsed_example = example.copy()
       # Convert a input DNA sequence of type string into a list of integers
       # by replacing {A, C, G, T} with {0, 1, 2, 3}.
       # eg, 'CAGTA' (input) --> '10230' --> [1,0,2,3,0] (output)
@@ -203,9 +211,10 @@ class GenomicsOodDataset(base.BaseDataset):
       seq = tf.strings.regex_replace(seq, 'T', '3')
       seq_list = tf.strings.bytes_split(seq)
       seq = tf.strings.to_number(seq_list, out_type=tf.int32)
-      return {
-          'features': seq,
-          'labels': tf.cast(features['label'], tf.int32),
-      }
+
+      parsed_example['features'] = seq
+      parsed_example['labels'] = tf.cast(features['label'], tf.int32)
+
+      return parsed_example
 
     return _example_parser

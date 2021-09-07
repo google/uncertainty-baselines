@@ -79,7 +79,7 @@ def load_cifar100_c(corruption_name,
                     batch_size,
                     use_bfloat16,
                     path,
-                    drop_remainder=True,
+                    drop_remainder=False,
                     normalize=True,
                     standarize=True):
   """Loads CIFAR-100-C dataset."""
@@ -123,7 +123,7 @@ def load_cifar10_c(corruption_name,
                    corruption_intensity,
                    batch_size,
                    use_bfloat16,
-                   drop_remainder=True,
+                   drop_remainder=False,
                    normalize=True):
   """Loads CIFAR-10-C dataset."""
   if use_bfloat16:

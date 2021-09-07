@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Data loader for the Jigsaw toxicity classification datasets."""
 import os
 from typing import Any, Dict, Optional, Tuple
@@ -84,7 +83,7 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
       **kwargs):
     self._tfds_dataset_builder = tfds_dataset_builder
     self._max_seq_length = max_seq_length
-    super(_JigsawToxicityDatasetBuilder, self).__init__(
+    super().__init__(
         data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
@@ -227,7 +226,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
         split = tfds.core.ReadInstruction(
             'train', from_=-num_validation_examples, unit='abs')
 
-    super(_JigsawToxicityDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=split,
@@ -274,7 +273,7 @@ class WikipediaToxicityDataset(_JigsawToxicityDataset):
         toxicity_name for toxicity_name in _TOXICITY_SUBTYPE_NAMES
         if toxicity_name != 'sexual_explicit')
 
-    super(WikipediaToxicityDataset, self).__init__(
+    super().__init__(
         name='wikipedia_toxicity_subtypes',
         validation_percent=validation_percent,
         additional_labels=additional_labels,
@@ -285,14 +284,14 @@ class CivilCommentsDataset(_JigsawToxicityDataset):
   """Data loader for Civil Comments datasets."""
 
   def __init__(self, **kwargs):
-    super(CivilCommentsDataset, self).__init__(name='civil_comments', **kwargs)
+    super().__init__(name='civil_comments', **kwargs)
 
 
 class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
   """Data loader for Civil Comments Identities datasets."""
 
   def __init__(self, **kwargs):
-    super(CivilCommentsIdentitiesDataset, self).__init__(
+    super().__init__(
         name='civil_comments/CivilCommentsIdentities',
         additional_labels=_TOXICITY_SUBTYPE_NAMES + _IDENTITY_LABELS,
         **kwargs)

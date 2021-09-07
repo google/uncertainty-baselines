@@ -58,7 +58,7 @@ class _CifarDataset(base.BaseDataset):
       validation_percent: float = 0.0,
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
-      drop_remainder: bool = True,
+      drop_remainder: bool = False,
       normalize: bool = True,
       try_gcs: bool = False,
       download_data: bool = False,
@@ -110,7 +110,7 @@ class _CifarDataset(base.BaseDataset):
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(
         dataset_builder, validation_percent, split)
-    super(_CifarDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,
@@ -201,7 +201,9 @@ class _CifarDataset(base.BaseDataset):
       labels = example['label']
 
       if should_onehot:
-        parsed_example['labels'] = tf.one_hot(labels, 10, dtype=tf.float32)
+        num_classes = 100 if self.name == 'cifar100' else 10
+        parsed_example['labels'] = tf.one_hot(
+            labels, num_classes, dtype=tf.float32)
       else:
         parsed_example['labels'] = tf.cast(labels, tf.float32)
 
@@ -229,7 +231,7 @@ class Cifar10Dataset(_CifarDataset):
   """CIFAR10 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(Cifar10Dataset, self).__init__(
+    super().__init__(
         name='cifar10',
         fingerprint_key='id',
         **kwargs)
@@ -239,7 +241,7 @@ class Cifar100Dataset(_CifarDataset):
   """CIFAR100 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super(Cifar100Dataset, self).__init__(
+    super().__init__(
         name='cifar100',
         fingerprint_key='id',
         **kwargs)
@@ -260,7 +262,7 @@ class Cifar10CorruptedDataset(_CifarDataset):
       severity: Corruption severity, an integer between 1 and 5.
       **kwargs: Additional keyword arguments.
     """
-    super(Cifar10CorruptedDataset, self).__init__(
+    super().__init__(
         name=f'cifar10_corrupted/{corruption_type}_{severity}',
         fingerprint_key=None,
         **kwargs)

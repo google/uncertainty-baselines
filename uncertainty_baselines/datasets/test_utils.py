@@ -13,10 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Utils for testing datasets."""
 
-from typing import Any, Dict, Sequence, Type, TypeVar, Union
+from typing import Any, Dict, Sequence, Type, TypeVar, Union, Optional
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -34,6 +33,7 @@ class DatasetTest(tf.test.TestCase):
       dataset_class: Type[TypeVar('B', bound=base.BaseDataset)],
       image_size: Sequence[int],
       splits: Sequence[Union[float, str, tfds.Split]] = _SPLITS,
+      label_size: Optional[Sequence[int]] = None,
       **kwargs: Dict[str, Any]):
     batch_size_splits = {}
     for split in splits:
@@ -54,7 +54,11 @@ class DatasetTest(tf.test.TestCase):
       features_shape = features.shape
       labels_shape = labels.shape
       self.assertEqual(features_shape, tuple([bs] + list(image_size)))
-      self.assertEqual(labels_shape, (bs,))
+
+      if label_size is None:
+        self.assertEqual(labels_shape, (bs,))
+      else:
+        self.assertEqual(labels_shape, tuple([bs] + list(label_size)))
 
 
 if __name__ == '__main__':

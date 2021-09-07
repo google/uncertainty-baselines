@@ -176,7 +176,7 @@ class MpnnModel(tf.keras.Model):
       use_gp_layer: Bool, if set True, GP layer is used to build classifier.
 
     """
-    super(MpnnModel, self).__init__()
+    super().__init__()
     self.use_gp_layer = use_gp_layer
 
     self.mpnn_layers = [

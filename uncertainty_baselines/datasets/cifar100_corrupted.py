@@ -74,7 +74,7 @@ class Cifar100CorruptedConfig(tfds.core.BuilderConfig):
       severity: integer, bewteen 1 and 5.
       **kwargs: keyword arguments forwarded to super.
     """
-    super(Cifar100CorruptedConfig, self).__init__(**kwargs)
+    super().__init__(**kwargs)
     self.corruption = corruption_type
     self.severity = severity
 
@@ -111,7 +111,7 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
   BUILDER_CONFIGS = _make_builder_configs()
 
   def __init__(self, data_dir, **kwargs):
-    super(_Cifar100CorruptedDatasetBuilder, self).__init__(
+    super().__init__(
         data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
@@ -206,7 +206,7 @@ class Cifar100CorruptedDataset(base.BaseDataset):
     self._normalize = normalize
     dataset_builder = _Cifar100CorruptedDatasetBuilder(
         data_dir, config=f'{corruption_type}_{severity}')
-    super(Cifar100CorruptedDataset, self).__init__(
+    super().__init__(
         name=f'{dataset_builder.name}/{dataset_builder.builder_config.name}',
         dataset_builder=dataset_builder,
         split=split,

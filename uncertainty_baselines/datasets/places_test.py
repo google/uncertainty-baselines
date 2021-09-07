@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for Places-365."""
 
 import tensorflow as tf
@@ -23,7 +22,7 @@ import uncertainty_baselines as ub
 class Places365DatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
-    super(Places365DatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.Places365Dataset, (224, 224, 3), validation_percent=0.1)
 
 

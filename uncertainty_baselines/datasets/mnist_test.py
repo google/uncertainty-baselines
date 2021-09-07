@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Tests for MNIST."""
 
 import tensorflow as tf
@@ -23,7 +22,7 @@ import uncertainty_baselines as ub
 class MnistDatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
-    super(MnistDatasetTest, self)._testDatasetSize(
+    super()._testDatasetSize(
         ub.datasets.MnistDataset, (28, 28, 1), validation_percent=0.1)
 
 

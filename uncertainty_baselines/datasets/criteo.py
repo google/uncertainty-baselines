@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Data loader for the Criteo dataset."""
 
 import os.path
@@ -84,7 +83,7 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
   VERSION = tfds.core.Version('0.0.0')
 
   def __init__(self, data_dir, **kwargs):
-    super(_CriteoDatasetBuilder, self).__init__(data_dir=data_dir, **kwargs)
+    super().__init__(data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
     self._data_dir = data_dir
@@ -203,7 +202,7 @@ class CriteoDataset(base.BaseDataset):
       split = 'test'
     else:
       self._corruption_level = None
-    super(CriteoDataset, self).__init__(
+    super().__init__(
         name='criteo',
         dataset_builder=_CriteoDatasetBuilder(data_dir=data_dir),
         split=split,

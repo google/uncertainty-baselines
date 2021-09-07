@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """The BERT model with dropout layers."""
 import functools
 import math
@@ -220,7 +219,7 @@ class DropoutTransformerEncoder(bert_encoder.EncoderScaffold):
     else:
       hidden_cfg = mc_dropout_cfg
 
-    super(DropoutTransformerEncoder, self).__init__(
+    super().__init__(
         hidden_cls=hidden_cls, hidden_cfg=hidden_cfg, **kwargs)
 
 

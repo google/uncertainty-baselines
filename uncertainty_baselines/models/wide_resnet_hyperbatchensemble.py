@@ -35,7 +35,7 @@ class LogScaler(tf.keras.layers.Layer):
   """Layer that applies log transformation of hyperparameters in lambdas."""
 
   def __init__(self, ranges, **kwargs):
-    super(LogScaler, self).__init__(**kwargs)
+    super().__init__(**kwargs)
     self.ranges = ranges
     tf_log = tf.math.log
     self.log_min = tf.convert_to_tensor([[tf_log(r['min']) for r in ranges]])
@@ -53,7 +53,7 @@ class LogScaler(tf.keras.layers.Layer):
         'ranges': self.ranges
     }
 
-    new_config = super(LogScaler, self).get_config()
+    new_config = super().get_config()
     new_config.update(config)
     return new_config
 
@@ -64,7 +64,7 @@ class LambdaConfig:
   def __init__(self, ranges, key_to_index,
                dist=DEFAULT_DISTRIBUTION, encoding=DEFAULT_ENCODING):
 
-    super(LambdaConfig, self).__init__()
+    super().__init__()
 
     assert encoding in ENCODING
     assert dist in DISTRIBUTION

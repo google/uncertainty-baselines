@@ -31,6 +31,10 @@ import uncertainty_baselines as ub
 import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
+# Hide any GPUs form TensorFlow. Otherwise TF might reserve memory and make
+# PyTorch crash with CUDA OoM error.
+tf.config.experimental.set_visible_devices([], 'GPU')
+
 DEFAULT_NUM_EPOCHS = 90
 
 # Data load / output flags.

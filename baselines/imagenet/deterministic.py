@@ -403,10 +403,10 @@ def main(argv):
                    eta_seconds / 60,
                    time_elapsed / 60))
     logging.info(message)
-    validation_iterator = iter(validation_dataset)
     test_iterator = iter(test_dataset)
     logging.info('Starting to run eval at epoch: %s', epoch)
     if FLAGS.train_proportion < 1.0:
+      validation_iterator = iter(validation_dataset)
       test_step(
           metrics_prefix='validation',
           iterator=validation_iterator,

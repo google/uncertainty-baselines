@@ -27,7 +27,7 @@ tfd = tfp.distributions
 def load_corrupted_test_dataset(corruption_name,
                                 corruption_intensity,
                                 batch_size,
-                                drop_remainder=True,
+                                drop_remainder=False,
                                 use_bfloat16=False):
   """Loads an ImageNet-C dataset."""
   corruption = corruption_name + '_' + str(corruption_intensity)

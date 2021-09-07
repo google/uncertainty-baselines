@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """SVHN dataset builder."""
 
 from typing import Dict, Optional
@@ -68,7 +67,7 @@ class SvhnDataset(base.BaseDataset):
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(
         dataset_builder, validation_percent, split)
-    super(SvhnDataset, self).__init__(
+    super().__init__(
         name=name,
         dataset_builder=dataset_builder,
         split=new_split,
@@ -84,7 +83,7 @@ class SvhnDataset(base.BaseDataset):
       """A pre-process function to return images in [0, 1]."""
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)
-      label = tf.cast(example['label'], tf.int32)
+      label = tf.cast(example['label'], tf.float32)
       if self._normalize_by_cifar:
         # We use the convention of mean = np.mean(train_images, axis=(0,1,2))
         # and std = np.std(train_images, axis=(0,1,2)).

@@ -14,17 +14,13 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-B/16 finetuning on CIFAR.
+r"""ViT-B/16 finetuning on CIFAR 10 and CIFAR 100 using hypersweep.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
 
-
-def get_sweep(hyper):
-  return hyper.product([])
 
 
 def get_config():
@@ -57,8 +53,8 @@ def get_config():
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 
   # CIFAR-10H eval
-  config.eval_on_cifar_10h = True
-  config.pp_eval_cifar_10h = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'
+  config.eval_on_cifar_10h = False
+  config.pp_eval_cifar_10h = ''
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
@@ -106,3 +102,93 @@ def get_config():
 
   config.args = {}
   return config
+
+
+def get_sweep(hyper):
+  """Sweeps over datasets."""
+
+  # pylint: disable=g-long-lambda
+  c100 = lambda **kw: task(
+      hyper,
+      'cifar100',
+      'train[:98%]',
+      'train[98%:]',
+      'cifar10',
+      n_cls=100,
+      **kw)
+  c10 = lambda **kw: task(
+      hyper,
+      'cifar10',
+      'train[:98%]',
+      'train[98%:]',
+      'cifar100',
+      n_cls=10,
+      **kw)
+  # pylint: enable=g-long-lambda
+
+  tasks = hyper.chainit([
+      # Same sizes as in default BiT-HyperRule, for models that supports hi-res.
+      c100(size=384, steps=10_000, warmup=500),
+      c100(size=384, steps=10_000, warmup=500, train_data_aug=False),
+      c10(size=384, steps=10_000, warmup=500),
+      c10(size=384, steps=10_000, warmup=500, train_data_aug=False),
+  ])
+
+  return hyper.product([
+      hyper.sweep('config.model_init', [MODEL_INIT_I21K, MODEL_INIT_JFT]),
+      tasks,
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+  ])
+
+
+def fixed(hyper, **kw):
+  return hyper.zipit(
+      [hyper.fixed(f'config.{k}', v, length=1) for k, v in kw.items()])
+
+
+def task(hyper,
+         name,
+         train,
+         val,
+         ood_name,
+         n_cls,
+         steps,
+         warmup,
+         size,
+         train_data_aug=True):
+  """Vision task with val and test splits."""
+  common = '|value_range(-1, 1)'
+  common += f'|onehot({n_cls}, key="label", key_result="labels")'
+  common += '|keep("image", "labels")'
+  pp_eval = f'decode|resize({size})' + common
+
+  if train_data_aug:
+    pp_train = f'decode|inception_crop({size})|flip_lr' + common
+  else:
+    pp_train = f'decode|resize({size})' + common
+
+  task_hyper = {
+      'dataset': name,
+      'train_split': train,
+      'pp_train': pp_train,
+      'val_split': val,
+      'ood_dataset': ood_name,
+      'pp_eval': pp_eval,
+      'num_classes': n_cls,
+      'lr.warmup_steps': warmup,
+      'total_steps': steps,
+  }
+
+  if name == 'cifar10':
+    # CIFAR-10H eval
+    eval_on_cifar_10h = True
+    pp_eval_cifar_10h = f'resize({size})' + '|value_range(-1, 1)' + (
+        '|keep("image",'
+        ' '
+        '"labels")')
+    task_hyper.update({
+        'eval_on_cifar_10h': eval_on_cifar_10h,
+        'pp_eval_cifar_10h': pp_eval_cifar_10h
+    })
+
+  return fixed(hyper, **task_hyper)

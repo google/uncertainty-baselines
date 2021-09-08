@@ -735,12 +735,26 @@ def main(argv):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_iter_splits.items():
-        ncorrect, loss, nseen = 0, 0, 0
+        # Sets up evaluation metrics.
         ece_num_bins = config.get('ece_num_bins', 15)
+        auc_num_bins = config.get('auc_num_bins', 1000)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+        calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+        # TODO(jereliu): Extend to support soft multi-class probabilities.
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.005, num_bins=auc_num_bins)
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.01, num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.02, num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.05, num_bins=auc_num_bins)
         label_diversity = tf.keras.metrics.Mean()
         sample_diversity = tf.keras.metrics.Mean()
         ged = tf.keras.metrics.Mean()
+
+        # Runs evaluation loop.
+        ncorrect, loss, nseen = 0, 0, 0
         for _, batch in zip(range(val_steps), val_iter):
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
@@ -758,16 +772,24 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute
-          # complicated metrics such as ECE.
+          # Here we parse batch_metric_args to compute uncertainty metrics.
+          # (e.g., ECE or Calibration AUC).
           logits, labels, _, masks = batch_metric_args
           masks = np.array(masks[0], dtype=np.bool)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
           logits = np.array(logits[0])
           probs = jax.nn.softmax(logits)
-          for p, l, m, label in zip(probs, int_labels, masks, labels[0]):
+          # From one-hot to integer labels, as required by ECE.
+          int_labels = np.argmax(np.array(labels[0]), axis=-1)
+          int_preds = np.argmax(logits, axis=-1)
+          confidence = np.max(probs, axis=-1)
+          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                          int_preds, masks, labels[0]):
             ece.add_batch(p[m, :], label=l[m])
+            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
             if val_name == 'cifar_10h':
               batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
@@ -780,6 +802,17 @@ def main(argv):
         mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
         mw.measure(f'{val_name}_loss', val_loss)
         mw.measure(f'{val_name}_ece', float(ece.result()['ece']))
+        mw.measure(f'{val_name}_calib_auc',
+                   float(calib_auc.result()['calibration_auc']))
+        mw.measure(f'{val_name}_oc_auc_0.5%',
+                   float(oc_auc_0_5.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_1%',
+                   float(oc_auc_1.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_2%',
+                   float(oc_auc_2.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_5%',
+                   float(oc_auc_5.result()['collaborative_auc']))
+
         if val_name == 'cifar_10h':
           mw.measure(
               f'{val_name}_label_diversity', float(label_diversity.result()))
@@ -829,7 +862,7 @@ def main(argv):
             ncorrect += np.sum(np.array(batch_ncorrect[0]))
             loss += np.sum(np.array(batch_losses[0]))
             nseen += np.sum(np.array(batch_n[0]))
-            # Parse batch_metric_args to compute OOD AUC.
+            # Here we parse batch_metric_args to compute OOD metrics.
             logits, labels, pre_logits, masks = batch_metric_args
             masks = np.array(masks[0], dtype=np.bool)
             if val_name == 'train_maha':

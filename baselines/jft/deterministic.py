@@ -302,9 +302,9 @@ def main(argv):
 
   @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, images, labels, mask):
-    logits, _ = model.apply({'params': flax.core.freeze(params)},
-                            images,
-                            train=False)
+    logits, out = model.apply({'params': flax.core.freeze(params)},
+                              images,
+                              train=False)
 
     losses = getattr(u, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -319,7 +319,7 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, mask],
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
@@ -593,6 +593,7 @@ def main(argv):
                                           int_preds, masks, labels[0]):
             ece.add_batch(p[m, :], label=l[m])
             calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            # TODO(jereliu): Extend to support soft multi-class probabilities.
             oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
             oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
             oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])

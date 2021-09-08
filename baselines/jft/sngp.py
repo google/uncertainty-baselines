@@ -908,8 +908,8 @@ def main(argv):
             mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
             mw.measure(f'{val_name}_loss', loss / nseen)
         for metric_name, metric in ood_metrics.items():
-          metric_values = ood_utils.ood_metrics(metric['label'],
-                                                metric['score'])
+          metric_values = ood_utils.compute_ood_metrics(metric['label'],
+                                                        metric['score'])
           mw.measure(f'ood_{metric_name}_auroc', metric_values['auc-roc'])
           mw.measure(f'ood_{metric_name}_auprc', metric_values['auc-pr'])
 

@@ -27,6 +27,13 @@ class OodUtilsTest(tf.test.TestCase):
     self.mean_list = [np.array([-1, 0]), np.array([1, 0])]
     self.cov = np.identity(2)
 
+  def test_ood_metric(self):
+    a = ood_utils.OODMetric("msp")
+    scores = [0.6, 0.1]
+    labels = [1, 0]
+    a.update(scores, labels)
+    self.assertEqual((scores, labels), a.get_scores_and_labels())
+
   def test_compute_mean_and_cov(self):
     n_sample = 1000
     embeds_list, labels_list = [], []
@@ -50,7 +57,7 @@ class OodUtilsTest(tf.test.TestCase):
 
   def test_ood_metrics(self):
     self.assertDictEqual(
-        ood_utils.ood_metrics([0, 0, 1, 1], [0.2, 0.4, 0.35, 0.1]),
+        ood_utils.compute_ood_metrics([0, 0, 1, 1], [0.2, 0.4, 0.35, 0.1]),
         {
             "auc-roc": 0.25,
             "auc-pr": 0.5,

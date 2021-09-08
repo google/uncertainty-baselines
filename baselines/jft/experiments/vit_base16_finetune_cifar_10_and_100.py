@@ -37,6 +37,7 @@ def get_config():
   # ood_split is the data split for both the ood_dataset and the dataset.
   config.ood_dataset = 'cifar100'
   config.ood_split = 'test'
+  config.ood_methods = ['msp', 'maha', 'rmaha']
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE

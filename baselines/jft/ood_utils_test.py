@@ -28,11 +28,22 @@ class OodUtilsTest(tf.test.TestCase):
     self.cov = np.identity(2)
 
   def test_ood_metric(self):
-    a = ood_utils.OODMetric("msp")
-    scores = [0.6, 0.1]
-    labels = [1, 0]
-    a.update(scores, labels)
-    self.assertEqual((scores, labels), a.get_scores_and_labels())
+    metric_name = "msp"
+    ood_metric = ood_utils.OODMetric(metric_name)
+    scores = [0.2, 0.4, 0.35, 0.1]
+    labels = [0, 0, 1, 1]
+    ood_metric.update(scores, labels)
+
+    self.assertEqual(metric_name, ood_metric.get_metric_name())
+    self.assertEqual((scores, labels), ood_metric.get_scores_and_labels())
+    self.assertDictEqual(
+        ood_metric.compute_metrics(),
+        {
+            "auc-roc": 0.25,
+            "auc-pr": 0.5,
+            "fprn": 1.0
+        },
+    )
 
   def test_compute_mean_and_cov(self):
     n_sample = 1000
@@ -54,16 +65,6 @@ class OodUtilsTest(tf.test.TestCase):
     dists = ood_utils.compute_mahalanobis_distance(embeds, self.mean_list,
                                                    self.cov)
     self.assertAllEqual(np.array([0, 0, 81]), np.min(dists, axis=-1))
-
-  def test_ood_metrics(self):
-    self.assertDictEqual(
-        ood_utils.compute_ood_metrics([0, 0, 1, 1], [0.2, 0.4, 0.35, 0.1]),
-        {
-            "auc-roc": 0.25,
-            "auc-pr": 0.5,
-            "fprn": 1.0
-        },
-    )
 
 
 if __name__ == "__main__":

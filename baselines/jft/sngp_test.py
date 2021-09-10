@@ -222,10 +222,10 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss, fewshot_acc_sum)
     # Allow small amount of numeric error due to stochastic nature of GP model.
-    self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=1e-5)
-    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=1e-5)
+    self.assertAllClose(train_loss, correct_train_loss, atol=0.03, rtol=1e-5)
+    self.assertAllClose(val_loss, correct_val_loss, atol=0.03, rtol=1e-5)
     self.assertAllClose(
-        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.025, rtol=0.15)
+        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.03, rtol=0.15)
 
 
 if __name__ == '__main__':

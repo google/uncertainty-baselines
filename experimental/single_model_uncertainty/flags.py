@@ -155,7 +155,7 @@ def define_flags() -> List[str]:
   # Model flags, Gaussian Process layer.
   flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
   flags.DEFINE_float(
-      'gp_scale', 2.,
+      'gp_scale', 1.,
       'The length-scale parameter for the RBF kernel of the GP layer.')
   flags.DEFINE_integer(
       'gp_input_dim', 128,
@@ -167,7 +167,7 @@ def define_flags() -> List[str]:
       'The hidden dimension of the GP layer, which corresponds to the number '
       'of random features used to for the approximation ')
   flags.DEFINE_bool(
-      'gp_input_normalization', True,
+      'gp_input_normalization', False,
       'Whether to normalize the input using LayerNorm for GP layer.'
       'This is similar to automatic relevance determination (ARD) in the '
       'classic GP learning.')

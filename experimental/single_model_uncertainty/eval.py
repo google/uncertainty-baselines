@@ -107,7 +107,8 @@ def run_eval_epoch(
     ood_fn: Optional[EvalStepFn] = None,
     ood_dataset: Optional[tf.data.Dataset] = None,
     ood_summary_writer: Optional[tf.summary.SummaryWriter] = None,
-    hparams: Optional[Dict[str, Any]] = None):
+    hparams: Optional[Dict[str, Any]] = None,
+):
   """Run one evaluation epoch on the test and optionally validation splits."""
   val_outputs_np = None
   if val_dataset:
@@ -140,7 +141,8 @@ def run_eval_epoch(
       hp.hparams(hparams)
     for name, metric in test_outputs.items():
       tf.summary.scalar(name, metric, step=current_step)
-  return val_outputs_np, {k: v.numpy() for k, v in test_outputs.items()}
+  test_outputs_np = {k: v.numpy() for k, v in test_outputs.items()}
+  return val_outputs_np, ood_outputs_np, test_outputs_np
 
 
 def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],

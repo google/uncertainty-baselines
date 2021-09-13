@@ -115,6 +115,7 @@ def _write_summaries(
       tf.summary.scalar(name, result, step=current_step)
 
 
+
 def run_train_loop(
     train_dataset_builder: ub.datasets.BaseDataset,
     validation_dataset_builder: Optional[ub.datasets.BaseDataset],
@@ -233,8 +234,8 @@ def run_train_loop(
     train_step_outputs = remainder_train_step_fn(train_iterator)
 
   # Always evaluate and record metrics at the end of training.
-  _write_summaries(
-      train_step_outputs, train_steps, train_summary_writer, hparams)
+  _write_summaries(train_step_outputs, train_steps, train_summary_writer,
+                   hparams)
   train_step_outputs_np = {k: v.numpy() for k, v in train_step_outputs.items()}
   logging.info(
       'Training metrics for step %d: %s', current_step, train_step_outputs_np)

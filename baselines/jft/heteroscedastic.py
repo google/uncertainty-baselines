@@ -35,6 +35,7 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
@@ -198,6 +199,39 @@ def main(argv):
         pad=local_batch_size_eval)
 
     val_iter_splits['cifar_10h'] = (val_iter_cifar10h, val_steps)
+  elif config.get('eval_on_imagenet_real'):
+    val_steps = int(np.ceil(46837 / batch_size_eval))
+
+    imagenet_real_ds = tfds.load('imagenet2012_real', split='validation')
+    imagenet_real_ds = imagenet_real_ds.filter(
+        lambda ex: tf.shape(ex['real_label'])[0] > 0)
+
+    def avg_label(example):
+      one_hot = tf.one_hot(example['real_label'], 1000)
+      example['labels'] = tf.reduce_mean(one_hot, axis=0)
+      return example
+
+    imagenet_real_ds = imagenet_real_ds.map(avg_label)
+
+    val_ds_imagenet_real = input_pipeline.make_pipeline(
+        data=imagenet_real_ds,
+        batch_size=local_batch_size_eval,
+        preprocess_fn=pp_builder.get_preprocess_fn(
+            config.pp_eval_imagenet_real),
+        cache=config.get('val_cache', 'batched'),
+        repeats=None,
+        repeat_after_batching=True,
+        prefetch=config.get('prefetch_to_host', 2),
+        drop_remainder=False,
+        shuffle_buffer_size=None,
+        ignore_errors=False,
+        filter_fn=None)
+    val_iter_imagenet_real = u.start_input_pipeline(
+        val_ds_imagenet_real,
+        config.get('prefetch_to_device', 1),
+        pad=local_batch_size_eval)
+
+    val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = None
   if config.get('ood_dataset'):

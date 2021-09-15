@@ -57,6 +57,10 @@ def get_config():
   # CIFAR-10H eval
   config.eval_on_cifar_10h = False
 
+  # Imagenet ReaL eval
+  config.eval_on_imagenet_real = True
+  config.pp_eval_imagenet_real = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'  # pylint: disable=line-too-long
+
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
   config.log_training_steps = 100

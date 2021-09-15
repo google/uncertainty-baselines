@@ -460,10 +460,12 @@ def main(argv):
     opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
+    reinit_params = config.get('model_reinit_params',
+                               ('head/kernel', 'head/bias'))
+    logging.info('Reinitializing these parameters: %s', reinit_params)
     loaded = checkpoint_utils.load_from_pretrained_checkpoint(
         params_cpu, config.model_init, config.model.representation_size,
-        config.model.classifier,
-        config.model.get('reinit_params', ('head/kernel', 'head/bias')))
+        config.model.classifier, reinit_params)
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')

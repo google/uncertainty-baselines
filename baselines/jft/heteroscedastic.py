@@ -478,16 +478,18 @@ def main(argv):
     opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
-    reinit_params = ['head/scale_layer_homoscedastic/kernel',
-                     'head/scale_layer_homoscedastic/bias',
-                     'head/scale_layer_heteroscedastic/kernel',
-                     'head/scale_layer_heteroscedastic/bias',
-                     'head/loc_layer/kernel', 'head/diag_layer/kernel',
-                     'head/loc_layer/bias', 'head/diag_layer/bias']
+    reinit_params = config.get('model_reinit_params', [
+        'head/scale_layer_homoscedastic/kernel',
+        'head/scale_layer_homoscedastic/bias',
+        'head/scale_layer_heteroscedastic/kernel',
+        'head/scale_layer_heteroscedastic/bias', 'head/loc_layer/kernel',
+        'head/diag_layer/kernel', 'head/loc_layer/bias', 'head/diag_layer/bias'
+    ])
     for param in reinit_params:
       if param in params_cpu:
         del params_cpu[param]
 
+    logging.info('Reinitializing these parameters: %s', reinit_params)
     loaded = checkpoint_utils.load_from_pretrained_checkpoint(
         params_cpu, config.model_init, config.model.representation_size,
         config.model.classifier, reinit_params)

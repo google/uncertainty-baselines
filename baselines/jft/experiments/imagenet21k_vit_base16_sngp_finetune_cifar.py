@@ -83,10 +83,12 @@ def get_config():
   config.model.transformer.num_heads = 12
   config.model.transformer.num_layers = 12
   config.model.classifier = 'token'  # Or 'gap'
+
   # Re-initialize the trainable parameters in GP output layer (Also those in the
   # dense output layer if loading from deterministic checkpoint).
-  config.model.reinit = ('head/output_layer/kernel', 'head/output_layer/bias',
-                         'head/kernel', 'head/bias')
+  config.model_reinit_params = ('head/output_layer/kernel',
+                                'head/output_layer/bias', 'head/kernel',
+                                'head/bias')
 
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None

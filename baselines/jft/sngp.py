@@ -123,7 +123,7 @@ def get_gp_kwargs(gp_config):
   return gp_layer_kwargs
 
 
-def pretrained_sngp_load(init_params, init_file, model_params):
+def pretrained_sngp_load(init_params, init_file, model_config, reinit_params):
   """Load model parameters from checkpoint and align that with ViT-SNGP."""
 
   def _flatten_dict(params):
@@ -135,11 +135,8 @@ def pretrained_sngp_load(init_params, init_file, model_params):
 
   # Restores parameters from the checkpoint.
   restored_params = checkpoint_utils.load_from_pretrained_checkpoint(
-      init_params, init_file, model_params.representation_size,
-      model_params.classifier,
-      model_params.get('reinit_params',
-                       ('head/output_layer/kernel', 'head/output_layer/bias',
-                        'head/kernel', 'head/bias')))
+      init_params, init_file, model_config.representation_size,
+      model_config.classifier, reinit_params)
 
   # Align restored parameter dict (restored_params) with model parameters
   # (init_params) by adding in missing parameters and removing extra parameters.
@@ -357,14 +354,6 @@ def main(argv):
 
   # Process ViT backbone model configs.
   vit_kwargs = config.get('model')
-
-  if vit_kwargs.get('reinit', None):
-    # Remove parameters not related to model architecture.
-    logging.info('Non-architecture parameter "reinit" found in vit_kwargs. '
-                 'It will be removed before passing to the model.')
-    vit_kwargs = vit_kwargs.copy_and_resolve_references()
-    with vit_kwargs.unlocked():
-      del vit_kwargs.reinit
 
   model = ub.models.vision_transformer_gp(
       num_classes=config.num_classes,
@@ -595,8 +584,13 @@ def main(argv):
     # (random feature, precision matrix, etc) are last-layer parameters that
     # should be re-trained during fine-tuning.
     write_note(f'Initialize trainable parameters from {config.model_init}...')
+    reinit_params = config.get(
+        'model_reinit_params',
+        ('head/output_layer/kernel', 'head/output_layer/bias', 'head/kernel',
+         'head/bias'))
+    logging.info('Reinitializing these parameters: %s', reinit_params)
     loaded = pretrained_sngp_load(params_cpu, config.model_init,
-                                  config.get('model'))
+                                  config.get('model'), reinit_params)
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')

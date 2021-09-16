@@ -117,65 +117,60 @@ def get_config(classifier, representation_size):
 
 class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
 
-  @parameterized.parameters(
-      ('token', 2, 12854.799, 12937.0625, 0.13999999314546585),
-      ('token', None, 10806.852, 18732.41579861111, 0.1899999976158142),
-      ('gap', 2, 13537.143, 13002.321180555555, 0.19999999552965164),
-      ('gap', None, 13047.623, 12661.753472222223, 0.26999999582767487),
-  )
-  @flagsaver.flagsaver
-  def test_deterministic_script(self, classifier, representation_size,
-                                correct_train_loss, correct_val_loss,
-                                correct_fewshot_acc_sum):
+  def setUp(self):
+    super().setUp()
     # Go two directories up to the root of the UB directory.
     ub_root_dir = pathlib.Path(__file__).parents[2]
     data_dir = str(ub_root_dir) + '/.tfds/metadata'
     logging.info('data_dir contents: %s', os.listdir(data_dir))
+    self.data_dir = data_dir
 
+  @parameterized.parameters(
+      ('token', 2, 12854.799, 12937.0625, 0.13999999314546585, False),
+      ('token', 2, 12854.799, 12937.0625, 0.13999999314546585, True),
+      ('token', None, 10806.852, 18732.41579861111, 0.1899999976158142, False),
+      ('gap', 2, 13537.143, 13002.321180555555, 0.19999999552965164, False),
+      ('gap', None, 13047.623, 12661.753472222223, 0.26999999582767487, False),
+      ('gap', None, 13047.623, 12661.753472222223, 0.26999999582767487, True),
+  )
+  @flagsaver.flagsaver
+  def test_deterministic_script(self, classifier, representation_size,
+                                correct_train_loss, correct_val_loss,
+                                correct_fewshot_acc_sum, simulate_failure):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    FLAGS.config.dataset_dir = data_dir
+    FLAGS.config.dataset_dir = self.data_dir
 
-    # Check for any errors.
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      train_loss, val_loss, fewshot_results = deterministic.main(None)
+    if not simulate_failure:
+      # Check for any errors.
+      with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+        train_loss, val_loss, fewshot_results = deterministic.main(None)
+    else:
+      # Check for the ability to restart from a previous checkpoint (after
+      # failure, etc.).
+      # NOTE: Use this flag to simulate failing at a certain step.
+      FLAGS.config.testing_failure_step = FLAGS.config.total_steps - 1
+      FLAGS.config.checkpoint_steps = FLAGS.config.testing_failure_step
+      FLAGS.config.keep_checkpoint_steps = FLAGS.config.checkpoint_steps
+      with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+        deterministic.main(None)
+
+      checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
+      self.assertTrue(os.path.exists(checkpoint_path))
+      checkpoint = checkpoint_utils.load_checkpoint(None, checkpoint_path)
+      self.assertEqual(
+          int(checkpoint['opt']['state']['step']),
+          FLAGS.config.testing_failure_step)
+
+      # This should resume from the failed step.
+      del FLAGS.config.testing_failure_step
+      with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+        train_loss, val_loss, fewshot_results = deterministic.main(None)
 
     # Check for reproducibility.
-    fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
-    logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
-                 train_loss, val_loss, fewshot_acc_sum)
-    self.assertAllClose(train_loss, correct_train_loss)
-    self.assertAllClose(val_loss, correct_val_loss)
-    # The fewshot training pipeline is not completely deterministic. For now, we
-    # increase the tolerance to avoid the test being flaky.
-    self.assertAllClose(
-        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
-
-    # Check for the ability to restart from a previous checkpoint (after
-    # failure, etc.).
-    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    # NOTE: Use this flag to simulate failing at a certain step.
-    FLAGS.config.testing_failure_step = FLAGS.config.total_steps - 1
-    FLAGS.config.checkpoint_steps = FLAGS.config.testing_failure_step
-    FLAGS.config.keep_checkpoint_steps = FLAGS.config.checkpoint_steps
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      deterministic.main(None)
-
-    checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
-    self.assertTrue(os.path.exists(checkpoint_path))
-    checkpoint = checkpoint_utils.load_checkpoint(None, checkpoint_path)
-    self.assertEqual(
-        int(checkpoint['opt']['state']['step']),
-        FLAGS.config.testing_failure_step)
-
-    # This should resume from the failed step.
-    del FLAGS.config.testing_failure_step
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      train_loss, val_loss, fewshot_results = deterministic.main(None)
-
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss, fewshot_acc_sum)
@@ -196,21 +191,16 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
   def test_loading_pretrained_model(self, classifier, representation_size,
                                     correct_train_loss, correct_val_loss,
                                     correct_fewshot_acc_sum):
-    # Go two directories up to the root of the UB directory.
-    ub_root_dir = pathlib.Path(__file__).parents[2]
-    data_dir = str(ub_root_dir) + '/.tfds/metadata'
-    logging.info('data_dir contents: %s', os.listdir(data_dir))
-
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    FLAGS.config.dataset_dir = data_dir
+    FLAGS.config.dataset_dir = self.data_dir
 
     # Run to save a checkpoint, then use that as a pretrained model.
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
       deterministic.main(None)
 
     checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
@@ -230,7 +220,7 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
     FLAGS.config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
       train_loss, val_loss, fewshot_results = deterministic.main(None)
 
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])

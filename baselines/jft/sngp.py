@@ -233,7 +233,7 @@ def main(argv):
 
   # Start prefetching already.
   train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1), pad=local_batch_size)
+      train_ds, config.get('prefetch_to_device', 1))
   # We always pad to local_batch_size_eval even when less would be enough in
   # order to minimize memory fragmentation.
 
@@ -263,7 +263,7 @@ def main(argv):
         drop_remainder=False,
         data_dir=fillin(data_dir))
     val_iter = input_utils.start_input_pipeline(
-        val_ds, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
+        val_ds, config.get('prefetch_to_device', 1))
 
     return (val_iter, val_steps)
 
@@ -290,9 +290,7 @@ def main(argv):
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False)
     val_iter_cifar10h = input_utils.start_input_pipeline(
-        val_ds_cifar10h,
-        config.get('prefetch_to_device', 1),
-        pad=local_batch_size_eval)
+        val_ds_cifar10h, config.get('prefetch_to_device', 1))
 
     val_iter_splits['cifar_10h'] = (val_iter_cifar10h, val_steps)
 

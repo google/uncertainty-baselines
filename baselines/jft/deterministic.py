@@ -699,6 +699,7 @@ def main(argv):
           ncorrect, loss, nseen = 0, 0, 0
           pre_logits_list, labels_list = [], []
           for _, batch in zip(range(val_steps), val_iter):
+            batch_scores = {}
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = evaluation_fn(
                 opt_repl.target, batch['image'], batch['labels'], batch['mask'])
             ncorrect += np.sum(np.array(batch_ncorrect[0]))
@@ -718,36 +719,23 @@ def main(argv):
               if mean_list is not None and cov is not None:
                 dists = ood_utils.compute_mahalanobis_distance(
                     np.array(pre_logits[0])[masks_bool], mean_list, cov)
+                batch_scores['dists'] = dists
 
               if mean_list_background is not None and cov_background is not None:
-                dists0 = ood_utils.compute_mahalanobis_distance(
+                dists_background = ood_utils.compute_mahalanobis_distance(
                     np.array(pre_logits[0])[masks_bool], mean_list_background,
                     cov_background)
+                batch_scores['dists_background'] = dists_background
 
               # Computes Maximum softmax probability (MSP)
               probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
+              batch_scores['probs'] = probs
               # Update metric state for each metric in ood_metrics
               for metric in ood_metrics:
-                metric_name = metric.get_metric_name()
-                if metric_name == 'msp':
-                  ood_scores = np.max(probs, axis=-1)
-                  ood_labels = np.ones_like(
-                      ood_scores) if val_name == 'ind' else np.zeros_like(
-                          ood_scores)
-                elif metric_name == 'maha':
-                  ood_scores = np.min(dists, axis=-1)
-                  ood_labels = np.zeros_like(
-                      ood_scores) if val_name == 'ind' else np.ones_like(
-                          ood_scores)
-                elif metric_name == 'rmaha':
-                  ood_scores = np.min(dists, axis=-1) - dists0.reshape(-1)
-                  ood_labels = np.zeros_like(
-                      ood_scores) if val_name == 'ind' else np.ones_like(
-                          ood_scores)
-                else:
-                  raise NotImplementedError(
-                      'Only msp, maha, and rmaha are supported for OOD evaluation! Got metric_name=%s!'
-                      % metric_name)
+                ood_scores = metric.compute_ood_scores(batch_scores)
+                ood_labels = np.zeros_like(
+                    ood_scores) if val_name == 'ind' else np.ones_like(
+                        ood_scores)
                 metric.update(ood_scores, ood_labels)
 
           if val_name == 'train_maha':

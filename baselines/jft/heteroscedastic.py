@@ -35,18 +35,17 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
+import input_utils  # local file import
 
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
-input_pipeline = None
 u = None
 pp_builder = None
-xm = None
-xm_api = None
 
 
 ml_collections.config_flags.DEFINE_config_file(
@@ -85,8 +84,6 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  # TODO(dusenberrymw): Also add function-level seeds in the tf.data input
-  # pipeline once that code is open-sourced.
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -124,19 +121,20 @@ def main(argv):
       local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
-  # TODO(dusenberrymw): Pass in seed for function-level seeds once open-sourced.
-  train_ds = input_pipeline.get_data(
+  rng, train_ds_rng = jax.random.split(rng)
+  train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
+  train_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.train_split,
-      data_dir=fillin(config.get('dataset_dir')),
-      batch_size=local_batch_size,
+      rng=train_ds_rng,
+      host_batch_size=local_batch_size,
       preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
       shuffle_buffer_size=config.shuffle_buffer_size,
-      prefetch=config.get('prefetch_to_host', 2),
-      cache=False)
+      prefetch_size=config.get('prefetch_to_host', 2),
+      data_dir=fillin(config.get('data_dir')))
 
   # Start prefetching already.
-  train_iter = u.start_input_pipeline(
+  train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1), pad=local_batch_size)
   # We always pad to local_batch_size_eval even when less would be enough in
   # order to minimize memory fragmentation.
@@ -144,60 +142,93 @@ def main(argv):
   write_note('Initializing val dataset(s)...')
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
     # We do ceil rounding such that we include the last incomplete batch.
-    nval_img = input_pipeline.get_num_examples(
-        dataset, split, data_dir=fillin(data_dir))
+    nval_img = input_utils.get_num_examples(
+        dataset,
+        split=split,
+        host_batch_size=local_batch_size_eval,
+        drop_remainder=False,
+        data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
-    val_it = input_pipeline.get_data(
+    val_ds = input_utils.get_data(
         dataset=dataset,
         split=split,
-        data_dir=fillin(data_dir),
-        batch_size=local_batch_size_eval,
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(pp_eval),
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
-        prefetch=config.get('prefetch_to_host', 2),
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        shuffle_files=False)
-    val_it = u.start_input_pipeline(
-        val_it, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
+        data_dir=fillin(data_dir))
+    val_iter = input_utils.start_input_pipeline(
+        val_ds, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
 
-    return (val_it, val_steps)
+    return (val_iter, val_steps)
 
-  if isinstance(config.val_split, str):
-    val_iter_splits = {
-        'val':
-            _get_val_split(config.dataset, config.val_split, config.pp_eval,
-                           config.get('data_dir'))
-    }
-  else:
-    val_iter_splits = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
+  val_iter_splits = {
+      'val':
+          _get_val_split(config.dataset, config.val_split, config.pp_eval,
+                         config.get('data_dir'))
+  }
 
   if config.get('eval_on_cifar_10h'):
     val_steps = int(np.ceil(10000 / batch_size_eval))
 
     cifar10h_dataset = cifar10h_utils.load_ds()
 
-    val_ds_cifar10h = input_pipeline.make_pipeline(
-        data=cifar10h_dataset,
-        batch_size=local_batch_size_eval,
+    val_ds_cifar10h = input_utils.get_data(
+        dataset=cifar10h_dataset,
+        split='test',
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(config.pp_eval_cifar_10h),
         cache=config.get('val_cache', 'batched'),
-        repeats=None,
         repeat_after_batching=True,
-        prefetch=config.get('prefetch_to_host', 2),
-        drop_remainder=False,
-        shuffle_buffer_size=None,
-        ignore_errors=False,
-        filter_fn=None)
-    val_iter_cifar10h = u.start_input_pipeline(
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False)
+    val_iter_cifar10h = input_utils.start_input_pipeline(
         val_ds_cifar10h,
         config.get('prefetch_to_device', 1),
         pad=local_batch_size_eval)
 
     val_iter_splits['cifar_10h'] = (val_iter_cifar10h, val_steps)
+  elif config.get('eval_on_imagenet_real'):
+    val_steps = int(np.ceil(46837 / batch_size_eval))
+
+    imagenet_real_ds = tfds.load('imagenet2012_real', split='validation')
+    imagenet_real_ds = imagenet_real_ds.filter(
+        lambda ex: tf.shape(ex['real_label'])[0] > 0)
+
+    def avg_label(example):
+      one_hot = tf.one_hot(example['real_label'], 1000)
+      example['labels'] = tf.reduce_mean(one_hot, axis=0)
+      return example
+
+    imagenet_real_ds = imagenet_real_ds.map(avg_label)
+
+    val_ds_imagenet_real = input_utils.get_data(
+        dataset=imagenet_real_ds,
+        split='test',
+        rng=None,
+        host_batch_size=local_batch_size_eval,
+        preprocess_fn=pp_builder.get_preprocess_fn(
+            config.pp_eval_imagenet_real),
+        cache=config.get('val_cache', 'batched'),
+        repeat_after_batching=True,
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False)
+    val_iter_imagenet_real = input_utils.start_input_pipeline(
+        val_ds_imagenet_real,
+        config.get('prefetch_to_device', 1),
+        pad=local_batch_size_eval)
+
+    val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = None
   if config.get('ood_dataset'):
@@ -216,9 +247,11 @@ def main(argv):
           'Only string type of val_split is supported! Got val_split=%s!' %
           str(config.ood_split))
 
-  ntrain_img = input_pipeline.get_num_examples(
-      config.dataset, config.train_split,
-      data_dir=fillin(config.get('dataset_dir')))
+  ntrain_img = input_utils.get_num_examples(
+      config.dataset,
+      split=config.train_split,
+      host_batch_size=local_batch_size,
+      data_dir=fillin(config.get('data_dir')))
   steps_per_epoch = ntrain_img / batch_size
 
   if config.get('num_epochs'):
@@ -242,7 +275,8 @@ def main(argv):
   # situations where we allocate them twice.
   @partial(jax.jit, backend='cpu')
   def init(rng):
-    image_size = tuple(train_ds.element_spec['image'].shape[1:])
+    image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
 
     init_rngs = {'params': rng, 'diag_noise_samples': (rng + 1) * 7,
@@ -442,18 +476,21 @@ def main(argv):
     checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
                                                   resume_checkpoint_path)
     opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
+    rngs_loop = checkpoint_extra['rngs_loop']
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
-    reinit_params = ['head/scale_layer_homoscedastic/kernel',
-                     'head/scale_layer_homoscedastic/bias',
-                     'head/scale_layer_heteroscedastic/kernel',
-                     'head/scale_layer_heteroscedastic/bias',
-                     'head/loc_layer/kernel', 'head/diag_layer/kernel',
-                     'head/loc_layer/bias', 'head/diag_layer/bias']
+    reinit_params = config.get('model_reinit_params', [
+        'head/scale_layer_homoscedastic/kernel',
+        'head/scale_layer_homoscedastic/bias',
+        'head/scale_layer_heteroscedastic/kernel',
+        'head/scale_layer_heteroscedastic/bias', 'head/loc_layer/kernel',
+        'head/diag_layer/kernel', 'head/loc_layer/bias', 'head/diag_layer/bias'
+    ])
     for param in reinit_params:
       if param in params_cpu:
         del params_cpu[param]
 
+    logging.info('Reinitializing these parameters: %s', reinit_params)
     loaded = checkpoint_utils.load_from_pretrained_checkpoint(
         params_cpu, config.model_init, config.model.representation_size,
         config.model.classifier, reinit_params)
@@ -490,7 +527,6 @@ def main(argv):
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
 
-  rngs_loop = checkpoint_extra['rngs_loop']
   checkpoint_writer = None
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
@@ -575,12 +611,25 @@ def main(argv):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_iter_splits.items():
-        ncorrect, loss, nseen = 0, 0, 0
+        # Sets up evaluation metrics.
         ece_num_bins = config.get('ece_num_bins', 15)
+        auc_num_bins = config.get('auc_num_bins', 1000)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+        calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.005, num_bins=auc_num_bins)
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.01, num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.02, num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.05, num_bins=auc_num_bins)
         label_diversity = tf.keras.metrics.Mean()
         sample_diversity = tf.keras.metrics.Mean()
         ged = tf.keras.metrics.Mean()
+
+        # Runs evaluation loop.
+        ncorrect, loss, nseen = 0, 0, 0
         for _, batch in zip(range(val_steps), val_iter):
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
@@ -598,16 +647,25 @@ def main(argv):
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
 
-          # Here we parse batch_metric_args to compute complicated metrics
-          # such as ECE.
+          # Here we parse batch_metric_args to compute uncertainty metrics.
+          # (e.g., ECE or Calibration AUC).
           logits, labels, masks = batch_metric_args
           masks = np.array(masks[0], dtype=np.bool)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
           logits = np.array(logits[0])
           probs = jax.nn.softmax(logits)
-          for p, l, m, label in zip(probs, int_labels, masks, labels[0]):
+          # From one-hot to integer labels, as required by ECE.
+          int_labels = np.argmax(np.array(labels[0]), axis=-1)
+          int_preds = np.argmax(logits, axis=-1)
+          confidence = np.max(probs, axis=-1)
+          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                          int_preds, masks, labels[0]):
             ece.add_batch(p[m, :], label=l[m])
+            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            # TODO(jereliu): Extend to support soft multi-class probabilities.
+            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
             if val_name == 'cifar_10h':
               batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
@@ -620,6 +678,17 @@ def main(argv):
         mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
         mw.measure(f'{val_name}_loss', val_loss)
         mw.measure(f'{val_name}_ece', float(ece.result()['ece']))
+        mw.measure(f'{val_name}_calib_auc',
+                   float(calib_auc.result()['calibration_auc']))
+        mw.measure(f'{val_name}_oc_auc_0.5%',
+                   float(oc_auc_0_5.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_1%',
+                   float(oc_auc_1.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_2%',
+                   float(oc_auc_2.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_5%',
+                   float(oc_auc_5.result()['collaborative_auc']))
+
         if val_name == 'cifar_10h':
           mw.measure(
               f'{val_name}_label_diversity', float(label_diversity.result()))
@@ -651,8 +720,7 @@ def main(argv):
             loss += np.sum(np.array(batch_losses[0]))
             nseen += np.sum(np.array(batch_n[0]))
 
-            # Here we parse batch_metric_args to compute
-            # complicated metrics such as ECE and OOD AUROC
+            # Here we parse batch_metric_args to compute OOD metrics.
             logits, _, masks = batch_metric_args
             probs = jax.nn.softmax(logits[0], axis=-1)
             probs = probs[jnp.array(masks[0], dtype=bool)]

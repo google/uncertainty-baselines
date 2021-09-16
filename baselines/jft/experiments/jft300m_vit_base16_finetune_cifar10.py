@@ -14,14 +14,17 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-SNGP-B/16 finetuning on CIFAR.
+r"""ViT-B/16 finetuning on CIFAR-10.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
+# TODO(dusenberrymw): Open-source remaining imports.
 
 
+def get_sweep(hyper):
+  return hyper.product([])
 
 
 def get_config():
@@ -34,7 +37,8 @@ def get_config():
   config.train_split = 'train[:98%]'
   config.num_classes = 10
 
-  # OOD evaluation dataset
+  # OOD eval
+  # ood_split is the data split for both the ood_dataset and the dataset.
   config.ood_dataset = 'cifar100'
   config.ood_split = 'test'
 
@@ -55,6 +59,9 @@ def get_config():
   # CIFAR-10H eval
   config.eval_on_cifar_10h = True
   config.pp_eval_cifar_10h = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'
+
+  # Imagenet ReaL eval
+  config.eval_on_imagenet_real = False
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
@@ -84,31 +91,18 @@ def get_config():
   config.model.transformer.num_layers = 12
   config.model.classifier = 'token'  # Or 'gap'
 
-  # Re-initialize the trainable parameters in GP output layer (Also those in the
-  # dense output layer if loading from deterministic checkpoint).
-  config.model_reinit_params = ('head/output_layer/kernel',
-                                'head/output_layer/bias', 'head/kernel',
-                                'head/bias')
-
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None
-
-  # Gaussian process layer section
-  config.gp_layer = ml_collections.ConfigDict()
-  config.gp_layer.ridge_penalty = 1.
-  # Disable momentum in order to use exact covariance update for finetuning.
-  config.gp_layer.covmat_momentum = -1.
-  config.gp_layer.mean_field_factor = 20.
 
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.grad_clip_norm = 1.
+  config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.0005
+  config.lr.base = 0.001
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
   config.lr.scale_with_batchsize = False

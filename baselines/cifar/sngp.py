@@ -403,29 +403,26 @@ def main(argv):
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
     if FLAGS.run_ood:
-      if not FLAGS.saved_model_dir:
-        raise ValueError('Saved model checkpoint must be specified with the.'
-                         '--saved_model_dir flag for OOD evaluation.')
-      logging.info('Saved model dir : %s', FLAGS.output_dir)
-      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
-      checkpoint.restore(latest_checkpoint)
-      logging.info('Loaded checkpoint %s', latest_checkpoint)
+      if FLAGS.saved_model_dir:
+        logging.info('Saved model dir : %s', FLAGS.saved_model_dir)
+        latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
+        checkpoint.restore(latest_checkpoint)
+        logging.info('Loaded checkpoint %s', latest_checkpoint)
       if FLAGS.eval_only:
         initial_epoch = FLAGS.train_epochs - 1  # Run just one epoch of eval
 
-  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
-  if FLAGS.run_ood:
-    ood_dataset_names = FLAGS.ood_dataset
-    for dataset_name in ood_dataset_names:
-      metrics.update({
-          'ood/auroc_{}'.format(dataset_name):
-              tf.keras.metrics.AUC(curve='ROC', num_thresholds=2000),
-          'ood/auprc_{}'.format(dataset_name):
-              tf.keras.metrics.AUC(curve='PR', num_thresholds=2000),
-          'ood/fpr@95tpr_{}'.format(dataset_name):
-              tf.keras.metrics.SpecificityAtSensitivity(
-                  0.95, num_thresholds=2000)
-      })
+    if FLAGS.run_ood:
+      ood_dataset_names = FLAGS.ood_dataset
+      for dataset_name in ood_dataset_names:
+        metrics.update({
+            'ood/auroc_{}'.format(dataset_name):
+                tf.keras.metrics.AUC(curve='ROC', num_thresholds=2000),
+            'ood/auprc_{}'.format(dataset_name):
+                tf.keras.metrics.AUC(curve='PR', num_thresholds=2000),
+            'ood/fpr@95tpr_{}'.format(dataset_name):
+                tf.keras.metrics.SpecificityAtSensitivity(
+                    0.95, num_thresholds=2000)
+        })
 
   @tf.function
   def train_step(iterator, step):

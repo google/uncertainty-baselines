@@ -41,15 +41,13 @@ from tensorflow.io import gfile
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
+import input_utils  # local file import
 import ood_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
-input_pipeline = None
 u = None
 pp_builder = None
-xm = None
-xm_api = None
 
 
 ml_collections.config_flags.DEFINE_config_file(
@@ -123,7 +121,7 @@ def get_gp_kwargs(gp_config):
   return gp_layer_kwargs
 
 
-def pretrained_sngp_load(init_params, init_file, model_params):
+def pretrained_sngp_load(init_params, init_file, model_config, reinit_params):
   """Load model parameters from checkpoint and align that with ViT-SNGP."""
 
   def _flatten_dict(params):
@@ -135,11 +133,8 @@ def pretrained_sngp_load(init_params, init_file, model_params):
 
   # Restores parameters from the checkpoint.
   restored_params = checkpoint_utils.load_from_pretrained_checkpoint(
-      init_params, init_file, model_params.representation_size,
-      model_params.classifier,
-      model_params.get('reinit_params',
-                       ('head/output_layer/kernel', 'head/output_layer/bias',
-                        'head/kernel', 'head/bias')))
+      init_params, init_file, model_config.representation_size,
+      model_config.classifier, reinit_params)
 
   # Align restored parameter dict (restored_params) with model parameters
   # (init_params) by adding in missing parameters and removing extra parameters.
@@ -188,8 +183,6 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  # TODO(dusenberrymw): Also add function-level seeds in the tf.data input
-  # pipeline once that code is open-sourced.
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -225,20 +218,21 @@ def main(argv):
       jax.device_count(), local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
-  # TODO(dusenberrymw): Pass in seed for function-level seeds once open-sourced.
-  train_ds = input_pipeline.get_data(
+  rng, train_ds_rng = jax.random.split(rng)
+  train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
+  train_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.train_split,
-      data_dir=fillin(config.get('dataset_dir')),
-      batch_size=local_batch_size,
+      rng=train_ds_rng,
+      host_batch_size=local_batch_size,
       preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
       shuffle_buffer_size=config.shuffle_buffer_size,
-      prefetch=config.get('prefetch_to_host', 2),
-      cache=False)
+      prefetch_size=config.get('prefetch_to_host', 2),
+      data_dir=fillin(config.get('data_dir')))
   logging.info('image_size = %s', train_ds.element_spec['image'].shape[1:])
 
   # Start prefetching already.
-  train_iter = u.start_input_pipeline(
+  train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1), pad=local_batch_size)
   # We always pad to local_batch_size_eval even when less would be enough in
   # order to minimize memory fragmentation.
@@ -246,55 +240,56 @@ def main(argv):
   write_note('Initializing val dataset(s)...')
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
     # We do ceil rounding such that we include the last incomplete batch.
-    nval_img = input_pipeline.get_num_examples(
-        dataset, split, data_dir=fillin(data_dir))
+    nval_img = input_utils.get_num_examples(
+        dataset,
+        split=split,
+        host_batch_size=local_batch_size_eval,
+        drop_remainder=False,
+        data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
-    val_it = input_pipeline.get_data(
+    val_ds = input_utils.get_data(
         dataset=dataset,
         split=split,
-        data_dir=fillin(data_dir),
-        batch_size=local_batch_size_eval,
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(pp_eval),
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
-        prefetch=0,  # Save memory since we cache.
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        shuffle_files=False)
-    val_it = u.start_input_pipeline(
-        val_it, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
+        data_dir=fillin(data_dir))
+    val_iter = input_utils.start_input_pipeline(
+        val_ds, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
 
-    return (val_it, val_steps)
+    return (val_iter, val_steps)
 
-  if isinstance(config.val_split, str):
-    val_iter_splits = {
-        'val':
-            _get_val_split(config.dataset, config.val_split, config.pp_eval,
-                           config.get('dataset_dir'))
-    }
-  else:
-    val_iter_splits = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
+  val_iter_splits = {
+      'val':
+          _get_val_split(config.dataset, config.val_split, config.pp_eval,
+                         config.get('dataset_dir'))
+  }
 
   if config.get('eval_on_cifar_10h'):
     val_steps = int(np.ceil(10000 / batch_size_eval))
 
     cifar10h_dataset = cifar10h_utils.load_ds()
 
-    val_ds_cifar10h = input_pipeline.make_pipeline(
-        data=cifar10h_dataset,
-        batch_size=local_batch_size_eval,
+    val_ds_cifar10h = input_utils.get_data(
+        dataset=cifar10h_dataset,
+        split='test',
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(config.pp_eval_cifar_10h),
         cache=config.get('val_cache', 'batched'),
-        repeats=None,
         repeat_after_batching=True,
-        prefetch=0,
-        drop_remainder=False,
-        shuffle_buffer_size=None,
-        ignore_errors=False,
-        filter_fn=None)
-    val_iter_cifar10h = u.start_input_pipeline(
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False)
+    val_iter_cifar10h = input_utils.start_input_pipeline(
         val_ds_cifar10h,
         config.get('prefetch_to_device', 1),
         pad=local_batch_size_eval)
@@ -330,10 +325,11 @@ def main(argv):
           'Only string type of ood_split is supported for OOD evaluation!'
           'Got ood_split=%s!' % str(config.ood_split))
 
-  ntrain_img = input_pipeline.get_num_examples(
+  ntrain_img = input_utils.get_num_examples(
       config.dataset,
-      config.train_split,
-      data_dir=fillin(config.get('dataset_dir')))
+      split=config.train_split,
+      host_batch_size=local_batch_size,
+      data_dir=fillin(config.get('data_dir')))
   steps_per_epoch = ntrain_img / batch_size
 
   if config.get('num_epochs'):
@@ -358,14 +354,6 @@ def main(argv):
   # Process ViT backbone model configs.
   vit_kwargs = config.get('model')
 
-  if vit_kwargs.get('reinit', None):
-    # Remove parameters not related to model architecture.
-    logging.info('Non-architecture parameter "reinit" found in vit_kwargs. '
-                 'It will be removed before passing to the model.')
-    vit_kwargs = vit_kwargs.copy_and_resolve_references()
-    with vit_kwargs.unlocked():
-      del vit_kwargs.reinit
-
   model = ub.models.vision_transformer_gp(
       num_classes=config.num_classes,
       use_gp_layer=use_gp_layer,
@@ -377,7 +365,8 @@ def main(argv):
   # situations where we allocate them twice.
   @partial(jax.jit, backend='cpu')
   def init(rng):
-    image_size = tuple(train_ds.element_spec['image'].shape[1:])
+    image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
     variables = model.init(rng, dummy_input, train=False)
     # Split model parameters into trainable and untrainable collections.
@@ -434,7 +423,7 @@ def main(argv):
   @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, states, images, labels, mask):
     variable_dict = {'params': flax.core.freeze(params), **states}
-    logits, _ = model.apply(
+    logits, out = model.apply(
         variable_dict,
         images,
         train=False,
@@ -453,7 +442,7 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, mask],
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
@@ -589,14 +578,20 @@ def main(argv):
     opt_cpu, states_cpu, checkpoint_extra = (checkpoint['opt'],
                                              checkpoint['states'],
                                              checkpoint['extra'])
+    rngs_loop = checkpoint_extra['rngs_loop']
   elif config.get('model_init'):
     # Load trainable parameters from the checkpoint.
     # This does not cause issue for SNGP since all non-trainable parameters
     # (random feature, precision matrix, etc) are last-layer parameters that
     # should be re-trained during fine-tuning.
     write_note(f'Initialize trainable parameters from {config.model_init}...')
+    reinit_params = config.get(
+        'model_reinit_params',
+        ('head/output_layer/kernel', 'head/output_layer/bias', 'head/kernel',
+         'head/bias'))
+    logging.info('Reinitializing these parameters: %s', reinit_params)
     loaded = pretrained_sngp_load(params_cpu, config.model_init,
-                                  config.get('model'))
+                                  config.get('model'), reinit_params)
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')
@@ -637,7 +632,6 @@ def main(argv):
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
 
-  rngs_loop = checkpoint_extra['rngs_loop']
   checkpoint_writer = None
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
@@ -735,12 +729,26 @@ def main(argv):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_iter_splits.items():
-        ncorrect, loss, nseen = 0, 0, 0
+        # Sets up evaluation metrics.
         ece_num_bins = config.get('ece_num_bins', 15)
+        auc_num_bins = config.get('auc_num_bins', 1000)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+        calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+        # TODO(jereliu): Extend to support soft multi-class probabilities.
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.005, num_bins=auc_num_bins)
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.01, num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.02, num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.05, num_bins=auc_num_bins)
         label_diversity = tf.keras.metrics.Mean()
         sample_diversity = tf.keras.metrics.Mean()
         ged = tf.keras.metrics.Mean()
+
+        # Runs evaluation loop.
+        ncorrect, loss, nseen = 0, 0, 0
         for _, batch in zip(range(val_steps), val_iter):
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
@@ -758,16 +766,24 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute
-          # complicated metrics such as ECE.
+          # Here we parse batch_metric_args to compute uncertainty metrics.
+          # (e.g., ECE or Calibration AUC).
           logits, labels, _, masks = batch_metric_args
           masks = np.array(masks[0], dtype=np.bool)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
           logits = np.array(logits[0])
           probs = jax.nn.softmax(logits)
-          for p, l, m, label in zip(probs, int_labels, masks, labels[0]):
+          # From one-hot to integer labels, as required by ECE.
+          int_labels = np.argmax(np.array(labels[0]), axis=-1)
+          int_preds = np.argmax(logits, axis=-1)
+          confidence = np.max(probs, axis=-1)
+          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                          int_preds, masks, labels[0]):
             ece.add_batch(p[m, :], label=l[m])
+            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
             if val_name == 'cifar_10h':
               batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
@@ -780,6 +796,17 @@ def main(argv):
         mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
         mw.measure(f'{val_name}_loss', val_loss)
         mw.measure(f'{val_name}_ece', float(ece.result()['ece']))
+        mw.measure(f'{val_name}_calib_auc',
+                   float(calib_auc.result()['calibration_auc']))
+        mw.measure(f'{val_name}_oc_auc_0.5%',
+                   float(oc_auc_0_5.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_1%',
+                   float(oc_auc_1.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_2%',
+                   float(oc_auc_2.result()['collaborative_auc']))
+        mw.measure(f'{val_name}_oc_auc_5%',
+                   float(oc_auc_5.result()['collaborative_auc']))
+
         if val_name == 'cifar_10h':
           mw.measure(
               f'{val_name}_label_diversity', float(label_diversity.result()))
@@ -829,7 +856,7 @@ def main(argv):
             ncorrect += np.sum(np.array(batch_ncorrect[0]))
             loss += np.sum(np.array(batch_losses[0]))
             nseen += np.sum(np.array(batch_n[0]))
-            # Parse batch_metric_args to compute OOD AUC.
+            # Here we parse batch_metric_args to compute OOD metrics.
             logits, labels, pre_logits, masks = batch_metric_args
             masks = np.array(masks[0], dtype=np.bool)
             if val_name == 'train_maha':
@@ -875,8 +902,8 @@ def main(argv):
             mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
             mw.measure(f'{val_name}_loss', loss / nseen)
         for metric_name, metric in ood_metrics.items():
-          metric_values = ood_utils.ood_metrics(metric['label'],
-                                                metric['score'])
+          metric_values = ood_utils.compute_ood_metrics(metric['label'],
+                                                        metric['score'])
           mw.measure(f'ood_{metric_name}_auroc', metric_values['auc-roc'])
           mw.measure(f'ood_{metric_name}_auprc', metric_values['auc-pr'])
 

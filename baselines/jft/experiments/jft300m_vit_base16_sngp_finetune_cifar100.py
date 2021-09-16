@@ -29,13 +29,13 @@ def get_config():
   config = ml_collections.ConfigDict()
 
   # Fine-tuning dataset
-  config.dataset = 'cifar10'
+  config.dataset = 'cifar100'
   config.val_split = 'train[98%:]'
   config.train_split = 'train[:98%]'
-  config.num_classes = 10
+  config.num_classes = 100
 
   # OOD evaluation dataset
-  config.ood_dataset = 'cifar100'
+  config.ood_dataset = 'cifar10'
   config.ood_split = 'test'
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
@@ -51,10 +51,6 @@ def get_config():
   pp_common += '|keep("image", "labels")'
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
-
-  # CIFAR-10H eval
-  config.eval_on_cifar_10h = True
-  config.pp_eval_cifar_10h = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
@@ -103,12 +99,15 @@ def get_config():
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.grad_clip_norm = 1.
+  config.grad_clip_norm = -1.
   config.weight_decay = None  # No explicit weight decay
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.0005
+  # Best lr.base depends on what pretrained ViT model is used.
+  # (e.g., for deterministic ViT pretrained model, lr.base=0.0007;
+  # for ViT-GP pretrained model, lr.base=0.0003)
+  config.lr.base = 0.0003
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
   config.lr.scale_with_batchsize = False

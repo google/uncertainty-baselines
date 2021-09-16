@@ -36,18 +36,17 @@ import robustness_metrics as rm
 
 import tensorflow as tf
 from tensorflow.io import gfile
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
+import input_utils  # local file import
 import ood_utils  # local file import
 
 
 fewshot = None
-input_pipeline = None
 u = None
 pp_builder = None
-xm = None
-xm_api = None
 # TODO(dusenberrymw): Open-source remaining imports.
 
 
@@ -86,8 +85,6 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  # TODO(dusenberrymw): Also add function-level seeds in the tf.data input
-  # pipeline once that code is open-sourced.
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -125,19 +122,20 @@ def main(argv):
       local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
-  # TODO(dusenberrymw): Pass in seed for function-level seeds once open-sourced.
-  train_ds = input_pipeline.get_data(
+  rng, train_ds_rng = jax.random.split(rng)
+  train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
+  train_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.train_split,
-      data_dir=fillin(config.get('data_dir')),
-      batch_size=local_batch_size,
+      rng=train_ds_rng,
+      host_batch_size=local_batch_size,
       preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
       shuffle_buffer_size=config.shuffle_buffer_size,
-      prefetch=config.get('prefetch_to_host', 2),
-      cache=False)
+      prefetch_size=config.get('prefetch_to_host', 2),
+      data_dir=fillin(config.get('data_dir')))
 
   # Start prefetching already.
-  train_iter = u.start_input_pipeline(
+  train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1), pad=local_batch_size)
   # We always pad to local_batch_size_eval even when less would be enough in
   # order to minimize memory fragmentation.
@@ -145,76 +143,97 @@ def main(argv):
   write_note('Initializing val dataset(s)...')
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
     # We do ceil rounding such that we include the last incomplete batch.
-    nval_img = input_pipeline.get_num_examples(
-        dataset, split, data_dir=fillin(data_dir))
+    nval_img = input_utils.get_num_examples(
+        dataset,
+        split=split,
+        host_batch_size=local_batch_size_eval,
+        drop_remainder=False,
+        data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
-    val_it = input_pipeline.get_data(
+    val_ds = input_utils.get_data(
         dataset=dataset,
         split=split,
-        data_dir=fillin(data_dir),
-        batch_size=local_batch_size_eval,
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(pp_eval),
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
-        prefetch=config.get('prefetch_to_host', 2),
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        shuffle_files=False)
-    val_it = u.start_input_pipeline(
-        val_it, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
+        data_dir=fillin(data_dir))
+    val_iter = input_utils.start_input_pipeline(
+        val_ds, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
 
-    return (val_it, val_steps)
+    return (val_iter, val_steps)
 
-  if isinstance(config.val_split, str):
-    val_iter_splits = {
-        'val':
-            _get_val_split(config.dataset, config.val_split, config.pp_eval,
-                           config.get('data_dir'))
-    }
-  else:
-    val_iter_splits = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
+  val_iter_splits = {
+      'val':
+          _get_val_split(config.dataset, config.val_split, config.pp_eval,
+                         config.get('data_dir'))
+  }
 
   if config.get('eval_on_cifar_10h'):
     val_steps = int(np.ceil(10000 / batch_size_eval))
 
     cifar10h_dataset = cifar10h_utils.load_ds()
 
-    val_ds_cifar10h = input_pipeline.make_pipeline(
-        data=cifar10h_dataset,
-        batch_size=local_batch_size_eval,
+    val_ds_cifar10h = input_utils.get_data(
+        dataset=cifar10h_dataset,
+        split='test',
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(config.pp_eval_cifar_10h),
         cache=config.get('val_cache', 'batched'),
-        repeats=None,
         repeat_after_batching=True,
-        prefetch=config.get('prefetch_to_host', 2),
-        drop_remainder=False,
-        shuffle_buffer_size=None,
-        ignore_errors=False,
-        filter_fn=None)
-    val_iter_cifar10h = u.start_input_pipeline(
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False)
+    val_iter_cifar10h = input_utils.start_input_pipeline(
         val_ds_cifar10h,
         config.get('prefetch_to_device', 1),
         pad=local_batch_size_eval)
 
     val_iter_splits['cifar_10h'] = (val_iter_cifar10h, val_steps)
+  elif config.get('eval_on_imagenet_real'):
+    val_steps = int(np.ceil(46837 / batch_size_eval))
+
+    imagenet_real_ds = tfds.load('imagenet2012_real', split='validation')
+    imagenet_real_ds = imagenet_real_ds.filter(
+        lambda ex: tf.shape(ex['real_label'])[0] > 0)
+
+    def avg_label(example):
+      one_hot = tf.one_hot(example['real_label'], 1000)
+      example['labels'] = tf.reduce_mean(one_hot, axis=0)
+      return example
+
+    imagenet_real_ds = imagenet_real_ds.map(avg_label)
+
+    val_ds_imagenet_real = input_utils.get_data(
+        dataset=imagenet_real_ds,
+        split='test',
+        rng=None,
+        host_batch_size=local_batch_size_eval,
+        preprocess_fn=pp_builder.get_preprocess_fn(
+            config.pp_eval_imagenet_real),
+        cache=config.get('val_cache', 'batched'),
+        repeat_after_batching=True,
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False)
+    val_iter_imagenet_real = input_utils.start_input_pipeline(
+        val_ds_imagenet_real,
+        config.get('prefetch_to_device', 1),
+        pad=local_batch_size_eval)
+
+    val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = {}
   if config.get('ood_dataset'):
     logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
-    if isinstance(config.train_split, str):
-      # Adding training set for fitting class conditional Gaussian for
-      # Mahalanoabis distance method
-      ood_ds.update({
-          'train_maha':
-              _get_val_split(config.dataset, config.train_split, config.pp_eval,
-                             config.get('data_dir'))
-      })
-    else:
-      raise NotImplementedError(
-          'Only string type of train_split is supported for OOD evaluation! Got train_split=%s!'
-          % str(config.train_split))
     if isinstance(config.ood_split, str):
       ood_ds.update({
           'ind':
@@ -224,13 +243,31 @@ def main(argv):
               _get_val_split(config.ood_dataset, config.ood_split,
                              config.pp_eval, config.get('data_dir')),
       })
+      ood_ds_names = list(ood_ds.keys())
     else:
       raise NotImplementedError(
           'Only string type of ood_split is supported for OOD evaluation! Got ood_split=%s!'
           % str(config.ood_split))
 
-  ntrain_img = input_pipeline.get_num_examples(
-      config.dataset, config.train_split,
+    if 'maha' in config.ood_methods or 'rmaha' in config.ood_methods:
+      # Adding training set for fitting class conditional Gaussian for
+      # Mahalanoabis distance based method
+      if isinstance(config.train_split, str):
+        ood_ds.update({
+            'train_maha':
+                _get_val_split(config.dataset, config.train_split,
+                               config.pp_eval, config.get('data_dir'))
+        })
+        ood_ds_names.insert(0, 'train_maha')
+      else:
+        raise NotImplementedError(
+            'Only string type of train_split is supported for OOD evaluation! Got train_split=%s!'
+            % str(config.train_split))
+
+  ntrain_img = input_utils.get_num_examples(
+      config.dataset,
+      split=config.train_split,
+      host_batch_size=local_batch_size,
       data_dir=fillin(config.get('data_dir')))
   steps_per_epoch = ntrain_img / batch_size
 
@@ -255,7 +292,8 @@ def main(argv):
   # situations where we allocate them twice.
   @partial(jax.jit, backend='cpu')
   def init(rng):
-    image_size = tuple(train_ds.element_spec['image'].shape[1:])
+    image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
     params = flax.core.unfreeze(model.init(rng, dummy_input,
                                            train=False))['params']
@@ -302,9 +340,9 @@ def main(argv):
 
   @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, images, labels, mask):
-    logits, _ = model.apply({'params': flax.core.freeze(params)},
-                            images,
-                            train=False)
+    logits, out = model.apply({'params': flax.core.freeze(params)},
+                              images,
+                              train=False)
 
     losses = getattr(u, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -319,7 +357,7 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, mask],
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
@@ -420,12 +458,15 @@ def main(argv):
     checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
                                                   resume_checkpoint_path)
     opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
+    rngs_loop = checkpoint_extra['rngs_loop']
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
+    reinit_params = config.get('model_reinit_params',
+                               ('head/kernel', 'head/bias'))
+    logging.info('Reinitializing these parameters: %s', reinit_params)
     loaded = checkpoint_utils.load_from_pretrained_checkpoint(
         params_cpu, config.model_init, config.model.representation_size,
-        config.model.classifier,
-        config.model.get('reinit_params', ('head/kernel', 'head/bias')))
+        config.model.classifier, reinit_params)
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')
@@ -459,7 +500,6 @@ def main(argv):
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
 
-  rngs_loop = checkpoint_extra['rngs_loop']
   checkpoint_writer = None
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
@@ -593,6 +633,7 @@ def main(argv):
                                           int_preds, masks, labels[0]):
             ece.add_batch(p[m, :], label=l[m])
             calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            # TODO(jereliu): Extend to support soft multi-class probabilities.
             oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
             oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
             oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
@@ -634,28 +675,27 @@ def main(argv):
       # section computes metrics using both pieces. This is in contrast to
       # normal validation eval above where we eval metrics separately for each
       # val split in val_ds.
+      # TODO(jjren): abstract this entire section out to a `eval_ood` function
+      # that takes in the model, parameters, and OOD datasets, and returns a
+      # dict of metrics
       if ood_ds:
-        ood_metrics = {
-            # MSP stands for maximum softmax probability, max(softmax(logits)).
-            # MSP can be used as confidence score.
-            'msp': {
-                'score': [],
-                'label': []
-            },
-            # Maha stands for Mahalanobis distance between the test input and
-            # fitted class conditional Gaussian distributions based on the
-            # embeddings. Mahalanobis distance can be used as uncertainty score
-            # or in other words, negative Mahalanobis distance can be used as
-            # confidence score.
-            'maha': {
-                'score': [],
-                'label': []
-            },
-        }
+        # MSP stands for maximum softmax probability, max(softmax(logits)).
+        # MSP can be used as confidence score.
+        # Maha stands for Mahalanobis distance between the test input and
+        # fitted class conditional Gaussian distributions based on the
+        # embeddings. Mahalanobis distance can be used as uncertainty score
+        # or in other words, negative Mahalanobis distance can be used as
+        # confidence score.
+        # RMaha stnads for Relative Mahalanobis distance (Ren et al. 2021)
+        # https://arxiv.org/abs/2106.09022
+        ood_metrics = [ood_utils.OODMetric(name) for name in config.ood_methods]
 
         # Mean and cov of class conditional Guassian in Mahalanobis distance.
+        # Mean_background and cov_background for the unified Guassian model
+        # regardless of class labels for computing Relative Mahalanobis distance
         mean_list, cov = None, None
-        for val_name in ['train_maha', 'ind', 'ood']:
+        mean_list_background, cov_background = None, None
+        for val_name in ood_ds_names:
           # The dataset train_maha must come before ind and ood
           # because the train_maha will be used to esimate the class conditional
           # mean and shared covariance.
@@ -682,42 +722,52 @@ def main(argv):
               if mean_list is not None and cov is not None:
                 dists = ood_utils.compute_mahalanobis_distance(
                     np.array(pre_logits[0])[masks_bool], mean_list, cov)
-              else:
-                raise ValueError(
-                    'Mean and cov for Mahalanobis distance are not available.')
+
+              if mean_list_background is not None and cov_background is not None:
+                dists0 = ood_utils.compute_mahalanobis_distance(
+                    np.array(pre_logits[0])[masks_bool], mean_list_background,
+                    cov_background)
+
               # Computes Maximum softmax probability (MSP)
               probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
               # Update metric state for each metric in ood_metrics
-              for metric_name, metric in ood_metrics.items():
-                if 'msp' in metric_name:
+              for metric in ood_metrics:
+                metric_name = metric.get_metric_name()
+                if metric_name == 'msp':
                   ood_scores = np.max(probs, axis=-1)
                   ood_labels = np.ones_like(
                       ood_scores) if val_name == 'ind' else np.zeros_like(
                           ood_scores)
-                elif 'maha' in metric_name:
+                elif metric_name == 'maha':
                   ood_scores = np.min(dists, axis=-1)
+                  ood_labels = np.zeros_like(
+                      ood_scores) if val_name == 'ind' else np.ones_like(
+                          ood_scores)
+                elif metric_name == 'rmaha':
+                  ood_scores = np.min(dists, axis=-1) - dists0.reshape(-1)
                   ood_labels = np.zeros_like(
                       ood_scores) if val_name == 'ind' else np.ones_like(
                           ood_scores)
                 else:
                   raise NotImplementedError(
-                      'Only msp and maha are supported for OOD evaluation! Got metric_name=%s!'
+                      'Only msp, maha, and rmaha are supported for OOD evaluation! Got metric_name=%s!'
                       % metric_name)
-                metric['score'] += list(ood_scores)
-                metric['label'] += list(ood_labels)
+                metric.update(ood_scores, ood_labels)
 
           if val_name == 'train_maha':
             pre_logits_train = np.vstack(np.vstack(pre_logits_list))
             labels_train = np.argmax(np.vstack(np.vstack(labels_list)), axis=-1)
             mean_list, cov = ood_utils.compute_mean_and_cov(
                 pre_logits_train, labels_train)
+            mean_list_background, cov_background = ood_utils.compute_mean_and_cov(
+                pre_logits_train, np.zeros_like(labels_train))
           elif val_name == 'ind':
             mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
             mw.measure(f'{val_name}_loss', loss / nseen)
 
-        for metric_name, metric in ood_metrics.items():
-          metric_values = ood_utils.ood_metrics(metric['label'],
-                                                metric['score'])
+        for metric in ood_metrics:
+          metric_name = metric.get_metric_name()
+          metric_values = metric.compute_metrics()
           mw.measure(f'ood_{metric_name}_auroc', metric_values['auc-roc'])
           mw.measure(f'ood_{metric_name}_auprc', metric_values['auc-pr'])
           mw.measure(f'ood_{metric_name}_fprn', metric_values['fprn'])

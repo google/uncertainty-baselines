@@ -30,7 +30,10 @@ import sklearn.metrics
 
 
 # TODO(dusenberrymw): Move it to robustness metrics.
-def ood_metrics(targets, predictions, tpr_thres=0.95, targets_threshold=None):
+def compute_ood_metrics(targets,
+                        predictions,
+                        tpr_thres=0.95,
+                        targets_threshold=None):
   """Computes Area Under the ROC and PR curves and FPRN.
 
   ROC - Receiver Operating Characteristic
@@ -62,6 +65,32 @@ def ood_metrics(targets, predictions, tpr_thres=0.95, targets_threshold=None):
       "auc-pr": sklearn.metrics.average_precision_score(targets, predictions),
       "fprn": fprn,
   }
+
+
+class OODMetric:
+  """OOD metric class that stores scores and OOD labels."""
+
+  def __init__(self, metric_name):
+    self.name = metric_name
+    self.scores = []
+    self.labels = []
+
+  def update(self, scores, labels):
+    self.scores += list(scores)
+    self.labels += list(labels)
+
+  def get_scores_and_labels(self):
+    return self.scores, self.labels
+
+  def get_metric_name(self):
+    return self.name
+
+  def compute_metrics(self, tpr_thres=0.95, targets_threshold=None):
+    return compute_ood_metrics(
+        self.labels,
+        self.scores,
+        tpr_thres=tpr_thres,
+        targets_threshold=targets_threshold)
 
 
 def compute_mean_and_cov(embeds, labels):

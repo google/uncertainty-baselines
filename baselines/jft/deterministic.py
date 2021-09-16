@@ -40,15 +40,13 @@ import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
+import input_utils  # local file import
 import ood_utils  # local file import
 
 
 fewshot = None
-input_pipeline = None
 u = None
 pp_builder = None
-xm = None
-xm_api = None
 # TODO(dusenberrymw): Open-source remaining imports.
 
 
@@ -87,8 +85,6 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  # TODO(dusenberrymw): Also add function-level seeds in the tf.data input
-  # pipeline once that code is open-sourced.
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -126,19 +122,20 @@ def main(argv):
       local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
-  # TODO(dusenberrymw): Pass in seed for function-level seeds once open-sourced.
-  train_ds = input_pipeline.get_data(
+  rng, train_ds_rng = jax.random.split(rng)
+  train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
+  train_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.train_split,
-      data_dir=fillin(config.get('data_dir')),
-      batch_size=local_batch_size,
+      rng=train_ds_rng,
+      host_batch_size=local_batch_size,
       preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
       shuffle_buffer_size=config.shuffle_buffer_size,
-      prefetch=config.get('prefetch_to_host', 2),
-      cache=False)
+      prefetch_size=config.get('prefetch_to_host', 2),
+      data_dir=fillin(config.get('data_dir')))
 
   # Start prefetching already.
-  train_iter = u.start_input_pipeline(
+  train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1), pad=local_batch_size)
   # We always pad to local_batch_size_eval even when less would be enough in
   # order to minimize memory fragmentation.
@@ -146,55 +143,56 @@ def main(argv):
   write_note('Initializing val dataset(s)...')
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
     # We do ceil rounding such that we include the last incomplete batch.
-    nval_img = input_pipeline.get_num_examples(
-        dataset, split, data_dir=fillin(data_dir))
+    nval_img = input_utils.get_num_examples(
+        dataset,
+        split=split,
+        host_batch_size=local_batch_size_eval,
+        drop_remainder=False,
+        data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
-    val_it = input_pipeline.get_data(
+    val_ds = input_utils.get_data(
         dataset=dataset,
         split=split,
-        data_dir=fillin(data_dir),
-        batch_size=local_batch_size_eval,
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(pp_eval),
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
-        prefetch=config.get('prefetch_to_host', 2),
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        shuffle_files=False)
-    val_it = u.start_input_pipeline(
-        val_it, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
+        data_dir=fillin(data_dir))
+    val_iter = input_utils.start_input_pipeline(
+        val_ds, config.get('prefetch_to_device', 1), pad=local_batch_size_eval)
 
-    return (val_it, val_steps)
+    return (val_iter, val_steps)
 
-  if isinstance(config.val_split, str):
-    val_iter_splits = {
-        'val':
-            _get_val_split(config.dataset, config.val_split, config.pp_eval,
-                           config.get('data_dir'))
-    }
-  else:
-    val_iter_splits = {t[0]: _get_val_split(*t[1:]) for t in config.val_split}
+  val_iter_splits = {
+      'val':
+          _get_val_split(config.dataset, config.val_split, config.pp_eval,
+                         config.get('data_dir'))
+  }
 
   if config.get('eval_on_cifar_10h'):
     val_steps = int(np.ceil(10000 / batch_size_eval))
 
     cifar10h_dataset = cifar10h_utils.load_ds()
 
-    val_ds_cifar10h = input_pipeline.make_pipeline(
-        data=cifar10h_dataset,
-        batch_size=local_batch_size_eval,
+    val_ds_cifar10h = input_utils.get_data(
+        dataset=cifar10h_dataset,
+        split='test',
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(config.pp_eval_cifar_10h),
         cache=config.get('val_cache', 'batched'),
-        repeats=None,
         repeat_after_batching=True,
-        prefetch=config.get('prefetch_to_host', 2),
-        drop_remainder=False,
-        shuffle_buffer_size=None,
-        ignore_errors=False,
-        filter_fn=None)
-    val_iter_cifar10h = u.start_input_pipeline(
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False)
+    val_iter_cifar10h = input_utils.start_input_pipeline(
         val_ds_cifar10h,
         config.get('prefetch_to_device', 1),
         pad=local_batch_size_eval)
@@ -214,20 +212,19 @@ def main(argv):
 
     imagenet_real_ds = imagenet_real_ds.map(avg_label)
 
-    val_ds_imagenet_real = input_pipeline.make_pipeline(
-        data=imagenet_real_ds,
-        batch_size=local_batch_size_eval,
+    val_ds_imagenet_real = input_utils.get_data(
+        dataset=imagenet_real_ds,
+        split='test',
+        rng=None,
+        host_batch_size=local_batch_size_eval,
         preprocess_fn=pp_builder.get_preprocess_fn(
             config.pp_eval_imagenet_real),
         cache=config.get('val_cache', 'batched'),
-        repeats=None,
         repeat_after_batching=True,
-        prefetch=config.get('prefetch_to_host', 2),
-        drop_remainder=False,
-        shuffle_buffer_size=None,
-        ignore_errors=False,
-        filter_fn=None)
-    val_iter_imagenet_real = u.start_input_pipeline(
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False)
+    val_iter_imagenet_real = input_utils.start_input_pipeline(
         val_ds_imagenet_real,
         config.get('prefetch_to_device', 1),
         pad=local_batch_size_eval)
@@ -267,8 +264,10 @@ def main(argv):
             'Only string type of train_split is supported for OOD evaluation! Got train_split=%s!'
             % str(config.train_split))
 
-  ntrain_img = input_pipeline.get_num_examples(
-      config.dataset, config.train_split,
+  ntrain_img = input_utils.get_num_examples(
+      config.dataset,
+      split=config.train_split,
+      host_batch_size=local_batch_size,
       data_dir=fillin(config.get('data_dir')))
   steps_per_epoch = ntrain_img / batch_size
 
@@ -293,7 +292,8 @@ def main(argv):
   # situations where we allocate them twice.
   @partial(jax.jit, backend='cpu')
   def init(rng):
-    image_size = tuple(train_ds.element_spec['image'].shape[1:])
+    image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
     params = flax.core.unfreeze(model.init(rng, dummy_input,
                                            train=False))['params']
@@ -458,6 +458,7 @@ def main(argv):
     checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
                                                   resume_checkpoint_path)
     opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
+    rngs_loop = checkpoint_extra['rngs_loop']
   elif config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
     reinit_params = config.get('model_reinit_params',
@@ -499,7 +500,6 @@ def main(argv):
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
 
-  rngs_loop = checkpoint_extra['rngs_loop']
   checkpoint_writer = None
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in

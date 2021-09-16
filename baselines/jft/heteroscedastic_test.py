@@ -20,11 +20,13 @@ import tempfile
 
 from absl import flags
 from absl import logging
+from absl.testing import flagsaver
 from absl.testing import parameterized
 import jax
 import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import checkpoint_utils  # local file import
 import heteroscedastic  # local file import
 
 flags.adopt_module_key_flags(heteroscedastic)
@@ -50,6 +52,7 @@ def get_config(classifier, representation_size):
   config.batch_size = 3
   config.prefetch_to_device = 1
   config.shuffle_buffer_size = 20
+  config.val_cache = False
 
   config.total_steps = 3
   config.log_training_steps = config.total_steps
@@ -115,24 +118,25 @@ def get_config(classifier, representation_size):
 class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
-      ('token', 2, 15925.0, 14882.082899305555, 0.1899999976158142),
-      ('token', None, 15594.578, 12385.49609375, 0.19999999552965164),
-      ('gap', 2, 14589.023, 14325.224392361111, 0.16999999433755875),
-      ('gap', None, 14479.479, 14084.083333333334, 0.25),
+      ('token', 2, 16775.67, 15033.413628472223, 0.1899999901652336),
+      ('token', None, 16933.113, 12548.702690972223, 0.22999999672174454),
+      ('gap', 2, 14809.367, 14353.7734375, 0.17999999970197678),
+      ('gap', None, 14559.363, 14471.322048611111, 0.2199999988079071),
   )
+  @flagsaver.flagsaver
   def test_heteroscedastic_script(self, classifier, representation_size,
                                   correct_train_loss, correct_val_loss,
                                   correct_fewshot_acc_sum):
+    # Go two directories up to the root of the UB directory.
+    ub_root_dir = pathlib.Path(__file__).parents[2]
+    data_dir = str(ub_root_dir) + '/.tfds/metadata'
+    logging.info('data_dir contents: %s', os.listdir(data_dir))
+
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-
-    # Go two directories up to the root of the UB directory.
-    ub_root_dir = pathlib.Path(__file__).parents[2]
-    data_dir = str(ub_root_dir) + '/.tfds/metadata'
-    logging.info('data_dir contents: %s', os.listdir(data_dir))
     FLAGS.config.dataset_dir = data_dir
 
     # Check for any errors.
@@ -145,15 +149,27 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
                  train_loss, val_loss, fewshot_acc_sum)
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss, correct_val_loss)
-    self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
+    # The fewshot training pipeline is not completely deterministic. For now, we
+    # increase the tolerance to avoid the test being flaky.
+    self.assertAllClose(
+        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
 
     # Check for the ability to restart from a previous checkpoint (after
     # failure, etc.).
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     # NOTE: Use this flag to simulate failing at a certain step.
     FLAGS.config.testing_failure_step = FLAGS.config.total_steps - 1
+    FLAGS.config.checkpoint_steps = FLAGS.config.testing_failure_step
+    FLAGS.config.keep_checkpoint_steps = FLAGS.config.checkpoint_steps
     with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
       heteroscedastic.main(None)
+
+    checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
+    self.assertTrue(os.path.exists(checkpoint_path))
+    checkpoint = checkpoint_utils.load_checkpoint(None, checkpoint_path)
+    self.assertEqual(
+        int(checkpoint['opt']['state']['step']),
+        FLAGS.config.testing_failure_step)
 
     # This should resume from the failed step.
     del FLAGS.config.testing_failure_step
@@ -165,27 +181,31 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
                  train_loss, val_loss, fewshot_acc_sum)
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss, correct_val_loss)
-    self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
+    # The fewshot training pipeline is not completely deterministic. For now, we
+    # increase the tolerance to avoid the test being flaky.
+    self.assertAllClose(
+        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
 
   @parameterized.parameters(
-      ('token', 2, 5.3612347, 4.898042678833008, 0.09999999776482582),
-      ('token', None, 5.631799, 5.07450728946262, 0.11999999359250069),
-      ('gap', 2, 6.4580526, 6.147392484876844, 0.08999999985098839),
-      ('gap', None, 6.4652596, 6.158123440212673, 0.08999999985098839),
+      ('token', 2, 5.852915, 5.310516569349501, 0.10999999940395355),
+      ('token', None, 5.99298, 5.4851963255140515, 0.06999999843537807),
+      ('gap', 2, 6.5119925, 6.166615804036458, 0.08999999798834324),
+      ('gap', None, 6.5340133, 6.198463863796658, 0.0800000000745058),
   )
+  @flagsaver.flagsaver
   def test_loading_pretrained_model(self, classifier, representation_size,
                                     correct_train_loss, correct_val_loss,
                                     correct_fewshot_acc_sum):
+    # Go two directories up to the root of the UB directory.
+    ub_root_dir = pathlib.Path(__file__).parents[2]
+    data_dir = str(ub_root_dir) + '/.tfds/metadata'
+    logging.info('data_dir contents: %s', os.listdir(data_dir))
+
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-
-    # Go two directories up to the root of the UB directory.
-    ub_root_dir = pathlib.Path(__file__).parents[2]
-    data_dir = str(ub_root_dir) + '/.tfds/metadata'
-    logging.info('data_dir contents: %s', os.listdir(data_dir))
     FLAGS.config.dataset_dir = data_dir
 
     # Run to save a checkpoint, then use that as a pretrained model.
@@ -193,10 +213,11 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
       heteroscedastic.main(None)
 
-    previous_output_dir = FLAGS.output_dir
+    checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
+    self.assertTrue(os.path.exists(checkpoint_path))
+
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    FLAGS.config.model_init = os.path.join(previous_output_dir,
-                                           'checkpoint.npz')
+    FLAGS.config.model_init = checkpoint_path
     FLAGS.config.model.representation_size = None
     FLAGS.config.dataset = 'cifar10'
     FLAGS.config.val_split = 'train[:9]'
@@ -205,7 +226,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
     pp_common += '|keep("image", "labels")'
-    FLAGS.config.pp_train = 'decode|resize_small(512)|central_crop(384)|flip_lr' + pp_common
+    FLAGS.config.pp_train = 'decode|resize_small(512)|central_crop(384)' + pp_common
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
     FLAGS.config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'
@@ -217,7 +238,10 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
                  train_loss, val_loss, fewshot_acc_sum)
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss, correct_val_loss)
-    self.assertAllClose(fewshot_acc_sum, correct_fewshot_acc_sum)
+    # The fewshot training pipeline is not completely deterministic. For now, we
+    # increase the tolerance to avoid the test being flaky.
+    self.assertAllClose(
+        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
 
 
 if __name__ == '__main__':

@@ -18,6 +18,7 @@ from typing import Any, Callable, Optional, Tuple
 
 import edward2.jax as ed
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 
 Array = Any
@@ -224,6 +225,7 @@ class VisionTransformer(nn.Module):
   num_factors: int = 0
   param_efficient: bool = True
   return_locs: bool = False
+  fix_base_model: bool = False
 
   @nn.compact
   def __call__(self, inputs, *, train):
@@ -287,6 +289,10 @@ class VisionTransformer(nn.Module):
           self.param_efficient, self.mc_samples, self.mc_samples,
           logits_only=True, return_locs=self.return_locs, name='head')
 
+    # TODO(markcollier): Fix base model without using stop_gradient.
+    if self.fix_base_model:
+      x = jax.lax.stop_gradient(x)
+
     x = output_layer(x)
 
     out['logits'] = x
@@ -304,7 +310,8 @@ def het_vision_transformer(num_classes: int,
                            mc_samples: int = 1000,
                            num_factors: int = 0,
                            param_efficient: bool = True,
-                           return_locs: bool = False):
+                           return_locs: bool = False,
+                           fix_base_model: bool = False):
   """Builds a Heteroscedastic Vision Transformer (ViT) model."""
   # TODO(dusenberrymw): Add API docs once config dict in VisionTransformer is
   # cleaned up.
@@ -320,4 +327,5 @@ def het_vision_transformer(num_classes: int,
       mc_samples=mc_samples,
       num_factors=num_factors,
       param_efficient=param_efficient,
-      return_locs=return_locs)
+      return_locs=return_locs,
+      fix_base_model=fix_base_model)

@@ -87,6 +87,7 @@ def get_config():
   config.model.transformer.num_heads = 12
   config.model.transformer.num_layers = 12
   config.model.classifier = 'token'  # Or 'gap'
+  config.model.fix_base_model = False
 
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None

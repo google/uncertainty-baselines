@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Tests for the input pipeline utilities used in the ViT experiments."""
+
 import os
 import pathlib
 import tempfile

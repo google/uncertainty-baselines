@@ -42,6 +42,7 @@ import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
 import input_utils  # local file import
 import ood_utils  # local file import
+import train_utils  # local file import
 
 
 fewshot = None
@@ -52,7 +53,6 @@ pp_builder = None
 
 ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
-
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
     'num_cores', default=None, help='Unused. How many devices being used.')
@@ -62,9 +62,6 @@ flags.DEFINE_string('tpu', None,
                     'Unused. Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
-
-# Adds jax flags to the program.
-jax.config.parse_flags_with_absl()
 
 
 def main(argv):
@@ -137,8 +134,6 @@ def main(argv):
   # Start prefetching already.
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
-  # We always pad to local_batch_size_eval even when less would be enough in
-  # order to minimize memory fragmentation.
 
   write_note('Initializing val dataset(s)...')
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
@@ -320,7 +315,7 @@ def main(argv):
                               images,
                               train=False)
 
-    losses = getattr(u, config.get('loss', 'sigmoid_xent'))(
+    losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
         logits=logits, labels=labels, reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
@@ -340,7 +335,7 @@ def main(argv):
                               images,
                               train=False)
 
-    losses = getattr(u, config.get('loss', 'softmax_xent'))(
+    losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
     loss = jax.lax.psum(losses, axis_name='batch')
 
@@ -384,9 +379,6 @@ def main(argv):
 
     measurements = {}
 
-    if config.get('mixup') and config.mixup.p:
-      rng, (images, labels), _ = u.mixup(rng, images, labels, **config.mixup)
-
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
     rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
@@ -395,14 +387,14 @@ def main(argv):
       logits, _ = model.apply(
           {'params': flax.core.freeze(params)}, images,
           train=True, rngs={'dropout': rng_model_local})
-      return getattr(u, config.get('loss', 'sigmoid_xent'))(
+      return getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
           logits=logits, labels=labels)
 
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
-    l, g = u.accumulate_gradient(jax.value_and_grad(loss_fn), opt.target,
-                                 images, labels,
-                                 config.get('grad_accum_steps'))
+    l, g = train_utils.accumulate_gradient(
+        jax.value_and_grad(loss_fn), opt.target, images, labels,
+        config.get('grad_accum_steps'))
     l, g = jax.lax.pmean((l, g), axis_name='batch')
 
     # Log the gradient norm only if we need to compute it anyways (clipping)
@@ -416,7 +408,7 @@ def main(argv):
     # useful in some cases across optimizers, hence it's in the main loop.
     if config.get('grad_clip_norm'):
       g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
-      g = jax.tree_map(lambda p: g_factor * p, g)
+      g = jax.tree_util.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
 
     decay_rules = config.get('weight_decay', []) or []
@@ -425,8 +417,10 @@ def main(argv):
     sched_m = lr/config.lr.base if config.get('weight_decay_decouple') else lr
     def decay_fn(v, wd):
       return (1.0 - sched_m * wd) * v
-    opt = opt.replace(target=u.tree_map_with_regex(
-        decay_fn, opt.target, decay_rules, name='weight decay'))
+
+    opt = opt.replace(
+        target=train_utils.tree_map_with_regex(decay_fn, opt.target,
+                                               decay_rules))
 
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
@@ -470,8 +464,8 @@ def main(argv):
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
-  chrono = u.Chrono(first_step, total_steps, batch_size,
-                    checkpoint_extra['accum_train_time'])
+  chrono = train_utils.Chrono(first_step, total_steps, batch_size,
+                              checkpoint_extra['accum_train_time'])
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -480,11 +474,11 @@ def main(argv):
       logdir=output_dir, first_profile=first_step + 10)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = u.create_learning_rate_schedule(
-      batch_size, total_steps, steps_per_epoch, **config.get('lr', {}))
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
   # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
   # necessary for TPUs.
-  lr_iter = u.prefetch_scalar(
+  lr_iter = train_utils.prefetch_scalar(
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
   write_note(f'Replicating...\n{chrono.note}')
@@ -515,8 +509,9 @@ def main(argv):
     # NOTE: Validation eval is only run on certain steps, so determine how many
     # times it was run previously.
     num_val_runs = sum(
-        map(lambda i: u.itstime(i, config.log_eval_steps, total_steps),
-            range(1, first_step + 1)))
+        map(
+            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
+                                         ), range(1, first_step + 1)))
     for val_name, (val_iter, val_steps) in val_iter_splits.items():
       val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
       val_iter_splits[val_name] = (val_iter, val_steps)
@@ -539,21 +534,23 @@ def main(argv):
       profiler(step)
 
     # Checkpoint saving
-    if u.itstime(step, config.get('checkpoint_steps'), total_steps, host=0):
+    if train_utils.itstime(
+        step, config.get('checkpoint_steps'), total_steps, host=0):
       write_note('Checkpointing...')
       chrono.pause()
-      u.checkpointing_timeout(checkpoint_writer,
-                              config.get('checkpoint_timeout', 1))
+      train_utils.checkpointing_timeout(checkpoint_writer,
+                                        config.get('checkpoint_timeout', 1))
       checkpoint_extra['accum_train_time'] = chrono.accum_train_time
       checkpoint_extra['rngs_loop'] = rngs_loop
       # We need to transfer the weights over now or else we risk keeping them
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
-      opt_cpu = jax.tree_map(lambda x: np.array(x[0]), opt_repl)
+      opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt_repl)
 
       # Check whether we want to keep a copy of the current checkpoint.
       copy_step = None
-      if u.itstime(step, config.get('keep_checkpoint_steps'), total_steps):
+      if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
+                             total_steps):
         write_note('Keeping a checkpoint copy...')
         copy_step = step
 
@@ -566,7 +563,8 @@ def main(argv):
       chrono.resume()
 
     # Report training progress
-    if u.itstime(step, config.log_training_steps, total_steps, host=0):
+    if train_utils.itstime(
+        step, config.log_training_steps, total_steps, host=0):
       write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       mw.measure('learning_rate', lr_repl[0])
@@ -576,7 +574,7 @@ def main(argv):
       chrono.tick(step, mw.measure, write_note)
 
     # Report validation performance
-    if u.itstime(step, config.log_eval_steps, total_steps):
+    if train_utils.itstime(step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_iter_splits.items():
@@ -759,7 +757,7 @@ def main(argv):
 
     if 'fewshot' in config:
       # Compute few-shot on-the-fly evaluation.
-      if u.itstime(step, config.fewshot.log_steps, total_steps):
+      if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
@@ -784,6 +782,9 @@ def main(argv):
 
 
 if __name__ == '__main__':
+  # Adds jax flags to the program.
+  jax.config.config_with_absl()
+
   # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
   # function that returns values for tests and does not directly access flags,
   # and then have `main` return None.

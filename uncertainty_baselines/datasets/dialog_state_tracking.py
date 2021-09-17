@@ -269,7 +269,8 @@ class _DialogStateTrackingDataset(base.BaseDataset):
                num_parallel_parser_calls: int = 64,
                data_dir: Optional[str] = None,
                download_data: bool = False,
-               is_training: Optional[bool] = None):
+               is_training: Optional[bool] = None,
+               **kwargs: Any):
     """Create a dialog state tracking tf.data.Dataset builder.
 
     Args:
@@ -289,6 +290,7 @@ class _DialogStateTrackingDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
+      **kwargs: optional arguments passed to base.BaseDataset.__init__.
     """
     # Load vocab for dialog utterances and state labels.
     self.load_domain_label = load_domain_label
@@ -310,7 +312,8 @@ class _DialogStateTrackingDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
-        download_data=False)
+        download_data=False,
+        **kwargs)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 

@@ -17,19 +17,18 @@
 
 A set of model wrappers and evaluation utilities to determine the robustness
 and quality of uncertainty estimates of the given model.
+
+TODO @nband: convert TF methods to better use TensorArrays for faster
+  TPU execution.
 """
 
 import functools
-# import pdb
 from typing import Dict
 
-# import jax
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-# from jax import numpy as jnp
 from scipy.stats import bernoulli
-# import jax.numpy as jnp
 
 tfd = tfp.distributions
 
@@ -68,12 +67,6 @@ def predict_and_decompose_uncertainty_tf(mc_samples: tf.Tensor):
   predictive_entropy = predictive_dist.entropy()
   predictive_variance = predictive_dist.variance()
   predictive_mean = predictive_dist.mean()
-
-  # tf.print(tf.shape(predictive_mean))
-  # tf.print(tf.shape(predictive_entropy))
-  # tf.print(tf.shape(predictive_variance))
-  # tf.print(tf.shape(predictive_entropy - expected_entropy))
-  # tf.print(tf.shape(expected_entropy))
 
   return {
     'prediction': predictive_mean,
@@ -213,36 +206,11 @@ def variational_predict_and_decompose_uncertainty_tf(
   if num_samples > 1:
     mc_samples = tf.convert_to_tensor(
       [model(x, training=training_setting) for _ in range(num_samples)])
-    # mc_samples = tf.TensorArray(tf.float32, size=num_samples)
-    # for i in tf.range(num_samples):
-    #   probs = model(x, training=training_setting)
-    #   mc_samples = mc_samples.write(i, probs)
-    #
-    # mc_samples = mc_samples.stack()
+
   else:
     mc_samples = model(x, training=training_setting)
 
-  # Long-form Pythonic
-  # mc_samples = []
-  #
-  # for _ in range(num_samples):
-  #   print('retracing')
-  #   mc_samples.append(model(x, training=training_setting))
-  #
-  # mc_samples = tf.convert_to_tensor(mc_samples)
-
-  # TPU-friendly
-  # mc_samples = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-  # for _ in tf.range(num_samples):
-  #   probs = model(x, training=training_setting)
-  #   mc_samples = mc_samples.write(mc_samples.size(), probs)
-  #
-  # mc_samples = mc_samples.stack()
   mc_samples = tf.reshape(mc_samples, [-1, b])
-
-  # tf.print('Mc samples shape')
-  # tf.print(tf.shape(mc_samples))
-
   return predict_and_decompose_uncertainty_tf(mc_samples=mc_samples)
 
 
@@ -295,21 +263,6 @@ def variational_ensemble_predict_and_decompose_uncertainty(
       for model in models
   ]).reshape(-1, b)
   # pylint: enable=g-complex-comprehension
-
-  # TODO: TPU friendly implementation
-  # mc_samples = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-  #
-  # k = len(models)
-  #
-  # for model_index in tf.range(k):
-  #   model = models[model_index]
-  #   for _ in range()
-  # for _ in tf.range(num_samples):
-  #   probs = model(x, training=training_setting)
-  #   mc_samples = mc_samples.write(mc_samples.size(), probs)
-  #
-  # mc_samples = mc_samples.stack()
-  # mc_samples = tf.reshape(mc_samples, [-1, b])
 
   return predict_and_decompose_uncertainty(mc_samples=mc_samples)
 
@@ -540,102 +493,6 @@ along with the predictive mean.
 """
 
 
-# TODO(@nband): low priority -- add TF versions of these wrappers
-
-# def dropout_predict(x,
-#                     model,
-#                     training_setting,
-#                     num_samples,
-#                     uncertainty_type='entropy'):
-#   """Monte Carlo Dropout uncertainty estimator.
-#
-#   Should work also with Variational Inference and Radial BNNs.
-#
-#   Args:
-#     x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
-#       where B the batch size and H, W the input images height and width
-#       accordingly.
-#     model: a probabilistic model (e.g., `tensorflow.keras.model`) which accepts
-#       input with shape [B, H, W, 3] and outputs sigmoid probability [0.0, 1.0],
-#       and also accepts boolean argument `training` for disabling e.g.,
-#       BatchNorm, Dropout at test time.
-#     training_setting: bool, if True, run model prediction in training mode. See
-#       note in docstring at top of file.
-#     num_samples: `int`, number of Monte Carlo samples (i.e. forward passes from
-#       dropout) used for the calculation of predictive mean and uncertainty.
-#     uncertainty_type: (optional) `str`, type of uncertainty; returns one of
-#       {"entropy", "stddev"}.
-#
-#   Returns:
-#     mean: `numpy.ndarray`, predictive mean, with shape [B].
-#     uncertainty: `numpy.ndarray`, uncertainty in prediction,
-#       with shape [B].
-#   """
-#   # Get shapes of data
-#   b, _, _, _ = x.shape
-#
-#   # Monte Carlo samples from different dropout mask at test time
-#   # See note in docstring regarding `training` mode
-#   mc_samples = np.asarray([
-#       model(x, training=training_setting) for _ in range(num_samples)
-#   ]).reshape(-1, b)
-#
-#   # Bernoulli output distribution
-#   dist = bernoulli(mc_samples.mean(axis=0))
-#
-#   return get_dist_mean_and_uncertainty(
-#       dist=dist, uncertainty_type=uncertainty_type)
-#
-#
-# def dropout_ensemble_predict(x,
-#                              models,
-#                              training_setting,
-#                              num_samples,
-#                              uncertainty_type='entropy'):
-#   """Ensembles of Monte Carlo Dropout uncertainty estimator.
-#
-#   Args:
-#     x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
-#       where B the batch size and H, W the input images height and width
-#       accordingly.
-#     models: `iterable` of probabilistic models (e.g., `tensorflow.keras.model`),
-#       each of which accepts input with shape [B, H, W, 3] and outputs sigmoid
-#       probability [0.0, 1.0], and also accepts boolean argument `training` for
-#       disabling e.g., BatchNorm, Dropout at test time.
-#     training_setting: bool, if True, run model prediction in training mode. See
-#       note in docstring at top of file.
-#     num_samples: `int`, number of Monte Carlo samples (i.e. forward passes from
-#       dropout) used for each model in the ensemble, in the calculation of
-#       predictive mean and uncertainty.
-#     uncertainty_type: (optional) `str`, type of uncertainty; returns one of
-#       {"entropy", "stddev"}.
-#
-#   Returns:
-#     mean: `numpy.ndarray`, predictive mean, with shape [B].
-#     uncertainty: `numpy.ndarray`, uncertainty in prediction,
-#       with shape [B].
-#   """
-#   # Get shapes of data
-#   b, _, _, _ = x.shape
-#
-#   # Monte Carlo samples from different dropout mask at
-#   # test time from different models
-#   # See note in docstring regarding `training` mode
-#   # pylint: disable=g-complex-comprehension
-#   mc_samples = np.asarray([
-#       model(x, training=training_setting)
-#       for _ in range(num_samples)
-#       for model in models
-#   ]).reshape(-1, b)
-#   # pylint: enable=g-complex-comprehension
-#
-#   # Bernoulli output distribution
-#   dist = bernoulli(mc_samples.mean(axis=0))
-#
-#   return get_dist_mean_and_uncertainty(
-#       dist=dist, uncertainty_type=uncertainty_type)
-#
-#
 def deterministic_predict(x,
                           model,
                           training_setting):
@@ -691,123 +548,6 @@ def deterministic_predict_tf(x, model, training_setting):
   dist = tfd.Bernoulli(probs=p)
 
   return get_dist_mean_and_uncertainty_tf(dist=dist)
-#
-#
-# def deep_ensemble_predict(x,
-#                           models,
-#                           training_setting,
-#                           uncertainty_type='entropy'):
-#   """Deep Ensembles uncertainty estimator.
-#
-#   Args:
-#     x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
-#       where B the batch size and H, W the input images height and width
-#       accordingly.
-#     models: `iterable` of probabilistic models (e.g., `tensorflow.keras.model`),
-#       each of which accepts input with shape [B, H, W, 3] and outputs sigmoid
-#       probability [0.0, 1.0], and also accepts boolean argument `training` for
-#       disabling e.g., BatchNorm, Dropout at test time.
-#     training_setting: bool, if True, run model prediction in training mode. See
-#       note in docstring at top of file.
-#     uncertainty_type: (optional) `str`, type of uncertainty; returns one of
-#       {"entropy", "stddev"}.
-#
-#   Returns:
-#     mean: `numpy.ndarray`, predictive mean, with shape [B].
-#     uncertainty: `numpy.ndarray`, uncertainty in prediction,
-#       with shape [B].
-#   """
-#   # Get shapes of data
-#   b, _, _, _ = x.shape
-#
-#   # Monte Carlo samples from different deterministic models
-#   mc_samples = np.asarray(
-#       [model(x, training=training_setting) for model in models]).reshape(-1, b)
-#
-#   # Bernoulli output distribution
-#   dist = bernoulli(mc_samples.mean(axis=0))
-#
-#   return get_dist_mean_and_uncertainty(
-#       dist=dist, uncertainty_type=uncertainty_type)
-#
-#
-
-
-# def binary_entropy_jax(array):
-#   return jax.scipy.special.entr(array) + jax.scipy.special.entr(1 - array)
-
-
-# def fsvi_predict_and_decompose_uncertainty(
-#         x,
-#         model,
-#         rng_key,
-#         training_setting,
-#         num_samples,
-#         params,
-#         state,
-# ):
-#   """
-#   Args:
-#     x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
-#     where B the batch size and H, W the input images height and width
-#     accordingly.
-#     model: a probabilistic model (e.g., `tensorflow.keras.model`) which accepts
-#       input with shape [B, H, W, 3] and outputs sigmoid probability [0.0, 1.0],
-#       and also accepts boolean argument `training` for disabling e.g.,
-#       BatchNorm, Dropout at test time, as well as rng_key as random key for the
-#       forward passes.
-#     rng_key: `jax.numpy.ndarray`, jax random key for the forward passes.
-#     training_setting: bool, if True, run model prediction in training mode. See
-#       note in docstring at top of file.
-#   Returns:
-#     mean: `numpy.ndarray`, predictive mean, with shape [B].
-#     uncertainty: `numpy.ndarray`, uncertainty in prediction,
-#       with shape [B].
-#   """
-#   # mc_samples has shape [T, B]
-#   preds_y_samples, _, _ = model.predict_y_multisample_jitted(
-#     params=params,
-#     state=state,
-#     inputs=x,
-#     rng_key=rng_key,
-#     n_samples=num_samples,
-#     is_training=training_setting,
-#   )
-#   mc_samples = preds_y_samples[:, :, 1]
-#
-#   return predict_and_decompose_uncertainty_jax(mc_samples=mc_samples)
-
-
-# def predict_and_decompose_uncertainty_jax(mc_samples: jnp.ndarray):
-#   """Given a set of MC samples, decomposes uncertainty into
-#     aleatoric and epistemic parts.
-#   Args:
-#     mc_samples: `np.ndarray`, Monte Carlo samples from a sigmoid predictive
-#       distribution, shape [T, B] where T is the number of samples and B
-#       is the batch size.
-#   Returns:
-#     Dict: {
-#       mean: `numpy.ndarray`, predictive mean, with shape [B].
-#       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
-#       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
-#       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
-#       aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
-#     }
-#   """
-#   expected_entropy = binary_entropy_jax(mc_samples).mean(axis=0)
-#
-#   # Bernoulli output distribution
-#   predictive_mean = mc_samples.mean(axis=0)
-#   predictive_entropy = binary_entropy_jax(predictive_mean)
-#   predictive_variance = predictive_mean * (1 - predictive_mean)
-#
-#   return {
-#     'prediction': predictive_mean,
-#     'predictive_entropy': predictive_entropy,
-#     'predictive_variance': predictive_variance,
-#     'epistemic_uncertainty': predictive_entropy - expected_entropy,  # MI
-#     'aleatoric_uncertainty': expected_entropy
-#   }
 
 
 def get_dist_mean_and_uncertainty(dist: bernoulli):
@@ -856,15 +596,6 @@ def get_dist_mean_and_uncertainty_tf(dist: tfd.Bernoulli):
   return mean, predictive_entropy, predictive_variance
 
 
-# RETINOPATHY_MODEL_TO_TOTAL_UNCERTAINTY_ESTIMATOR = {
-#     'deterministic': deterministic_predict,
-#     'dropout': dropout_predict,
-#     'dropoutensemble': dropout_ensemble_predict,
-#     'ensemble': deep_ensemble_predict,
-#     'radial': dropout_predict,
-#     'variational_inference': dropout_predict
-# }
-
 # Format:
 # (model_type, use_ensemble): predict_and_decompose_uncertainty_fn
 RETINOPATHY_MODEL_TO_DECOMPOSED_UNCERTAINTY_ESTIMATOR = {
@@ -898,7 +629,6 @@ RETINOPATHY_MODEL_TO_TF_DECOMPOSED_UNCERTAINTY_ESTIMATOR = {
     variational_predict_and_decompose_uncertainty_tf),
   ('variational_inference', True): (
     variational_ensemble_predict_and_decompose_uncertainty_tf),
-
   # Rank 1 BNNs also have default functionality for mixture posteriors
   ('rank1', False): (
     variational_predict_and_decompose_uncertainty_tf),
@@ -906,7 +636,6 @@ RETINOPATHY_MODEL_TO_TF_DECOMPOSED_UNCERTAINTY_ESTIMATOR = {
     variational_ensemble_predict_and_decompose_uncertainty_tf),
   ('swag', False): None,  # SWAG requires sampling outside the dataset loop
   ('swag', True): None
-  # TODO ('fsvi'): ,
 }
 
 
@@ -969,9 +698,6 @@ def negative_log_likelihood_metric(labels, probs):
 
 
 def get_uncertainty_estimator(model_type, use_ensemble, use_tf):
-  # if model_type == 'rank1' and use_ensemble:
-  #   raise NotImplementedError  # Special code for using ensemble
-  #
   if model_type == 'swag':
     raise NotImplementedError  # Special eval loop
   try:

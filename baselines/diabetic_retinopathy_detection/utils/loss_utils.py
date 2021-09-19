@@ -58,7 +58,7 @@ def get_diabetic_retinopathy_class_balance_weights(
   if positive_empirical_prob is None:
     raise NotImplementedError(
       'Needs to be updated for APTOS / Severity shifts, '
-      'different decision thresholds (Mild / Moderate classifiers)')
+      'different decision thresholds (Mild / Moderate classifiers).')
     positive_empirical_prob = 0.196
 
   return {
@@ -253,7 +253,8 @@ def get_diabetic_retinopathy_loss_fn(class_reweight_mode: Union[str, None],
 
 
 def get_minibatch_reweighted_loss_fn(labels: tf.Tensor, loss_fn_type='keras'):
-  """The minibatch-reweighted loss function can only be initialized using the labels of a particular minibatch.
+  """The minibatch-reweighted loss function can only be initialized
+  using the labels of a particular minibatch.
 
   Args:
     labels: tf.Tensor, the labels of a minibatch

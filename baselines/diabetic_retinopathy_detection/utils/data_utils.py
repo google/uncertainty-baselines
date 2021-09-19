@@ -29,11 +29,19 @@ def load_kaggle_severity_shift_dataset(
   Partitioning of the Kaggle/EyePACS Diabetic Retinopathy dataset to
   hold out certain clinical severity levels as OOD.
 
-  :param flags:
-  :param strategy:
-  :param load_for_eval:
-    Does not truncate the last batch.
-  :return:
+  Optionally exclude train split (e.g., loading for evaluation) in flags.
+  See runscripts for more information on loading options.
+
+  Args:
+    train_batch_size: int.
+    eval_batch_size: int.
+    flags: FlagValues, runscript flags.
+    strategy: tf.distribute strategy, used to distribute datasets.
+    load_for_eval: Bool, if True, does not truncate the last batch
+      (for standardized evaluation).
+
+  Returns:
+    Dict of datasets, Dict of number of steps per dataset.
   """
   assert flags.use_validation
   data_dir = flags.data_dir
@@ -114,13 +122,18 @@ def load_kaggle_aptos_country_shift_dataset(
   Full Kaggle/EyePACS Diabetic Retinopathy dataset, including OOD
   validation/test sets (APTOS).
 
-  Optionally exclude train split (e.g., loading for evaluation).
+  Optionally exclude train split (e.g., loading for evaluation) in flags.
+  See runscripts for more information on loading options.
 
-  :param flags:
-  :param strategy:
-  :param load_for_eval:
-    if enabled, do not truncate last batch (for standardized evaluation).
-  :return:
+  Args:
+    train_batch_size: int.
+    eval_batch_size: int.
+    flags: FlagValues, runscript flags.
+    strategy: tf.distribute strategy, used to distribute datasets.
+    load_for_eval: Bool, if True, does not truncate the last batch.
+
+  Returns:
+    Dict of datasets, Dict of number of steps per dataset.
   """
   data_dir = flags.data_dir
   load_train_split = flags.load_train_split
@@ -136,7 +149,6 @@ def load_kaggle_aptos_country_shift_dataset(
   if load_train_split:
     split_to_steps_per_epoch['train'] = (
       ds_info.splits['train'].num_examples // train_batch_size)
-      # ds_info.splits['sample'].num_examples // train_batch_size)
   split_to_steps_per_epoch['in_domain_validation'] = (
     ds_info.splits['validation'].num_examples // eval_batch_size)
   split_to_steps_per_epoch['in_domain_test'] = (
@@ -187,7 +199,6 @@ def load_kaggle_aptos_country_shift_dataset(
     # Load EyePACS train data
     dataset_train_builder = ub.datasets.get(
       'diabetic_retinopathy_detection', split='train', data_dir=data_dir,
-      # 'diabetic_retinopathy_detection', split='sample', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold)
     dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
 
@@ -195,6 +206,8 @@ def load_kaggle_aptos_country_shift_dataset(
       raise NotImplementedError(
         'Existing bug involving the number of steps not being adjusted after '
         'concatenating the validation dataset. Needs verifying.')
+      # TODO(nband): investigate validation dataset concat bug
+
       # Note that this will not create any mixed batches of
       # train and validation images.
       dataset_train = dataset_train.concatenate(dataset_validation)
@@ -233,8 +246,26 @@ def load_kaggle_aptos_country_shift_dataset(
   return split_to_dataset, split_to_steps_per_epoch
 
 
-def load_dataset(train_batch_size, eval_batch_size, flags, strategy,
-                 load_for_eval=False):
+def load_dataset(
+    train_batch_size, eval_batch_size, flags, strategy, load_for_eval=False
+):
+  """
+  Retrieve the in-domain and OOD datasets for a given distributional shift
+  task in diabetic retinopathy.
+
+  Optionally exclude train split (e.g., loading for evaluation) in flags.
+  See runscripts for more information on loading options.
+
+  Args:
+    train_batch_size: int.
+    eval_batch_size: int.
+    flags: FlagValues, runscript flags.
+    strategy: tf.distribute strategy, used to distribute datasets.
+    load_for_eval: Bool, if True, does not truncate the last batch.
+
+  Returns:
+    Dict of datasets, Dict of number of steps per dataset.
+  """
   distribution_shift = flags.distribution_shift
 
   if distribution_shift == 'severity':

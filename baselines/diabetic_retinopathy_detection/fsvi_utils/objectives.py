@@ -268,7 +268,7 @@ class Objectives_hk:
 
         return elbo, log_likelihood, kl, scale
 
-    @partial(jit, static_argnums=(0, 10, 11))
+    @partial(jit, static_argnums=(0, 10, 11, 12))
     def map_loss_classification(
             self,
             trainable_params,
@@ -282,6 +282,7 @@ class Objectives_hk:
             rng_key,
             class_weight,
             loss_type,
+            l2_strength: float,
     ):
         (loss, negative_log_likelihood), state = self.objective_and_state(
             trainable_params,

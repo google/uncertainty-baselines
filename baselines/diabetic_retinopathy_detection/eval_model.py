@@ -25,15 +25,6 @@ flags.DEFINE_string(
     'the correct wrapper for obtaining uncertainty estimates, as implemented '
     'in TODO.py.')
 flags.mark_flag_as_required('model_type')
-# flags.DEFINE_string(
-#     'checkpoint_dir', None,  # eg. '/tmp/diabetic_retinopathy_detection/dropout'
-#     'The directory from which the trained model weights are retrieved.')
-# flags.mark_flag_as_required('checkpoint_dir')
-# flags.DEFINE_string(
-#     'output_dir',
-#     '/tmp/diabetic_retinopathy_detection/evaluation_results',
-#     'The directory where the evaluation summaries and DataFrame results '
-#     'are stored.')
 flags.DEFINE_string('data_dir', 'gs://ub-data/retinopathy',
                     'Path to evaluation data.')
 # TODO: fix bug that requires us to specify True here
@@ -221,18 +212,6 @@ def main(argv):
     # Argument for stochastic forward passes
     estimator_args['num_samples'] = num_mc_samples
 
-  # Evaluate the method, caching the following:
-  # For each evaluation dataset (e.g., in_domain_validation, ood_test):
-  #   in `eval_results.npz`:
-  #     np.ndarrays for each of the following:
-  #       image names, predictions, ground truth, uncertainty estimates, is_ood
-  #   in `metadata.json`:
-  #     ms_per_example: float
-  #     if an ensemble: k, number of members
-
-  # results = utils.compute_eval_metrics(
-  #   results, ece_num_bins=15, compute_open_set_recognition=False)
-
   scalar_results_arr = []
 
   # Evaluation Loop
@@ -264,8 +243,6 @@ def main(argv):
   logging.info('Wrote out scalar results.')
 
   wandb_run.finish()
-
-# def get_per_level_histogram():
 
 if __name__ == '__main__':
   app.run(main)

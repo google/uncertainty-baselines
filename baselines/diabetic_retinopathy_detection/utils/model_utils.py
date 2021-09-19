@@ -1,8 +1,19 @@
 import logging
 import os
+import pickle
+from typing import NamedTuple, List
 
 import tensorflow as tf
 
+
+try:
+  import haiku as hk
+  use_fsvi = True
+  from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import (
+    CNN, Model)
+except ModuleNotFoundError:
+  print('Not importing haiku. The Function-Space VI baseline will fail.')
+  use_fsvi = False
 
 """Model initialization and checkpointing utils."""
 
@@ -10,6 +21,11 @@ import tensorflow as tf
 # Model initialization.
 
 def log_model_init_info(model):
+  """Log Keras model information.
+
+  Args:
+    model: tf.keras.Model.
+  """
   logging.info('Model input shape: %s', model.input_shape)
   logging.info('Model output shape: %s', model.output_shape)
   logging.info('Model number of weights: %s', model.count_params())
@@ -70,7 +86,8 @@ def parse_checkpoint_dir(checkpoint_dir):
 def parse_keras_models(checkpoint_dir):
   """Parse directory of saved Keras models.
 
-  Used for Deep Ensembles and ensembles of MC Dropout models.
+  Obtains paths of all Keras models in the directory
+    (e.g., to load a full ensemble).
 
   Args:
     checkpoint_dir: checkpoint dir.
@@ -90,8 +107,7 @@ def parse_keras_models(checkpoint_dir):
 def get_latest_checkpoint(file_names, return_epoch=False):
   """Get latest checkpoint from list of file names.
 
-  Only necessary
-  if manually saving/loading Keras models, i.e., not using the
+  Only necessary if manually saving/loading Keras models, i.e., not using the
   tf.train.Checkpoint API.
 
   Args:
@@ -126,6 +142,14 @@ def get_latest_checkpoint(file_names, return_epoch=False):
 
 
 def load_keras_model(checkpoint):
+  """Loads a Keras model from a checkpoint directory.
+
+  Args:
+   checkpoint: str, checkpoint directory.
+
+  Returns:
+    tf.keras.Model
+  """
   model = tf.keras.models.load_model(checkpoint, compile=False)
   logging.info('Successfully loaded model from checkpoint %s.', checkpoint)
   logging.info('Model input shape: %s', model.input_shape)
@@ -135,6 +159,15 @@ def load_keras_model(checkpoint):
 
 
 def load_all_keras_checkpoints(checkpoint_dir):
+  """Loads all Keras checkpoints from a directory.
+
+  Args:
+   checkpoint_dir: str, checkpoint directory.
+
+  Yields:
+    Tuple[int, tf.keras.Model]
+    Epoch of model, as determined by its name, and the corresponding model.
+  """
   checkpoint_filenames = parse_keras_models(checkpoint_dir)
   if not checkpoint_filenames:
     raise Exception(
@@ -165,6 +198,12 @@ def load_keras_checkpoints(
 
   When not loading an ensemble, defaults to also return the epoch
     corresponding to the latest checkpoint.
+
+  Args:
+    checkpoint_dir: str, checkpoint directory.
+    load_ensemble: bool, loads all checkpoints in the directory.
+    return_epoch: bool, if only returning a single model, also return the epoch
+      for that model checkpoint.
   """
   # TODO(nband): debug, switch from keras.models.save to tf.train.Checkpoint
   checkpoint_filenames = parse_keras_models(checkpoint_dir)
@@ -189,3 +228,95 @@ def load_keras_checkpoints(
       model = load_keras_model(checkpoint=latest_checkpoint)
 
   return model
+
+
+if use_fsvi:
+  class FSVICheckpoint(NamedTuple):
+    state: hk.State
+    params: hk.Params
+    model: Model
+
+
+  def load_fsvi_checkpoint(path) -> FSVICheckpoint:
+    """Loads a Function Space Variational Inference Jax checkpoint.
+
+    Args:
+      path: str, location of model.
+    Returns:
+      FSVICheckpoint.
+    """
+    with tf.io.gfile.GFile(path, mode="rb") as f:
+      chkpt = pickle.load(f)
+
+    hparams = chkpt["hparams"]
+    model = CNN(
+      architecture=hparams["architecture"],
+      output_dim=2,
+      activation_fn=hparams["activation"],
+      stochastic_parameters=True,
+      linear_model=hparams["linear_model"],
+      dropout="dropout" in hparams["model_type"],
+      dropout_rate=hparams["dropout_rate"],
+    )
+
+    return FSVICheckpoint(state=chkpt["state"], params=chkpt["params"],
+                          model=model)
+
+
+  def get_latest_fsvi_checkpoint_name(
+      file_paths: List[str], return_epoch: bool
+  ):
+    """Obtains the path of most recent FSVI checkpoint.
+
+    Args:
+      file_paths: List[str], paths of FSVI checkpoints.
+      return_epoch: bool, if True, return epoch of the latest checkpoint.
+
+    Returns:
+      Union[Tuple[int, str], str]
+    """
+    file_names = [os.path.basename(path.strip("/")) for path in file_paths]
+    epochs_and_file_paths = [
+      (int(file.split("_")[1]), file_paths[i])
+      for i, file in enumerate(file_names)]
+    max_epoch_and_file_path = max(epochs_and_file_paths)
+
+    if return_epoch:
+      return max_epoch_and_file_path
+    else:
+      return max_epoch_and_file_path[1]
+
+
+  def load_fsvi_jax_checkpoints(
+      checkpoint_dir, load_ensemble=False, return_epoch=True
+  ):
+    """Main checkpoint loading function for FSVI Jax checkpoints.
+
+    When not loading an ensemble, defaults to also return the epoch
+      corresponding to the latest checkpoint.
+
+    Args:
+      checkpoint_dir: str, checkpoint directory.
+      load_ensemble: bool, loads all checkpoints in the directory.
+      return_epoch: bool, if only returning a single model, also return the
+        epoch for that model checkpoint.
+    """
+    files = tf.io.gfile.listdir(checkpoint_dir)
+    checkpoint_filenames = [
+      os.path.join(checkpoint_dir, file)
+      for file in files if file[:5] == "chkpt"]
+    if load_ensemble:
+      model = []
+      for checkpoint_file in checkpoint_filenames:
+        model.append(load_fsvi_checkpoint(checkpoint_file))
+    else:
+      if len(checkpoint_filenames) == 1 and not return_epoch:
+        return load_fsvi_checkpoint(checkpoint_filenames[0])
+      latest_checkpoint = get_latest_fsvi_checkpoint_name(
+        file_paths=checkpoint_filenames, return_epoch=return_epoch)
+      if return_epoch:
+        epoch, latest_checkpoint = latest_checkpoint
+        model = (epoch, load_fsvi_checkpoint(latest_checkpoint))
+      else:
+        model = load_fsvi_checkpoint(latest_checkpoint)
+    return model

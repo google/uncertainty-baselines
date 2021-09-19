@@ -2,11 +2,9 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
-# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.95"
-# TODO: (@qixuanf) investigate
-# https://github.com/google/jax/issues/5723
-os.environ['XLA_FLAGS'] = '--xla_gpu_force_compilation_parallelism=1'
-
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
+import pathlib
+from datetime import datetime
 from pprint import pformat
 
 import tensorflow as tf
@@ -31,6 +29,7 @@ from jax import random
 from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
+import wandb
 
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, root_path)
@@ -71,7 +70,8 @@ flags.DEFINE_string(
 
 flags.DEFINE_string("prior_mean", "0", "Prior mean function (default: 0)")
 
-flags.DEFINE_string("prior_cov", "10", help="Prior cov function (default: 0)")
+flags.DEFINE_string("prior_cov", "15.359475558718179",
+                    help="Prior cov function (default: 0)")
 
 flags.DEFINE_string(
     "prior_type",
@@ -84,7 +84,8 @@ flags.DEFINE_integer(
 )
 
 flags.DEFINE_float(
-    "base_learning_rate", default=0.031448, help="Learning rate (default: 1e-3)",
+    "base_learning_rate", default=0.02145079969396404,
+    help="Learning rate (default: top performing config on APTOS, tuned ID.)",
 )
 
 flags.DEFINE_float("dropout_rate", default=0.0, help="Dropout rate (default: 0.0)")
@@ -163,7 +164,7 @@ flags.DEFINE_string(
 )
 flags.DEFINE_integer(
     "loss_type",
-    3,
+    5,
     "type of loss, see objectives.py for details",
 )
 
@@ -179,7 +180,8 @@ flags.DEFINE_integer("num_bins", 15, "Number of bins for ECE.")
 
 # Learning rate / SGD flags.
 flags.DEFINE_float("final_decay_factor", 1e-3, "How much to decay the LR by.")
-flags.DEFINE_float("one_minus_momentum", 0.0052243, "Optimizer momentum.")
+flags.DEFINE_float("one_minus_momentum", 0.01921801498056592,
+                   "Optimizer momentum.")
 flags.DEFINE_string("lr_schedule", "step", "Type of LR schedule.")
 flags.DEFINE_integer(
     "lr_warmup_epochs",
@@ -223,7 +225,8 @@ flags.DEFINE_string(
     "if init_strategy==he_normal_and_zeros, then w_init=he_normal, b_init=zeros,"
     "if init_strategy==uniform, then w_init=uniform, b_init=uniform",
 )
-flags.DEFINE_float('l2', 0.0, 'L2 regularization coefficient.')
+flags.DEFINE_float('l2', 0.00015793214082680183,
+                   'L2 regularization coefficient.')
 
 # OOD flags.
 flags.DEFINE_string(
@@ -238,6 +241,15 @@ flags.DEFINE_bool(
   'load_train_split', True,
   "Should always be enabled - required to load train split of the dataset.")
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
+
+# Logging and hyperparameter tuning.
+flags.DEFINE_bool('use_wandb', True, 'Use wandb for logging.')
+flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
+flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
+flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
+flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
+
+
 flags.DEFINE_integer(
     "layer_to_linearize",
     1,
@@ -247,6 +259,7 @@ flags.DEFINE_float(
     "regularization", default=0, help="Regularization parameter (default: 0)",
 )
 FLAGS = flags.FLAGS
+
 
 def process_args():
     """
@@ -268,6 +281,7 @@ def get_dict_of_flags():
 def write_flags(path):
     d = get_dict_of_flags()
     string = json.dumps(d, indent=4, separators=(",", ":"))
+    tf.io.gfile.makedirs(os.path.dirname(path))
     with tf.io.gfile.GFile(path, "w") as f:
         f.write(string)
 
@@ -276,7 +290,26 @@ def main(argv):
     del argv
     process_args()
 
+    # Wandb Setup
+    if FLAGS.use_wandb:
+        pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
+        wandb_args = dict(
+            project=FLAGS.project,
+            entity="uncertainty-baselines",
+            dir=FLAGS.wandb_dir,
+            reinit=True,
+            name=FLAGS.exp_name,
+            group=FLAGS.exp_group)
+        wandb_run = wandb.init(**wandb_args)
+        wandb.config.update(FLAGS, allow_val_change=True)
+        output_dir = os.path.join(
+            FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    else:
+        wandb_run = None
+        output_dir = FLAGS.output_dir
+
     write_flags(os.path.join(FLAGS.output_dir, "flags.txt"))
+
     # Log Run Hypers
     hypers_dict = {
         'per_core_batch_size': FLAGS.per_core_batch_size,
@@ -285,6 +318,7 @@ def main(argv):
         'one_minus_momentum': FLAGS.one_minus_momentum,
         'l2': FLAGS.l2,
         'loss_type': FLAGS.loss_type,
+        'stochastic_linearization': FLAGS.stochastic_linearization
     }
     logging.info('Hypers:')
     logging.info(pformat(hypers_dict))
@@ -360,10 +394,10 @@ def main(argv):
     )
 
     summary_writer = tf.summary.create_file_writer(
-        os.path.join(FLAGS.output_dir, "summaries")
+        os.path.join(output_dir, "summaries")
     )
 
-    latest_checkpoint = get_latest_fsvi_checkpoint(FLAGS.output_dir)
+    latest_checkpoint = None  # get_latest_fsvi_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
     if latest_checkpoint and FLAGS.load_from_checkpoint:
         with tf.io.gfile.GFile(latest_checkpoint, mode="rb") as f:
@@ -625,6 +659,10 @@ def main(argv):
             use_tpu=use_tpu, backend="jax", eval_step_jax=eval_step_jax, return_per_pred_results=True,
             call_dataset_iter=False)
 
+        # Optionally log to wandb
+        if FLAGS.use_wandb:
+            wandb.log(total_results, step=epoch)
+
         with summary_writer.as_default():
             for name, result in total_results.items():
                 if result is not None:
@@ -651,15 +689,15 @@ def main(argv):
                 "opt_state": opt_state,
                 "epoch": epoch,
             }
-            # Also save Keras model, due to checkpoint.save issue
-            chkpt_name = os.path.join(FLAGS.output_dir, f"chkpt_{epoch + 1}")
+
+            chkpt_name = os.path.join(output_dir, f"chkpt_{epoch + 1}")
             with tf.io.gfile.GFile(chkpt_name, mode="wb") as f:
                 pickle.dump(to_save, f)
             logging.info("Saved checkpoint to %s", chkpt_name)
 
             # Save per-prediction metrics
             utils.save_per_prediction_results(
-                FLAGS.output_dir, epoch + 1, per_pred_results, verbose=False)
+                output_dir, epoch + 1, per_pred_results, verbose=False)
 
         T0 = time.time()
         print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
@@ -678,14 +716,14 @@ def main(argv):
         "opt_state": opt_state,
         "epoch": FLAGS.epochs,
     }
-    final_checkpoint_name = os.path.join(FLAGS.output_dir, "final_checkpoint")
+    final_checkpoint_name = os.path.join(output_dir, "final_checkpoint")
     with tf.io.gfile.GFile(final_checkpoint_name, mode="wb") as f:
         pickle.dump(to_save, f)
     logging.info("Saved last checkpoint to %s", final_checkpoint_name)
 
     # Save per-prediction metrics
     utils.save_per_prediction_results(
-        FLAGS.output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
+        output_dir, FLAGS.epochs, per_pred_results, verbose=False)
 
     with summary_writer.as_default():
         hp.hparams(
@@ -699,6 +737,8 @@ def main(argv):
                 'l2': FLAGS.l2
             }
         )
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 @jax.jit

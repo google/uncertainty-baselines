@@ -23,6 +23,10 @@ References:
        and Scalable Bayesian Neural Nets with Rank-1 Factors. In Proc. of
        International Conference on Machine Learning (ICML) 2020.
        https://arxiv.org/abs/2005.07186
+
+TODO nband: update uncertainty estimation code for Rank 1
+  Mixture of Gaussian ensembling, in addition to
+  Deep Ensemble--style ensembling.
 """
 import os
 import time
@@ -82,8 +86,8 @@ flags.DEFINE_bool(
   "Should always be enabled - required to load train split of the dataset.")
 
 # Learning rate / SGD flags.
-flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_float('base_learning_rate', 0.032299, 'Base learning rate.')
+flags.DEFINE_float('one_minus_momentum', 0.066501, 'Optimizer momentum.')
 flags.DEFINE_integer(
     'lr_warmup_epochs', 1,
     'Number of epochs for a linear warmup to the initial '
@@ -91,7 +95,7 @@ flags.DEFINE_integer(
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
                   'Epochs to decay learning rate by.')
-flags.DEFINE_float('fast_weight_lr_multiplier', 1.0,
+flags.DEFINE_float('fast_weight_lr_multiplier', 1.2390,
                    'fast weights lr multiplier.')
 
 # Rank-1 BNN flags.
@@ -130,7 +134,7 @@ flags.DEFINE_string(
   '`constant` will use the train proportions to reweight the binary cross '
   'entropy loss. `minibatch` will use the proportions of each minibatch to '
   'reweight the loss.')
-flags.DEFINE_float('l2', 5e-5, 'L2 coefficient.')
+flags.DEFINE_float('l2', 0.000022417, 'L2 coefficient.')
 flags.DEFINE_integer('ensemble_size', 1, 'Size of ensemble.')
 flags.DEFINE_integer('per_core_batch_size', 16, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
@@ -428,51 +432,6 @@ def main(argv):
 
     for _ in tf.range(tf.cast(train_steps_per_epoch, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
-
-  # TODO: update uncertainty estimation code for Rank 1 Mixture of Gaussian
-  #   ensembling, in addition to Deep Ensemble--style ensembling
-  # @tf.function
-  # def test_step(iterator, dataset_split, num_steps):
-  #   """Evaluation StepFn."""
-  #   def step_fn(inputs):
-  #     """Per-Replica StepFn."""
-  #     images = inputs['features']
-  #     labels = inputs['labels']
-  #     if FLAGS.ensemble_size > 1:
-  #       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
-  #
-  #     logits = tf.reshape(
-  #         [model(images, training=False)
-  #          for _ in range(FLAGS.num_mc_samples_eval)],
-  #         [FLAGS.num_mc_samples_eval, FLAGS.ensemble_size, -1])
-  #     if FLAGS.use_bfloat16:
-  #       logits = tf.cast(logits, tf.float32)
-  #
-  #     all_probs = tf.nn.sigmoid(logits)
-  #     probs = tf.math.reduce_mean(all_probs, axis=[0, 1])  # marginalize
-  #     probs = tf.squeeze(probs)
-  #
-  #     # Negative log marginal likelihood computed in a numerically-stable way.
-  #     labels_broadcasted = tf.broadcast_to(
-  #         labels,
-  #         [FLAGS.num_mc_samples_eval, FLAGS.ensemble_size, labels.shape[0]])
-  #     log_likelihoods = -tf.keras.losses.binary_crossentropy(
-  #         labels_broadcasted, logits, from_logits=True)
-  #     negative_log_likelihood = tf.reduce_mean(
-  #         -tf.reduce_logsumexp(log_likelihoods, axis=[0, 1]) +
-  #         tf.math.log(float(FLAGS.num_mc_samples_eval * FLAGS.ensemble_size)))
-  #
-  #     metrics[dataset_split + '/negative_log_likelihood'].update_state(
-  #         negative_log_likelihood)
-  #     metrics[dataset_split + '/accuracy'].update_state(labels, probs)
-  #     metrics[dataset_split + '/auprc'].update_state(labels, probs)
-  #     metrics[dataset_split + '/auroc'].update_state(labels, probs)
-  #
-  #     if not use_tpu:
-  #       metrics[dataset_split + '/ece'].add_batch(probs, label=labels)
-  #
-  #   for _ in tf.range(tf.cast(num_steps, tf.int32)):
-  #     strategy.run(step_fn, args=(next(iterator),))
 
   start_time = time.time()
 

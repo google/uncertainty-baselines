@@ -75,8 +75,8 @@ flags.DEFINE_bool(
   "Should always be enabled - required to load train split of the dataset.")
 
 # Learning Rate / SGD flags.
-flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_float('base_learning_rate', 0.027250, 'Base learning rate.')
+flags.DEFINE_float('one_minus_momentum',  0.035193, 'Optimizer momentum.')
 flags.DEFINE_integer(
     'lr_warmup_epochs', 1,
     'Number of epochs for a linear warmup to the initial '
@@ -94,7 +94,7 @@ flags.DEFINE_string(
     '`constant` will use the train proportions to reweight the binary cross '
     'entropy loss. `minibatch` will use the proportions of each minibatch to '
     'reweight the loss.')
-flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
+flags.DEFINE_float('l2', 0.000014128, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
 flags.DEFINE_integer('per_core_batch_size', 32,
@@ -105,7 +105,7 @@ flags.DEFINE_integer(
     'Use -1 to never save checkpoints.')
 
 # Dropout-related flags.
-flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate, between [0.0, 1.0).')
+flags.DEFINE_float('dropout_rate', 0.17798, 'Dropout rate, between [0.0, 1.0).')
 flags.DEFINE_integer('num_dropout_samples_eval', 5,
                      'Number of dropout samples to use for prediction.')
 flags.DEFINE_bool(
@@ -402,6 +402,7 @@ def main(argv):
 
   if wandb_run is not None:
     wandb_run.finish()
+
 
 if __name__ == '__main__':
   app.run(main)

@@ -75,9 +75,9 @@ flags.DEFINE_bool(
   "Should always be enabled - required to load train split of the dataset.")
 
 # Learning rate / SGD flags.
-flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
-flags.DEFINE_float('final_decay_factor', 1e-3, 'How much to decay the LR by.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_float('base_learning_rate', 0.023072, 'Base learning rate.')
+flags.DEFINE_float('final_decay_factor', 0.01, 'How much to decay the LR by.')
+flags.DEFINE_float('one_minus_momentum', 0.0098467, 'Optimizer momentum.')
 flags.DEFINE_string('lr_schedule', 'step', 'Type of LR schedule.')
 flags.DEFINE_integer(
     'lr_warmup_epochs', 1,
@@ -96,7 +96,7 @@ flags.DEFINE_string(
     '`constant` will use the train proportions to reweight the binary cross '
     'entropy loss. `minibatch` will use the proportions of each minibatch to '
     'reweight the loss.')
-flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
+flags.DEFINE_float('l2', 0.00010674, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
 flags.DEFINE_integer('per_core_batch_size', 32,
@@ -144,8 +144,6 @@ def main(argv):
 
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
-
-  # tf.profiler.experimental.start('logdir')
 
   # Log Run Hypers
   hypers_dict = {
@@ -394,8 +392,6 @@ def main(argv):
         'one_minus_momentum': FLAGS.one_minus_momentum,
         'l2': FLAGS.l2
     })
-
-  # tf.profiler.experimental.stop()
 
   if wandb_run is not None:
     wandb_run.finish()

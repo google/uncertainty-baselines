@@ -92,8 +92,10 @@ flags.DEFINE_bool(
   "Should always be enabled - required to load train split of the dataset.")
 
 # Learning rate / SGD flags.
-flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_float('base_learning_rate', 0.18958209702776632,
+                   'Base learning rate.')
+flags.DEFINE_float('one_minus_momentum', 0.016699763426232056,
+                   'Optimizer momentum.')
 flags.DEFINE_integer(
     'lr_warmup_epochs', 1,
     'Number of epochs for a linear warmup to the initial '
@@ -118,12 +120,12 @@ flags.DEFINE_float(
     'prior_stddev', None, 'Sets a fixed stddev for weight prior. '
     'If None, defaults to the He initializer stddev: sqrt(2 / fan_in).')
 flags.DEFINE_float(
-    'stddev_mean_init', 1e-3,
+    'stddev_mean_init', 0.00014497837766733678,
     'Initializes the mean of the TruncatedNormal from which we sample the '
     'initial posterior standard deviation: '
     'mean = np.log(np.expm1(stddev_mean_init)).')
 flags.DEFINE_float(
-    'stddev_stddev_init', 0.1,
+    'stddev_stddev_init', 0.06282496582469976,
     'Standard deviation of the TruncatedNormal from which we sample the '
     'initial posterior standard deviation.')
 
@@ -136,7 +138,8 @@ flags.DEFINE_string(
     '`constant` will use the train proportions to reweight the binary cross '
     'entropy loss. `minibatch` will use the proportions of each minibatch to '
     'reweight the loss.')
-flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
+flags.DEFINE_float('l2', 0.0005243849811857283,
+                   'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
 flags.DEFINE_integer('batch_size', DEFAULT_BATCH_SIZE,
@@ -345,20 +348,6 @@ def main(argv):
         batch_loss_fn = loss_fn
 
       with tf.GradientTape() as tape:
-        # TODO: TPU-friendly implem
-        # logits_arr = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
-        #
-        # for _ in tf.range(FLAGS.num_mc_samples_train):
-        #   logits = model(images, training=True)
-        #   # logits = tf.squeeze(logits, axis=-1)
-        #   # if FLAGS.use_bfloat16:
-        #   #   logits = tf.cast(logits, tf.float32)
-        #
-        #   logits_arr = logits_arr.write(logits_arr.size(), logits)
-        #
-        # logits_list = logits_arr.stack()
-
-        # # Pythonic Implem
         if FLAGS.num_mc_samples_train > 1:
           logits_list = []
           for _ in range(FLAGS.num_mc_samples_train):

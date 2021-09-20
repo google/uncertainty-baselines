@@ -102,7 +102,6 @@ def get_config():
   config.lr.base = 0.002
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-  config.lr.scale_with_batchsize = False
 
   config.args = {}
   return config

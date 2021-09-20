@@ -2,13 +2,11 @@
 
 In this baseline, models try to predict the presence or absence of diabetic
 retinopathy (a binary classification task) using data from the
-[Kaggle Diabetic Retinopathy Detection challenge]
-(https://www.kaggle.com/c/diabetic-retinopathy-detection/data). Please see
+[Kaggle Diabetic Retinopathy Detection challenge](https://www.kaggle.com/c/diabetic-retinopathy-detection/data). Please see
 that page for details on data collection, etc.
 
 Models are trained with images of blood vessels in the eye, as seen in the
-[TensorFlow Datasets description]
-(https://www.tensorflow.org/datasets/catalog/diabetic_retinopathy_detection).
+[TensorFlow Datasets description](https://www.tensorflow.org/datasets/catalog/diabetic_retinopathy_detection).
 
 ## Model Checkpoints
 For each method we release the best-performaing checkpoints. These checkpoints were trained on the combined training and validation set, using hyperparameters selected from the best validation performance. Each checkpoint was selected to be from the step during training with the best test AUC (averaged across the 10 random seeds). This was epoch 63 for the deterministic model, epoch 72 for the MC-Dropout method, epoch 31 for the Variational Inference method, and epoch 61 for the Radial BNNs method. For more details on the models, see the accompanying [Model Card](./model_card.md), which covers all the models below, as the dataset is exactly the same across them all, and the only model differences are minor calibration improvements. The checkpoints can be browsed [here](https://console.cloud.google.com/storage/browser/gresearch/reliable-deep-learning/checkpoints/baselines/diabetic_retinopathy_detection).

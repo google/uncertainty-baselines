@@ -161,6 +161,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
       shuffle_buffer_size: Optional[int] = None,
       max_seq_length: Optional[int] = 512,
       num_parallel_parser_calls: int = 64,
+      drop_remainder: bool = False,
       data_dir: Optional[str] = None,
       try_gcs: bool = False,
       download_data: bool = False,
@@ -181,6 +182,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
       max_seq_length: maximum sequence length of the tokenized sentences.
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      drop_remainder: whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size.
       data_dir: optional dir to read data from. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
@@ -233,6 +236,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
+        drop_remainder=drop_remainder,
         download_data=download_data)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:

@@ -235,14 +235,17 @@ def main(argv):
   ind_dataset_builder = ds.WikipediaToxicityDataset(
       split='test',
       data_dir=FLAGS.in_dataset_dir,
+      drop_remainder=True,
       shuffle_buffer_size=data_buffer_size)
   ood_dataset_builder = ds.CivilCommentsDataset(
       split='test',
       data_dir=FLAGS.ood_dataset_dir,
+      drop_remainder=True,
       shuffle_buffer_size=data_buffer_size)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
       split='test',
       data_dir=FLAGS.identity_dataset_dir,
+      drop_remainder=True,
       shuffle_buffer_size=data_buffer_size)
 
   train_dataset_builders = {
@@ -260,6 +263,7 @@ def main(argv):
             split='test',
             data_dir=os.path.join(
                 FLAGS.identity_specific_dataset_dir, dataset_name),
+            drop_remainder=True,
             shuffle_buffer_size=data_buffer_size)
     for dataset_name in utils.IDENTITY_TYPES:
       if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
@@ -267,6 +271,7 @@ def main(argv):
             split='test',
             data_dir=os.path.join(
                 FLAGS.identity_type_dataset_dir, dataset_name),
+            drop_remainder=True,
             shuffle_buffer_size=data_buffer_size)
 
   class_weight = utils.create_class_weight(

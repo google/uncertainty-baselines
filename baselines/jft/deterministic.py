@@ -224,37 +224,19 @@ def main(argv):
     val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = {}
-  if config.get('ood_dataset'):
-    logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
-    if isinstance(config.ood_split, str):
-      ood_ds.update({
-          'ind':
-              _get_val_split(config.dataset, config.ood_split, config.pp_eval,
-                             config.get('data_dir')),
-          'ood':
-              _get_val_split(config.ood_dataset, config.ood_split,
-                             config.pp_eval, config.get('data_dir')),
-      })
-      ood_ds_names = list(ood_ds.keys())
-    else:
-      raise NotImplementedError(
-          'Only string type of ood_split is supported for OOD evaluation! Got ood_split=%s!'
-          % str(config.ood_split))
-
-    if 'maha' in config.ood_methods or 'rmaha' in config.ood_methods:
-      # Adding training set for fitting class conditional Gaussian for
-      # Mahalanoabis distance based method
-      if isinstance(config.train_split, str):
-        ood_ds.update({
-            'train_maha':
-                _get_val_split(config.dataset, config.train_split,
-                               config.pp_eval, config.get('data_dir'))
-        })
-        ood_ds_names.insert(0, 'train_maha')
-      else:
-        raise NotImplementedError(
-            'Only string type of train_split is supported for OOD evaluation! Got train_split=%s!'
-            % str(config.train_split))
+  if config.get('ood_dataset') and config.get('ood_methods'):
+    if config.get('ood_methods'):  #  config.ood_methods is not a empty list
+      logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+      ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
+          config.dataset,
+          config.ood_dataset,
+          config.ood_split,
+          config.pp_eval,
+          config.ood_methods,
+          config.train_split,
+          config.get('data_dir'),
+          _get_val_split,
+      )
 
   ntrain_img = input_utils.get_num_examples(
       config.dataset,
@@ -677,92 +659,10 @@ def main(argv):
       # TODO(jjren): abstract this entire section out to a `eval_ood` function
       # that takes in the model, parameters, and OOD datasets, and returns a
       # dict of metrics
-      if ood_ds:
-        # MSP stands for maximum softmax probability, max(softmax(logits)).
-        # MSP can be used as confidence score.
-        # Maha stands for Mahalanobis distance between the test input and
-        # fitted class conditional Gaussian distributions based on the
-        # embeddings. Mahalanobis distance can be used as uncertainty score
-        # or in other words, negative Mahalanobis distance can be used as
-        # confidence score.
-        # RMaha stnads for Relative Mahalanobis distance (Ren et al. 2021)
-        # https://arxiv.org/abs/2106.09022
-        ood_metrics = [ood_utils.OODMetric(name) for name in config.ood_methods]
-        ood_measurements = {}
-
-        # Mean and cov of class conditional Guassian in Mahalanobis distance.
-        # Mean_background and cov_background for the unified Guassian model
-        # regardless of class labels for computing Relative Mahalanobis distance
-        mean_list, cov = None, None
-        mean_list_background, cov_background = None, None
-        for val_name in ood_ds_names:
-          # The dataset train_maha must come before ind and ood
-          # because the train_maha will be used to esimate the class conditional
-          # mean and shared covariance.
-          val_iter, val_steps = ood_ds[val_name]
-          ncorrect, loss, nseen = 0, 0, 0
-          pre_logits_list, labels_list = [], []
-          for _, batch in zip(range(val_steps), val_iter):
-            batch_scores = {}
-            batch_ncorrect, batch_losses, batch_n, batch_metric_args = evaluation_fn(
-                opt_repl.target, batch['image'], batch['labels'], batch['mask'])
-            ncorrect += np.sum(np.array(batch_ncorrect[0]))
-            loss += np.sum(np.array(batch_losses[0]))
-            nseen += np.sum(np.array(batch_n[0]))
-
-            # Here we parse batch_metric_args to compute OOD metrics.
-            logits, labels, pre_logits, masks = batch_metric_args
-            masks_bool = np.array(masks[0], dtype=bool)
-            if val_name == 'train_maha':
-              # For Mahalanobis distance, we need to first fit class conditional
-              # Gaussian using training data.
-              pre_logits_list.append(np.array(pre_logits[0])[masks_bool])
-              labels_list.append(np.array(labels[0])[masks_bool])
-            else:
-              # Computes Mahalanobis distance.
-              if mean_list is not None and cov is not None:
-                dists = ood_utils.compute_mahalanobis_distance(
-                    np.array(pre_logits[0])[masks_bool], mean_list, cov)
-                batch_scores['dists'] = dists
-
-              if mean_list_background is not None and cov_background is not None:
-                dists_background = ood_utils.compute_mahalanobis_distance(
-                    np.array(pre_logits[0])[masks_bool], mean_list_background,
-                    cov_background)
-                batch_scores['dists_background'] = dists_background
-
-              # Computes Maximum softmax probability (MSP)
-              probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
-              batch_scores['probs'] = probs
-              # Update metric state for each metric in ood_metrics
-              for metric in ood_metrics:
-                ood_scores = metric.compute_ood_scores(batch_scores)
-                ood_labels = np.zeros_like(
-                    ood_scores) if val_name == 'ind' else np.ones_like(
-                        ood_scores)
-                metric.update(ood_scores, ood_labels)
-
-          if val_name == 'train_maha':
-            pre_logits_train = np.vstack(np.vstack(pre_logits_list))
-            labels_train = np.argmax(np.vstack(np.vstack(labels_list)), axis=-1)
-            mean_list, cov = ood_utils.compute_mean_and_cov(
-                pre_logits_train, labels_train)
-            mean_list_background, cov_background = ood_utils.compute_mean_and_cov(
-                pre_logits_train, np.zeros_like(labels_train))
-          elif val_name == 'ind':
-            ood_measurements.update({
-                f'{val_name}_prec@1': ncorrect / nseen,
-                f'{val_name}_loss': loss / nseen,
-            })
-
-        for metric in ood_metrics:
-          metric_name = metric.get_metric_name()
-          metric_values = metric.compute_metrics()
-          ood_measurements.update({
-              f'ood_{metric_name}_auroc': metric_values['auc-roc'],
-              f'ood_{metric_name}_auprc': metric_values['auc-pr'],
-              f'ood_{metric_name}_fprn': metric_values['fprn'],
-          })
+      if ood_ds and config.ood_methods:
+        ood_measurements = ood_utils.eval_ood_metrics(ood_ds, ood_ds_names,
+                                                      config.ood_methods,
+                                                      evaluation_fn, opt_repl)
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
 

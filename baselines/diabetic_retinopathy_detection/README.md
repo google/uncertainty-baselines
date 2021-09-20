@@ -10,7 +10,7 @@ This codebase will allow you to reproduce experiments from the paper (see citati
 
 ## Prediction Task Overview
 
-In this benchmark, models try to predict the presence or absence of diabetic retinopathy (a binary classification task) using data from the [Kaggle Diabetic Retinopathy Detection challenge](https://www.kaggle.com/c/diabetic-retinopathy-detection/data) and the [APTOS 2019 Blindness Detection](https://www.kaggle.com/c/aptos2019-blindness-detection). Please see that page for details on data collection, etc.
+In this benchmark, models try to predict the presence or absence of diabetic retinopathy (a binary classification task) using data from the [Kaggle Diabetic Retinopathy Detection challenge](https://www.kaggle.com/c/diabetic-retinopathy-detection/data) and the [APTOS 2019 Blindness Detection](https://www.kaggle.com/c/aptos2019-blindness-detection). Please see these pages for details on data collection, etc.
 
 Models are trained with images of blood vessels in the eye, as seen in the [TensorFlow Datasets description](https://www.tensorflow.org/datasets/catalog/diabetic_retinopathy_detection).
 

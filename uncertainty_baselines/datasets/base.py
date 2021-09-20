@@ -367,13 +367,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # options.experimental_optimization.parallel_batch = True
     options.experimental_optimization.map_fusion = True
     options.experimental_optimization.map_parallelization = True
-    # options.experimental_threading.private_threadpool_size = 48
-    logging.info('Current threadpool size setting: ')
-    logging.info(options.experimental_threading.private_threadpool_size)
-
-    logging.info('Current intra op parallelism setting: ')
-    logging.info(options.experimental_threading.max_intra_op_parallelism)
-    # options.experimental_threading.max_intra_op_parallelism = 1
+    options.experimental_threading.private_threadpool_size = 48
     options.experimental_threading.max_intra_op_parallelism = 1
     dataset = dataset.with_options(options)
     return dataset

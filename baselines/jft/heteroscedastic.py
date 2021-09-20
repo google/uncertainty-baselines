@@ -24,6 +24,7 @@ import os
 from absl import app
 from absl import flags
 from absl import logging
+from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 import flax
@@ -42,10 +43,8 @@ import cifar10h_utils  # local file import
 import input_utils  # local file import
 import train_utils  # local file import
 
-
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
-u = None
 pp_builder = None
 
 
@@ -69,6 +68,10 @@ def main(argv):
   config = FLAGS.config
   output_dir = FLAGS.output_dir
 
+  seed = config.get('seed', 0)
+  rng = jax.random.PRNGKey(seed)
+  tf.random.set_seed(seed)
+
   if config.get('dataset_dir'):
     logging.info('data_dir=%s', config.dataset_dir)
   logging.info('Output dir: %s', output_dir)
@@ -78,15 +81,13 @@ def main(argv):
     gfile.makedirs(output_dir)
     save_checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
 
+  # Create an asynchronous multi-metric writer.
+  writer = metric_writers.create_default_writer(
+      output_dir, just_logging=jax.process_index() > 0)
+
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  seed = config.get('seed', 0)
-  rng = jax.random.PRNGKey(seed)
-  tf.random.set_seed(seed)
-
-  xm_xp = None
-  xm_wu = None
   def write_note(note):
     if jax.host_id() == 0:
       logging.info('NOTE: %s', note)
@@ -254,7 +255,6 @@ def main(argv):
   logging.info(
       'Running for %d steps, that means %f epochs and %f steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
-  mw = u.BigVisionMetricWriter(xm_xp.id, xm_wu.id, steps_per_epoch)
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
@@ -308,7 +308,7 @@ def main(argv):
   if jax.host_id() == 0:
     num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
-    mw.measure('num_params', num_params)
+    writer.write_scalars(step=0, scalars={'num_params': num_params})
 
   @partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
@@ -491,6 +491,8 @@ def main(argv):
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  if first_step == 0 and jax.host_id() == 0:
+    writer.write_hparams(dict(config))
   chrono = train_utils.Chrono(first_step, total_steps, batch_size,
                               checkpoint_extra['accum_train_time'])
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
@@ -547,7 +549,6 @@ def main(argv):
   # on TPU during replication.
   for step, train_batch, lr_repl in zip(
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-    mw.step_start(step)
 
     with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
       opt_repl, loss_value, rngs_loop, extra_measurements = update_fn(
@@ -594,11 +595,16 @@ def main(argv):
         step, config.log_training_steps, total_steps, host=0):
       write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
-      mw.measure('learning_rate', lr_repl[0])
-      mw.measure('training_loss', loss_value[0])
-      for name, value in extra_measurements.items():
-        mw.measure(name, value[0])
-      chrono.tick(step, mw.measure, write_note)
+      timing_measurements, note = chrono.tick(step)
+      write_note(note)
+      train_measurements = {}
+      train_measurements.update({
+          'learning_rate': lr_repl[0],
+          'training_loss': train_loss,
+      })
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(timing_measurements)
+      writer.write_scalars(step, train_measurements)
 
     # Report validation performance
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
@@ -669,26 +675,25 @@ def main(argv):
               ged.update_state(batch_ged)
 
         val_loss = loss / nseen  # Keep to return for reproducibility tests.
-        mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
-        mw.measure(f'{val_name}_loss', val_loss)
-        mw.measure(f'{val_name}_ece', float(ece.result()['ece']))
-        mw.measure(f'{val_name}_calib_auc',
-                   float(calib_auc.result()['calibration_auc']))
-        mw.measure(f'{val_name}_oc_auc_0.5%',
-                   float(oc_auc_0_5.result()['collaborative_auc']))
-        mw.measure(f'{val_name}_oc_auc_1%',
-                   float(oc_auc_1.result()['collaborative_auc']))
-        mw.measure(f'{val_name}_oc_auc_2%',
-                   float(oc_auc_2.result()['collaborative_auc']))
-        mw.measure(f'{val_name}_oc_auc_5%',
-                   float(oc_auc_5.result()['collaborative_auc']))
+        val_measurements = {
+            f'{val_name}_prec@1': ncorrect / nseen,
+            f'{val_name}_loss': val_loss,
+            f'{val_name}_ece': ece.result()['ece'],
+            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
+            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
+            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
+            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
+            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
+        }
+        writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h':
-          mw.measure(
-              f'{val_name}_label_diversity', float(label_diversity.result()))
-          mw.measure(
-              f'{val_name}_sample_diversity', float(sample_diversity.result()))
-          mw.measure(f'{val_name}_ged', float(ged.result()))
+          cifar_10h_measurements = {
+              f'{val_name}_label_diversity': label_diversity.result(),
+              f'{val_name}_sample_diversity': sample_diversity.result(),
+              f'{val_name}_ged': ged.result(),
+          }
+          writer.write_scalars(step, cifar_10h_measurements)
 
       # OOD eval
       if ood_ds:
@@ -700,6 +705,7 @@ def main(argv):
                 tf.keras.metrics.AUC(
                     curve='PR', summation_method='interpolation')
         }
+        ood_measurements = {}
         for metric in ood_metrics.values():
           metric.reset_states()
         for val_name, (val_iter, val_steps) in ood_ds.items():
@@ -724,10 +730,13 @@ def main(argv):
             for metric in ood_metrics.values():
               metric.update_state(ood_labels, confs)
           if val_name == 'ind':
-            mw.measure(f'{val_name}_prec@1', ncorrect / nseen)
-            mw.measure(f'{val_name}_loss', loss / nseen)
+            ood_measurements.update({
+                f'{val_name}_prec@1': ncorrect / nseen,
+                f'{val_name}_loss': loss / nseen,
+            })
         for name, value in ood_metrics.items():
-          mw.measure(f'ood_{name}', value.result())
+          ood_measurements.update({f'ood_{name}': value.result()})
+        writer.write_scalars(step, ood_measurements)
       chrono.resume()
 
     if 'fewshot' in config:
@@ -738,9 +747,19 @@ def main(argv):
         # Keep `results` to return for reproducibility tests.
         results, best_l2 = fewshotter.run_all(opt_repl.target,
                                               config.fewshot.datasets)
-        fewshotter.walk_results(mw.measure, results, best_l2)
+
+        # TODO(dusenberrymw): Remove this once fewshot.py is updated.
+        def make_writer_measure_fn(step):
+
+          def writer_measure(name, value):
+            writer.write_scalars(step, {name: value})
+
+          return writer_measure
+
+        fewshotter.walk_results(make_writer_measure_fn(step), results, best_l2)
         chrono.resume()
-    mw.step_end()
+
+    # End of step.
     if config.get('testing_failure_step'):
       # Break early to simulate infra failures in test cases.
       if config.testing_failure_step == step:
@@ -749,7 +768,7 @@ def main(argv):
   write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
-  mw.close()
+  writer.close()
 
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.

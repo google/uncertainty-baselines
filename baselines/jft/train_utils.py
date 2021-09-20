@@ -191,7 +191,7 @@ class Chrono:
     self.note += "\nETA:n/a"
     self.note += "\nTotal time:n/a"
 
-  def tick(self, step, measure, write_note):
+  def tick(self, step):
     """Performs one chronometer tick."""
     now = time.time()
 
@@ -200,11 +200,11 @@ class Chrono:
     # estimates.
     if self.warmup:
       self.warmup -= 1
-      return
+      return {}, self.note
     if None in (self.start_time, self.prev_time, self.prev_step):
       self.start_time = self.prev_time = now
       self.prev_step = step
-      return
+      return {}, self.note
 
     def hms(s):
       """Formats time in hours/minutes/seconds."""
@@ -223,23 +223,26 @@ class Chrono:
     self.note = f"Steps:{step}/{self.total_steps} [{step/self.total_steps:.1%}]"
     self.note += f"\nETA:{hms(dt / steps_done * steps_todo)}"
     self.note += f"\nTotal time:{hms(dt / steps_done * self.total_steps)}"
-    write_note(self.note)
+
+    timing_measurements = {}
 
     # Measurement with micro-timings of current training steps speed.
     dt = now - self.prev_time - self.paused_time  # Time between ticks.
     ds = step - self.prev_step  # Steps between ticks.
     ncores = jax.device_count()  # Global device count.
-    measure("img/sec/core", self.global_bs * ds / dt / ncores)
+    timing_measurements["img/sec/core"] = self.global_bs * ds / dt / ncores
 
     # Accumulate (integrate) training time, good for plots.
     self.accum_train_time += dt
     core_hours = self.accum_train_time * ncores / 60 / 60
     devtype = jax.devices()[0].device_kind
-    measure(f"core_hours_{devtype}", core_hours)
+    timing_measurements[f"core_hours_{devtype}"] = core_hours
 
     self.prev_time = now
     self.prev_step = step
     self.paused_time = 0
+
+    return timing_measurements, self.note
 
   def pause(self):
     """Pauses the time measurement."""

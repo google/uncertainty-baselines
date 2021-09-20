@@ -61,6 +61,9 @@ def get_config():
   config.eval_on_cifar_10h = True
   config.pp_eval_cifar_10h = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'
 
+  # Imagenet ReaL eval
+  config.eval_on_imagenet_real = False
+
   config.log_training_steps = 10
   config.log_eval_steps = 100
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
@@ -109,7 +112,6 @@ def get_config():
   config.lr.base = 0.001
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-  config.lr.scale_with_batchsize = False
 
   config.args = {}
   return config

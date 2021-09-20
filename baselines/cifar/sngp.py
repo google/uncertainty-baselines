@@ -131,7 +131,7 @@ flags.DEFINE_bool('use_gp_layer', True,
                   'Whether to use Gaussian process as the output layer.')
 flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
 flags.DEFINE_float(
-    'gp_scale', 2.,
+    'gp_scale', 1.,
     'The length-scale parameter for the RBF kernel of the GP layer.')
 flags.DEFINE_integer(
     'gp_input_dim', 128,
@@ -178,6 +178,8 @@ flags.DEFINE_integer(
     ' Use -1 to never evaluate.')
 flags.DEFINE_string('saved_model_dir', None,
                     'Directory containing the saved model checkpoints.')
+flags.DEFINE_bool('dempster_shafer_ood', False,
+                  'Wheter to use DempsterShafer Uncertainty score.')
 
 
 # Redefining default values
@@ -185,6 +187,31 @@ flags.FLAGS.set_default('base_learning_rate', 0.1)
 flags.FLAGS.set_default('l2', 3e-4)
 flags.FLAGS.set_default('train_epochs', 250)
 FLAGS = flags.FLAGS
+
+
+def DempsterShaferUncertainty(logits):
+  """Defines the Dempster-Shafer Uncertainty for output logits.
+
+  Under the Dempster-Shafer (DS) formulation of a multi-class model, the
+  predictive uncertainty can be assessed as K/(K + sum(exp(logits))).
+  This uncertainty metric directly measure the magnitude of the model logits,
+  and is more properiate for a model that directly trains the magnitude of
+  logits and uses this magnitude to quantify uncertainty (e.g., [1]).
+
+  See Equation (1) of [1] for full detail.
+
+  Args:
+    logits: (tf.Tensor) logits of model prediction, shape (batch_size,
+      num_classes).
+
+  Returns:
+    (tf.Tensor) DS uncertainty estimate, shape (batch_size, )
+  """
+  num_classes = tf.shape(logits)[-1]
+  num_classes = tf.cast(num_classes, dtype=logits.dtype)
+
+  belief_mass = tf.reduce_sum(tf.exp(logits), axis=-1)
+  return num_classes / (belief_mass + num_classes)
 
 
 def main(argv):
@@ -403,29 +430,26 @@ def main(argv):
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
     if FLAGS.run_ood:
-      if not FLAGS.saved_model_dir:
-        raise ValueError('Saved model checkpoint must be specified with the.'
-                         '--saved_model_dir flag for OOD evaluation.')
-      logging.info('Saved model dir : %s', FLAGS.output_dir)
-      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
-      checkpoint.restore(latest_checkpoint)
-      logging.info('Loaded checkpoint %s', latest_checkpoint)
+      if FLAGS.saved_model_dir:
+        logging.info('Saved model dir : %s', FLAGS.saved_model_dir)
+        latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
+        checkpoint.restore(latest_checkpoint)
+        logging.info('Loaded checkpoint %s', latest_checkpoint)
       if FLAGS.eval_only:
         initial_epoch = FLAGS.train_epochs - 1  # Run just one epoch of eval
 
-  # Finally, define OOD metrics outside the accelerator scope for CPU eval.
-  if FLAGS.run_ood:
-    ood_dataset_names = FLAGS.ood_dataset
-    for dataset_name in ood_dataset_names:
-      metrics.update({
-          'ood/auroc_{}'.format(dataset_name):
-              tf.keras.metrics.AUC(curve='ROC', num_thresholds=2000),
-          'ood/auprc_{}'.format(dataset_name):
-              tf.keras.metrics.AUC(curve='PR', num_thresholds=2000),
-          'ood/fpr@95tpr_{}'.format(dataset_name):
-              tf.keras.metrics.SpecificityAtSensitivity(
-                  0.95, num_thresholds=2000)
-      })
+    if FLAGS.run_ood:
+      ood_dataset_names = FLAGS.ood_dataset
+      for dataset_name in ood_dataset_names:
+        metrics.update({
+            'ood/auroc_{}'.format(dataset_name):
+                tf.keras.metrics.AUC(curve='ROC', num_thresholds=2000),
+            'ood/auprc_{}'.format(dataset_name):
+                tf.keras.metrics.AUC(curve='PR', num_thresholds=2000),
+            'ood/fpr@95tpr_{}'.format(dataset_name):
+                tf.keras.metrics.SpecificityAtSensitivity(
+                    0.95, num_thresholds=2000)
+        })
 
   @tf.function
   def train_step(iterator, step):
@@ -523,6 +547,7 @@ def main(argv):
       stddev = tf.reduce_mean(stddev_list, axis=0)
       probs_list = tf.nn.softmax(logits_list)
       probs = tf.reduce_mean(probs_list, axis=0)
+      logits = tf.reduce_mean(logits_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
           labels, [FLAGS.num_dropout_samples, labels.shape[0]])
@@ -546,17 +571,20 @@ def main(argv):
         metrics['val/ece'].add_batch(probs, label=labels)
         metrics['val/stddev'].update_state(stddev)
       elif dataset_name.startswith('ood'):
-        is_in_distribution = inputs['is_in_distribution']
-        ood_probs = tf.reduce_max(probs, axis=-1)
+        ood_labels = 1 - inputs['is_in_distribution']
+        if FLAGS.dempster_shafer_ood:
+          ood_scores = DempsterShaferUncertainty(logits)
+        else:
+          ood_scores = 1 - tf.reduce_max(probs, axis=-1)
 
         # Edgecase for if dataset_name contains underscores
         ood_dataset_name = '_'.join(dataset_name.split('_')[1:])
         metrics['ood/auroc_{}'.format(ood_dataset_name)].update_state(
-            is_in_distribution, ood_probs)
+            ood_labels, ood_scores)
         metrics['ood/auprc_{}'.format(ood_dataset_name)].update_state(
-            is_in_distribution, ood_probs)
+            ood_labels, ood_scores)
         metrics['ood/fpr@95tpr_{}'.format(ood_dataset_name)].update_state(
-            is_in_distribution, ood_probs)
+            ood_labels, ood_scores)
       elif FLAGS.corruptions_interval > 0:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)

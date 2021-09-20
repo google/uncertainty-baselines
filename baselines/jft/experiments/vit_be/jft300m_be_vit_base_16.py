@@ -81,7 +81,6 @@ def get_config():
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
-  config.lr.scale_with_batchsize = False
 
   config.batch_size = 1024         # Global batch size.
   config.batch_size_eval = 1024    # Global batch size.

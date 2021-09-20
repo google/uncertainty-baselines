@@ -17,6 +17,7 @@
 from typing import Any, Callable, Optional, Tuple
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 
 Array = Any
@@ -216,6 +217,7 @@ class VisionTransformer(nn.Module):
   hidden_size: int
   representation_size: Optional[int] = None
   classifier: str = 'token'
+  fix_base_model: bool = False
 
   @nn.compact
   def __call__(self, inputs, *, train):
@@ -267,6 +269,10 @@ class VisionTransformer(nn.Module):
       x = IdentityLayer(name='pre_logits')(x)
       out['pre_logits'] = x
 
+    # TODO(markcollier): Fix base model without using stop_gradient.
+    if self.fix_base_model:
+      x = jax.lax.stop_gradient(x)
+
     x = nn.Dense(
         features=self.num_classes,
         name='head',
@@ -281,7 +287,8 @@ def vision_transformer(num_classes: int,
                        transformer: Any,
                        hidden_size: int,
                        representation_size: Optional[int] = None,
-                       classifier: str = 'token'):
+                       classifier: str = 'token',
+                       fix_base_model: bool = False):
   """Builds a Vision Transformer (ViT) model."""
   # TODO(dusenberrymw): Add API docs once config dict in VisionTransformer is
   # cleaned up.
@@ -291,4 +298,5 @@ def vision_transformer(num_classes: int,
       transformer=transformer,
       hidden_size=hidden_size,
       representation_size=representation_size,
-      classifier=classifier)
+      classifier=classifier,
+      fix_base_model=fix_base_model)

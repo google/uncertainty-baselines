@@ -422,9 +422,10 @@ def main(argv):
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),
                  metrics['train/accuracy'].result() * 100)
-    logging.info('Validation NLL: %.4f, Accuracy: %.2f%%',
-                 metrics['validation/negative_log_likelihood'].result(),
-                 metrics['validation/accuracy'].result() * 100)
+    if FLAGS.train_proportion < 1.0:
+      logging.info('Validation NLL: %.4f, Accuracy: %.2f%%',
+                   metrics['validation/negative_log_likelihood'].result(),
+                   metrics['validation/accuracy'].result() * 100)
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)

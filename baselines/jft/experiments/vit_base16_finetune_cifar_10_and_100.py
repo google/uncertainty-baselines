@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-SNGP-B/16 finetuning on CIFAR.
+r"""ViT-B/16 finetuning on CIFAR 10 and CIFAR 100 using hypersweep.
 
 """
 # pylint: enable=line-too-long
@@ -23,20 +23,21 @@ import ml_collections
 
 
 
-
 def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
 
   # Fine-tuning dataset
-  config.dataset = 'cifar100'
+  config.dataset = 'cifar10'
   config.val_split = 'train[98%:]'
   config.train_split = 'train[:98%]'
-  config.num_classes = 100
+  config.num_classes = 10
 
-  # OOD evaluation dataset
-  config.ood_dataset = 'cifar10'
+  # OOD eval
+  # ood_split is the data split for both the ood_dataset and the dataset.
+  config.ood_dataset = 'cifar100'
   config.ood_split = 'test'
+  config.ood_methods = ['msp', 'maha', 'rmaha']
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
@@ -53,8 +54,8 @@ def get_config():
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 
   # CIFAR-10H eval
-  config.eval_on_cifar_10h = True
-  config.pp_eval_cifar_10h = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'
+  config.eval_on_cifar_10h = False
+  config.pp_eval_cifar_10h = ''
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
@@ -84,33 +85,110 @@ def get_config():
   config.model.transformer.num_layers = 12
   config.model.classifier = 'token'  # Or 'gap'
 
-  # Re-initialize the trainable parameters in GP output layer (Also those in the
-  # dense output layer if loading from deterministic checkpoint).
-  config.model_reinit_params = ('head/output_layer/kernel',
-                                'head/output_layer/bias', 'head/kernel',
-                                'head/bias')
-
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None
-
-  # Gaussian process layer section
-  config.gp_layer = ml_collections.ConfigDict()
-  config.gp_layer.ridge_penalty = 1.
-  # Disable momentum in order to use exact covariance update for finetuning.
-  config.gp_layer.covmat_momentum = -1.
-  config.gp_layer.mean_field_factor = 20.
 
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.grad_clip_norm = -1.
+  config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.005
+  config.lr.base = 0.001
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
 
   config.args = {}
   return config
+
+
+def get_sweep(hyper):
+  """Sweeps over datasets."""
+
+  # pylint: disable=g-long-lambda
+  c100 = lambda **kw: task(
+      hyper,
+      'cifar100',
+      'train[:98%]',
+      'train[98%:]',
+      'cifar10',
+      n_cls=100,
+      **kw)
+  c10 = lambda **kw: task(
+      hyper,
+      'cifar10',
+      'train[:98%]',
+      'train[98%:]',
+      'cifar100',
+      n_cls=10,
+      **kw)
+  # pylint: enable=g-long-lambda
+
+  tasks = hyper.chainit([
+      # Same sizes as in default BiT-HyperRule, for models that supports hi-res.
+      c100(size=384, steps=10_000, warmup=500),
+      c100(size=384, steps=10_000, warmup=500, train_data_aug=False),
+      c10(size=384, steps=10_000, warmup=500),
+      c10(size=384, steps=10_000, warmup=500, train_data_aug=False),
+  ])
+
+  return hyper.product([
+      hyper.sweep('config.model_init', [MODEL_INIT_I21K, MODEL_INIT_JFT]),
+      tasks,
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+  ])
+
+
+def fixed(hyper, **kw):
+  return hyper.zipit(
+      [hyper.fixed(f'config.{k}', v, length=1) for k, v in kw.items()])
+
+
+def task(hyper,
+         name,
+         train,
+         val,
+         ood_name,
+         n_cls,
+         steps,
+         warmup,
+         size,
+         train_data_aug=True):
+  """Vision task with val and test splits."""
+  common = '|value_range(-1, 1)'
+  common += f'|onehot({n_cls}, key="label", key_result="labels")'
+  common += '|keep("image", "labels")'
+  pp_eval = f'decode|resize({size})' + common
+
+  if train_data_aug:
+    pp_train = f'decode|inception_crop({size})|flip_lr' + common
+  else:
+    pp_train = f'decode|resize({size})' + common
+
+  task_hyper = {
+      'dataset': name,
+      'train_split': train,
+      'pp_train': pp_train,
+      'val_split': val,
+      'ood_dataset': ood_name,
+      'pp_eval': pp_eval,
+      'num_classes': n_cls,
+      'lr.warmup_steps': warmup,
+      'total_steps': steps,
+  }
+
+  if name == 'cifar10':
+    # CIFAR-10H eval
+    eval_on_cifar_10h = True
+    pp_eval_cifar_10h = f'resize({size})' + '|value_range(-1, 1)' + (
+        '|keep("image",'
+        ' '
+        '"labels")')
+    task_hyper.update({
+        'eval_on_cifar_10h': eval_on_cifar_10h,
+        'pp_eval_cifar_10h': pp_eval_cifar_10h
+    })
+
+  return fixed(hyper, **task_hyper)

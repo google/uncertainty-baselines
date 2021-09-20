@@ -18,6 +18,7 @@
 Several functions in this file were ported from
 https://github.com/google-research/vision_transformer.
 """
+
 import collections
 import dataclasses
 import io
@@ -45,7 +46,7 @@ def _recover_tree(keys, values):
 
   This function is useful to analyze checkpoints that are without need to access
   the exact source code of the experiment. In particular, it can be used to
-  extract an reuse various subtrees of the scheckpoint, e.g. subtree of
+  extract an reuse various subtrees of the checkpoint, e.g. subtree of
   parameters.
 
   Args:
@@ -111,15 +112,14 @@ def _traverse_with_names(tree):
 def _tree_flatten_with_names(tree):
   """Populates tree_flatten with leaf names.
 
-  This function populates output of tree_flatten with leaf names, using a
-  custom traversal that produces names is provided. The custom traversal does
-  NOT have to traverse tree in the same order as jax, as we take care of
-  automatically aligning jax" and custom traversals.
+  This function populates the output of jax.tree_util.tree_flatten with leaf
+  names, using a custom traversal that produces names.
+
   Args:
-    tree: python tree.
+    tree: A JAX PyTree.
 
   Returns:
-    A list of values with names: [(name, value), ...]
+    A list of values with names: [(name, value), ...].
   """
   vals, tree_def = jax.tree_flatten(tree)
 

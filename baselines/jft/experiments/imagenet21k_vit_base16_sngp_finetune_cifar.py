@@ -52,6 +52,10 @@ def get_config():
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 
+  # CIFAR-10H eval
+  config.eval_on_cifar_10h = True
+  config.pp_eval_cifar_10h = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'
+
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
   config.log_training_steps = 10
@@ -79,10 +83,12 @@ def get_config():
   config.model.transformer.num_heads = 12
   config.model.transformer.num_layers = 12
   config.model.classifier = 'token'  # Or 'gap'
+
   # Re-initialize the trainable parameters in GP output layer (Also those in the
   # dense output layer if loading from deterministic checkpoint).
-  config.model.reinit = ('head/output_layer/kernel', 'head/output_layer/bias',
-                         'head/kernel', 'head/bias')
+  config.model_reinit_params = ('head/output_layer/kernel',
+                                'head/output_layer/bias', 'head/kernel',
+                                'head/bias')
 
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None
@@ -105,7 +111,6 @@ def get_config():
   config.lr.base = 0.0005
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-  config.lr.scale_with_batchsize = False
 
   config.args = {}
   return config

@@ -24,7 +24,11 @@ import ml_collections
 
 
 def get_sweep(hyper):
-  return hyper.product([])
+  # Below shows an example for how to sweep hyperparameters.
+  # lr_grid = [1e-4, 3e-4, 6e-4, 1e-3, 1.3e-3, 1.6e-3, 2e-3]
+  return hyper.product([
+      # hyper.sweep('config.lr.base', lr_grid),
+  ])
 
 
 def get_config():
@@ -32,14 +36,14 @@ def get_config():
   config = ml_collections.ConfigDict()
 
   # Fine-tuning dataset
-  config.dataset = 'cifar10'
+  config.dataset = 'cifar100'
   config.val_split = 'train[98%:]'
   config.train_split = 'train[:98%]'
-  config.num_classes = 10
+  config.num_classes = 100
 
   # OOD eval
   # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_dataset = 'cifar100'
+  config.ood_dataset = 'cifar10'
   config.ood_split = 'test'
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
@@ -55,10 +59,6 @@ def get_config():
   pp_common += '|keep("image", "labels")'
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
-
-  # CIFAR-10H eval
-  config.eval_on_cifar_10h = True
-  config.pp_eval_cifar_10h = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
@@ -99,10 +99,9 @@ def get_config():
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.001
+  config.lr.base = 0.002
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-  config.lr.scale_with_batchsize = False
 
   config.args = {}
   return config

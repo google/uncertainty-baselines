@@ -28,9 +28,14 @@ import numpy as np
 import sklearn.metrics
 
 
+SUPPORTED_OOD_METRICS = ('msp', 'maha', 'rmaha')
+
 
 # TODO(dusenberrymw): Move it to robustness metrics.
-def ood_metrics(targets, predictions, tpr_thres=0.95, targets_threshold=None):
+def compute_ood_metrics(targets,
+                        predictions,
+                        tpr_thres=0.95,
+                        targets_threshold=None):
   """Computes Area Under the ROC and PR curves and FPRN.
 
   ROC - Receiver Operating Characteristic
@@ -58,10 +63,78 @@ def ood_metrics(targets, predictions, tpr_thres=0.95, targets_threshold=None):
   fprn = fpr[np.argmax(tpr >= tpr_thres)]
 
   return {
-      "auc-roc": sklearn.metrics.roc_auc_score(targets, predictions),
-      "auc-pr": sklearn.metrics.average_precision_score(targets, predictions),
-      "fprn": fprn,
+      'auc-roc': sklearn.metrics.roc_auc_score(targets, predictions),
+      'auc-pr': sklearn.metrics.average_precision_score(targets, predictions),
+      'fprn': fprn,
   }
+
+
+class OODMetric:
+  """OOD metric class that stores scores and OOD labels."""
+
+  def __init__(self, metric_name):
+    if metric_name not in SUPPORTED_OOD_METRICS:
+      raise NotImplementedError(
+          ('Only msp, maha, and rmaha are supported for OOD evaluation!',
+           'Got metric_name=%s!') % metric_name)
+    self.metric_name = metric_name
+    self.scores = []
+    self.labels = []
+
+  def update(self, scores, labels):
+    self.scores += list(scores)
+    self.labels += list(labels)
+
+  def get_scores_and_labels(self):
+    return self.scores, self.labels
+
+  def get_metric_name(self):
+    return self.metric_name
+
+  def compute_ood_scores(self, scores):
+    """Compute OOD scores.
+
+    Compute OOD scores that indicate uncertainty.
+
+    Args:
+      scores: A dict that contains scores for computing OOD scores. A full dict
+        can contain probs, Mahalanobis distance, and Relative Mahalanobis
+        distance. The scores should be of the size [batch_size, num_classes]
+
+    Returns:
+      OOD scores: OOD scores that indicate uncertainty. Should be of the size
+      [batch_size, ]
+    """
+    if self.metric_name == 'msp':
+      if 'probs' in scores:
+        ood_scores = 1 - np.max(scores['probs'], axis=-1)
+      else:
+        raise NotImplementedError(
+            ('The variable probs is needed for computing MSP OOD score. ',
+             'But it is not found in the dict.'))
+    elif self.metric_name == 'maha':
+      if 'dists' in scores:
+        ood_scores = np.min(scores['dists'], axis=-1)
+      else:
+        raise NotImplementedError(
+            ('The variable dists is needed for computing Mahalanobis distance ',
+             'OOD score. But it is not found in the dict.'))
+    elif self.metric_name == 'rmaha':
+      if 'dists' in scores and 'dists_background' in scores:
+        ood_scores = np.min(
+            scores['dists'], axis=-1) - scores['dists_background'].reshape(-1)
+      else:
+        raise NotImplementedError((
+            'The variable dists and dists_background are needed for computing ',
+            'Mahalanobis distance OOD score. But it is not found in the dict.'))
+    return ood_scores
+
+  def compute_metrics(self, tpr_thres=0.95, targets_threshold=None):
+    return compute_ood_metrics(
+        self.labels,
+        self.scores,
+        tpr_thres=tpr_thres,
+        targets_threshold=targets_threshold)
 
 
 def compute_mean_and_cov(embeds, labels):

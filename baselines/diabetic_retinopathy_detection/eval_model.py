@@ -187,7 +187,6 @@ def main(argv):
         return_epoch=False
       )
       logging.info('Successfully loaded.')
-      # logging.info(f'Loaded model from epoch {epoch}.')
 
       # Wrap models: apply sigmoid on logits, use mixed precision,
       # and cast to NumPy array for use with generic Uncertainty Utils.
@@ -243,6 +242,7 @@ def main(argv):
   logging.info('Wrote out scalar results.')
 
   wandb_run.finish()
+
 
 if __name__ == '__main__':
   app.run(main)

@@ -16,7 +16,7 @@
 | [SNGP, with BatchEnsemble (size=4)](sngp_batchensemble.py) | 0.913 / 76.55% / 0.014 | 3.08 / 40.58% / 0.047 (75.2%) | - | - | - | - | - | - (32 TPUv3 cores) | - | - |
 | [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.851 / 78.1% / 0.039 | 2.77 / 44.9% / 0.050 (69.73%) | - | - | - | - | - | 17.5 (128 TPUv3 cores) | 0.055 (32 TPUv3 cores) | 102.4M |
 | Ensemble (size=4)<sup>7</sup> | 0.857 / 77.9% / 0.017 | 2.82 / 44.9% / 0.047 (69.5%) | 7.53 / 0.5% / 0.367 | 1.45 / 66.1% / 0.031 | 55.2% | 48.0% | 28.4% | 17.5 (128 TPUv2 cores) | 0.082 (32 TPUv2 cores) | 102.4M |
-| [Heteroscedastic](heteroscedastic.py) | 0.898 / 77.5% / 0.033 | - | - | - | - | - | - | 7.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
+| [Heteroscedastic](heteroscedastic.py) | 0.898 / 77.5% / 0.033 | 3.20 / 42.4% / 0.111 (72.7%) | 7.94 / 0.96% / 0.436 | 1.58 / 64.8% / 0.084 | 50.6% | 45.6% | 27.9% | 7.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
 | [Heteroscedastic with Mixup](heteroscedastic.py) | 0.854 / 78.9% / 0.043 | - | - | - | - | - | - | 12.5 (32 TPUv2 cores) | 1.28 (32 TPUv2 cores) | 58.4M |
 | [Heteroscedastic Ensemble (size=4)](het_ensemble.py) | 0.790 / 79.5% / 0.015 | 2.93 / 44.9% / 0.048 (69.6%) | - | - | - | - | - | - | - | 233.6M |
 | [Heteroscedastic with MIMO](het_mimo.py) | 0.851 / 78% / 0.019 | - | - | - | - | - | - | - | - | 93.2M |

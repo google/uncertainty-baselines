@@ -26,7 +26,10 @@ import preprocess_utils  # local file import
 class PreprocessUtilsTest(tf.test.TestCase):
 
   def get_data(self, dtype=tf.uint8):
-    return {"image": tf.random.uniform([640, 480, 3], 0, 255)}
+    return {
+        "image": tf.random.uniform([640, 480, 3], 0, 255),
+        "rng": tf.random.create_rng_state(42, 2)
+    }
 
   def test_resize(self):
     data = self.get_data()
@@ -49,7 +52,8 @@ class PreprocessUtilsTest(tf.test.TestCase):
         f,
         np.random.randint(0, 256, [224, 224, 3]).astype("uint8"),
         format="jpg")
-    data = {"image": f.getvalue()}
+    data = self.get_data()
+    data["image"] = f.getvalue()
     data = preprocess_utils.DecodeJpegAndInceptionCrop()(data)
     self.assertEqual(data["image"].numpy().shape[-1], 3)
 

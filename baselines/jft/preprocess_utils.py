@@ -128,6 +128,8 @@ class InceptionCrop:
     area_max: Maximal crop area.
     key: Key of the data to be processed.
     key_result: Key under which to store the result (same as `key` if None).
+    rng_key: Key of the random number used for
+      `tf.image.stateless_sample_distorted_bounding_box`.
   """
 
   resize_size: Optional[int] = None
@@ -135,13 +137,15 @@ class InceptionCrop:
   area_max: int = 100
   key: str = "image"
   key_result: Optional[str] = None
+  rng_key: str = "rng"
 
   def __call__(self, features: Features) -> Features:
     image = features[self.key]
-    # TODO(dusenberrymw): Replace with a deterministic random op.
-    begin, size, _ = tf.image.sample_distorted_bounding_box(
+    rng = features[self.rng_key]
+    begin, size, _ = tf.image.stateless_sample_distorted_bounding_box(
         tf.shape(image),
         tf.zeros([0, 0, 4], tf.float32),
+        seed=rng,
         area_range=(self.area_min / 100, self.area_max / 100),
         min_object_covered=0,  # Don't enforce a minimum area.
         use_image_if_no_bounding_boxes=True)
@@ -174,6 +178,8 @@ class DecodeJpegAndInceptionCrop:
     area_max: Maximal crop area.
     key: Key of the data to be processed.
     key_result: Key under which to store the result (same as `key` if None).
+    rng_key: Key of the random number used for
+      `tf.image.stateless_sample_distorted_bounding_box`.
   """
 
   resize_size: Optional[int] = None
@@ -181,14 +187,16 @@ class DecodeJpegAndInceptionCrop:
   area_max: int = 100
   key: str = "image"
   key_result: Optional[str] = None
+  rng_key: str = "rng"
 
   def __call__(self, features: Features) -> Features:
     image_data = features[self.key]
+    rng = features[self.rng_key]
     shape = tf.image.extract_jpeg_shape(image_data)
-    # TODO(dusenberrymw): Replace with a deterministic random op.
-    begin, size, _ = tf.image.sample_distorted_bounding_box(
+    begin, size, _ = tf.image.stateless_sample_distorted_bounding_box(
         shape,
         tf.zeros([0, 0, 4], tf.float32),
+        seed=rng,
         area_range=(self.area_min / 100, self.area_max / 100),
         min_object_covered=0,  # Don't enforce a minimum area.
         use_image_if_no_bounding_boxes=True)
@@ -218,18 +226,21 @@ class RandomCrop:
       height and width of the random crop respectively.
     key: Key of the data to be processed.
     key_result: Key under which to store the result (same as `key` if None).
+    rng_key: Key of the random number used for
+      `tf.image.stateless_sample_distorted_bounding_box`.
   """
 
   crop_size: int
   key: str = "image"
   key_result: Optional[str] = None
+  rng_key: str = "rng"
 
   def __call__(self, features: Features) -> Features:
     image = features[self.key]
+    rng = features[self.rng_key]
     crop_size = _maybe_repeat(self.crop_size, 2)
-    # TODO(dusenberrymw): Replace with a deterministic random op.
-    cropped_image = tf.image.random_crop(
-        image, [crop_size[0], crop_size[1], image.shape[-1]])
+    cropped_image = tf.image.stateless_random_crop(
+        image, [crop_size[0], crop_size[1], image.shape[-1]], seed=rng)
     features[self.key_result or self.key] = cropped_image
     return features
 
@@ -268,15 +279,18 @@ class FlipLr:
   Attributes:
     key: Key of the data to be processed.
     key_result: Key under which to store the result (same as `key` if None).
+    rng_key: Key of the random number used for
+      `tf.image.stateless_sample_distorted_bounding_box`.
   """
 
   key: str = "image"
   key_result: Optional[str] = None
+  rng_key: str = "rng"
 
   def __call__(self, features: Features) -> Features:
     image = features[self.key]
-    # TODO(dusenberrymw): Replace with a deterministic random op.
-    flipped_image = tf.image.random_flip_left_right(image)
+    rng = features[self.rng_key]
+    flipped_image = tf.image.stateless_random_flip_left_right(image, seed=rng)
     features[self.key_result or self.key] = flipped_image
     return features
 

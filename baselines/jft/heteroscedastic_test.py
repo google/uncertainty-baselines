@@ -65,7 +65,7 @@ def get_config(classifier, representation_size):
   pp_common += '|keep(["image", "labels"])'
   # TODO(dusenberrymw): Mocking doesn't seem to encode into jpeg format.
   # config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
-  config.pp_train = 'decode|resize_small(256)|central_crop(224)' + pp_common
+  config.pp_train = 'decode|inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
 
   config.init_head_bias = 1e-3
@@ -126,13 +126,12 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('token', 2, 16775.67, 15033.413628472223, 0.1899999901652336, False),
-      ('token', 2, 16775.67, 15033.413628472223, 0.1899999901652336, True),
-      ('token', None, 16933.113, 12548.702690972223, 0.22999999672174454,
-       False),
-      ('gap', 2, 14809.367, 14353.7734375, 0.17999999970197678, False),
-      ('gap', None, 14559.363, 14471.322048611111, 0.2199999988079071, False),
-      ('gap', None, 14559.363, 14471.322048611111, 0.2199999988079071, True),
+      ('token', 2, 17003.906, 14888.345486111111, 0.17999999597668648, False),
+      ('token', 2, 17003.906, 14888.345486111111, 0.17999999597668648, True),
+      ('token', None, 17691.684, 13866.162326388889, 0.2399999946355819, False),
+      ('gap', 2, 14677.19, 14176.015625, 0.16999999433755875, False),
+      ('gap', None, 14412.516, 14516.210503472223, 0.2499999925494194, False),
+      ('gap', None, 14412.516, 14516.210503472223, 0.2499999925494194, True),
   )
   @flagsaver.flagsaver
   def test_heteroscedastic_script(self, classifier, representation_size,
@@ -184,10 +183,10 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
         fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
 
   @parameterized.parameters(
-      ('token', 2, 5.852915, 5.310516569349501, 0.10999999940395355),
-      ('token', None, 5.99298, 5.4851963255140515, 0.06999999843537807),
-      ('gap', 2, 6.5119925, 6.166615804036458, 0.08999999798834324),
-      ('gap', None, 6.5340133, 6.198463863796658, 0.0800000000745058),
+      ('token', 2, 5.737381, 5.103693114386664, 0.10999999940395355),
+      ('token', None, 5.840229, 5.236991034613715, 0.07999999821186066),
+      ('gap', 2, 6.5020285, 6.173451317681207, 0.09999999776482582),
+      ('gap', None, 6.5651894, 6.240942213270399, 0.07999999821186066),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, classifier, representation_size,
@@ -218,7 +217,8 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
     pp_common += '|keep(["image", "labels"])'
-    FLAGS.config.pp_train = 'decode|resize_small(512)|central_crop(384)' + pp_common
+    FLAGS.config.pp_train = ('decode|resize_small(512)|random_crop(384)' +
+                             pp_common)
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
     FLAGS.config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'

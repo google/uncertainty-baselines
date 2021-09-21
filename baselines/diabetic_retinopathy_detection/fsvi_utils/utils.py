@@ -94,7 +94,7 @@ def kl_multioutput(mean_q, mean_p, cov_q, cov_p, full_cov: bool):
     ),
 )
 def kl_divergence(
-    mean_q, mean_p, cov_q, cov_p, output_dim: int, full_cov: bool, prior_type: str
+    mean_q, mean_p, cov_q, cov_p, output_dim: int, full_cov: bool,
 ):
     """
     Return KL(q || p)
@@ -105,21 +105,14 @@ def kl_divergence(
     @param cov_q: array of shape (batch_dim, output_dim, batch_dim, output_dim)
     """
     function_kl = 0
-    if prior_type == "bnn_induced" or prior_type == "rbf":
-        full_cov_prior = True
-    else:
-        full_cov_prior = False
+    full_cov_prior = False
 
     if output_dim == 1:
         mean_q_tp = jnp.squeeze(mean_q)
         cov_q_tp = jnp.squeeze(cov_q)
 
         mean_p_tp = jnp.squeeze(mean_p)
-        if prior_type == "bnn_induced" or prior_type == "map_induced":
-            cov_p_tp = _slice_cov_diag(cov=cov_p, index=0)
-        else:
-            # prior_type can be "empirical_mean", "map_mean" or other
-            cov_p_tp = jnp.squeeze(cov_p)
+        cov_p_tp = jnp.squeeze(cov_p)
 
         if cov_q_tp.shape[0] != cov_p_tp.shape[0]:
             mean_p_tp =mean_p_tp[:mean_q_tp.shape[0]]
@@ -136,16 +129,8 @@ def kl_divergence(
         for i in range(output_dim):
             mean_q_tp = jnp.squeeze(mean_q[:, i])
             cov_q_tp = _slice_cov_diag(cov=cov_q, index=i)
-            if prior_type == "bnn_induced" or prior_type == "map_induced":
-                mean_p_tp = jnp.squeeze(mean_p[:, i])
-                cov_p_tp = _slice_cov_diag(cov=cov_p, index=i)
-                cov_p_tp = jnp.diag(cov_p_tp)  # TODO: check this
-            elif prior_type == "empirical_mean" or prior_type == "map_mean":
-                mean_p_tp = jnp.squeeze(mean_p[:, i])
-                cov_p_tp = jnp.squeeze(cov_p)
-            else:
-                mean_p_tp = jnp.squeeze(mean_p)
-                cov_p_tp = jnp.squeeze(cov_p)
+            mean_p_tp = jnp.squeeze(mean_p)
+            cov_p_tp = jnp.squeeze(cov_p)
 
             function_kl += kl_general(
                 mean_q_tp,

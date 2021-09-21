@@ -69,12 +69,6 @@ flags.DEFINE_string("prior_mean", "0", "Prior mean function (default: 0)")
 flags.DEFINE_string("prior_cov", "15.359475558718179",
                     help="Prior cov function (default: 0)")
 
-flags.DEFINE_string(
-    "prior_type",
-    default="fixed",
-    help="Type of prior (default: not_specified)",
-)
-
 flags.DEFINE_integer(
     "epochs", default=90, help="Number of epochs for each task (default: 100)",
 )
@@ -402,13 +396,8 @@ def main(argv):
 
     # INITIALIZE KL INPUT FUNCTIONS
     inducing_input_fn, prior_fn = training.kl_input_functions(
-        apply_fn=apply_fn,
-        predict_f_deterministic=model.predict_f_deterministic,
-        state=state,
-        params=params,
         prior_mean=FLAGS.prior_mean,
         prior_cov=FLAGS.prior_cov,
-        rng_key=rng_key,
     )
 
     use_tpu = any(["tpu" in str(d).lower() for d in jax.devices()])

@@ -30,7 +30,6 @@ class Objectives_hk:
         regularization,
         n_samples,
         full_cov,
-        prior_type,
         stochastic_linearization,
         full_ntk=False,
         kl_type=0,
@@ -41,7 +40,6 @@ class Objectives_hk:
         self.regularization = regularization
         self.n_samples = n_samples
         self.full_cov = full_cov
-        self.prior_type = prior_type
         self.stochastic_linearization = stochastic_linearization
         self.full_ntk = full_ntk
         self.kl_type = kl_type
@@ -173,7 +171,6 @@ class Objectives_hk:
             prior_cov,
             self.output_dim,
             self.full_cov,
-            self.prior_type,
         )
 
         return kl, scale

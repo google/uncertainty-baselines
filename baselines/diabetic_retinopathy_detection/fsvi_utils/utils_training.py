@@ -52,7 +52,6 @@ class Training:
         data_training,
         optimizer: str,
         inducing_input_type: str,
-        prior_type,
         activation: str,
         base_learning_rate,
         dropout_rate,
@@ -98,7 +97,6 @@ class Training:
         self.data_training = data_training
         self.optimizer = optimizer
         self.inducing_input_type = inducing_input_type
-        self.prior_type = prior_type
         self.activation = activation
         self.base_learning_rate = base_learning_rate
         self.dropout_rate = dropout_rate
@@ -149,12 +147,7 @@ class Training:
 
         self.dropout = self.dropout_rate > 0
 
-        if prior_type == 'bnn_induced':
-            self.stochastic_linearization_prior = True
-        elif prior_type == 'blm_induced':
-            self.stochastic_linearization_prior = False
-        else:
-            self.stochastic_linearization_prior = False
+        self.stochastic_linearization_prior = False
 
         print(f"\n"
               f"MAP initialization: {self.map_initialization}")
@@ -328,7 +321,6 @@ class Training:
             full_cov=self.full_cov,
             n_samples=self.n_samples,
             output_dim=self.output_dim,
-            prior_type=self.prior_type,
             stochastic_linearization=self.stochastic_linearization,
             full_ntk=self.full_ntk,
             kl_type=self.kl_type,
@@ -369,93 +361,14 @@ class Training:
 
     def get_prior_fn(
         self,
-        apply_fn: Callable,
-        predict_f_deterministic: Callable,
-        state: hk.State,
-        params: hk.Params,
         prior_mean: str,
         prior_cov: str,
-        rng_key,
-        prior_type,
-        task_id,
-        jit_prior=True,
-        identity_cov=False,
     ) -> Tuple[
         Callable[[jnp.ndarray], List[jnp.ndarray]],
     ]:
-        if prior_type == "bnn_induced" or prior_type == "blm_induced":
-            rng_key0, _ = jax.random.split(rng_key)
-
-            params_prior = get_prior_params(
-                params_init=params,
-                prior_mean=prior_mean,
-                prior_cov=prior_cov,
-            )
-
-            # prior_fn is a function of inducing_inputs and params
-            def prior_fn(inducing_inputs, model_params):
-                params_prior_final_layer, _ = self.get_params_partition_fn(params_prior)(params_prior)
-                params_updated = hk.data_structures.merge(params_prior_final_layer, model_params)
-                return partial(
-                    utils_linearization.induced_prior_fn_v0,
-                    apply_fn=apply_fn,
-                    state=state,
-                    rng_key=rng_key0,
-                    task_id=task_id,
-                    n_inducing_inputs=self.n_inducing_inputs,
-                    stochastic_linearization=self.stochastic_linearization_prior,
-                    linear_model=True,
-                    full_ntk=self.full_ntk,
-                )(inducing_inputs=inducing_inputs, params=params_updated)
-            if jit_prior and not identity_cov:
-                prior_fn = jax.jit(prior_fn)
-
-        elif prior_type == "rbf":
-            prior_mean = jnp.ones(self.n_inducing_inputs) * prior_mean
-            prior_fn = lambda inducing_inputs, model_params: [
-                prior_mean,
-                sklearn.metrics.pairwise.rbf_kernel(
-                    inducing_inputs.reshape([inducing_inputs.shape[0], -1]), gamma=None
-                )
-                * prior_cov,
-            ]
-
-        elif prior_type == "fixed":
-            prior_mean = jnp.ones(self.n_inducing_inputs) * prior_mean
-            prior_cov = jnp.ones(self.n_inducing_inputs) * prior_cov
-            prior_fn = lambda inducing_inputs, model_params: [prior_mean, prior_cov]
-
-        elif prior_type == "map_mean":
-            prior_mean = partial(
-                predict_f_deterministic, params=params, state=state, rng_key=rng_key
-            )
-            prior_cov = jnp.ones(self.n_inducing_inputs) * prior_cov
-            prior_fn = lambda inducing_inputs, model_params: [
-                prior_mean(inputs=inducing_inputs),
-                prior_cov,
-            ]
-
-            if jit_prior:
-                prior_fn = jax.jit(prior_fn)
-
-        elif prior_type == "map_induced":
-            rng_key0, _ = jax.random.split(rng_key)
-            params_prior = params
-
-            prior_fn = lambda inducing_inputs, model_params: partial(
-                utils_linearization.induced_prior_fn,
-                apply_fn=apply_fn,
-                params=params_prior,
-                state=state,
-                rng_key=rng_key0,
-                task_id=task_id,
-                n_inducing_inputs=self.n_inducing_inputs,
-            )
-            if jit_prior:
-                prior_fn = jax.jit(prior_fn)
-
-        else:
-            raise ValueError(f"Unrecognized prior type {prior_type}.")
+        prior_mean = jnp.ones(self.n_inducing_inputs) * prior_mean
+        prior_cov = jnp.ones(self.n_inducing_inputs) * prior_cov
+        prior_fn = lambda inducing_inputs, model_params: [prior_mean, prior_cov]
 
         return prior_fn
 
@@ -478,18 +391,9 @@ class Training:
 
     def kl_input_functions(
         self,
-        apply_fn: Callable,
-        predict_f_deterministic: Callable,
-        state: hk.State,
-        params: hk.Params,
         prior_mean: str,
         prior_cov: str,
-        rng_key,
         x_ood=None,
-        prior_type=None,
-        task_id=None,
-        jit_prior=True,
-        identity_cov=False,
     ) -> Tuple[
         Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
         Callable[[jnp.ndarray], List[jnp.ndarray]],
@@ -503,23 +407,12 @@ class Training:
             prior_fn: a function that takes in an array of inducing input points and return the mean
                 and covariance of the outputs at those points
         """
-        task_id = self.data_training_id if task_id is None else task_id
-        prior_type = self.prior_type if prior_type is None else prior_type
         prior_mean, prior_cov = dtype_default(prior_mean), dtype_default(prior_cov)
 
         inducing_input_fn = self.get_inducing_input_fn(x_ood=x_ood)
         prior_fn = self.get_prior_fn(
-            apply_fn,
-            predict_f_deterministic,
-            state,
-            params,
-            prior_mean,
-            prior_cov,
-            rng_key,
-            prior_type,
-            task_id,
-            jit_prior,
-            identity_cov,
+            prior_mean=prior_mean,
+            prior_cov=prior_cov,
         )
 
         return inducing_input_fn, prior_fn

@@ -50,7 +50,6 @@ class Training:
     def __init__(
         self,
         data_training,
-        model_type: str,
         optimizer: str,
         inducing_input_type: str,
         prior_type,
@@ -89,6 +88,7 @@ class Training:
         lr_schedule,
         layer_to_linearize=1,
         kl_type=0,
+        use_map_loss=False,
         **kwargs,
     ):
         """
@@ -98,7 +98,6 @@ class Training:
         @param output_dim: the task-specific number of output dimensions
         """
         self.data_training = data_training
-        self.model_type = model_type
         self.optimizer = optimizer
         self.inducing_input_type = inducing_input_type
         self.prior_type = prior_type
@@ -137,6 +136,7 @@ class Training:
         self.final_decay_factor = final_decay_factor
         self.lr_schedule = lr_schedule
         self.layer_to_linearize = layer_to_linearize
+        self.use_map_loss = use_map_loss
 
         self.map_initialization = map_initialization
 
@@ -151,9 +151,7 @@ class Training:
             raise NotImplementedError(self.init_strategy)
 
 
-        self.dropout = "dropout" in self.model_type
-        if not self.dropout and self.dropout_rate > 0:
-            raise ValueError("Dropout rate not zero in non-dropout model.")
+        self.dropout = self.dropout_rate > 0
 
         if prior_type == 'bnn_induced':
             self.stochastic_linearization_prior = True
@@ -232,7 +230,7 @@ class Training:
         objective = self._compose_objective(model=model)
         # LOSS
         loss, kl_evaluation = self._compose_loss(
-            prediction_type=prediction_type, metrics=objective
+            metrics=objective
         )
         # EVALUATION
         (
@@ -258,19 +256,11 @@ class Training:
         )
 
     def _compose_model(self) -> Model:
-        if "cnn" or "resnet" in self.model_type:
-            network_class = CNN
-        else:
-            raise ValueError("Invalid network type.")
-
-        stochastic_parameters = "mfvi" in self.model_type or "fsvi" in self.model_type
-
-        # DEFINE NETWORK
-        model = network_class(
+        model = CNN(
             architecture=self.architecture,
             output_dim=self.output_dim,
             activation_fn=self.activation,
-            stochastic_parameters=stochastic_parameters,
+            stochastic_parameters=True,
             linear_model=self.linear_model,
             dropout=self.dropout,
             dropout_rate=self.dropout_rate,
@@ -326,19 +316,14 @@ class Training:
         return opt
 
     def _compose_loss(
-        self, prediction_type: str, metrics: Objectives
+        self, metrics: Objectives
     ) -> Tuple[Callable, Callable]:
-        assert "continual_learning" not in self.data_training, "This method is deprecated for continual learning"
-        if "fsvi" in self.model_type:
-            if prediction_type == "classification":
-                loss = metrics.nelbo_fsvi_classification
-            kl_evaluation = metrics.function_kl
-        elif "map" in self.model_type or "dropout" in self.model_type:
-            if prediction_type == "classification":
-                loss = metrics.map_loss_classification
+        if self.use_map_loss:
+            loss = metrics.map_loss_classification
             kl_evaluation = None
         else:
-            raise ValueError("No loss specified.")
+            loss = metrics.nelbo_fsvi_classification
+            kl_evaluation = metrics.function_kl
         return loss, kl_evaluation
 
     def _compose_objective(self, model) -> Objectives:
@@ -493,21 +478,15 @@ class Training:
                 prior_fn = jax.jit(prior_fn)
 
         else:
-            if "fsvi" in self.model_type or "mfvi" in self.model_type:
-                raise ValueError("No prior type specified.")
-            else:
-                prior_fn = lambda inducing_inputs, model_params: [0, 0]
+            raise ValueError(f"Unrecognized prior type {prior_type}.")
 
         return prior_fn
 
     def get_params_partition_fn(self, params):
-        if "fsvi" in self.model_type or "mfvi" in self.model_type:
-            if self.linear_model:
-                variational_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
-            else:
-                variational_layers = list(params.keys())
+        if self.linear_model:
+            variational_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
         else:
-            variational_layers = [""]
+            variational_layers = list(params.keys())
 
         def _get_params(params):
             variational_params, model_params = hk.data_structures.partition(lambda m, n, p: m in variational_layers, params)

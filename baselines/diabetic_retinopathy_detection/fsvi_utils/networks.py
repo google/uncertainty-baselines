@@ -117,23 +117,6 @@ class Model:
         """
         This is jitted version of predict_f_multisample
         """
-        # loop 1 -- slower than vmap for n_samples = 10
-        # rng_key, subkey = jax.random.split(rng_key)
-        # preds_samples = jnp.expand_dims(self.predict_f(params, state, inputs, rng_key), 0)
-        # for i in range(n_samples-1):
-        #     rng_key, subkey = jax.random.split(rng_key)
-        #     preds_samples = jnp.concatenate((preds_samples, jnp.expand_dims(self.predict_f(params, state, inputs, rng_key), 0)), 0)
-
-        # loop 2 -- slower than vmap for n_samples = 10
-        # preds_samples = jnp.expand_dims(self.predict_f(params, state, inputs, rng_key), 0)
-        # for i in range(n_samples - 1):
-        #     rng_key, subkey = jax.random.split(rng_key)
-        #     preds_samples = jax.ops.index_update(
-        #         preds_samples,  # the base array
-        #         jax.ops.index[i:1+1, :, :],  # which indices we're accessing
-        #         jnp.expand_dims(self.predict_f(params, state, inputs, rng_key), axis=0)
-        #     )
-
         # vmap
         rng_keys = jax.random.split(rng_key, n_samples)
         _predict_multisample_fn = lambda rng_key: self.predict_f(
@@ -142,9 +125,6 @@ class Model:
         predict_multisample_fn = jax.vmap(
             _predict_multisample_fn, in_axes=0, out_axes=0
         )  # fastest for n_samples=10
-        # predict_multisample_fn = jit(jax.vmap(_predict_multisample_fn, in_axes=0, out_axes=0))
-        # predict_multisample_fn = jax.vmap(partial(self.predict_f, params, state, inputs), in_axes=0, out_axes=0)
-        # predict_multisample_fn = jit(jax.vmap(partial(self.predict_f, params, state, inputs), in_axes=0, out_axes=0))
         preds_samples = predict_multisample_fn(rng_keys)
 
         preds_mean = preds_samples.mean(axis=0)
@@ -155,13 +135,6 @@ class Model:
     def predict_y_multisample_jitted(
         self, params, state, inputs, rng_key, n_samples, is_training
     ):
-        # rng_key, subkey = jax.random.split(rng_key)
-        # preds_y_samples = jnp.expand_dims(self.predict_y(params, state, inputs, rng_key), 0)
-        # for i in range(n_samples-1):
-        #     rng_key, subkey = jax.random.split(rng_key)
-        #     preds_y_samples = jnp.concatenate((preds_y_samples, jnp.expand_dims(self.predict_y(params, state, inputs, rng_key), 0)), 0)
-        # preds_y_mean = preds_y_samples.mean(0)
-        # preds_y_var = preds_y_samples.std(0) ** 2
         rng_keys = jax.random.split(rng_key, n_samples)
         _predict_multisample_fn = lambda rng_key: self.predict_y(
             params, state, inputs, rng_key, is_training

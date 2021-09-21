@@ -50,10 +50,10 @@ flags.DEFINE_string(
 )
 
 
-flags.DEFINE_string(
-    "model_type",
-    "fsvi_cnn",
-    "Model used. Example: 'fsvi_mlp', 'mfvi_cnn'",
+flags.DEFINE_bool(
+    "use_map_loss",
+    False,
+    "If True, this script reproduces deterministic training",
 )
 
 flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")

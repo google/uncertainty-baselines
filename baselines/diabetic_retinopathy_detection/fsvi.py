@@ -53,7 +53,7 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     "model_type",
     "fsvi_cnn",
-    "Model used (default: not_specified). Example: 'fsvi_mlp', 'mfvi_cnn'",
+    "Model used. Example: 'fsvi_mlp', 'mfvi_cnn'",
 )
 
 flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")
@@ -387,10 +387,7 @@ def main(argv):
         prediction_type,
     ) = training.initialize_optimization(
         model=model,
-        apply_fn=apply_fn,
         params_init=params,
-        state=state,
-        rng_key=rng_key,
     )
 
     summary_writer = tf.summary.create_file_writer(

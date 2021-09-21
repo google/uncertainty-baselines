@@ -181,6 +181,8 @@ class Training:
         params_init, state = init_fn(
             rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
         )
+
+        # TODO: decide if we keep map_initialization
         if self.map_initialization:
             file_path = "gs://ub-data/retinopathy-out-qixuan/deterministic/reprod/chkpt_80"
 
@@ -206,10 +208,7 @@ class Training:
     def initialize_optimization(
         self,
         model,
-        apply_fn: Callable,
         params_init: hk.Params,
-        state: hk.State,
-        rng_key: jnp.ndarray,
     ) -> Tuple[
         optax.GradientTransformation,
         Union[optax.OptState, Sequence[optax.OptState]],
@@ -230,9 +229,7 @@ class Training:
         get_variational_and_model_params = self.get_params_partition_fn(params_init)
 
         prediction_type = decide_prediction_type(self.data_training)
-        objective = self._compose_objective(
-            model=model, apply_fn=apply_fn, state=state, rng_key=rng_key
-        )
+        objective = self._compose_objective(model=model)
         # LOSS
         loss, kl_evaluation = self._compose_loss(
             prediction_type=prediction_type, metrics=objective
@@ -344,10 +341,7 @@ class Training:
             raise ValueError("No loss specified.")
         return loss, kl_evaluation
 
-    def _compose_objective(self, model, apply_fn, state, rng_key) -> Objectives:
-        # `linearize_fn` is a function that takes in params_mean, params_log_var, params_batchnorm,
-        # inducing_inputs, rng_key, state, and returns mean and covariance of inducing_inputs
-
+    def _compose_objective(self, model) -> Objectives:
         metrics = Objectives(
             model=model,
             regularization=self.regularization,

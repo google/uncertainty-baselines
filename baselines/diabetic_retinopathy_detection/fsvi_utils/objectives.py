@@ -11,6 +11,7 @@ from jax import jit
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils_linearization
+from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import (
     partition_params,
     predicate_batchnorm)
@@ -23,11 +24,9 @@ eps = 1e-6
 class Objectives_hk:
     def __init__(
         self,
-        architecture,
-        apply_fn,
+        model: Model,
         output_dim,
         kl_scale: str,
-        predict_f_multisample_jitted,
         regularization,
         n_samples,
         full_cov,
@@ -36,9 +35,7 @@ class Objectives_hk:
         full_ntk=False,
         kl_type=0,
     ):
-        self.architecture = architecture
-        self.apply_fn = apply_fn
-        self.predict_f_multisample_jitted = predict_f_multisample_jitted
+        self.model = model
         self.output_dim = output_dim
         self.kl_scale = kl_scale
         self.regularization = regularization
@@ -80,7 +77,7 @@ class Objectives_hk:
             class_weight
         )
 
-        state = self.apply_fn(
+        state = self.model.apply_fn(
             params,
             state,
             rng_key,
@@ -149,18 +146,9 @@ class Objectives_hk:
         params_mean, params_log_var, params_deterministic = partition_params(params)
         scale = compute_scale(self.kl_scale, inputs, inducing_inputs.shape[0])
 
-        # mean, cov = self.linearize_fn(
-        #     params_mean=params_mean,
-        #     params_log_var=params_log_var,
-        #     params_batchnorm=params_batchnorm,
-        #     state=state,
-        #     inducing_inputs=inducing_inputs,
-        #     rng_key=rng_key,
-        # )
-
         if self.kl_type == 0:
             mean, cov = utils_linearization.bnn_linearized_predictive(
-                self.apply_fn,
+                self.model.apply_fn,
                 params_mean,
                 params_log_var,
                 params_deterministic,
@@ -178,7 +166,6 @@ class Objectives_hk:
         else:
             raise NotImplementedError(self.kl_type)
 
-
         kl = utils.kl_divergence(
             mean,
             prior_mean,
@@ -194,7 +181,7 @@ class Objectives_hk:
     def _nll_loss_classification(
         self, params, state, inputs, targets, rng_key, is_training, class_weight
     ):
-        preds_f_samples, _, _ = self.predict_f_multisample_jitted(
+        preds_f_samples, _, _ = self.model.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
         )
         log_likelihood = (
@@ -219,7 +206,7 @@ class Objectives_hk:
         loss_type,
         l2_strength,
     ):
-        preds_f_samples, _, _ = self.predict_f_multisample_jitted(
+        preds_f_samples, _, _ = self.model.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
         )
         if self.kl_type == 1:
@@ -379,7 +366,7 @@ class Objectives_hk:
             l2_strength,
         )
 
-        state = self.apply_fn(
+        state = self.model.apply_fn(
             params,
             state,
             rng_key,

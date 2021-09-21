@@ -349,9 +349,7 @@ class Training:
         # inducing_inputs, rng_key, state, and returns mean and covariance of inducing_inputs
 
         metrics = Objectives(
-            architecture=self.architecture,
-            apply_fn=apply_fn,
-            predict_f_multisample_jitted=model.predict_f_multisample_jitted,
+            model=model,
             regularization=self.regularization,
             kl_scale=self.kl_scale,
             full_cov=self.full_cov,

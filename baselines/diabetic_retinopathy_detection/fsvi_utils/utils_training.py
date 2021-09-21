@@ -63,7 +63,6 @@ class Training:
         regularization,
         kl_scale,
         stochastic_linearization: bool,
-        linear_model: bool,
         features_fixed: bool,
         full_cov,
         n_samples,
@@ -111,7 +110,6 @@ class Training:
         self.regularization = regularization
         self.kl_scale = kl_scale
         self.stochastic_linearization = stochastic_linearization
-        self.linear_model = linear_model
         self.features_fixed = features_fixed
         self.full_cov = full_cov
         self.n_samples = n_samples
@@ -163,7 +161,6 @@ class Training:
         print(f"\n"
               f"MAP initialization: {self.map_initialization}")
         print(f"Full NTK computation: {self.full_ntk}")
-        print(f"Linear model: {self.linear_model}")
         print(f"Stochastic linearization (posterior): {self.stochastic_linearization}")
         print(f"Stochastic linearization (prior): {self.stochastic_linearization_prior}"
               f"\n")
@@ -227,7 +224,7 @@ class Training:
         get_variational_and_model_params = self.get_params_partition_fn(params_init)
 
         prediction_type = decide_prediction_type(self.data_training)
-        objective = self._compose_objective(model=model)
+        objective = self.initialize_objective(model=model)
         # LOSS
         loss, kl_evaluation = self._compose_loss(
             metrics=objective
@@ -261,7 +258,7 @@ class Training:
             output_dim=self.output_dim,
             activation_fn=self.activation,
             stochastic_parameters=True,
-            linear_model=self.linear_model,
+            linear_model=True,
             dropout=self.dropout,
             dropout_rate=self.dropout_rate,
             uniform_init_minval=self.uniform_init_minval,
@@ -326,7 +323,7 @@ class Training:
             kl_evaluation = metrics.function_kl
         return loss, kl_evaluation
 
-    def _compose_objective(self, model) -> Objectives:
+    def initialize_objective(self, model) -> Objectives:
         metrics = Objectives(
             model=model,
             regularization=self.regularization,
@@ -389,7 +386,6 @@ class Training:
     ) -> Tuple[
         Callable[[jnp.ndarray], List[jnp.ndarray]],
     ]:
-        assert "continual_learning" not in self.data_training, "This method is deprecated for continual learning"
         if prior_type == "bnn_induced" or prior_type == "blm_induced":
             rng_key0, _ = jax.random.split(rng_key)
 
@@ -400,35 +396,21 @@ class Training:
             )
 
             # prior_fn is a function of inducing_inputs and params
-            if not self.linear_model:
-                prior_fn = lambda inducing_inputs, model_params: partial(  # params args are unused
+            def prior_fn(inducing_inputs, model_params):
+                params_prior_final_layer, _ = self.get_params_partition_fn(params_prior)(params_prior)
+                params_updated = hk.data_structures.merge(params_prior_final_layer, model_params)
+                return partial(
                     utils_linearization.induced_prior_fn_v0,
                     apply_fn=apply_fn,
-                    params=params_prior,
                     state=state,
                     rng_key=rng_key0,
                     task_id=task_id,
                     n_inducing_inputs=self.n_inducing_inputs,
                     architecture=self.architecture,
                     stochastic_linearization=self.stochastic_linearization_prior,
+                    linear_model=True,
                     full_ntk=self.full_ntk,
-                )
-            else:
-                def prior_fn(inducing_inputs, model_params):
-                    params_prior_final_layer, _ = self.get_params_partition_fn(params_prior)(params_prior)
-                    params_updated = hk.data_structures.merge(params_prior_final_layer, model_params)
-                    return partial(
-                        utils_linearization.induced_prior_fn_v0,
-                        apply_fn=apply_fn,
-                        state=state,
-                        rng_key=rng_key0,
-                        task_id=task_id,
-                        n_inducing_inputs=self.n_inducing_inputs,
-                        architecture=self.architecture,
-                        stochastic_linearization=self.stochastic_linearization_prior,
-                        linear_model=self.linear_model,
-                        full_ntk=self.full_ntk,
-                    )(inducing_inputs=inducing_inputs, params=params_updated)
+                )(inducing_inputs=inducing_inputs, params=params_updated)
             if jit_prior and not identity_cov:
                 prior_fn = jax.jit(prior_fn)
 
@@ -483,10 +465,7 @@ class Training:
         return prior_fn
 
     def get_params_partition_fn(self, params):
-        if self.linear_model:
-            variational_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
-        else:
-            variational_layers = list(params.keys())
+        variational_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
 
         def _get_params(params):
             variational_params, model_params = hk.data_structures.partition(lambda m, n, p: m in variational_layers, params)
@@ -495,7 +474,7 @@ class Training:
         return _get_params
 
     def get_trainable_params_fn(self, params):
-        if self.linear_model and self.features_fixed:
+        if self.features_fixed:
             trainable_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
         else:
             trainable_layers = list(params.keys())

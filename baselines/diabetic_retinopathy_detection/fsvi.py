@@ -124,8 +124,6 @@ flags.DEFINE_bool(
     "stochastic_linearization", default=True, help="Stochastic linearization"
 )
 
-flags.DEFINE_bool("linear_model", default=True, help="Linear model")
-
 flags.DEFINE_bool("features_fixed", default=False, help="Fixed feature maps")
 
 

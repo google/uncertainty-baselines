@@ -53,7 +53,6 @@ class Training:
         optimizer: str,
         inducing_input_type: str,
         prior_type,
-        architecture,
         activation: str,
         base_learning_rate,
         dropout_rate,
@@ -100,7 +99,6 @@ class Training:
         self.optimizer = optimizer
         self.inducing_input_type = inducing_input_type
         self.prior_type = prior_type
-        self.architecture = architecture
         self.activation = activation
         self.base_learning_rate = base_learning_rate
         self.dropout_rate = dropout_rate
@@ -254,7 +252,6 @@ class Training:
 
     def _compose_model(self) -> Model:
         model = CNN(
-            architecture=self.architecture,
             output_dim=self.output_dim,
             activation_fn=self.activation,
             stochastic_parameters=True,
@@ -406,7 +403,6 @@ class Training:
                     rng_key=rng_key0,
                     task_id=task_id,
                     n_inducing_inputs=self.n_inducing_inputs,
-                    architecture=self.architecture,
                     stochastic_linearization=self.stochastic_linearization_prior,
                     linear_model=True,
                     full_ntk=self.full_ntk,
@@ -454,7 +450,6 @@ class Training:
                 rng_key=rng_key0,
                 task_id=task_id,
                 n_inducing_inputs=self.n_inducing_inputs,
-                architecture=self.architecture,
             )
             if jit_prior:
                 prior_fn = jax.jit(prior_fn)

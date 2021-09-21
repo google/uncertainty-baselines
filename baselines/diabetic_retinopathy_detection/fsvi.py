@@ -59,10 +59,6 @@ flags.DEFINE_bool(
 flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")
 
 flags.DEFINE_string(
-    "architecture", "resnet", "Architecture of NN (default: not_specified)",
-)
-
-flags.DEFINE_string(
     "activation",
     "relu",
     "Activation function used in NN (default: not_specified)",

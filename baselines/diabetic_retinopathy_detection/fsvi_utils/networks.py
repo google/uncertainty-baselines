@@ -21,7 +21,6 @@ class Model:
     def __init__(
         self,
         output_dim: int,
-        architecture: List[int],
         activation_fn: str = "relu",
         stochastic_parameters: bool = False,
         linear_model: bool = False,
@@ -38,7 +37,6 @@ class Model:
         self.dropout = dropout
         self.dropout_rate = dropout_rate
         self.activation_fn = ACTIVATION_DICT[activation_fn]
-        self.architecture = architecture
         self.stochastic_parameters = stochastic_parameters
 
         self.forward = hk.transform_with_state(self.make_forward_fn())
@@ -152,7 +150,6 @@ class CNN(Model):
     def __init__(
         self,
         output_dim: int,
-        architecture: List[int],
         activation_fn: str = "relu",
         stochastic_parameters: bool = False,
         linear_model: bool = False,
@@ -169,7 +166,6 @@ class CNN(Model):
         self.b_init = b_init
         super().__init__(
             output_dim=output_dim,
-            architecture=architecture,
             activation_fn=activation_fn,
             stochastic_parameters=stochastic_parameters,
             linear_model=linear_model,
@@ -178,24 +174,19 @@ class CNN(Model):
         )
 
     def make_forward_fn(self):
-        if self.architecture == "resnet":
-
-            def forward_fn(inputs, rng_key, stochastic, is_training):
-                net = ResNet50FSVI(
-                    output_dim=self.output_dim,
-                    stochastic_parameters=self.stochastic_parameters,
-                    dropout=self.dropout,
-                    dropout_rate=self.dropout_rate,
-                    linear_model=self.linear_model,
-                    uniform_init_minval=self.uniform_init_minval,
-                    uniform_init_maxval=self.uniform_init_maxval,
-                    w_init=self.w_init,
-                    b_init=self.b_init,
-                )
-                return net(inputs, rng_key, stochastic, is_training)
-
-        else:
-            raise NotImplementedError(self.architecture)
+        def forward_fn(inputs, rng_key, stochastic, is_training):
+            net = ResNet50FSVI(
+                output_dim=self.output_dim,
+                stochastic_parameters=self.stochastic_parameters,
+                dropout=self.dropout,
+                dropout_rate=self.dropout_rate,
+                linear_model=self.linear_model,
+                uniform_init_minval=self.uniform_init_minval,
+                uniform_init_maxval=self.uniform_init_maxval,
+                w_init=self.w_init,
+                b_init=self.b_init,
+            )
+            return net(inputs, rng_key, stochastic, is_training)
         return forward_fn
 
 

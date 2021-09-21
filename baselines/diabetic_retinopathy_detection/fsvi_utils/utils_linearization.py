@@ -274,7 +274,6 @@ def induced_prior_fn(
     rng_key: jnp.ndarray,
     task_id: int,
     n_inducing_inputs: int,
-    architecture,
     stochastic_linearization: bool,
     full_ntk: bool = False,
 ) -> Tuple[List[jnp.ndarray], List[jnp.ndarray]]:
@@ -338,7 +337,6 @@ def induced_prior_fn_v0(
     rng_key: jnp.ndarray,
     task_id: int,
     n_inducing_inputs: int,
-    architecture,
     stochastic_linearization: bool,
     full_ntk: bool = False,
 ) -> Tuple[List[jnp.ndarray], List[jnp.ndarray]]:

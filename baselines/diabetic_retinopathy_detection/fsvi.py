@@ -366,7 +366,8 @@ def main(argv):
         initial_epoch = chkpt["epoch"] + 1
 
     # INITIALIZE KL INPUT FUNCTIONS
-    inducing_input_fn, prior_fn = training.kl_input_functions(
+    inducing_input_fn = training.initialize_inducing_input_fn()
+    prior_fn = training.initialize_prior(
         prior_mean=FLAGS.prior_mean,
         prior_cov=FLAGS.prior_cov,
     )

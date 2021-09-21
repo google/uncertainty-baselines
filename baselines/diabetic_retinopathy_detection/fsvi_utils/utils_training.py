@@ -1,14 +1,11 @@
-import pdb
-from typing import List, Tuple, Callable, Union, Sequence, Dict
+from typing import List, Tuple, Callable, Union, Sequence
 
 import haiku as hk
 import jax.numpy as jnp
 import optax
-import tree
 
-from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
-from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import predicate_mean, predicate_var, predicate_batchnorm
+from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
 
 dtype_default = jnp.float32
@@ -138,10 +135,7 @@ class Training:
         get_variational_and_model_params = self.get_params_partition_fn(params_init)
 
         objective = self.initialize_objective(model=model)
-        # LOSS
-        loss, kl_evaluation = self._compose_loss(
-            metrics=objective
-        )
+        loss = objective.nelbo_fsvi_classification
 
         return (
             opt,
@@ -210,13 +204,6 @@ class Training:
             raise ValueError("No optimizer specified.")
         return opt
 
-    def _compose_loss(
-        self, metrics: Objectives
-    ) -> Tuple[Callable, Callable]:
-        loss = metrics.nelbo_fsvi_classification
-        kl_evaluation = metrics.function_kl
-        return loss, kl_evaluation
-
     def initialize_objective(self, model) -> Objectives:
         metrics = Objectives(
             model=model,
@@ -237,10 +224,10 @@ class Training:
         log_likelihood_evaluation = metrics._crossentropy_log_likelihood
         return log_likelihood_evaluation, task_evaluation
 
-    def get_inducing_input_fn(
+    def initialize_inducing_input_fn(
             self,
             x_ood=[None],
-    ):
+    ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
         if self.inducing_input_type == "ood_rand" and len(x_ood) > 1:
             raise AssertionError("Inducing point type 'ood_rand' only works if one OOD set is specified.")
         def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
@@ -255,19 +242,6 @@ class Training:
                 rng_key=rng_key,
             )
         return inducing_input_fn
-
-    def get_prior_fn(
-        self,
-        prior_mean: str,
-        prior_cov: str,
-    ) -> Tuple[
-        Callable[[jnp.ndarray], List[jnp.ndarray]],
-    ]:
-        prior_mean = jnp.ones(self.n_inducing_inputs) * prior_mean
-        prior_cov = jnp.ones(self.n_inducing_inputs) * prior_cov
-        prior_fn = lambda inducing_inputs, model_params: [prior_mean, prior_cov]
-
-        return prior_fn
 
     def get_params_partition_fn(self, params):
         variational_layers = list(params.keys())[-self.layer_to_linearize]  # TODO: set via input parameter
@@ -286,15 +260,11 @@ class Training:
         get_trainable_params = lambda params: hk.data_structures.partition(lambda m, n, p: m in trainable_layers, params)
         return get_trainable_params
 
-    def kl_input_functions(
+    def initialize_prior(
         self,
         prior_mean: str,
         prior_cov: str,
-        x_ood=None,
-    ) -> Tuple[
-        Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
-        Callable[[jnp.ndarray], List[jnp.ndarray]],
-    ]:
+    ) -> Callable[[jnp.ndarray], List[jnp.ndarray]]:
         """
         @predict_f_deterministic: function to do forward pass
         @param prior_mean: example: "0.0"
@@ -305,50 +275,10 @@ class Training:
                 and covariance of the outputs at those points
         """
         prior_mean, prior_cov = dtype_default(prior_mean), dtype_default(prior_cov)
-
-        inducing_input_fn = self.get_inducing_input_fn(x_ood=x_ood)
-        prior_fn = self.get_prior_fn(
-            prior_mean=prior_mean,
-            prior_cov=prior_cov,
-        )
-
-        return inducing_input_fn, prior_fn
-
-
-def get_prior_params(
-    params_init: hk.Params,
-    prior_mean: str,
-    prior_cov: str,
-) -> hk.Params:
-    prior_mean, prior_cov = dtype_default(prior_mean), dtype_default(prior_cov)
-
-    params_mean = tree.map_structure(
-        lambda p: jnp.ones_like(p) * prior_mean,
-        hk.data_structures.filter(predicate_mean, params_init),
-    )
-    params_log_var = tree.map_structure(
-        lambda p: jnp.ones_like(p) * jnp.log(prior_cov),
-        hk.data_structures.filter(predicate_var, params_init),
-    )
-
-    params_prior = hk.data_structures.merge(params_mean, params_log_var)
-    return params_prior
-
-
-def piecewise_constant_schedule(init_value, boundaries, scale):
-    """
-    Return a function that takes in the update count and returns a step size.
-
-    The step size is equal to init_value * (scale ** <number of boundaries points not greater than count>)
-    """
-    def schedule(count):
-        v = init_value
-        for threshold in boundaries:
-            indicator = jnp.maximum(0.0, jnp.sign(threshold - count))
-            v = v * indicator + (1 - indicator) * scale * v
-        return v
-
-    return schedule
+        prior_mean = jnp.ones(self.n_inducing_inputs) * prior_mean
+        prior_cov = jnp.ones(self.n_inducing_inputs) * prior_cov
+        prior_fn = lambda inducing_inputs, model_params: [prior_mean, prior_cov]
+        return prior_fn
 
 
 def warm_up_piecewise_constant_schedule(

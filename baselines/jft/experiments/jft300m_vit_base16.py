@@ -42,7 +42,7 @@ def get_config():
   pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
   # pp_common += f'|onehot({config.num_classes}, key='labels_extended', key_result='labels')  # pylint: disable=line-too-long
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.

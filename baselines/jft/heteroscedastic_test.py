@@ -62,7 +62,7 @@ def get_config(classifier, representation_size):
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   # TODO(dusenberrymw): Mocking doesn't seem to encode into jpeg format.
   # config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
   config.pp_train = 'decode|resize_small(256)|central_crop(224)' + pp_common
@@ -217,7 +217,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.config.num_classes = 10
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-    pp_common += '|keep("image", "labels")'
+    pp_common += '|keep(["image", "labels"])'
     FLAGS.config.pp_train = 'decode|resize_small(512)|central_crop(384)' + pp_common
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'

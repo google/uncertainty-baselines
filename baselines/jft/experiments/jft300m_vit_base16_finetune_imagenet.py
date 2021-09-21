@@ -49,7 +49,7 @@ def get_config():
   INPUT_RES = 512  # pylint: disable=invalid-name
   common = '|value_range(-1, 1)'
   common += '|onehot(1000, key="label", key_result="labels")'
-  common += '|keep("image", "labels")'
+  common += '|keep(["image", "labels"])'
   pp_train = f'decode_jpeg_and_inception_crop({INPUT_RES})|flip_lr'
   config.pp_train = pp_train + common
   config.pp_eval = f'decode|resize({INPUT_RES})' + common
@@ -59,7 +59,7 @@ def get_config():
 
   # Imagenet ReaL eval
   config.eval_on_imagenet_real = True
-  config.pp_eval_imagenet_real = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep("image", "labels")'  # pylint: disable=line-too-long
+  config.pp_eval_imagenet_real = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep(["image", "labels"])'  # pylint: disable=line-too-long
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 

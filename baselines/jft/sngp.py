@@ -27,6 +27,7 @@ from absl import logging
 from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
+from clu import preprocess_spec
 import flax
 import flax.jax_utils as flax_utils
 import flax.traverse_util as trav_utils
@@ -44,11 +45,11 @@ import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
 import input_utils  # local file import
 import ood_utils  # local file import
+import preprocess_utils  # local file import
 import train_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
-pp_builder = None
 
 
 ml_collections.config_flags.DEFINE_config_file(
@@ -224,7 +225,8 @@ def main(argv):
       split=config.train_split,
       rng=train_ds_rng,
       host_batch_size=local_batch_size,
-      preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
+      preprocess_fn=preprocess_spec.parse(
+          spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=fillin(config.get('data_dir')))
@@ -252,7 +254,8 @@ def main(argv):
         split=split,
         rng=None,
         host_batch_size=local_batch_size_eval,
-        preprocess_fn=pp_builder.get_preprocess_fn(pp_eval),
+        preprocess_fn=preprocess_spec.parse(
+            spec=pp_eval, available_ops=preprocess_utils.all_ops()),
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
         shuffle=False,
@@ -280,7 +283,9 @@ def main(argv):
         split='test',
         rng=None,
         host_batch_size=local_batch_size_eval,
-        preprocess_fn=pp_builder.get_preprocess_fn(config.pp_eval_cifar_10h),
+        preprocess_fn=preprocess_spec.parse(
+            spec=config.config.pp_eval_cifar_10h,
+            available_ops=preprocess_utils.all_ops()),
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
         shuffle=False,

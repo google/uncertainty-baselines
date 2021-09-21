@@ -1,18 +1,15 @@
 import pdb
 import pickle
-from functools import partial
 from typing import List, Tuple, Callable, Union, Sequence, Dict
 
 import haiku as hk
-import jax
 import jax.numpy as jnp
 import optax
-import sklearn
 import tree
 import tensorflow as tf
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
-from baselines.diabetic_retinopathy_detection.fsvi_utils import utils, utils_linearization
+from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import predicate_mean, predicate_var, predicate_batchnorm
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
 
@@ -206,7 +203,6 @@ class Training:
         Callable,
         Callable,
         Callable,
-        str,
     ]:
         opt = self._compose_optimizer()
         opt_state = opt.init(params_init)
@@ -214,7 +210,6 @@ class Training:
         get_trainable_params = self.get_trainable_params_fn(params_init)
         get_variational_and_model_params = self.get_params_partition_fn(params_init)
 
-        prediction_type = decide_prediction_type(self.data_training)
         objective = self.initialize_objective(model=model)
         # LOSS
         loss, kl_evaluation = self._compose_loss(
@@ -226,7 +221,7 @@ class Training:
             nll_grad_evaluation,
             task_evaluation,
         ) = self._compose_evaluation_metrics(
-            prediction_type=prediction_type, metrics=objective
+            metrics=objective
         )
 
         return (
@@ -240,7 +235,6 @@ class Training:
             log_likelihood_evaluation,
             nll_grad_evaluation,
             task_evaluation,
-            prediction_type,
         )
 
     def _compose_model(self) -> Model:
@@ -328,14 +322,11 @@ class Training:
         return metrics
 
     def _compose_evaluation_metrics(
-        self, prediction_type: str, metrics: Objectives
+        self, metrics: Objectives
     ) -> Tuple[Callable, Callable, Callable]:
-        if prediction_type == "classification":
-            nll_grad_evaluation = metrics.nll_loss_classification
-            task_evaluation = metrics.accuracy
-            log_likelihood_evaluation = metrics._crossentropy_log_likelihood
-        else:
-            raise ValueError(f"Unrecognized prediction_type: {prediction_type}")
+        nll_grad_evaluation = metrics.nll_loss_classification
+        task_evaluation = metrics.accuracy
+        log_likelihood_evaluation = metrics._crossentropy_log_likelihood
         return log_likelihood_evaluation, nll_grad_evaluation, task_evaluation
 
     def get_inducing_input_fn(
@@ -498,13 +489,3 @@ def warm_up_polynomial_schedule(
         return lr
 
     return schedule
-
-
-def decide_prediction_type(data_training: str) -> str:
-    if data_training in classification_datasets:
-        prediction_type = "classification"
-    elif data_training in regression_datasets:
-        prediction_type = "regression"
-    else:
-        raise ValueError(f"Prediction type not recognized: {data_training}")
-    return prediction_type

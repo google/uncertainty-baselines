@@ -372,7 +372,6 @@ def main(argv):
         log_likelihood_evaluation,
         nll_grad_evaluation,
         task_evaluation,
-        prediction_type,
     ) = training.initialize_optimization(
         model=model,
         params_init=params,

@@ -1,7 +1,5 @@
-import datetime
 import time
 from collections import defaultdict
-from typing import Union, List
 
 import numpy as np
 import robustness_metrics as rm
@@ -14,11 +12,10 @@ from sklearn.utils import check_array, check_consistent_length
 
 from .metric_utils import log_epoch_metrics
 from .results_storage_utils import (
-  create_eval_results_dir, store_eval_results, add_joint_dicts,
-  store_eval_metadata, load_dataframe_gfile)
+  add_joint_dicts,
+  load_dataframe_gfile)
 
 
-# Want to avoid using .numpy() within TPU or GPU strategy scope.
 @tf.function
 def eval_step_tf(
   dataset_iterator, dataset_steps, strategy, estimator,
@@ -208,7 +205,8 @@ def evaluate_model_on_datasets(
 
     # Use vectorized NumPy containers
     for eval_key, eval_arr in eval_epoch_arrs.items():
-      dataset_split_dict[eval_key] = np.concatenate(eval_arr.numpy()).flatten()
+      _eval_arr = eval_arr if backend == "jax" else eval_arr.numpy()
+      dataset_split_dict[eval_key] = np.concatenate(_eval_arr).flatten()
       if verbose:
         print(
           f'Concatenated {eval_key} into shape '

@@ -9,7 +9,7 @@ name: aptos-fsvi-finetune-joint
 program: baselines/diabetic_retinopathy_detection/fsvi.py
 method: grid
 project: aptos-fsvi-finetune
-entity: diabetic-retinopathy-detection-benchmark
+entity: nband
 parameters:
   epochs:
     value: 90
@@ -24,7 +24,7 @@ parameters:
   output_dir:
     value: 'gs://drd-aptos-finetune/joint'
   data_dir:
-    value: 'gs://drdb-data/retinopathy'
+    value: 'gs://ub-data/retinopathy'
   layer_to_linearize:
     value: 1
   per_core_batch_size:

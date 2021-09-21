@@ -70,6 +70,10 @@ Following the steps in [parse_tensorboards.py](baselines/diabetic_retinopathy_de
 
 ## Evaluate a Model
 
+### Evaluation Sweep Scripts
+
+Scripts for the evaluation sweeps used for the paper are located in [baselines/diabetic_retinopathy_detection/experiments/eval](baselines/diabetic_retinopathy_detection/experiments/eval).
+
 ### Selective Prediction and Referral Curves
 
 In Selective Prediction, a model's predictive uncertainty is used to choose a subset of the test set for which predictions will be evaluated. In particular, the uncertainty per test input forms a ranking. The X% of test inputs with the highest uncertainty are referred to a specialist, and the model performance is evaluated on the (100 - X)% remaining inputs. Standard evaluation therefore uses a _referral fraction_ = 0, i.e., the full test set is retained.

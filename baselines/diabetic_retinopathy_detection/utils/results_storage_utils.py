@@ -248,7 +248,7 @@ def store_eval_results(
   logging.info(f'Stored eval results to {eval_results_dir}')
 
 
-def load_eval_results(eval_results_dir, epoch=None):
+def load_eval_results(eval_results_dir, epoch=None, name_filter=None):
   if epoch is None:
     eval_results_name = 'eval_results'
   else:
@@ -257,6 +257,8 @@ def load_eval_results(eval_results_dir, epoch=None):
   eval_results_dir = os.path.join(eval_results_dir, eval_results_name)
 
   arr_names = tf.io.gfile.listdir(eval_results_dir)
+  if name_filter:
+    arr_names = list(filter(name_filter, arr_names))
   eval_results = {}
   for arr_name in arr_names:
     np_eval_results_path = os.path.join(eval_results_dir, arr_name)

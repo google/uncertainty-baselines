@@ -46,7 +46,6 @@ dtype_default = jnp.float32
 class Training:
     def __init__(
         self,
-        data_training,
         optimizer: str,
         inducing_input_type: str,
         activation: str,
@@ -55,18 +54,15 @@ class Training:
         input_shape: List[int],
         output_dim: int,
         full_ntk: bool,
-        regularization,
         kl_scale,
         stochastic_linearization: bool,
         features_fixed: bool,
         full_cov,
         n_samples,
         n_train: int,
-        batch_size,
         n_batches,
         inducing_inputs_bound: List[int],
         n_inducing_inputs: int,
-        noise_std,
         epochs,
         uniform_init_minval,
         uniform_init_maxval,
@@ -89,7 +85,6 @@ class Training:
         @param n_inducing_inputs: number of inducing points to draw from each task
         @param output_dim: the task-specific number of output dimensions
         """
-        self.data_training = data_training
         self.optimizer = optimizer
         self.inducing_input_type = inducing_input_type
         self.activation = activation
@@ -98,7 +93,6 @@ class Training:
         self.input_shape = input_shape
         self.output_dim = output_dim
         self.full_ntk = full_ntk
-        self.regularization = regularization
         self.kl_scale = kl_scale
         self.stochastic_linearization = stochastic_linearization
         self.features_fixed = features_fixed
@@ -106,11 +100,8 @@ class Training:
         self.n_samples = n_samples
         self.n_batches = n_batches
         self.n_train = n_train
-        self.batch_size = batch_size
         self.inducing_inputs_bound = inducing_inputs_bound
         self.n_inducing_inputs = n_inducing_inputs
-        self.noise_std = noise_std
-        self.data_training_id = 0
         self.epochs = epochs
         self.uniform_init_minval = uniform_init_minval
         self.uniform_init_maxval = uniform_init_maxval
@@ -297,8 +288,6 @@ class Training:
         if self.inducing_input_type == "ood_rand" and len(x_ood) > 1:
             raise AssertionError("Inducing point type 'ood_rand' only works if one OOD set is specified.")
         def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
-            # if n_inducing_inputs is None:
-            #     n_inducing_inputs = self.n_inducing_inputs
             return utils.select_inducing_inputs(
                 n_inducing_inputs=n_inducing_inputs,
                 inducing_input_type=self.inducing_input_type,

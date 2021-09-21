@@ -41,14 +41,6 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import T
 from baselines.diabetic_retinopathy_detection import utils
 
 # original flags
-flags.DEFINE_string(
-    "data_training",
-    "dr",
-    "Training and in-distribution dataset used (default: not_specified)\n"
-    "Examples: 'continual_learning_pmnist', 'continual_learning_smnist', "
-    "'continual_learning_sfashionmnist'",
-)
-
 flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")
 
 flags.DEFINE_string(
@@ -90,8 +82,6 @@ flags.DEFINE_boolean("full_cov", default=False, help="Use full covariance")
 flags.DEFINE_integer(
     "n_samples", default=5, help="Number of exp log lik samples (default: 1)",
 )
-
-flags.DEFINE_float("noise_std", default=1.0, help="Likelihood variance (default: 1)")
 
 flags.DEFINE_list(
     "inducing_inputs_bound",
@@ -234,9 +224,6 @@ flags.DEFINE_integer(
     1,
     "The layer number to use",
 )
-flags.DEFINE_float(
-    "regularization", default=0, help="Regularization parameter (default: 0)",
-)
 FLAGS = flags.FLAGS
 
 
@@ -343,7 +330,6 @@ def main(argv):
         n_train=n_train,
         n_batches=train_steps_per_epoch,
         full_ntk=False,
-        batch_size=per_core_batch_size,
         # TODO: is there a better way than this?
         **get_dict_of_flags(),
     )

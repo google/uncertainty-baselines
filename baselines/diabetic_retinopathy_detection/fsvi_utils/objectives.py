@@ -27,7 +27,6 @@ class Objectives_hk:
         model: Model,
         output_dim,
         kl_scale: str,
-        regularization,
         n_samples,
         full_cov,
         stochastic_linearization,
@@ -37,7 +36,6 @@ class Objectives_hk:
         self.model = model
         self.output_dim = output_dim
         self.kl_scale = kl_scale
-        self.regularization = regularization
         self.n_samples = n_samples
         self.full_cov = full_cov
         self.stochastic_linearization = stochastic_linearization
@@ -175,19 +173,6 @@ class Objectives_hk:
 
         return kl, scale
 
-    def _nll_loss_classification(
-        self, params, state, inputs, targets, rng_key, is_training, class_weight
-    ):
-        preds_f_samples, _, _ = self.model.predict_f_multisample_jitted(
-            params, state, inputs, rng_key, self.n_samples, is_training,
-        )
-        log_likelihood = (
-            self.crossentropy_log_likelihood(preds_f_samples, targets, class_weight)
-            / targets.shape[0]
-        )
-        loss = -log_likelihood
-        return loss
-
     def _elbo_fsvi_classification(
         self,
         params,
@@ -236,65 +221,6 @@ class Objectives_hk:
 
         return elbo, log_likelihood, kl, scale
 
-    @partial(jit, static_argnums=(0, 10, 11, 12))
-    def map_loss_classification(
-            self,
-            trainable_params,
-            non_trainable_params,
-            state,
-            prior_mean,
-            prior_cov,
-            inputs,
-            targets,
-            inducing_inputs,
-            rng_key,
-            class_weight,
-            loss_type,
-            l2_strength: float,
-    ):
-        (loss, negative_log_likelihood), state = self.objective_and_state(
-            trainable_params,
-            non_trainable_params,
-            state,
-            prior_mean,
-            prior_cov,
-            inputs,
-            targets,
-            inducing_inputs,
-            rng_key,
-            class_weight,
-            self._map_loss_classification,
-        )
-        return loss, {
-            "state": state,
-            "loss": loss,
-            "log_likelihood": -negative_log_likelihood * targets.shape[0]
-        }
-
-    def _map_loss_classification(
-        self,
-        params,
-        state,
-        prior_mean,
-        prior_cov,
-        inputs,
-        targets,
-        inducing_inputs,
-        rng_key,
-        is_training,
-        class_weight,
-    ):
-        negative_log_likelihood = self._nll_loss_classification(
-            params, state, inputs, targets, rng_key, is_training, class_weight
-        )
-        reg_params = [p for ((mod_name, _), p) in tree.flatten_with_path(params) if 'batchnorm' not in mod_name]
-        loss = (
-            negative_log_likelihood
-            + self.regularization * jnp.square(optimizers.l2_norm(reg_params))
-        )
-        return loss, negative_log_likelihood
-
-
     @partial(jit, static_argnums=(0, 3))
     def crossentropy_log_likelihood(self, preds_f_samples, targets, class_weight):
         if class_weight:
@@ -314,20 +240,6 @@ class Objectives_hk:
             inputs=inputs,
             inducing_inputs=inducing_inputs,
             rng_key=rng_key,
-        )
-
-    @partial(jit, static_argnums=(0,))
-    def nll_loss_classification(
-        self, trainable_params, non_trainable_params, state, inputs, targets, rng_key
-    ):
-        return self.objective_and_state(
-            trainable_params,
-            non_trainable_params,
-            state,
-            inputs,
-            targets,
-            rng_key,
-            self._nll_loss_classification,
         )
 
     @partial(jit, static_argnums=(0, 10, 11, 12))

@@ -49,13 +49,6 @@ flags.DEFINE_string(
     "'continual_learning_sfashionmnist'",
 )
 
-
-flags.DEFINE_bool(
-    "use_map_loss",
-    False,
-    "If True, this script reproduces deterministic training",
-)
-
 flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")
 
 flags.DEFINE_string(
@@ -368,7 +361,6 @@ def main(argv):
         loss,
         kl_evaluation,
         log_likelihood_evaluation,
-        nll_grad_evaluation,
         task_evaluation,
     ) = training.initialize_optimization(
         model=model,

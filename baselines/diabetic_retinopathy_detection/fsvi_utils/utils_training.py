@@ -81,7 +81,6 @@ class Training:
         lr_schedule,
         layer_to_linearize=1,
         kl_type=0,
-        use_map_loss=False,
         **kwargs,
     ):
         """
@@ -126,7 +125,6 @@ class Training:
         self.final_decay_factor = final_decay_factor
         self.lr_schedule = lr_schedule
         self.layer_to_linearize = layer_to_linearize
-        self.use_map_loss = use_map_loss
 
         if self.init_strategy == "he_normal_and_zeros":
             self.w_init = "he_normal"
@@ -174,7 +172,6 @@ class Training:
         Callable,
         Callable,
         Callable,
-        Callable,
     ]:
         opt = self._compose_optimizer()
         opt_state = opt.init(params_init)
@@ -190,7 +187,6 @@ class Training:
         # EVALUATION
         (
             log_likelihood_evaluation,
-            nll_grad_evaluation,
             task_evaluation,
         ) = self._compose_evaluation_metrics(
             metrics=objective
@@ -205,7 +201,6 @@ class Training:
             loss,
             kl_evaluation,
             log_likelihood_evaluation,
-            nll_grad_evaluation,
             task_evaluation,
         )
 
@@ -271,18 +266,13 @@ class Training:
     def _compose_loss(
         self, metrics: Objectives
     ) -> Tuple[Callable, Callable]:
-        if self.use_map_loss:
-            loss = metrics.map_loss_classification
-            kl_evaluation = None
-        else:
-            loss = metrics.nelbo_fsvi_classification
-            kl_evaluation = metrics.function_kl
+        loss = metrics.nelbo_fsvi_classification
+        kl_evaluation = metrics.function_kl
         return loss, kl_evaluation
 
     def initialize_objective(self, model) -> Objectives:
         metrics = Objectives(
             model=model,
-            regularization=self.regularization,
             kl_scale=self.kl_scale,
             full_cov=self.full_cov,
             n_samples=self.n_samples,
@@ -295,11 +285,10 @@ class Training:
 
     def _compose_evaluation_metrics(
         self, metrics: Objectives
-    ) -> Tuple[Callable, Callable, Callable]:
-        nll_grad_evaluation = metrics.nll_loss_classification
+    ) -> Tuple[Callable, Callable]:
         task_evaluation = metrics.accuracy
         log_likelihood_evaluation = metrics._crossentropy_log_likelihood
-        return log_likelihood_evaluation, nll_grad_evaluation, task_evaluation
+        return log_likelihood_evaluation, task_evaluation
 
     def get_inducing_input_fn(
             self,

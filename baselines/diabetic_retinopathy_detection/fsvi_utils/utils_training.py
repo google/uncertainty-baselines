@@ -67,7 +67,6 @@ class Training:
         inducing_inputs_bound: List[int],
         n_inducing_inputs: int,
         noise_std,
-        map_initialization,
         epochs,
         uniform_init_minval,
         uniform_init_maxval,
@@ -129,9 +128,6 @@ class Training:
         self.layer_to_linearize = layer_to_linearize
         self.use_map_loss = use_map_loss
 
-        self.map_initialization = map_initialization
-
-
         if self.init_strategy == "he_normal_and_zeros":
             self.w_init = "he_normal"
             self.b_init = "zeros"
@@ -146,8 +142,6 @@ class Training:
 
         self.stochastic_linearization_prior = False
 
-        print(f"\n"
-              f"MAP initialization: {self.map_initialization}")
         print(f"Full NTK computation: {self.full_ntk}")
         print(f"Stochastic linearization (posterior): {self.stochastic_linearization}")
         print(f"Stochastic linearization (prior): {self.stochastic_linearization_prior}"
@@ -164,28 +158,6 @@ class Training:
         params_init, state = init_fn(
             rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
         )
-
-        # TODO: decide if we keep map_initialization
-        if self.map_initialization:
-            file_path = "gs://ub-data/retinopathy-out-qixuan/deterministic/reprod/chkpt_80"
-
-            print("*" * 100)
-            print("load deterministic network")
-            params_log_var_init = hk.data_structures.filter(predicate_var, params_init)
-
-            with tf.io.gfile.GFile(file_path, "rb") as f:
-                chkpt = pickle.load(f)
-            state, params_trained = chkpt["state"], chkpt["params"]
-
-            params_mean_trained = hk.data_structures.filter(predicate_mean, params_trained)
-            params_batchnorm_trained = hk.data_structures.filter(
-                predicate_batchnorm, params_trained
-            )
-
-            params_init = hk.data_structures.merge(
-                params_mean_trained, params_log_var_init, params_batchnorm_trained
-            )
-
         return model, init_fn, apply_fn, state, params_init
 
     def initialize_optimization(

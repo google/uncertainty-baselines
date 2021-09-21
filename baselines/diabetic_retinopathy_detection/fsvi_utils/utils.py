@@ -59,32 +59,6 @@ def sigma_transform(params_log_var):
     return tree.map_structure(lambda p: jnp.exp(p), params_log_var)
 
 
-@partial(jit, static_argnums=(4,))
-def kl_multioutput(mean_q, mean_p, cov_q, cov_p, full_cov: bool):
-    """
-    Return KL(q || p)
-
-    @param mean_q: array of shape (batch_dim, output_dim)
-    @param mean_p: array of shape (batch_dim, output_dim)
-    @param cov_q: array of shape (batch_dim, output_dim, batch_dim, output_dim)
-        or (batch_dim, batch_dim, output_dim)
-    @param cov_p: array of shape (batch_dim, output_dim, batch_dim, output_dim)
-        or (batch_dim, batch_dim, output_dim)
-    @param full_cov: if True, use full covariance, otherwise, use diagonal of covariance
-    @return:
-    """
-    function_KL = 0
-    ndim = cov_q.ndim
-    for i in range(cov_q.shape[-1]):
-        cov_q_tp = cov_q[:, i, :, i] if ndim == 4 else cov_q[:, :, i]
-        mean_q_tp = mean_q[:, i]
-        cov_p_tp = cov_p[:, i, :, i] if ndim == 4 else cov_p[:, :, i]
-        mean_p_tp = mean_p[:, i]
-        kl = kl_general(mean_q_tp, mean_p_tp, cov_q_tp, cov_p_tp, full_cov)
-        function_KL += kl
-    return function_KL
-
-
 @partial(
     jit,
     static_argnums=(

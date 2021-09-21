@@ -108,8 +108,6 @@ flags.DEFINE_list(
 
 flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")
 
-flags.DEFINE_bool("map_initialization", default=False, help="MAP initialization")
-
 flags.DEFINE_bool(
     "stochastic_linearization", default=True, help="Stochastic linearization"
 )

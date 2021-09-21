@@ -1,44 +1,15 @@
 import pdb
-import pickle
 from typing import List, Tuple, Callable, Union, Sequence, Dict
 
 import haiku as hk
 import jax.numpy as jnp
 import optax
 import tree
-import tensorflow as tf
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import predicate_mean, predicate_var, predicate_batchnorm
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
-
-classification_datasets = [
-    "mnist",
-    "notmnist",
-    "fashionmnist",
-    "cifar10",
-    "svhn",
-    "two_moons",
-    "dr",
-]
-continual_learning_datasets = [
-    "pmnist",
-    "smnist",
-    "smnist_sh",
-    "pfashionmnist",
-    "sfashionmnist",
-    "sfashionmnist_sh",
-    "cifar",
-    "cifar_small",
-    "toy",
-    "toy_sh",
-    "toy_reprod",
-]
-classification_datasets.extend(
-    [f"continual_learning_{ds}" for ds in continual_learning_datasets]
-)
-regression_datasets = ["uci", "offline_rl", "snelson", "oat1d", "subspace_inference","ihdp"]
 
 dtype_default = jnp.float32
 
@@ -158,10 +129,6 @@ class Training:
         Union[optax.OptState, Sequence[optax.OptState]],
         Callable,
         Callable,
-        Objectives,
-        Callable,
-        Callable,
-        Callable,
         Callable,
     ]:
         opt = self._compose_optimizer()
@@ -175,24 +142,13 @@ class Training:
         loss, kl_evaluation = self._compose_loss(
             metrics=objective
         )
-        # EVALUATION
-        (
-            log_likelihood_evaluation,
-            task_evaluation,
-        ) = self._compose_evaluation_metrics(
-            metrics=objective
-        )
 
         return (
             opt,
             opt_state,
             get_trainable_params,
             get_variational_and_model_params,
-            objective,
             loss,
-            kl_evaluation,
-            log_likelihood_evaluation,
-            task_evaluation,
         )
 
     def _compose_model(self) -> Model:

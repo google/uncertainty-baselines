@@ -343,11 +343,7 @@ def main(argv):
         opt_state,
         get_trainable_params,
         get_variational_and_model_params,
-        objectives,
         loss,
-        kl_evaluation,
-        log_likelihood_evaluation,
-        task_evaluation,
     ) = training.initialize_optimization(
         model=model,
         params_init=params,

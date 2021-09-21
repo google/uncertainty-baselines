@@ -25,43 +25,27 @@ class Objectives_hk:
         self,
         architecture,
         apply_fn,
-        predict_f,
-        predict_f_deterministic,
-        predict_y,
-        predict_y_multisample,
-        predict_y_multisample_jitted,
         output_dim,
         kl_scale: str,
-        predict_f_multisample,
         predict_f_multisample_jitted,
-        noise_std,
         regularization,
         n_samples,
         full_cov,
         prior_type,
         stochastic_linearization,
-        linear_model,
         full_ntk=False,
         kl_type=0,
     ):
         self.architecture = architecture
         self.apply_fn = apply_fn
-        self.predict_f = predict_f
-        self.predict_f_deterministic = predict_f_deterministic
-        self.predict_y = predict_y
-        self.predict_f_multisample = predict_f_multisample
         self.predict_f_multisample_jitted = predict_f_multisample_jitted
-        self.predict_y_multisample = predict_y_multisample
-        self.predict_y_multisample_jitted = predict_y_multisample_jitted
         self.output_dim = output_dim
         self.kl_scale = kl_scale
         self.regularization = regularization
-        self.noise_std = noise_std
         self.n_samples = n_samples
         self.full_cov = full_cov
         self.prior_type = prior_type
         self.stochastic_linearization = stochastic_linearization
-        self.linear_model = linear_model
         self.full_ntk = full_ntk
         self.kl_type = kl_type
 

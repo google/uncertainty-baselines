@@ -6,7 +6,6 @@ from typing import List, Tuple, Callable, Union, Sequence, Dict
 import haiku as hk
 import jax
 import jax.numpy as jnp
-import numpy as np
 import optax
 import sklearn
 import tree
@@ -16,7 +15,6 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Mo
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils, utils_linearization
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import predicate_mean, predicate_var, predicate_batchnorm
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
-from uncertainty_baselines.schedules import WarmUpPiecewiseConstantSchedule
 
 classification_datasets = [
     "mnist",
@@ -231,22 +229,6 @@ class Training:
         get_trainable_params = self.get_trainable_params_fn(params_init)
         get_variational_and_model_params = self.get_params_partition_fn(params_init)
 
-        # # FIXME: doesn't currently seem to work
-        # def _pred_fn(apply_fn, params, state, inputs, rng_key, n_samples):
-        #     rng_key, subkey = jax.random.split(rng_key)
-        #     preds_samples = jnp.expand_dims(apply_fn(params, state, None, inputs, rng_key, stochastic=False, is_training=True)[0], 0)
-        #     for i in range(n_samples - 1):
-        #         rng_key, subkey = jax.random.split(rng_key)
-        #         preds_samples = jnp.concatenate(
-        #             (preds_samples, jnp.expand_dims(apply_fn(params, state, None, inputs, rng_key, stochastic=False, is_training=True)[0], 0)), 0)
-        #     return preds_samples
-        #
-        # pred_fn = jax.jit(partial(_pred_fn,
-        #     apply_fn=apply_fn,
-        #     state=state,
-        #     n_samples=self.n_samples,
-        # ))
-
         prediction_type = decide_prediction_type(self.data_training)
         objective = self._compose_objective(
             model=model, apply_fn=apply_fn, state=state, rng_key=rng_key
@@ -369,22 +351,14 @@ class Training:
         metrics = Objectives(
             architecture=self.architecture,
             apply_fn=apply_fn,
-            predict_f=model.predict_f,
-            predict_f_deterministic=model.predict_f_deterministic,
-            predict_y=model.predict_y,
-            predict_f_multisample=model.predict_f_multisample,
             predict_f_multisample_jitted=model.predict_f_multisample_jitted,
-            predict_y_multisample=model.predict_y_multisample,
-            predict_y_multisample_jitted=model.predict_y_multisample_jitted,
             regularization=self.regularization,
             kl_scale=self.kl_scale,
             full_cov=self.full_cov,
             n_samples=self.n_samples,
             output_dim=self.output_dim,
-            noise_std=self.noise_std,
             prior_type=self.prior_type,
             stochastic_linearization=self.stochastic_linearization,
-            linear_model=self.linear_model,
             full_ntk=self.full_ntk,
             kl_type=self.kl_type,
         )
@@ -686,7 +660,6 @@ def warm_up_polynomial_schedule(
         return lr
 
     return schedule
-
 
 
 def decide_prediction_type(data_training: str) -> str:

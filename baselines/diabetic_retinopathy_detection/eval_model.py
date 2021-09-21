@@ -1,6 +1,9 @@
+import os
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 import contextlib
 import pathlib
 
+import jax
 import numpy as np
 import tensorflow as tf
 import torch
@@ -55,7 +58,7 @@ flags.DEFINE_bool(
 
 # General model flags.
 flags.DEFINE_integer(
-  'k', None,
+  'k', 1,
   "Number of ensemble members.")
 
 flags.DEFINE_integer(
@@ -88,6 +91,28 @@ flags.DEFINE_string(
 flags.DEFINE_bool(
   'use_distribution_strategy', False,
   'If specified, use a distribution strategy.')
+flags.DEFINE_bool(
+  'single_model_multi_train_seeds', False,
+  'If true, then evaluate a single model with multiple train seeds instead of '
+  'multiple evaluation seeds. If this option is true, then all the checkpoints '
+  'in the `checkpoint_dir` will be loaded.')
+flags.DEFINE_integer(
+  'seed', 0,
+  'Used as evaluation seed when `single_model_multi_train_seeds` is True.')
+flags.DEFINE_integer(
+  'k_ensemble_members', 3,
+  'The number of models to sample without replacement from a directory of '
+  'ensemble checkpoints.')
+flags.DEFINE_integer(
+  'ensemble_sampling_repetitions', 0,
+  'The number of times to sample a subset of models from a directory of '
+  'ensemble checkpoints.')
+flags.DEFINE_string(
+  'chkpt_bucket', 'drd-final-eval-multi-seeds',
+  'The name of the bucket containing checkpoints.')
+flags.DEFINE_string(
+  'output_bucket', 'drd-final-results-multi-seeds',
+  'The name of the output bucket.')
 FLAGS = flags.FLAGS
 
 
@@ -106,23 +131,34 @@ def main(argv):
   wandb_run = wandb.init(**wandb_args)
   wandb.config.update(FLAGS, allow_val_change=True)
 
+  # Parse flags, and static validity checks
   model_type = FLAGS.model_type
+  assert not (
+    "fsvi" in model_type and FLAGS.use_distribution_strategy), (
+    "This script doesn't support running FSVI in parallel yet.")
+  single_model_multi_train_seeds = FLAGS.single_model_multi_train_seeds
   k = FLAGS.k
-  use_ensemble = k > 1
+  N = FLAGS.ensemble_sampling_repetitions
+  sample_from_ensemble = N > 0
+  use_ensemble = k > 1 or sample_from_ensemble
+  assert not (use_ensemble and single_model_multi_train_seeds), (
+    "Cannot both use ensemble and single_model_multi_train_seeds.")
+  k_ensemble_members = FLAGS.k_ensemble_members
   dist_shift = FLAGS.distribution_shift
   tuning_domain = FLAGS.tuning_domain
   n_samples = FLAGS.num_mc_samples
+
+  # Checkpoint and output directory setup
   checkpoint_dir = (
-      f'gs://drd-final-eval/{dist_shift}/{model_type}_k{k}_{tuning_domain}')
+      f'gs://{FLAGS.chkpt_bucket}/{dist_shift}/'
+      f'{model_type}_k{k}_{tuning_domain}')
+  output_suffix = "single" if single_model_multi_train_seeds else "ensemble"
   output_dir = (
-      f'gs://drd-final-results/{dist_shift}/'
-      f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}')
-
-
+      f'gs://{FLAGS.output_bucket}/{dist_shift}/'
+      f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}/{output_suffix}')
   tf.io.gfile.makedirs(output_dir)
   logging.info(
-    'Saving robustness and uncertainty evaluation results to %s',
-    output_dir)
+    'Saving robustness and uncertainty evaluation results to %s', output_dir)
 
   # If model is Torch, set seed/device
   use_torch = FLAGS.model_is_torch
@@ -144,14 +180,14 @@ def main(argv):
       FLAGS.force_use_cpu, FLAGS.use_gpu, FLAGS.tpu)
     use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
-  model_type = FLAGS.model_type
   eval_batch_size = FLAGS.eval_batch_size * FLAGS.num_cores
   num_mc_samples = FLAGS.num_mc_samples
 
   # Get the wrapper function which will produce uncertainty estimates for
   # our choice of method and Y/N ensembling.
+  model_type_str = "variational_inference" if model_type == "vi" else model_type
   uncertainty_estimator_fn = utils.get_uncertainty_estimator(
-    model_type, use_ensemble=use_ensemble,
+    model_type_str, use_ensemble=use_ensemble,
     use_tf=FLAGS.use_distribution_strategy)
 
   # Load in evaluation datasets.
@@ -181,51 +217,90 @@ def main(argv):
       strategy_scope = strategy.scope()
 
     with strategy_scope:
-      logging.info(f'Loading Keras ResNet-50 {model_type} {ensemble_str}.')
-      model = utils.load_keras_checkpoints(
-        checkpoint_dir=checkpoint_dir, load_ensemble=use_ensemble,
-        return_epoch=False
-      )
+      model_str = "Jax" if "fsvi" in model_type else "Keras"
+      logging.info(
+        f'Loading {model_str} ResNet-50 {model_type} {ensemble_str}.')
+      if "fsvi" in model_type:
+        model = utils.load_fsvi_jax_checkpoints(
+              checkpoint_dir=checkpoint_dir,
+              load_ensemble=use_ensemble or single_model_multi_train_seeds,
+              return_epoch=False)
+      else:
+        model = utils.load_keras_checkpoints(
+            checkpoint_dir=checkpoint_dir,
+            load_ensemble=use_ensemble or single_model_multi_train_seeds,
+            return_epoch=False
+          )
       logging.info('Successfully loaded.')
+
+      if sample_from_ensemble or single_model_multi_train_seeds:
+        assert (
+          len(model) == 6,
+          f"Running in sample_from_ensemble/single_model_multi_train_seeds "
+          f"mode, but only found {len(model)} checkpoints in folder "
+          f"{checkpoint_dir}.")
 
       # Wrap models: apply sigmoid on logits, use mixed precision,
       # and cast to NumPy array for use with generic Uncertainty Utils.
-      if use_ensemble:
-        estimator = [
-          utils.wrap_retinopathy_estimator(
-            loaded_model, use_mixed_precision=FLAGS.use_bfloat16,
-            numpy_outputs=not FLAGS.use_distribution_strategy)
-          for loaded_model in model]
-        k = len(estimator)
+      if "fsvi" in model_type:
+        if use_ensemble or single_model_multi_train_seeds:
+          estimator = [m.model for m in model]
+        else:
+          estimator = model.model
       else:
-        estimator = utils.wrap_retinopathy_estimator(
-          model, use_mixed_precision=FLAGS.use_bfloat16,
-          numpy_outputs=not FLAGS.use_distribution_strategy)
-        k = None
+        if use_ensemble or single_model_multi_train_seeds:
+          estimator = [
+            utils.wrap_retinopathy_estimator(
+              loaded_model, use_mixed_precision=FLAGS.use_bfloat16,
+              numpy_outputs=not FLAGS.use_distribution_strategy)
+            for loaded_model in model]
+        else:
+          estimator = utils.wrap_retinopathy_estimator(
+            model, use_mixed_precision=FLAGS.use_bfloat16,
+            numpy_outputs=not FLAGS.use_distribution_strategy)
 
+  assert (not sample_from_ensemble or len(estimator) >= k_ensemble_members), (
+      f"The number of models in the ensemble ({len(estimator)}) ",
+      f"is smaller than the number of samples we want to draw "
+      f"{k_ensemble_members}, it is not possible to sample "
+      f"without replacement.")
   estimator_args = {}
 
-  is_deterministic = model_type == 'deterministic'
+  is_deterministic_single_model = (
+      model_type == 'deterministic' and not use_ensemble)
 
-  if not is_deterministic:
+  if model_type != 'deterministic':
     # Argument for stochastic forward passes
+    # we don't sample MC samples
+    # for either a single deterministic model or deep ensemble
     estimator_args['num_samples'] = num_mc_samples
+  if "fsvi" in model_type:
+    if use_ensemble or single_model_multi_train_seeds:
+      estimator_args["params"] = [m.params for m in model]
+      estimator_args["state"] = [m.state for m in model]
+    else:
+      estimator_args["params"] = model.params
+      estimator_args["state"] = model.state
 
   scalar_results_arr = []
 
-  # Evaluation Loop
-  for eval_seed in range(FLAGS.num_eval_seeds):
+  def set_seeds(eval_seed):
     logging.info(f'Evaluating with eval_seed: {eval_seed}.')
 
     # Set seeds
     tf.random.set_seed(eval_seed)
     np.random.seed(eval_seed)
 
+  def iter_step(eval_seed, estimator_args, estimator,
+                scalar_results_arr, iter_id):
+    if "fsvi" in model_type:
+      estimator_args["rng_key"] = jax.random.PRNGKey(eval_seed + iter_id)
+
     per_pred_results, scalar_results = utils.eval_model_numpy(
       datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-      eval_batch_size, is_deterministic,
+      eval_batch_size, is_deterministic_single_model,
       distribution_shift=FLAGS.distribution_shift,
-      num_bins=FLAGS.num_bins)
+      num_bins=FLAGS.num_bins, np_input="fsvi" in model_type)
 
     # Store scalar results
     scalar_results_arr.append(scalar_results)
@@ -233,12 +308,72 @@ def main(argv):
     # Save all predictions, ground truths, uncertainty measures, etc.
     # as NumPy arrays, for use with the plotting module.
     utils.save_per_prediction_results(
-      output_dir, epoch=eval_seed,
-      per_prediction_results=per_pred_results, verbose=True)
+      output_dir, epoch=iter_id,
+      per_prediction_results=per_pred_results, verbose=True,
+      allow_overwrite=True,
+    )
+
+  set_seeds(FLAGS.seed)
+
+  # Evaluation Loop
+  if single_model_multi_train_seeds:
+    for model_index in range(len(estimator)):
+      logging.info(f"Evaluating the {model_index}-th trained model")
+      if "fsvi" in model_type:
+        _estimator_args = {
+          "num_samples": estimator_args["num_samples"],
+          "params": estimator_args["params"][model_index],
+          "state": estimator_args["state"][model_index],
+        }
+      else:
+        _estimator_args = estimator_args
+      iter_step(
+        eval_seed=FLAGS.seed,
+        estimator_args=_estimator_args,
+        estimator=estimator[model_index],
+        scalar_results_arr=scalar_results_arr,
+        iter_id=model_index,
+      )
+  elif sample_from_ensemble:
+    for rep_index in range(N):
+      logging.info(
+        f"Evaluating by sampling {k_ensemble_members} models from an ensemble "
+        f"of {len(estimator)} models, currently at repetition {rep_index}/{N}.")
+      sampled_indices = np.random.choice(
+        len(estimator), size=k_ensemble_members, replace=False)
+      logging.info(f"sampled indices are {sampled_indices}")
+      sampled_estimator = [estimator[ind] for ind in sampled_indices]
+      if "fsvi" in model_type:
+        _estimator_args = {
+          "num_samples": estimator_args["num_samples"],
+          "params": [estimator_args["params"][ind] for ind in sampled_indices],
+          "state": [estimator_args["state"][ind] for ind in sampled_indices],
+        }
+      else:
+        _estimator_args = estimator_args
+      iter_step(
+        eval_seed=FLAGS.seed,
+        estimator_args=_estimator_args,
+        estimator=sampled_estimator,
+        scalar_results_arr=scalar_results_arr,
+        iter_id=rep_index,
+      )
+  else:
+    for eval_seed in range(FLAGS.num_eval_seeds):
+      set_seeds(eval_seed)
+      iter_step(
+        eval_seed=eval_seed,
+        estimator_args=estimator_args,
+        estimator=estimator,
+        scalar_results_arr=scalar_results_arr,
+        iter_id=eval_seed,
+      )
 
   # Scalar results stored as pd.DataFrame
   utils.merge_and_store_scalar_results(
-    scalar_results_arr, output_dir=output_dir)
+    scalar_results_arr, output_dir=output_dir,
+    allow_overwrite=True,
+  )
   logging.info('Wrote out scalar results.')
 
   wandb_run.finish()

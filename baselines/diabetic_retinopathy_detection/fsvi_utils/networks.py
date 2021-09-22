@@ -4,15 +4,9 @@ from typing import Tuple, Callable, List
 import jax
 import jax.numpy as jnp
 from jax import jit
-
 import haiku as hk
 
 from uncertainty_baselines.models.resnet50_fsvi import ResNet50FSVI
-
-relu = jax.nn.relu
-tanh = jnp.tanh
-
-eps = 1e-6
 
 ACTIVATION_DICT = {"tanh": jnp.tanh, "relu": jax.nn.relu}
 
@@ -61,42 +55,9 @@ class Model:
     )[0]
 
   @partial(jit, static_argnums=(0, 5,))
-  def predict_f_deterministic(self, params, state, inputs, rng_key, is_training):
-    """
-    Forward pass with mean parameters (hence deterministic)
-    """
-    return self.forward.apply(
-      params,
-      state,
-      rng_key,
-      inputs,
-      rng_key,
-      stochastic=False,
-      is_training=is_training,
-    )[0]
-
-  @partial(jit, static_argnums=(0, 5,))
   def predict_y(self, params, state, inputs, rng_key, is_training):
     return jax.nn.softmax(
       self.predict_f(params, state, inputs, rng_key, is_training)
-    )
-
-  def predict_f_multisample(
-    self, params, state, inputs, rng_key, n_samples: int, is_training: bool
-  ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """
-    @return:
-        preds_samples: an array of shape (n_samples, inputs.shape[0], output_dimension)
-        preds_mean: an array of shape (inputs.shape[0], output_dimension)
-        preds_var: an array of shape (inputs.shape[0], output_dimension)
-    """
-    # TODO: test if vmap can accelerate this code
-    return mc_sampling(
-      fn=lambda rng_key: self.predict_f(
-        params, state, inputs, rng_key, is_training
-      ),
-      n_samples=n_samples,
-      rng_key=rng_key,
     )
 
   def predict_y_multisample(

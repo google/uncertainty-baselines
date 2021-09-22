@@ -16,7 +16,6 @@ from pprint import pformat
 import logging
 import pickle
 import time
-import types
 from functools import partial
 import sys
 

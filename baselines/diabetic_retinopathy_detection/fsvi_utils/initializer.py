@@ -1,6 +1,5 @@
-from typing import List, Tuple, Callable, Union, Sequence
+from typing import List, Tuple, Callable
 
-import haiku as hk
 import jax.numpy as jnp
 import optax
 
@@ -8,10 +7,8 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
 
-dtype_default = jnp.float32
 
-
-class Training:
+class Initializer:
     def __init__(
         self,
         optimizer: str,
@@ -62,7 +59,6 @@ class Training:
         self.n_batches = n_batches
         self.n_train = n_train
         self.inducing_inputs_bound = inducing_inputs_bound
-        self.n_inducing_inputs = n_inducing_inputs
         self.epochs = epochs
         self.uniform_init_minval = uniform_init_minval
         self.uniform_init_maxval = uniform_init_maxval
@@ -106,25 +102,6 @@ class Training:
         )
         return model, init_fn, apply_fn, state, params_init
 
-    def initialize_optimization(
-        self,
-        model,
-        params_init: hk.Params,
-    ) -> Tuple[
-        optax.GradientTransformation,
-        Union[optax.OptState, Sequence[optax.OptState]],
-        Callable,
-    ]:
-        opt = self._compose_optimizer()
-        opt_state = opt.init(params_init)
-        objective = self.initialize_objective(model=model)
-        loss = objective.nelbo_fsvi_classification
-        return (
-            opt,
-            opt_state,
-            loss,
-        )
-
     def _compose_model(self) -> Model:
         model = CNN(
             output_dim=self.output_dim,
@@ -140,7 +117,7 @@ class Training:
         )
         return model
 
-    def _compose_optimizer(self) -> optax.GradientTransformation:
+    def initialize_optimizer(self) -> optax.GradientTransformation:
         if "adam" in self.optimizer:
             opt = optax.adam(self.base_learning_rate)
         elif "sgd" == self.optimizer and self.lr_schedule == "linear":
@@ -193,13 +170,6 @@ class Training:
         )
         return metrics
 
-    def _compose_evaluation_metrics(
-        self, metrics: Objectives
-    ) -> Tuple[Callable, Callable]:
-        task_evaluation = metrics.accuracy
-        log_likelihood_evaluation = metrics._crossentropy_log_likelihood
-        return log_likelihood_evaluation, task_evaluation
-
     def initialize_inducing_input_fn(
             self,
             x_ood=[None],
@@ -219,9 +189,9 @@ class Training:
             )
         return inducing_input_fn
 
+    @staticmethod
     def initialize_prior(
-        self,
-        prior_mean: str,
+            prior_mean: str,
         prior_cov: str,
     ) -> Callable[[Tuple], List[jnp.ndarray]]:
         """
@@ -233,7 +203,7 @@ class Training:
             prior_fn: a function that takes in an array of inducing input points and return the mean
                 and covariance of the outputs at those points
         """
-        _prior_mean, _prior_cov = dtype_default(prior_mean), dtype_default(prior_cov)
+        _prior_mean, _prior_cov = jnp.float32(prior_mean), jnp.float32(prior_cov)
 
         def prior_fn(shape):
             prior_mean = jnp.ones(shape) * _prior_mean

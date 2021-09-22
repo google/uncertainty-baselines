@@ -18,11 +18,9 @@ import types
 from functools import partial
 import sys
 
-import haiku as hk
 import jax
 import optax
 import tree
-import numpy as np
 from absl import app, flags
 from jax import jit
 from jax import random
@@ -37,7 +35,7 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
     initialize_random_keys,
     to_one_hot,
 )
-from baselines.diabetic_retinopathy_detection.fsvi_utils.utils_training import Training
+from baselines.diabetic_retinopathy_detection.fsvi_utils.initializer import Initializer
 from baselines.diabetic_retinopathy_detection import utils
 
 # original flags
@@ -319,7 +317,7 @@ def main(argv):
         "fsvi", use_ensemble=False, use_tf=False)
 
     # INITIALIZE TRAINING CLASS
-    training = Training(
+    initializer = Initializer(
         input_shape=input_shape,
         output_dim=output_dim,
         n_train=n_train,
@@ -328,18 +326,12 @@ def main(argv):
         **get_dict_of_flags(),
     )
 
-    # INITIALIZE MODEL
-    (model, _, apply_fn, state, params) = training.initialize_model(rng_key=rng_key)
-
-    # INITIALIZE OPTIMIZATION
-    (
-        opt,
-        opt_state,
-        loss,
-    ) = training.initialize_optimization(
-        model=model,
-        params_init=params,
-    )
+    # initialization
+    (model, _, apply_fn, state, params) = initializer.initialize_model(rng_key=rng_key)
+    opt = initializer.initialize_optimizer()
+    opt_state = opt.init(params)
+    objective = initializer.initialize_objective(model=model)
+    loss = objective.nelbo_fsvi_classification
 
     summary_writer = tf.summary.create_file_writer(
         os.path.join(output_dir, "summaries")
@@ -358,8 +350,8 @@ def main(argv):
         initial_epoch = chkpt["epoch"] + 1
 
     # INITIALIZE KL INPUT FUNCTIONS
-    inducing_input_fn = training.initialize_inducing_input_fn()
-    prior_fn = training.initialize_prior(
+    inducing_input_fn = initializer.initialize_inducing_input_fn()
+    prior_fn = initializer.initialize_prior(
         prior_mean=FLAGS.prior_mean,
         prior_cov=FLAGS.prior_cov,
     )

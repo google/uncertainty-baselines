@@ -9,7 +9,14 @@ import tree
 from jax import jit
 from jax import numpy as jnp
 
-from baselines.diabetic_retinopathy_detection.fsvi_utils.jax_utils import KeyHelper
+
+class KeyHelper:
+  def __init__(self, key):
+    self._key = key
+
+  def next_key(self):
+    self._key, sub_key = jax.random.split(self._key)
+    return sub_key
 
 
 def initialize_random_keys(seed: int) -> KeyHelper:

@@ -1,4 +1,3 @@
-import pdb
 from functools import partial
 from typing import Tuple
 
@@ -11,10 +10,6 @@ from jax import jit
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils_linearization
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import Model
-from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import (
-  partition_params,
-  predicate_batchnorm,
-)
 from baselines.diabetic_retinopathy_detection.utils import (
   get_diabetic_retinopathy_class_balance_weights,
 )
@@ -229,3 +224,38 @@ def compute_scale(kl_scale: str, inputs: jnp.ndarray, n_inducing_inputs: int) ->
   else:
     scale = jnp.float32(kl_scale)
   return scale
+
+
+@jit
+def partition_params(params):
+  params_log_var, params_rest = hk.data_structures.partition(predicate_var, params)
+
+  def predicate_is_mu_with_log_var(module_name, name, value):
+    logvar_name = f"{name.split('_')[0]}_logvar"
+    return (
+      predicate_mean(module_name, name, value)
+      and module_name in params_log_var
+      and logvar_name in params_log_var[module_name]
+    )
+
+  params_mean, params_deterministic = hk.data_structures.partition(
+    predicate_is_mu_with_log_var, params_rest
+  )
+  return params_mean, params_log_var, params_deterministic
+
+
+def predicate_mean(module_name, name, value):
+  return name == "w_mu" or name == "b_mu"
+
+
+def predicate_var(module_name, name, value):
+  return name == "w_logvar" or name == "b_logvar"
+
+
+def predicate_batchnorm(module_name, name, value):
+  return name not in {
+    "w_mu",
+    "b_mu",
+    "w_logvar",
+    "b_logvar",
+  }

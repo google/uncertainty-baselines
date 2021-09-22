@@ -36,11 +36,8 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
   initialize_random_keys,
   to_one_hot,
 )
-from baselines.diabetic_retinopathy_detection.fsvi_utils.initializer import Initializer
+from baselines.diabetic_retinopathy_detection.fsvi_utils.initializers import Initializer, OptimizerInitializer
 from baselines.diabetic_retinopathy_detection import utils
-from baselines.diabetic_retinopathy_detection.fsvi_utils.optimizer_initializer import (
-  OptimizerInitializer,
-)
 
 # original flags
 flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")

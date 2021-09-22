@@ -1,13 +1,5 @@
 import os
-
-# os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
-# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
-# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
-import pdb
-
 import tensorflow as tf
-
 tf.config.experimental.set_visible_devices([], "GPU")
 print("WARNING: TensorFlow is set to only use CPU.")
 import pathlib
@@ -29,6 +21,7 @@ from tqdm import tqdm
 import jax.numpy as jnp
 from tensorboard.plugins.hparams import api as hp
 import wandb
+from jax.lib import xla_bridge
 
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, root_path)
@@ -248,11 +241,9 @@ def main(argv):
   logging.info("Hypers:")
   logging.info(pformat(hypers_dict))
 
-  from jax.lib import xla_bridge
-
-  print("*" * 100)
-  print("Platform that is used by JAX:", xla_bridge.get_backend().platform)
-  print("*" * 100)
+  logging.info("*" * 100)
+  logging.info("Platform that is used by JAX:", xla_bridge.get_backend().platform)
+  logging.info("*" * 100)
 
   kh = initialize_random_keys(seed=FLAGS.seed)
   rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
@@ -505,21 +496,18 @@ def main(argv):
 
   ########################## train-eval loop ##########################
 
-  verbose = False
 
-  print(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
+  logging.info(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
   train_iterator = iter(dataset_train)
   for epoch in range(initial_epoch, FLAGS.epochs):
     t0 = time.time()
     for _ in tqdm(range(train_steps_per_epoch), desc="gradient steps..."):
-      if verbose:
-        start = time.time()
+      start = time.time()
       data = next(train_iterator)
       x_batch, labels = data["features"]._numpy(), data["labels"]._numpy()
       orig_labels = labels
-      if verbose:
-        print(f"loading data used {time.time() - start:.2f} seconds")
-        start = time.time()
+      logging.debug(f"loading data used {time.time() - start:.2f} seconds")
+      start = time.time()
       _, rng_key_train = random.split(rng_key_train)
       if num_cores > 1:
         keys = random.split(rng_key_train, num_cores)
@@ -536,16 +524,14 @@ def main(argv):
         params, state, opt_state, keys, x_batch, labels,
       )
 
-      if verbose:
-        print(f"per-batch computation used {time.time() - start:.2f} seconds")
-        start = time.time()
+      logging.debug(f"per-batch computation used {time.time() - start:.2f} seconds")
+      start = time.time()
 
       if num_cores > 1:
         probs = reshape_to_one_core(probs)
 
-      if verbose:
-        print(f"reshape again used {time.time() - start:.2f} seconds")
-        start = time.time()
+      logging.debug(f"reshape again used {time.time() - start:.2f} seconds")
+      start = time.time()
 
       metrics["train/loss"].update_state(additional_info["loss"].item())
       log_likelihood_per_input = (
@@ -561,8 +547,7 @@ def main(argv):
 
       if not use_tpu:
         metrics["train/ece"].add_batch(probs_of_labels, label=orig_labels)
-      if verbose:
-        print(f"compute metric used {time.time() - start:.2f} seconds")
+      logging.debug(f"compute metric used {time.time() - start:.2f} seconds")
 
     _, rng_key_test = random.split(rng_key_test)
 
@@ -624,7 +609,7 @@ def main(argv):
       )
 
     T0 = time.time()
-    print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
+    logging.info(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
 
   to_save = {
     "params": params,

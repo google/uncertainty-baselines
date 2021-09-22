@@ -1,9 +1,9 @@
 from typing import List, Tuple, Callable
 
+import jax
 import jax.numpy as jnp
 import optax
 
-from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
 
@@ -12,7 +12,6 @@ class Initializer:
     def __init__(
         self,
         optimizer: str,
-        inducing_input_type: str,
         activation: str,
         base_learning_rate,
         dropout_rate,
@@ -21,10 +20,7 @@ class Initializer:
         kl_scale,
         stochastic_linearization: bool,
         n_samples,
-        n_train: int,
         n_batches,
-        inducing_inputs_bound: List[int],
-        n_inducing_inputs: int,
         epochs,
         uniform_init_minval,
         uniform_init_maxval,
@@ -47,7 +43,6 @@ class Initializer:
         @param output_dim: the task-specific number of output dimensions
         """
         self.optimizer = optimizer
-        self.inducing_input_type = inducing_input_type
         self.activation = activation
         self.base_learning_rate = base_learning_rate
         self.dropout_rate = dropout_rate
@@ -57,8 +52,6 @@ class Initializer:
         self.stochastic_linearization = stochastic_linearization
         self.n_samples = n_samples
         self.n_batches = n_batches
-        self.n_train = n_train
-        self.inducing_inputs_bound = inducing_inputs_bound
         self.epochs = epochs
         self.uniform_init_minval = uniform_init_minval
         self.uniform_init_maxval = uniform_init_maxval
@@ -170,23 +163,14 @@ class Initializer:
         )
         return metrics
 
+    @staticmethod
     def initialize_inducing_input_fn(
-            self,
-            x_ood=[None],
     ) -> Callable[[jnp.ndarray, jnp.ndarray, int], jnp.ndarray]:
-        if self.inducing_input_type == "ood_rand" and len(x_ood) > 1:
-            raise AssertionError("Inducing point type 'ood_rand' only works if one OOD set is specified.")
         def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
-            return utils.select_inducing_inputs(
-                n_inducing_inputs=n_inducing_inputs,
-                inducing_input_type=self.inducing_input_type,
-                inducing_inputs_bound=self.inducing_inputs_bound,
-                input_shape=self.input_shape,
-                x_batch=x_batch,
-                x_ood=x_ood,
-                n_train=self.n_train,
-                rng_key=rng_key,
-            )
+            permutation = jax.random.permutation(key=rng_key, x=x_batch.shape[0])
+            x_batch_permuted = x_batch[permutation, :]
+            inducing_inputs = x_batch_permuted[:n_inducing_inputs]
+            return inducing_inputs
         return inducing_input_fn
 
     @staticmethod

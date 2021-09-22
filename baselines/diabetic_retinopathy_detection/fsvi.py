@@ -67,22 +67,10 @@ flags.DEFINE_integer(
     "n_inducing_inputs", default=10, help="Number of BNN inducing points (default: 0)",
 )
 
-flags.DEFINE_string(
-    "inducing_input_type",
-    default="train_pixel_rand_1.0",
-    help="Inducing input selection method (default: not_specified)",
-)
-
 flags.DEFINE_string("kl_scale", default="normalized", help="KL scaling factor (default: 1)")
 
 flags.DEFINE_integer(
     "n_samples", default=5, help="Number of exp log lik samples (default: 1)",
-)
-
-flags.DEFINE_list(
-    "inducing_inputs_bound",
-    default="0,0",
-    help="Inducing point range (default: [-1, 1])",
 )
 
 flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")
@@ -220,19 +208,6 @@ flags.DEFINE_integer(
 FLAGS = flags.FLAGS
 
 
-def process_args():
-    """
-    This is the only place where it is allowed to modify kwargs
-
-    This function should not have side-effect.
-
-    @param flags: input arguments
-    @return:
-    """
-    # FLAGS doesn't accept renaming!
-    FLAGS.inducing_inputs_bound = [float(v) for v in FLAGS.inducing_inputs_bound]
-
-
 def get_dict_of_flags():
     return {k: getattr(FLAGS, k) for k in dir(FLAGS)}
 
@@ -247,7 +222,6 @@ def write_flags(path):
 
 def main(argv):
     del argv
-    process_args()
 
     # Wandb Setup
     if FLAGS.use_wandb:
@@ -320,7 +294,6 @@ def main(argv):
     initializer = Initializer(
         input_shape=input_shape,
         output_dim=output_dim,
-        n_train=n_train,
         n_batches=train_steps_per_epoch,
         # TODO: is there a better way than this?
         **get_dict_of_flags(),

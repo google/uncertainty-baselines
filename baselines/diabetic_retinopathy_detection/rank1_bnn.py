@@ -63,6 +63,7 @@ flags.DEFINE_string(
    "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
 flags.DEFINE_bool(
   'load_from_checkpoint', False, "Attempt to load from checkpoint")
+flags.DEFINE_string('checkpoint_dir', None, 'Path to load Keras checkpoints.')
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
 # Logging and hyperparameter tuning.

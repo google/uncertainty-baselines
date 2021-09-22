@@ -52,6 +52,7 @@ flags.DEFINE_string(
    "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
 flags.DEFINE_bool(
   'load_from_checkpoint', False, "Attempt to load from checkpoint")
+flags.DEFINE_string('checkpoint_dir', None, 'Path to load Keras checkpoints.')
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
 # Logging and hyperparameter tuning.
@@ -97,7 +98,7 @@ flags.DEFINE_string(
 flags.DEFINE_float('l2', 0.000014128, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
-flags.DEFINE_integer('per_core_batch_size', 32,
+flags.DEFINE_integer('per_core_batch_size', 16,
                      'The per-core batch size for both training '
                      'and evaluation.')
 flags.DEFINE_integer(

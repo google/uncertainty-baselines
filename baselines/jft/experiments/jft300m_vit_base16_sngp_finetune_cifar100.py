@@ -48,7 +48,7 @@ def get_config():
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
   pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 

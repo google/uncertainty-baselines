@@ -20,7 +20,6 @@ r"""ViT-B/16 finetuning on CIFAR.
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
 
 
 def get_sweep(hyper):
@@ -41,6 +40,7 @@ def get_config():
   # ood_split is the data split for both the ood_dataset and the dataset.
   config.ood_dataset = 'cifar10'
   config.ood_split = 'test'
+  config.ood_methods = ['msp', 'maha', 'rmaha']
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
@@ -52,7 +52,7 @@ def get_config():
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
   pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 
@@ -95,7 +95,7 @@ def get_config():
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.03
+  config.lr.base = 0.01
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
 

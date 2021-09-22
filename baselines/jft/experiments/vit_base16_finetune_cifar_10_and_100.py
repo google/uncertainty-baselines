@@ -49,7 +49,7 @@ def get_config():
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
   pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 
@@ -159,7 +159,7 @@ def task(hyper,
   """Vision task with val and test splits."""
   common = '|value_range(-1, 1)'
   common += f'|onehot({n_cls}, key="label", key_result="labels")'
-  common += '|keep("image", "labels")'
+  common += '|keep(["image", "labels"])'
   pp_eval = f'decode|resize({size})' + common
 
   if train_data_aug:
@@ -183,9 +183,7 @@ def task(hyper,
     # CIFAR-10H eval
     eval_on_cifar_10h = True
     pp_eval_cifar_10h = f'resize({size})' + '|value_range(-1, 1)' + (
-        '|keep("image",'
-        ' '
-        '"labels")')
+        '|keep(["image", "labels"])')
     task_hyper.update({
         'eval_on_cifar_10h': eval_on_cifar_10h,
         'pp_eval_cifar_10h': pp_eval_cifar_10h

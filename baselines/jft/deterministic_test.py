@@ -62,10 +62,10 @@ def get_config(classifier, representation_size):
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   # TODO(dusenberrymw): Mocking doesn't seem to encode into jpeg format.
   # config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
-  config.pp_train = 'decode|resize_small(256)|central_crop(224)' + pp_common
+  config.pp_train = 'decode|inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
 
   config.init_head_bias = 1e-3
@@ -126,12 +126,12 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('token', 2, 12854.799, 12937.0625, 0.13999999314546585, False),
-      ('token', 2, 12854.799, 12937.0625, 0.13999999314546585, True),
-      ('token', None, 10806.852, 18732.41579861111, 0.1899999976158142, False),
-      ('gap', 2, 13537.143, 13002.321180555555, 0.19999999552965164, False),
-      ('gap', None, 13047.623, 12661.753472222223, 0.26999999582767487, False),
-      ('gap', None, 13047.623, 12661.753472222223, 0.26999999582767487, True),
+      ('token', 2, 12881.814, 12775.907986111111, 0.1899999976158142, False),
+      ('token', 2, 12881.814, 12775.907986111111, 0.1899999976158142, True),
+      ('token', None, 10794.726, 9550.201388888889, 0.14999999478459358, False),
+      ('gap', 2, 13477.535, 13409.197048611111, 0.20999999344348907, False),
+      ('gap', None, 12957.866, 12854.926215277777, 0.23999999463558197, False),
+      ('gap', None, 12957.866, 12854.926215277777, 0.23999999463558197, True),
   )
   @flagsaver.flagsaver
   def test_deterministic_script(self, classifier, representation_size,
@@ -182,10 +182,10 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
         fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
 
   @parameterized.parameters(
-      ('token', 2, 6.2976723, 5.995477040608724, 0.07999999821186066),
-      ('token', None, 5.6714106, 5.177046987745497, 0.11999999731779099),
-      ('gap', 2, 6.501844, 6.015407986111111, 0.08999999798834324),
-      ('gap', None, 6.4839783, 6.014546076456706, 0.06999999657273293),
+      ('token', 2, 6.308259, 5.826012293497722, 0.09999999776482582),
+      ('token', None, 5.708541, 4.87314510345459, 0.07999999821186066),
+      ('gap', 2, 6.4777365, 6.002109315660265, 0.05999999865889549),
+      ('gap', None, 6.4251647, 5.802958170572917, 0.08999999798834324),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, classifier, representation_size,
@@ -214,8 +214,8 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.config.num_classes = 10
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-    pp_common += '|keep("image", "labels")'
-    FLAGS.config.pp_train = ('decode|resize_small(512)|central_crop(384)' +
+    pp_common += '|keep(["image", "labels"])'
+    FLAGS.config.pp_train = ('decode|resize_small(512)|random_crop(384)' +
                              pp_common)
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'

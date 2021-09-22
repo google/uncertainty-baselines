@@ -62,10 +62,10 @@ def get_config(classifier, representation_size):
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   # TODO(dusenberrymw): Mocking doesn't seem to encode into jpeg format.
   # config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
-  config.pp_train = 'decode|resize_small(256)|central_crop(224)' + pp_common
+  config.pp_train = 'decode|inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
 
   config.init_head_bias = 1e-3
@@ -136,10 +136,10 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
       # for the val_loss. Need to investigate the issue.
       # ('token', 2, 82502.49, 1695.701171875, 0.16999999806284904, False),
       # ('token', 2, 82502.49, 1695.701171875, 0.16999999806284904, True),
-      ('token', None, 2049.5173, 1680.5252821180557, 0.1799999922513961, False),
-      ('gap', 2, 82501.64, 301.17470296223956, 0.189999997615814, False),
-      ('gap', None, 2090.1018, 518.932373046875, 0.29999999701976776, False),
-      ('gap', None, 2090.1018, 518.932373046875, 0.29999999701976776, True),
+      ('token', None, 1235.983, 1278.0880262586807, 0.23000000044703484, False),
+      ('gap', 2, 82480.11, 581.2986111111111, 0.16999999433755875, False),
+      ('gap', None, 312.10632, 580.241441514757, 0.2499999925494194, False),
+      ('gap', None, 312.10632, 580.241441514757, 0.2499999925494194, True),
   )
   @flagsaver.flagsaver
   def test_sngp_script(self, classifier, representation_size,
@@ -194,9 +194,9 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
   @parameterized.parameters(
       # TODO(dusenberrymw): This tests is flaky. Need to investigate the issue.
       # ('token', 2, 17.127628, 9.437467681037056, 0.12999999336898327),
-      ('token', None, 9.454525, 16.93018129136827, 0.14999999850988388),
-      ('gap', 2, 41.808563, 24.693617078993057, 0.09999999776482582),
-      ('gap', None, 47.113586, 15.444029914008247, 0.08999999798834324),
+      ('token', None, 57.665764, 47.4102783203125, 0.09999999403953552),
+      ('gap', 2, 35.87387, 9.02747525109185, 0.04999999888241291),
+      ('gap', None, 51.77176, 25.256450653076172, 0.08999999798834324),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, classifier, representation_size,
@@ -226,8 +226,9 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.config.num_classes = 10
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-    pp_common += '|keep("image", "labels")'
-    FLAGS.config.pp_train = 'decode|resize_small(512)|central_crop(384)' + pp_common
+    pp_common += '|keep(["image", "labels"])'
+    FLAGS.config.pp_train = ('decode|resize_small(512)|random_crop(384)' +
+                             pp_common)
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
     FLAGS.config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'

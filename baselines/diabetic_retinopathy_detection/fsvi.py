@@ -205,16 +205,11 @@ flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 FLAGS = flags.FLAGS
 
 
+OUTPUT_DIM = 2
+
+
 def get_dict_of_flags():
     return {k: getattr(FLAGS, k) for k in dir(FLAGS)}
-
-
-def write_flags(path):
-    d = get_dict_of_flags()
-    string = json.dumps(d, indent=4, separators=(",", ":"))
-    tf.io.gfile.makedirs(os.path.dirname(path))
-    with tf.io.gfile.GFile(path, "w") as f:
-        f.write(string)
 
 
 def main(argv):
@@ -237,8 +232,6 @@ def main(argv):
     else:
         wandb_run = None
         output_dir = FLAGS.output_dir
-
-    write_flags(os.path.join(FLAGS.output_dir, "flags.txt"))
 
     # Log Run Hypers
     hypers_dict = {
@@ -275,8 +268,6 @@ def main(argv):
                    if 'validation' in split or 'test' in split]
     eval_datasets = {split: iter(datasets[split]) for split in eval_splits}
     input_shape = [1] + utils.load_input_shape(dataset_train=datasets["train"])
-    # TODO: remove this hardcoded value
-    output_dim = 2
     dataset_train = datasets['train']
     train_steps_per_epoch = steps["train"]
 
@@ -288,7 +279,7 @@ def main(argv):
     # INITIALIZE TRAINING CLASS
     initializer = Initializer(
         input_shape=input_shape,
-        output_dim=output_dim,
+        output_dim=OUTPUT_DIM,
         n_batches=train_steps_per_epoch,
         # TODO: is there a better way than this?
         **get_dict_of_flags(),
@@ -361,7 +352,7 @@ def main(argv):
         Captured variables:
             loss, FLAGS, num_cores
         """
-        prior_mean, prior_cov = prior_fn((inducing_inputs.shape[0], output_dim))
+        prior_mean, prior_cov = prior_fn((inducing_inputs.shape[0], OUTPUT_DIM))
 
         grads, additional_info = jax.grad(loss, argnums=0, has_aux=True)(
             params,
@@ -397,7 +388,7 @@ def main(argv):
             output_dim, FLAGS, update_fn, inducing_input_fn, model
         """
         # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
-        y_batch = to_one_hot(labels, output_dim)
+        y_batch = to_one_hot(labels, OUTPUT_DIM)
         inducing_key, rng_key_train, rng_key_eval = jax.random.split(rng_key_train, 3)
         inducing_inputs = inducing_input_fn(
             x_batch, inducing_key, FLAGS.n_inducing_inputs

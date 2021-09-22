@@ -18,13 +18,18 @@ class Model:
     activation_fn: str = "relu",
     stochastic_parameters: bool = False,
     linear_model: bool = False,
-    dropout=False,
-    dropout_rate=0.0,
+    dropout: bool = False,
+    dropout_rate: float = 0.0,
   ):
-    """
+    """Wrapper of ResNet50FSVI
 
-    @param stochastic_parameters:
-    @param linear_model: if True, then all the parameters except the last layer are set to be deterministic.
+    Args:
+    output_dim: the output dimension
+    activation_fn: the type of activation function, e.g. "relu", "tanh"
+    stochastic_parameters: if True, we keep a variational distribution of parameters.
+    linear_model: if True, only put variational distribution on the last layer.
+    dropout: if True, apply dropout.
+    dropout_rate: dropout rate if we apply dropout.
     """
     self.output_dim = output_dim
     self.linear_model = linear_model
@@ -36,14 +41,33 @@ class Model:
     self.forward = hk.transform_with_state(self.make_forward_fn())
 
   @property
-  def apply_fn(self):
+  def apply_fn(self) -> Callable:
     return self.forward.apply
 
-  def make_forward_fn(self):
+  def make_forward_fn(self) -> Callable:
     raise NotImplementedError
 
   @partial(jit, static_argnums=(0, 5,))
-  def predict_f(self, params, state, inputs, rng_key, is_training):
+  def predict_f(
+    self,
+    params: hk.Params,
+    state: hk.State,
+    inputs: jnp.ndarray,
+    rng_key: jnp.ndarray,
+    is_training: bool,
+  ) -> jnp.ndarray:
+    """Forward pass of model that returns pre-softmax output
+
+    Args:
+      params: parameters of model.
+      state: state of model, e.g. the mean and std used in batch normalization.
+      inputs: the input data.
+      rng_key: jax random key.
+      is_training: whether the model is in training mode.
+
+    Returns:
+      jax.numpy.ndarray, the pre-softmax output of the model
+    """
     return self.forward.apply(
       params,
       state,
@@ -55,7 +79,16 @@ class Model:
     )[0]
 
   @partial(jit, static_argnums=(0, 5,))
-  def predict_y(self, params, state, inputs, rng_key, is_training):
+  def predict_y(
+    self,
+    params: hk.Params,
+    state: hk.State,
+    inputs: jnp.ndarray,
+    rng_key: jnp.ndarray,
+    is_training: bool,
+  ) -> jnp.ndarray:
+    """Forward pass of model that returns post-softmax output
+    """
     return jax.nn.softmax(
       self.predict_f(params, state, inputs, rng_key, is_training)
     )
@@ -63,6 +96,8 @@ class Model:
   def predict_y_multisample(
     self, params, state, inputs, rng_key, n_samples, is_training
   ):
+    """Monte-Carlo estimate of the post-softmax output using `n_samples` samples.
+    """
     return mc_sampling(
       fn=partial(self.predict_y, params, state, inputs, is_training=is_training),
       n_samples=n_samples,
@@ -73,17 +108,15 @@ class Model:
   def predict_f_multisample_jitted(
     self, params, state, inputs, rng_key, n_samples: int, is_training: bool,
   ):
+    """Jitted version of Monte-Carlo estimate of the pre-softmax output using `n_samples` samples.
     """
-    This is jitted version of predict_f_multisample
-    """
-    # vmap
     rng_keys = jax.random.split(rng_key, n_samples)
     _predict_multisample_fn = lambda rng_key: self.predict_f(
       params, state, inputs, rng_key, is_training,
     )
     predict_multisample_fn = jax.vmap(
       _predict_multisample_fn, in_axes=0, out_axes=0
-    )  # fastest for n_samples=10
+    )
     preds_samples = predict_multisample_fn(rng_keys)
 
     preds_mean = preds_samples.mean(axis=0)
@@ -94,6 +127,8 @@ class Model:
   def predict_y_multisample_jitted(
     self, params, state, inputs, rng_key, n_samples, is_training
   ):
+    """Jitted version of Monte-Carlo estimate of the post-softmax output using `n_samples` samples.
+    """
     rng_keys = jax.random.split(rng_key, n_samples)
     _predict_multisample_fn = lambda rng_key: self.predict_y(
       params, state, inputs, rng_key, is_training
@@ -114,8 +149,8 @@ class CNN(Model):
     activation_fn: str = "relu",
     stochastic_parameters: bool = False,
     linear_model: bool = False,
-    dropout=False,
-    dropout_rate=0.0,
+    dropout: bool = False,
+    dropout_rate: float = 0.0,
     uniform_init_minval: float = -20.0,
     uniform_init_maxval: float = -18.0,
     w_init: str = "uniform",
@@ -134,7 +169,7 @@ class CNN(Model):
       dropout_rate=dropout_rate,
     )
 
-  def make_forward_fn(self):
+  def make_forward_fn(self) -> Callable:
     def forward_fn(inputs, rng_key, stochastic, is_training):
       net = ResNet50FSVI(
         output_dim=self.output_dim,
@@ -155,17 +190,19 @@ class CNN(Model):
 def mc_sampling(
   fn: Callable, n_samples: int, rng_key: jnp.ndarray
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-  """
-  Performs Monte Carlo sampling and returns the samples, the mean of samples and the variance of samples
+  """Performs Monte Carlo sampling and returns the samples, the mean of samples
+  and the variance of samples
 
-  @param fn: a deterministic function that takes in a random key and returns one MC sample
-  @param n_samples: number of MC samples
-  @param rng_key: random key
-  @return:
-          preds_samples: an array of shape (n_samples, ) + `output_shape`, where `output_shape` is the shape
-              of output of `fn`
-          preds_mean: an array of shape `output_shape`
-          preds_var: an array of shape `output_shape`
+  Args:
+    fn: a deterministic function that takes in a random key and returns one MC sample.
+    n_samples: number of MC samples.
+    rng_key: jax random key.
+
+  Returns:
+    jax.numpy.ndarray, an array of shape (n_samples, ) + `output_shape`, where `output_shape` is the shape
+          of output of `fn`
+    jax.numpy.ndarray, an array of shape (output_shape,)
+    jax.numpy.ndarray, an array of shape (output_shape,)
   """
   list_of_pred_samples = []
   for _ in range(n_samples):

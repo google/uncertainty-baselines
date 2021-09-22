@@ -17,7 +17,7 @@ from baselines.diabetic_retinopathy_detection.utils import (
 
 class Loss:
   def __init__(
-    self, model: Model, kl_scale: str, n_samples, stochastic_linearization,
+    self, model: Model, kl_scale: str, n_samples: int, stochastic_linearization,
   ):
     self.model = model
     self.kl_scale = kl_scale

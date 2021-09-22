@@ -2,6 +2,7 @@ from typing import List, Tuple, Callable
 
 import optax
 from jax import numpy as jnp
+import haiku as hk
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Loss
@@ -10,129 +11,141 @@ DEFAULT_NUM_EPOCHS = 90
 
 
 class Initializer:
-    def __init__(
-        self,
-        activation: str,
-        dropout_rate: float,
-        input_shape: List[int],
-        output_dim: int,
-        kl_scale,
-        stochastic_linearization: bool,
-        n_samples,
-        uniform_init_minval,
-        uniform_init_maxval,
-        w_init,
-        b_init,
-        init_strategy,
-        prior_mean,
-        prior_cov,
-    ):
-        """
+  def __init__(
+    self,
+    activation: str,
+    dropout_rate: float,
+    input_shape: List[int],
+    output_dim: int,
+    kl_scale: str,
+    stochastic_linearization: bool,
+    n_samples: int,
+    uniform_init_minval: float,
+    uniform_init_maxval: float,
+    init_strategy: str,
+    prior_mean: str,
+    prior_cov: str,
+  ):
+    """
 
-        @param task: examples: continual_learning_pmnist, continual_learning_sfashionmnist
-        @param n_inducing_inputs: number of inducing points to draw from each task
-        @param output_dim: the task-specific number of output dimensions
-        """
-        self.activation = activation
-        self.dropout_rate = dropout_rate
-        self.input_shape = input_shape
-        self.output_dim = output_dim
-        self.kl_scale = kl_scale
-        self.stochastic_linearization = stochastic_linearization
-        self.n_samples = n_samples
-        self.uniform_init_minval = uniform_init_minval
-        self.uniform_init_maxval = uniform_init_maxval
-        self.w_init = w_init
-        self.b_init = b_init
-        self.init_strategy = init_strategy
+    Args:
+      activation: activation function of ResNet50.
+      dropout_rate: dropout rate.
+      input_shape: input shape including batch dimension.
+      output_dim: output dimension.
+      kl_scale: the type of kl_scale, e.g. normalized, equal, etc.
+      stochastic_linearization: if True, linearize around a sampled parameter instead of around mean parameters.
+      n_samples: the number of Monte-Carlo samples for estimating the posterior.
+      uniform_init_minval: lower bound of uniform distribution for log variational variance.
+      uniform_init_maxval: upper bound of uniform distribution for log variational variance.
+      init_strategy: the initialization strategy, e.g. "he_normal_and_zeros", "uniform".
+      prior_mean: the prior mean value.
+      prior_cov: the prior variance value.
+    """
+    self.activation = activation
+    self.dropout_rate = dropout_rate
+    self.input_shape = input_shape
+    self.output_dim = output_dim
+    self.kl_scale = kl_scale
+    self.stochastic_linearization = stochastic_linearization
+    self.n_samples = n_samples
+    self.uniform_init_minval = uniform_init_minval
+    self.uniform_init_maxval = uniform_init_maxval
+    self.init_strategy = init_strategy
 
-        self.prior_mean = prior_mean
-        self.prior_cov = prior_cov
+    self.prior_mean = prior_mean
+    self.prior_cov = prior_cov
 
-        if self.init_strategy == "he_normal_and_zeros":
-            self.w_init = "he_normal"
-            self.b_init = "zeros"
-        elif self.init_strategy == "uniform":
-            self.w_init = "uniform"
-            self.b_init = "uniform"
-        else:
-            raise NotImplementedError(self.init_strategy)
+    if self.init_strategy == "he_normal_and_zeros":
+      self.w_init = "he_normal"
+      self.b_init = "zeros"
+    elif self.init_strategy == "uniform":
+      self.w_init = "uniform"
+      self.b_init = "uniform"
+    else:
+      raise NotImplementedError(self.init_strategy)
 
-        self.dropout = self.dropout_rate > 0
-        print(f"Stochastic linearization (posterior): {self.stochastic_linearization}")
+    self.dropout = self.dropout_rate > 0
+    print(f"Stochastic linearization (posterior): {self.stochastic_linearization}")
 
-    def initialize_model(
-        self, rng_key,
-    ):
-        model = self._compose_model()
-        init_fn, apply_fn = model.forward
-        x_init = jnp.ones(self.input_shape)
-        params_init, state = init_fn(
-            rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
-        )
-        return model, init_fn, apply_fn, state, params_init
+  def initialize_model(
+    self, rng_key: jnp.ndarray,
+  ) -> Tuple[Model, Callable, hk.State, hk.Params]:
+    model = self._compose_model()
+    init_fn, apply_fn = model.forward
+    x_init = jnp.ones(self.input_shape)
+    params_init, state = init_fn(
+      rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
+    )
+    return model, apply_fn, state, params_init
 
-    def _compose_model(self) -> Model:
-        model = CNN(
-            output_dim=self.output_dim,
-            activation_fn=self.activation,
-            stochastic_parameters=True,
-            linear_model=True,
-            dropout=self.dropout_rate > 0,
-            dropout_rate=self.dropout_rate,
-            uniform_init_minval=self.uniform_init_minval,
-            uniform_init_maxval=self.uniform_init_maxval,
-            w_init=self.w_init,
-            b_init=self.b_init,
-        )
-        return model
+  def _compose_model(self) -> Model:
+    model = CNN(
+      output_dim=self.output_dim,
+      activation_fn=self.activation,
+      stochastic_parameters=True,
+      linear_model=True,
+      dropout=self.dropout_rate > 0,
+      dropout_rate=self.dropout_rate,
+      uniform_init_minval=self.uniform_init_minval,
+      uniform_init_maxval=self.uniform_init_maxval,
+      w_init=self.w_init,
+      b_init=self.b_init,
+    )
+    return model
 
-    def initialize_loss(self, model) -> Loss:
-        metrics = Loss(
-            model=model,
-            kl_scale=self.kl_scale,
-            n_samples=self.n_samples,
-            stochastic_linearization=self.stochastic_linearization,
-        )
-        return metrics.nelbo_fsvi_classification
+  def initialize_loss(self, model: Model) -> Callable:
+    loss = Loss(
+      model=model,
+      kl_scale=self.kl_scale,
+      n_samples=self.n_samples,
+      stochastic_linearization=self.stochastic_linearization,
+    )
+    return loss.nelbo_fsvi_classification
 
-    def initialize_prior(self,) -> Callable[[Tuple], List[jnp.ndarray]]:
-        """
-        @predict_f_deterministic: function to do forward pass
-        @param prior_mean: example: "0.0"
-        @param prior_cov: example: "0.0"
-        @return:
-            inducing_input_fn
-            prior_fn: a function that takes in an array of inducing input points and return the mean
-                and covariance of the outputs at those points
-        """
-        _prior_mean, _prior_cov = (
-            jnp.float32(self.prior_mean),
-            jnp.float32(self.prior_cov),
-        )
+  def initialize_prior(self, ) -> Callable[[Tuple], List[jnp.ndarray]]:
+    _prior_mean, _prior_cov = (
+      jnp.float32(self.prior_mean),
+      jnp.float32(self.prior_cov),
+    )
 
-        def prior_fn(shape):
-            prior_mean = jnp.ones(shape) * _prior_mean
-            prior_cov = jnp.ones(shape) * _prior_cov
-            return [prior_mean, prior_cov]
+    def prior_fn(shape):
+      prior_mean = jnp.ones(shape) * _prior_mean
+      prior_cov = jnp.ones(shape) * _prior_cov
+      return [prior_mean, prior_cov]
 
-        return prior_fn
+    return prior_fn
 
 
 class OptimizerInitializer:
   def __init__(
     self,
     optimizer: str,
-    base_learning_rate,
-    n_batches,
-    epochs,
-    one_minus_momentum,
-    lr_warmup_epochs,
-    lr_decay_ratio,
-    lr_decay_epochs,
-    final_decay_factor,
-    lr_schedule,
+    base_learning_rate: float,
+    n_batches: int,
+    epochs: int,
+    one_minus_momentum: float,
+    lr_warmup_epochs: int,
+    lr_decay_ratio: float,
+    lr_decay_epochs: List[int],
+    final_decay_factor: float,
+    lr_schedule: str,
   ):
+    """
+
+    Args:
+      optimizer: the type of optimizer, e.g. "sgd", "adam".
+      base_learning_rate: the base learning rate.
+      n_batches: number of batches per epoch.
+      epochs: number of training epochs.
+      one_minus_momentum: momentum - 1 for sgd.
+      lr_warmup_epochs: number of epochs for a linear warmup to the initial learning rate.
+        Use 0 to do no warmup.
+      lr_decay_ratio: amount to decay learning rate for sgd.
+      lr_decay_epochs: epochs to decay learning rate by for sgd.
+      final_decay_factor: how much to decay the LR by for sgd.
+      lr_schedule: the type of learning rate schedule for sgd, e.g. "linear", "step".
+    """
     self.optimizer = optimizer
     self.base_learning_rate = base_learning_rate
     self.n_batches = n_batches
@@ -186,8 +199,11 @@ class OptimizerInitializer:
 
 
 def warm_up_piecewise_constant_schedule(
-  steps_per_epoch, base_learning_rate, warmup_epochs, decay_epochs, decay_ratio,
-):
+  steps_per_epoch: int, base_learning_rate: float, warmup_epochs: int, decay_epochs: List[int], decay_ratio: float,
+) -> Callable:
+  """
+  Please see uncertainty_baselines.schedules.WarmUpPiecewiseConstantSchedule.
+  """
   def schedule(count):
     lr_epoch = jnp.array(count, jnp.float32) / steps_per_epoch
     learning_rate = base_learning_rate
@@ -206,8 +222,11 @@ def warm_up_piecewise_constant_schedule(
 
 
 def warm_up_polynomial_schedule(
-  base_learning_rate, end_learning_rate, decay_steps, warmup_steps, decay_power,
-):
+  base_learning_rate: float, end_learning_rate: float, decay_steps: int, warmup_steps: int, decay_power: float,
+) -> Callable:
+  """
+  Please see uncertainty_baselines.schedules.WarmUpPolynomialSchedule.
+  """
   poly_schedule = optax.polynomial_schedule(
     init_value=base_learning_rate,
     end_value=end_learning_rate,

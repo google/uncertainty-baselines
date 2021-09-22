@@ -8,16 +8,11 @@ from haiku._src import utils
 from jax import lax
 
 
-def uniform_mod(min_val, max_val):
+def uniform_initializer(min_val, max_val):
     def _uniform_mod(shape, dtype):
         rng_key, _ = jax.random.split(jax.random.PRNGKey(0))
         return jax.random.uniform(
             rng_key, shape=shape, dtype=dtype, minval=min_val, maxval=max_val
-            # rng_key, shape=shape, dtype=dtype, minval=-10.0, maxval=-8.0
-            # rng_key, shape=shape, dtype=dtype, minval=-20.0, maxval=-18.0
-            # rng_key, shape=shape, dtype=dtype, minval=-5.0, maxval=-4.0
-            # rng_key, shape=shape, dtype=dtype, minval=-3.0, maxval=-2.5
-            # rng_key, shape=shape, dtype=dtype, minval=-3.0, maxval=-2.0
         )
     return _uniform_mod
 
@@ -77,11 +72,11 @@ class dense_stochastic_hk(hk.Module):
             b_mu = hk.get_parameter("b_mu", shape=[k], dtype=dtype, init=self.b_init)
         if self.stochastic_parameters:
             w_logvar = hk.get_parameter(
-                "w_logvar", shape=[j, k], dtype=dtype, init=uniform_mod(self.uniform_init_minval, self.uniform_init_maxval)
+                "w_logvar", shape=[j, k], dtype=dtype, init=uniform_initializer(self.uniform_init_minval, self.uniform_init_maxval)
             )
             if self.with_bias:
                 b_logvar = hk.get_parameter(
-                    "b_logvar", shape=[k], dtype=dtype, init=uniform_mod(self.uniform_init_minval, self.uniform_init_maxval)
+                    "b_logvar", shape=[k], dtype=dtype, init=uniform_initializer(self.uniform_init_minval, self.uniform_init_maxval)
                 )
             key_1, key_2 = jax.random.split(rng_key)
             W = gaussian_sample(w_mu, w_logvar, stochastic, key_1)
@@ -301,7 +296,7 @@ class conv2D_stochastic(hk.Module):
 
         if self.stochastic_parameters:
             w_logvar = hk.get_parameter(
-                "w_logvar", w_shape, dtype=dtype, init=uniform_mod(self.uniform_init_minval, self.uniform_init_maxval)
+                "w_logvar", w_shape, dtype=dtype, init=uniform_initializer(self.uniform_init_minval, self.uniform_init_maxval)
             )
             rng_key, sub_key = jax.random.split(rng_key)
             W = gaussian_sample(w_mu, w_logvar, stochastic, sub_key)
@@ -335,7 +330,7 @@ class conv2D_stochastic(hk.Module):
             b_mu = hk.get_parameter("b_mu", bias_shape, inputs.dtype, init=self.b_init)
             if self.stochastic_parameters:
                 b_logvar = hk.get_parameter(
-                    "b_logvar", shape=bias_shape, dtype=inputs.dtype, init=uniform_mod(self.uniform_init_minval, self.uniform_init_maxval)
+                    "b_logvar", shape=bias_shape, dtype=inputs.dtype, init=uniform_initializer(self.uniform_init_minval, self.uniform_init_maxval)
                 )
                 rng_key, sub_key = jax.random.split(rng_key)
                 b = gaussian_sample(b_mu, b_logvar, stochastic, sub_key)

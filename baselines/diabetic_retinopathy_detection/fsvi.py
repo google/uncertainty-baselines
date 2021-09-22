@@ -10,6 +10,7 @@ import pickle
 import time
 from functools import partial
 import sys
+from typing import List, Dict, Tuple, Any
 
 import jax
 import optax
@@ -150,18 +151,12 @@ flags.DEFINE_integer(
 flags.DEFINE_float(
   "uniform_init_minval",
   -20.0,
-  "lower bound of uniform distribution for variational log variance",
+  "lower bound of uniform distribution for log variational variance",
 )
 flags.DEFINE_float(
   "uniform_init_maxval",
   -18.0,
-  "lower bound of uniform distribution for variational log variance",
-)
-flags.DEFINE_string(
-  "w_init", "uniform", "initializer for weights (he_normal or uniform)",
-)
-flags.DEFINE_string(
-  "b_init", "uniform", "initializer for bias (zeros or uniform)",
+  "upper bound of uniform distribution for log variational variance",
 )
 flags.DEFINE_string(
   "init_strategy",
@@ -208,7 +203,7 @@ OUTPUT_DIM = 2
 def main(argv):
   del argv
 
-  # Wandb Setup
+  # Wandb setup
   if FLAGS.use_wandb:
     pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
     wandb_args = dict(
@@ -228,7 +223,7 @@ def main(argv):
     wandb_run = None
     output_dir = FLAGS.output_dir
 
-  # Log Run Hypers
+  # Log run hypers
   hypers_dict = {
     "per_core_batch_size": FLAGS.per_core_batch_size,
     "base_learning_rate": FLAGS.base_learning_rate,
@@ -248,9 +243,7 @@ def main(argv):
   kh = initialize_random_keys(seed=FLAGS.seed)
   rng_key, rng_key_train, rng_key_test = random.split(kh.next_key(), 3)
 
-  # LOAD DATA
   num_cores = FLAGS.num_cores
-
   per_core_batch_size = FLAGS.per_core_batch_size * num_cores
 
   datasets, steps = utils.load_dataset(
@@ -269,13 +262,11 @@ def main(argv):
   dataset_train = datasets["train"]
   train_steps_per_epoch = steps["train"]
 
-  # Get the wrapper function which will produce uncertainty estimates for
-  # our choice of method and Y/N ensembling.
   uncertainty_estimator_fn = utils.get_uncertainty_estimator(
     "fsvi", use_ensemble=False, use_tf=False
   )
 
-  # INITIALIZE TRAINING CLASS
+  # Initialization of model, ptimizer, prior and loss
   initializer = Initializer(
     activation=FLAGS.activation,
     dropout_rate=FLAGS.dropout_rate,
@@ -286,8 +277,6 @@ def main(argv):
     n_samples=FLAGS.n_samples,
     uniform_init_minval=FLAGS.uniform_init_minval,
     uniform_init_maxval=FLAGS.uniform_init_maxval,
-    w_init=FLAGS.w_init,
-    b_init=FLAGS.b_init,
     init_strategy=FLAGS.init_strategy,
     prior_mean=FLAGS.prior_mean,
     prior_cov=FLAGS.prior_cov,
@@ -304,9 +293,7 @@ def main(argv):
     final_decay_factor=FLAGS.final_decay_factor,
     lr_schedule=FLAGS.lr_schedule,
   ).get()
-
-  # initialization
-  (model, _, apply_fn, state, params) = initializer.initialize_model(rng_key=rng_key)
+  model, apply_fn, state, params = initializer.initialize_model(rng_key=rng_key)
   prior_fn = initializer.initialize_prior()
   opt_state = opt.init(params)
   loss = initializer.initialize_loss(model=model)
@@ -315,7 +302,7 @@ def main(argv):
     os.path.join(output_dir, "summaries")
   )
 
-  # loading from checkpoint
+  # Loading from checkpoint
   initial_epoch = 0
   if FLAGS.checkpoint_path and FLAGS.load_from_checkpoint:
     with tf.io.gfile.GFile(FLAGS.checkpoint_path, mode="rb") as f:
@@ -326,7 +313,7 @@ def main(argv):
     logging.info("Loaded checkpoint %s", FLAGS.checkpoint_path)
     initial_epoch = chkpt["epoch"] + 1
 
-  # update metrics
+  # Update metrics
   use_tpu = any(["tpu" in str(d).lower() for d in jax.devices()])
   metrics = utils.get_diabetic_retinopathy_base_metrics(
     use_tpu=use_tpu,
@@ -335,7 +322,6 @@ def main(argv):
     available_splits=available_splits,
   )
   # Define metrics outside the accelerator scope for CPU eval.
-  # This will cause an error on TPU.
   if not use_tpu:
     metrics.update(
       utils.get_diabetic_retinopathy_cpu_metrics(
@@ -381,14 +367,14 @@ def main(argv):
     new_state = additional_info["state"]
     return new_params, new_state, opt_state, additional_info
 
-  def parallelisable_train_per_batch_computation(
+  def parallelizable_train_per_batch_computation(
     params, state, opt_state, rng_key_train, x_batch, labels,
   ):
     """
-    Captured variables:
+    Variables captured by closure:
         output_dim, FLAGS, update_fn, inducing_input_fn, model
     """
-    # features has shape (batch_dim, 128, 128, 3), labels has shape (batch_dim,)
+    # features have shape (batch_dim, 128, 128, 3), labels have shape (batch_dim,)
     y_batch = to_one_hot(labels, OUTPUT_DIM)
     inducing_key, rng_key_train, rng_key_eval = jax.random.split(rng_key_train, 3)
     inducing_inputs = inducing_input_fn(
@@ -397,7 +383,6 @@ def main(argv):
     params, state, opt_state, additional_info = update_fn(
       params, state, opt_state, x_batch, y_batch, inducing_inputs, rng_key_train,
     )
-    # compute metrics
     _, probs, _ = model.predict_y_multisample(
       params=params,
       state=state,
@@ -409,8 +394,8 @@ def main(argv):
     return params, state, opt_state, additional_info, probs
 
   if num_cores > 1:
-    parallelisable_train_per_batch_computation = jax.pmap(
-      parallelisable_train_per_batch_computation,
+    parallelizable_train_per_batch_computation = jax.pmap(
+      parallelizable_train_per_batch_computation,
       axis_name="i",
       in_axes=(None, None, None, 0, 0, 0),
       out_axes=(None, None, None, None, 0),
@@ -420,11 +405,10 @@ def main(argv):
     x_batch, labels, rng_key, params, state, is_deterministic,
   ):
     """
-    Captured variables:
-        model,
+    Variables captured by closure:
+        model
     """
-    # Compute prediction, total, aleatoric, and epistemic
-    # uncertainty estimates
+    # Compute prediction, total, aleatoric, and epistemic uncertainties
     pred_and_uncert = uncertainty_estimator_fn(
       x_batch,
       model,
@@ -459,7 +443,7 @@ def main(argv):
     dataset_iterator, dataset_steps, is_deterministic, params, state, rng_key,
   ):
     """
-    Captured variables:
+    Variables captured by closure:
         parallelizable_evaluate_per_batch_computation, FLAGS
     """
     list_of_results = []
@@ -486,7 +470,7 @@ def main(argv):
     results_arrs = merge_list_of_dicts(list_of_results)
     return results_arrs
 
-  # it is important to define this variable `estimator_args` here instead
+  # It is important to define this variable `estimator_args` here instead
   # of declaring it in the loop. This is to avoid JAX memory leak.
   estimator_args = {
     "rng_key": rng_key_test,
@@ -495,7 +479,6 @@ def main(argv):
   }
 
   ########################## train-eval loop ##########################
-
 
   logging.info(f"\n--- Training for {FLAGS.epochs} epochs ---\n")
   train_iterator = iter(dataset_train)
@@ -520,7 +503,7 @@ def main(argv):
         opt_state,
         additional_info,
         probs,
-      ) = parallelisable_train_per_batch_computation(
+      ) = parallelizable_train_per_batch_computation(
         params, state, opt_state, keys, x_batch, labels,
       )
 
@@ -556,22 +539,22 @@ def main(argv):
     estimator_args["state"] = state
 
     per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
-      None,
-      eval_datasets,
-      steps,
-      metrics,
-      None,
-      None,
-      per_core_batch_size,
-      available_splits,
+      strategy=None,
+      eval_datasets=eval_datasets,
+      steps=steps,
+      metrics=metrics,
+      eval_estimator=None,
+      uncertainty_estimator_fn=None,
+      eval_batch_size=per_core_batch_size,
+      available_splits=available_splits,
       estimator_args=estimator_args,
+      call_dataset_iter=False,
       is_deterministic=False,
       num_bins=FLAGS.num_bins,
       use_tpu=use_tpu,
+      return_per_pred_results=True,
       backend="jax",
       eval_step_jax=eval_step_jax,
-      return_per_pred_results=True,
-      call_dataset_iter=False,
     )
 
     # Optionally log to wandb
@@ -645,33 +628,44 @@ def main(argv):
 
 
 @jax.jit
-def reshape_to_one_core(x):
+def reshape_to_one_core(x: jnp.ndarray) -> jnp.ndarray:
   return jnp.reshape(x, [-1] + list(x.shape[2:]))
 
 
 @partial(jax.jit, static_argnums=(2,))
-def reshape_to_multiple_cores(x_batch, y_batch, num_cores):
+def reshape_to_multiple_cores(x_batch: jnp.ndarray, y_batch: jnp.ndarray, num_cores: int) \
+  -> Tuple[jnp.ndarray, jnp.ndarray]:
   func = lambda x: x.reshape([num_cores, -1] + list(x.shape)[1:])
   x_batch, y_batch = list(map(func, [x_batch, y_batch], ))
   return x_batch, y_batch
 
 
-def merge_list_of_dicts(list_of_dicts):
+def merge_list_of_dicts(list_of_dicts: List[Dict]) -> Dict:
   if not list_of_dicts:
-    return list_of_dicts
+    return {}
   keys = list_of_dicts[0].keys()
   merged_dict = {k: jnp.stack([d[k] for d in list_of_dicts]) for k in keys}
   return merged_dict
 
 
-def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
+def inducing_input_fn(x_batch: jnp.ndarray, rng_key: jnp.ndarray, n_inducing_inputs: int) -> jnp.ndarray:
+  """Select inducing inputs from training input data
+
+  Args:
+    x_batch: training data inputs
+    rng_key: jax random key
+    n_inducing_inputs: number of inducing inputs to select
+
+  Returns:
+    a jax ndarray, inducing inputs
+  """
   permutation = jax.random.permutation(key=rng_key, x=x_batch.shape[0])
   x_batch_permuted = x_batch[permutation, :]
   inducing_inputs = x_batch_permuted[:n_inducing_inputs]
   return inducing_inputs
 
 
-def flags_2_dict():
+def flags_2_dict() -> Dict[str, Any]:
   current_module = sys.modules[__name__]
   flags = FLAGS.get_flags_for_module(current_module)
   return {f.name: f.value for f in flags}

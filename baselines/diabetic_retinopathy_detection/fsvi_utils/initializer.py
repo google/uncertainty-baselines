@@ -1,6 +1,5 @@
 from typing import List, Tuple, Callable
 
-import jax
 import jax.numpy as jnp
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
@@ -82,28 +81,18 @@ class Initializer:
         )
         return model
 
-    def initialize_objective(self, model) -> Loss:
+    def initialize_loss(self, model) -> Loss:
         metrics = Loss(
             model=model,
             kl_scale=self.kl_scale,
             n_samples=self.n_samples,
             stochastic_linearization=self.stochastic_linearization,
         )
-        return metrics
-
-    @staticmethod
-    def initialize_inducing_input_fn(
-    ) -> Callable[[jnp.ndarray, jnp.ndarray, int], jnp.ndarray]:
-        def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
-            permutation = jax.random.permutation(key=rng_key, x=x_batch.shape[0])
-            x_batch_permuted = x_batch[permutation, :]
-            inducing_inputs = x_batch_permuted[:n_inducing_inputs]
-            return inducing_inputs
-        return inducing_input_fn
+        return metrics.nelbo_fsvi_classification
 
     @staticmethod
     def initialize_prior(
-            prior_mean: str,
+        prior_mean: str,
         prior_cov: str,
     ) -> Callable[[Tuple], List[jnp.ndarray]]:
         """

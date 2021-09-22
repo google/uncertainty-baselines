@@ -4,6 +4,9 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
 import tensorflow as tf
+
+from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Loss
+
 tf.config.experimental.set_visible_devices([], "GPU")
 print('WARNING: TensorFlow is set to only use CPU.')
 import pathlib
@@ -296,7 +299,7 @@ def main(argv):
     # initialization
     (model, _, apply_fn, state, params) = initializer.initialize_model(rng_key=rng_key)
     opt_state = opt.init(params)
-    loss = initializer.initialize_objective(model=model).nelbo_fsvi_classification
+    loss = initializer.initialize_loss(model=model)
 
     summary_writer = tf.summary.create_file_writer(
         os.path.join(output_dir, "summaries")
@@ -315,7 +318,6 @@ def main(argv):
         initial_epoch = chkpt["epoch"] + 1
 
     # INITIALIZE KL INPUT FUNCTIONS
-    inducing_input_fn = initializer.initialize_inducing_input_fn()
     prior_fn = initializer.initialize_prior(
         prior_mean=FLAGS.prior_mean,
         prior_cov=FLAGS.prior_cov,
@@ -651,6 +653,13 @@ def merge_list_of_dicts(list_of_dicts):
     keys = list_of_dicts[0].keys()
     merged_dict = {k: jnp.stack([d[k] for d in list_of_dicts]) for k in keys}
     return merged_dict
+
+
+def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
+    permutation = jax.random.permutation(key=rng_key, x=x_batch.shape[0])
+    x_batch_permuted = x_batch[permutation, :]
+    inducing_inputs = x_batch_permuted[:n_inducing_inputs]
+    return inducing_inputs
 
 
 if __name__ == "__main__":

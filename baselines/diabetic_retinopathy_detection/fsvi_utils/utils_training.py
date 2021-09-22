@@ -86,9 +86,7 @@ class Training:
         else:
             raise NotImplementedError(self.init_strategy)
 
-
         self.dropout = self.dropout_rate > 0
-
         self.stochastic_linearization_prior = False
 
         print(f"Stochastic linearization (posterior): {self.stochastic_linearization}")

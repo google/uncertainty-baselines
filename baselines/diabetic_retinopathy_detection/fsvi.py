@@ -688,40 +688,12 @@ def reshape_to_multiple_cores(x_batch, y_batch, num_cores):
     return x_batch, y_batch
 
 
-def get_latest_fsvi_checkpoint(path):
-    chkpts = [f for f in tf.io.gfile.listdir(path) if "chkpt_" in f]
-    if chkpts:
-        latest = max(chkpts, key=lambda x: int(x.split("_")[1]))
-        return os.path.join(path, latest)
-
-
 def merge_list_of_dicts(list_of_dicts):
     if not list_of_dicts:
         return list_of_dicts
     keys = list_of_dicts[0].keys()
     merged_dict = {k: jnp.stack([d[k] for d in list_of_dicts]) for k in keys}
     return merged_dict
-
-
-def find_diff(x, y):
-    difference = tree.map_structure(lambda a, b: jnp.abs(a - b).max(),
-                                    x,
-                                    y)
-    difference = np.max([x for x in tree.flatten(difference)])
-    return difference
-
-
-def find_diff_dict(x, y):
-    for k in x.keys():
-        print(k, find_diff(x[k], y[k]))
-
-
-def deepcopy_np(d):
-    return {k: tree.map_structure(lambda a: np.array(a), v) for k, v in d.items()}
-
-
-def jax_sum(x):
-    return np.sum([jnp.sum(a) for a in tree.flatten(x)])
 
 
 if __name__ == "__main__":

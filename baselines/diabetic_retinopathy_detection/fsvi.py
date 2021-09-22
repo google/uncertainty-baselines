@@ -73,7 +73,7 @@ flags.DEFINE_string(
 )
 
 flags.DEFINE_integer(
-  "n_samples", default=5, help="Number of exp log lik samples (default: 1)",
+  "n_samples", default=5, help="Number of Monte-Carlo log lik samples (default: 1)",
 )
 
 flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")

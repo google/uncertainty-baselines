@@ -4,14 +4,14 @@ import jax
 import jax.numpy as jnp
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
-from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
+from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Loss
 
 
 class Initializer:
     def __init__(
         self,
         activation: str,
-        dropout_rate,
+        dropout_rate: float,
         input_shape: List[int],
         output_dim: int,
         kl_scale,
@@ -61,7 +61,6 @@ class Initializer:
     ):
         model = self._compose_model()
         init_fn, apply_fn = model.forward
-        # INITIALIZE NETWORK STATE + PARAMETERS
         x_init = jnp.ones(self.input_shape)
         params_init, state = init_fn(
             rng_key, x_init, rng_key, model.stochastic_parameters, is_training=True
@@ -74,7 +73,7 @@ class Initializer:
             activation_fn=self.activation,
             stochastic_parameters=True,
             linear_model=True,
-            dropout=self.dropout,
+            dropout=self.dropout_rate > 0,
             dropout_rate=self.dropout_rate,
             uniform_init_minval=self.uniform_init_minval,
             uniform_init_maxval=self.uniform_init_maxval,
@@ -83,8 +82,8 @@ class Initializer:
         )
         return model
 
-    def initialize_objective(self, model) -> Objectives:
-        metrics = Objectives(
+    def initialize_objective(self, model) -> Loss:
+        metrics = Loss(
             model=model,
             kl_scale=self.kl_scale,
             n_samples=self.n_samples,

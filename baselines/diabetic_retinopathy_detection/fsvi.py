@@ -296,8 +296,7 @@ def main(argv):
     # initialization
     (model, _, apply_fn, state, params) = initializer.initialize_model(rng_key=rng_key)
     opt_state = opt.init(params)
-    objective = initializer.initialize_objective(model=model)
-    loss = objective.nelbo_fsvi_classification
+    loss = initializer.initialize_objective(model=model).nelbo_fsvi_classification
 
     summary_writer = tf.summary.create_file_writer(
         os.path.join(output_dir, "summaries")

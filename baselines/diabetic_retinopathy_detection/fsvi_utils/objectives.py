@@ -6,7 +6,6 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 import tree
-from jax.experimental import optimizers
 from jax import jit
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
@@ -17,11 +16,8 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import (
     predicate_batchnorm)
 from baselines.diabetic_retinopathy_detection.utils import get_diabetic_retinopathy_class_balance_weights
 
-dtype_default = jnp.float32
-eps = 1e-6
 
-
-class Objectives_hk:
+class Loss:
     def __init__(
         self,
         model: Model,
@@ -33,55 +29,6 @@ class Objectives_hk:
         self.kl_scale = kl_scale
         self.n_samples = n_samples
         self.stochastic_linearization = stochastic_linearization
-
-    @partial(jit, static_argnums=(0, 10, 11))
-    def objective_and_state(
-        self,
-        trainable_params,
-        non_trainable_params,
-        state,
-        prior_mean,
-        prior_cov,
-        inputs,
-        targets,
-        inducing_inputs,
-        rng_key,
-        class_weight,
-        objective_fn,
-    ):
-        is_training = True
-        params = hk.data_structures.merge(trainable_params, non_trainable_params,)
-
-        objective = objective_fn(
-            params,
-            state,
-            prior_mean,
-            prior_cov,
-            inputs,
-            targets,
-            inducing_inputs,
-            rng_key,
-            is_training,
-            class_weight
-        )
-
-        state = self.model.apply_fn(
-            params,
-            state,
-            rng_key,
-            inputs,
-            rng_key,
-            stochastic=True,
-            is_training=is_training,
-        )[1]
-
-        return objective, state
-
-    @partial(jit, static_argnums=(0,))
-    def accuracy(self, preds, targets):
-        target_class = jnp.argmax(targets, axis=1)
-        predicted_class = jnp.argmax(preds, axis=1)
-        return jnp.mean(predicted_class == target_class)
 
     def _crossentropy_log_likelihood(self, preds_f_samples, targets):
         log_likelihood = jnp.mean(
@@ -271,5 +218,5 @@ def compute_scale(kl_scale: str, inputs: jnp.ndarray, n_inducing_inputs: int) ->
     elif kl_scale == "normalized":
         scale = 1.0 / n_inducing_inputs
     else:
-        scale = dtype_default(kl_scale)
+        scale = jnp.float32(kl_scale)
     return scale

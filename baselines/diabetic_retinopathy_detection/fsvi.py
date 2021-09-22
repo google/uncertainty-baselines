@@ -77,8 +77,6 @@ flags.DEFINE_string(
 
 flags.DEFINE_string("kl_scale", default="normalized", help="KL scaling factor (default: 1)")
 
-flags.DEFINE_boolean("full_cov", default=False, help="Use full covariance")
-
 flags.DEFINE_integer(
     "n_samples", default=5, help="Number of exp log lik samples (default: 1)",
 )
@@ -94,9 +92,6 @@ flags.DEFINE_integer("seed", default=0, help="Random seed (default: 0)")
 flags.DEFINE_bool(
     "stochastic_linearization", default=True, help="Stochastic linearization"
 )
-
-flags.DEFINE_bool("features_fixed", default=False, help="Fixed feature maps")
-
 
 flags.DEFINE_integer('per_core_batch_size', 64,
                      'The per-core batch size for both training '
@@ -329,7 +324,6 @@ def main(argv):
         output_dim=output_dim,
         n_train=n_train,
         n_batches=train_steps_per_epoch,
-        full_ntk=False,
         # TODO: is there a better way than this?
         **get_dict_of_flags(),
     )
@@ -341,8 +335,6 @@ def main(argv):
     (
         opt,
         opt_state,
-        get_trainable_params,
-        get_variational_and_model_params,
         loss,
     ) = training.initialize_optimization(
         model=model,
@@ -398,15 +390,10 @@ def main(argv):
         Captured variables:
             loss, FLAGS, num_cores
         """
-        trainable_params, non_trainable_params = get_trainable_params(params)
-        variational_params, model_params = get_variational_and_model_params(params)
-        prior_mean, prior_cov = prior_fn(
-            inducing_inputs=inducing_inputs, model_params=model_params,
-        )
+        prior_mean, prior_cov = prior_fn((inducing_inputs.shape[0], output_dim))
 
         grads, additional_info = jax.grad(loss, argnums=0, has_aux=True)(
-            trainable_params,
-            non_trainable_params,
+            params,
             state,
             prior_mean,
             prior_cov,
@@ -419,18 +406,14 @@ def main(argv):
             FLAGS.l2,
         )
 
-        zero_grads = jax.tree_map(lambda x: x * 0.0, non_trainable_params)
-        grads = jax.tree_map(lambda x: x * 1.0, grads)
-        grads_full = hk.data_structures.merge(grads, zero_grads)
-
         if num_cores > 1:
-            grads_full = tree.map_structure(
-                partial(jax.lax.pmean, axis_name="i"), grads_full
+            grads = tree.map_structure(
+                partial(jax.lax.pmean, axis_name="i"), grads
             )
             additional_info = tree.map_structure(
                 partial(jax.lax.pmean, axis_name="i"), additional_info
             )
-        updates, opt_state = opt.update(grads_full, opt_state)
+        updates, opt_state = opt.update(grads, opt_state)
         new_params = optax.apply_updates(params, updates)
         new_state = additional_info["state"]
         return new_params, new_state, opt_state, additional_info

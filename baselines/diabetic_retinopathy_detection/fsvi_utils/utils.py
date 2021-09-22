@@ -1,6 +1,5 @@
 import os
 import getpass
-import pdb
 from copy import copy
 from typing import Tuple, List
 import random as random_py
@@ -8,34 +7,17 @@ import random as random_py
 import jax
 import tree
 from jax import jit, random
-from jax import numpy as jnp, partial
-
+from jax import numpy as jnp
 import tensorflow as tf
-from tensorflow_probability.substrates import jax as tfp
-from tensorflow_probability.substrates.jax import distributions as tfd
-
-tfd = tfp.distributions
-
 import torch
-
-from sklearn.metrics import roc_auc_score, roc_curve
 import numpy as np
-
-# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.jax_utils import KeyHelper
 
-sns.set()
 
 dtype_default = jnp.float32
-eps = 1e-10
-jitter = 1e-3
-
-
 TWO_TUPLE = Tuple[int, int]
-TUPLE_OF_TWO_TUPLES = Tuple[TWO_TUPLE, ...]
 
 
 def initialize_random_keys(seed: int) -> KeyHelper:
@@ -59,138 +41,45 @@ def sigma_transform(params_log_var):
     return tree.map_structure(lambda p: jnp.exp(p), params_log_var)
 
 
-@partial(
-    jit,
-    static_argnums=(
-        4,
-        5,
-        6,
-    ),
-)
+@jit
 def kl_divergence(
-    mean_q, mean_p, cov_q, cov_p, output_dim: int, full_cov: bool,
+    mean_q, mean_p, cov_q, cov_p,
 ):
     """
     Return KL(q || p)
-    # TODO: make the shape of cov be independent of prior_type, so that the code can be simplified
-    If prior_type is bnn_induced, then this function is equivalent to kl_multioutput
 
-    @param mean_q: array of shape (batch_dim, output_dim)
-    @param cov_q: array of shape (batch_dim, output_dim, batch_dim, output_dim)
+    All inputs are either of shape (batch_dim, output_dim).
     """
     function_kl = 0
-    full_cov_prior = False
-
-    if output_dim == 1:
-        mean_q_tp = jnp.squeeze(mean_q)
-        cov_q_tp = jnp.squeeze(cov_q)
-
-        mean_p_tp = jnp.squeeze(mean_p)
-        cov_p_tp = jnp.squeeze(cov_p)
-
-        if cov_q_tp.shape[0] != cov_p_tp.shape[0]:
-            mean_p_tp =mean_p_tp[:mean_q_tp.shape[0]]
-            cov_p_tp = cov_p_tp[:cov_q_tp.shape[0]]
-
-        function_kl = kl_general(
+    output_dim = mean_q.shape[1]
+    for i in range(output_dim):
+        mean_q_tp = mean_q[:, i]
+        cov_q_tp = cov_q[:, i]
+        mean_p_tp = mean_p[:, i]
+        cov_p_tp = cov_p[:, i]
+        function_kl += kl_diag(
             mean_q_tp,
             mean_p_tp,
             cov_q_tp,
             cov_p_tp,
-            full_cov and full_cov_prior,
         )
-    else:
-        for i in range(output_dim):
-            mean_q_tp = jnp.squeeze(mean_q[:, i])
-            cov_q_tp = _slice_cov_diag(cov=cov_q, index=i)
-            mean_p_tp = jnp.squeeze(mean_p)
-            cov_p_tp = jnp.squeeze(cov_p)
-
-            function_kl += kl_general(
-                mean_q_tp,
-                mean_p_tp,
-                cov_q_tp,
-                cov_p_tp,
-                full_cov and full_cov_prior,
-            )
-
     return function_kl
 
 
 @jit
 def kl_diag(mean_q, mean_p, cov_q, cov_p) -> jnp.ndarray:
     """
-    All inputs are 1D arrays.
+    Return KL(q || p)
+    NOte: all inputs are 1D arrays.
 
     @param cov_q: the diagonal of covariance
     @return:
         a scalar
     """
-    # assert (
-    #     cov_q.ndim == cov_p.ndim <= 1
-    # ), f"cov_q.shape={cov_q.shape}, cov_p.shape={cov_p.shape}"
     kl_1 = jnp.log(cov_p ** 0.5) - jnp.log(cov_q ** 0.5)
     kl_2 = (cov_q + (mean_q - mean_p) ** 2) / (2 * cov_p)
     kl_3 = -1 / 2
     kl = jnp.sum(kl_1 + kl_2 + kl_3)
-    # Experimental: logsumexp as supremum approximation
-    # kl = jnp.log(jnp.sum(jnp.exp(kl_1 + kl_2 + kl_3)))
-    # Experimental: KL between two univariate Laplace distributions:
-    # kl_1 = cov_q * jnp.exp(-(jnp.abs(mean_q - mean_p) / cov_q)) / cov_p
-    # kl_2 = jnp.abs(mean_q - mean_p) / cov_p
-    # kl_3 = jnp.log(cov_p) - jnp.log(cov_q) - 1
-    # kl = jnp.sum(kl_1 + kl_2 + kl_3)
-    return kl
-
-
-@partial(jit, static_argnums=(4,))
-def kl_general(
-    mean_q: jnp.ndarray,
-    mean_p: jnp.ndarray,
-    cov_q: jnp.ndarray,
-    cov_p: jnp.ndarray,
-    full_cov: bool,
-):
-    """
-    Return KL(q || p)
-
-    @param mean_q: 1D array
-    @param mean_p: 1D array
-    @param cov_q: 1D or 2D array
-    @param cov_p: 1D or 2D array
-    @param full_cov: if True, use full covariance, otherwise, use diagonal of covariance
-    """
-    # assert cov_p.ndim in {1, 2} and cov_q.ndim in {
-    #     1,
-    #     2,
-    # }, f"cov_q.shape={cov_q.shape}, cov_p.shape={cov_p.shape}"
-    if not full_cov:
-        to_1D = lambda x: jnp.diag(x) if x.ndim == 2 else x
-        cov_p, cov_q = list(map(to_1D, [cov_p, cov_q]))
-        return kl_diag(mean_q, mean_p, cov_q, cov_p)
-    else:
-        return kl_full_cov(mean_q, mean_p, cov_q, cov_p)
-
-
-def kl_full_cov(
-    mean_q: jnp.ndarray,
-    mean_p: jnp.ndarray,
-    cov_q: jnp.ndarray,
-    cov_p: jnp.ndarray,
-):
-    q = tfp.distributions.MultivariateNormalFullCovariance(
-        loc=mean_q,
-        covariance_matrix=cov_q,
-        validate_args=False,
-        allow_nan_stats=False,
-    )
-    p = tfp.distributions.MultivariateNormalFullCovariance(
-        loc=mean_p,
-        covariance_matrix=cov_p,
-        validate_args=False,
-        allow_nan_stats=False,
-    )
-    kl = tfd.kl_divergence(q, p, allow_nan_stats=False)
     return kl
 
 
@@ -439,170 +328,3 @@ def select_inducing_inputs(
             plt.close()
 
     return inducing_inputs
-
-
-def to_image(fig):
-    """Create image from plot."""
-    fig.tight_layout(pad=1)
-    fig.canvas.draw()
-    image_from_plot = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-    image_from_plot = image_from_plot.reshape(
-        fig.canvas.get_width_height()[::-1] + (3,)
-    )
-    return image_from_plot
-
-
-def predictive_entropy(predicted_labels):
-    entropy = -((predicted_labels + eps) * jnp.log(predicted_labels + eps)).sum(-1)
-    return entropy
-
-
-def predictive_entropy_logits(predicted_logits):
-    entropy = -(
-        jax.nn.softmax(predicted_logits, axis=-1)
-        * jax.nn.log_softmax(predicted_logits, axis=-1)
-    ).sum(-1)
-    return entropy
-
-
-def auroc(predicted_labels_test, predicted_labels_ood, score):
-    ood_size = predicted_labels_ood.shape[1]
-    test_size = predicted_labels_test.shape[1]
-    anomaly_targets = jnp.concatenate((np.zeros(test_size), np.ones(ood_size)))
-    if score == "entropy":
-        entropy_test = predictive_entropy(predicted_labels_test.mean(0))
-        entropy_ood = predictive_entropy(predicted_labels_ood.mean(0))
-        scores = jnp.concatenate((entropy_test, entropy_ood))
-    if score == "expected entropy":
-        entropy_test = predictive_entropy(predicted_labels_test).mean(0)
-        entropy_ood = predictive_entropy(predicted_labels_ood).mean(0)
-        scores = jnp.concatenate((entropy_test, entropy_ood))
-    elif score == "mutual information":
-        mutual_information_test = np.mean(
-            np.mean(
-                np.square(
-                    predicted_labels_test - predicted_labels_test.mean(0),
-                    dtype=dtype_default,
-                ),
-                0,
-                dtype=dtype_default,
-            ),
-            -1,
-            dtype=dtype_default,
-        )
-        mutual_information_ood = np.mean(
-            np.mean(
-                np.square(
-                    predicted_labels_ood - predicted_labels_ood.mean(0),
-                    dtype=dtype_default,
-                ),
-                0,
-                dtype=dtype_default,
-            ),
-            -1,
-            dtype=dtype_default,
-        )
-        scores = jnp.concatenate((mutual_information_test, mutual_information_ood))
-    # elif score=='mutual information':
-    #     predictive_variance_test = -(predicted_labels_test * jnp.log(predicted_labels_test + eps)).sum(-1).mean(0)
-    #     predictive_variance_ood = -(predicted_labels_ood * jnp.log(predicted_labels_ood + eps)).sum(-1).mean(0)
-    #     scores = jnp.concatenate((predictive_variance_test, predictive_variance_ood))
-    else:
-        NotImplementedError
-    fpr, tpr, _ = roc_curve(anomaly_targets, scores)
-    auroc_score = roc_auc_score(anomaly_targets, scores)
-    return auroc_score
-
-
-def auroc_logits(predicted_logits_test, predicted_logits_ood, score):
-    predicted_labels_test = jax.nn.softmax(predicted_logits_test, axis=-1)
-    predicted_labels_ood = jax.nn.softmax(predicted_logits_ood, axis=-1)
-
-    ood_size = predicted_labels_ood.shape[1]
-    test_size = predicted_labels_test.shape[1]
-    anomaly_targets = jnp.concatenate((np.zeros(test_size), np.ones(ood_size)))
-    if score == "entropy":
-        entropy_test = predictive_entropy(predicted_labels_test.mean(0))
-        entropy_ood = predictive_entropy(predicted_labels_ood.mean(0))
-        scores = jnp.concatenate((entropy_test, entropy_ood))
-    if score == "expected entropy":
-        entropy_test = predictive_entropy(predicted_labels_test).mean(0)
-        entropy_ood = predictive_entropy(predicted_labels_ood).mean(0)
-        scores = jnp.concatenate((entropy_test, entropy_ood))
-    elif score == "mutual information":
-        mutual_information_test = np.mean(
-            np.mean(
-                np.square(
-                    predicted_labels_test - predicted_labels_test.mean(0),
-                    dtype=dtype_default,
-                ),
-                0,
-                dtype=dtype_default,
-            ),
-            -1,
-            dtype=dtype_default,
-        )
-        mutual_information_ood = np.mean(
-            np.mean(
-                np.square(
-                    predicted_labels_ood - predicted_labels_ood.mean(0),
-                    dtype=dtype_default,
-                ),
-                0,
-                dtype=dtype_default,
-            ),
-            -1,
-            dtype=dtype_default,
-        )
-        scores = jnp.concatenate((mutual_information_test, mutual_information_ood))
-    # elif score=='mutual information':
-    #     predictive_variance_test = -(predicted_labels_test * jnp.log(predicted_labels_test + eps)).sum(-1).mean(0)
-    #     predictive_variance_ood = -(predicted_labels_ood * jnp.log(predicted_labels_ood + eps)).sum(-1).mean(0)
-    #     scores = jnp.concatenate((predictive_variance_test, predictive_variance_ood))
-    else:
-        NotImplementedError
-    fpr, tpr, _ = roc_curve(anomaly_targets, scores)
-    auroc_score = roc_auc_score(anomaly_targets, scores)
-    return auroc_score
-
-
-def _slice_cov_diag(cov: jnp.ndarray, index: int) -> jnp.ndarray:
-    """
-    This function slices and takes diagonal
-
-    index is for the output dimension
-    """
-    ndims = len(cov.shape)
-    if ndims == 2:
-        cov_i = cov[:, index]
-    elif ndims == 3:
-        cov_i = cov[:, :, index]
-    elif ndims == 4:
-        cov_i = cov[:, index, :, index]
-    else:
-        raise ValueError("Posterior covariance shape not recognized.")
-    return cov_i
-
-
-@jit
-def kl_diag_tfd(mean_q, mean_p, cov_q, cov_p) -> jnp.ndarray:
-    """
-    Return KL(q || p)
-    All inputs are 1D array
-    """
-    q = tfd.MultivariateNormalDiag(loc=mean_q, scale_diag=(cov_q ** 0.5))
-    p = tfd.MultivariateNormalDiag(loc=mean_p, scale_diag=(cov_p ** 0.5))
-    return tfd.kl_divergence(q, p)
-    # Experimental: KL between two univariate Laplace distributions:
-    # kl_1 = cov_q * jnp.exp(-(jnp.abs(mean_q - mean_p) / cov_q)) / cov_p
-    # kl_2 = jnp.abs(mean_q - mean_p) / cov_p
-    # kl_3 = jnp.log(cov_p) - jnp.log(cov_q) - 1
-    # kl = jnp.sum(kl_1 + kl_2 + kl_3)
-    # return kl
-
-
-def to_float_if_possible(x):
-    try:
-        return float(x)
-    except ValueError:
-        return x

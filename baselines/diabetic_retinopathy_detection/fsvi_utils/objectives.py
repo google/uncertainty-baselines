@@ -25,22 +25,14 @@ class Objectives_hk:
     def __init__(
         self,
         model: Model,
-        output_dim,
         kl_scale: str,
         n_samples,
-        full_cov,
         stochastic_linearization,
-        full_ntk=False,
-        kl_type=0,
     ):
         self.model = model
-        self.output_dim = output_dim
         self.kl_scale = kl_scale
         self.n_samples = n_samples
-        self.full_cov = full_cov
         self.stochastic_linearization = stochastic_linearization
-        self.full_ntk = full_ntk
-        self.kl_type = kl_type
 
     @partial(jit, static_argnums=(0, 10, 11))
     def objective_and_state(
@@ -142,33 +134,23 @@ class Objectives_hk:
         params_mean, params_log_var, params_deterministic = partition_params(params)
         scale = compute_scale(self.kl_scale, inputs, inducing_inputs.shape[0])
 
-        if self.kl_type == 0:
-            mean, cov = utils_linearization.bnn_linearized_predictive(
-                self.model.apply_fn,
-                params_mean,
-                params_log_var,
-                params_deterministic,
-                state,
-                inducing_inputs,
-                rng_key,
-                self.stochastic_linearization,
-                self.full_ntk,
-            )
-        elif self.kl_type == 1:
-            print('*' * 100)
-            print(f"new kl_type is used! The inducing inputs has shape {inducing_inputs}")
-            mean = jnp.mean(inducing_inputs, 0)
-            cov = jnp.square(jnp.std(inducing_inputs, 0))
-        else:
-            raise NotImplementedError(self.kl_type)
+        mean, cov = utils_linearization.bnn_linearized_predictive(
+            self.model.apply_fn,
+            params_mean,
+            params_log_var,
+            params_deterministic,
+            state,
+            inducing_inputs,
+            rng_key,
+            self.stochastic_linearization,
+            full_ntk=False,
+        )
 
         kl = utils.kl_divergence(
             mean,
             prior_mean,
             cov,
             prior_cov,
-            self.output_dim,
-            self.full_cov,
         )
 
         return kl, scale
@@ -191,16 +173,9 @@ class Objectives_hk:
         preds_f_samples, _, _ = self.model.predict_f_multisample_jitted(
             params, state, inputs, rng_key, self.n_samples, is_training,
         )
-        if self.kl_type == 1:
-            permutation = jax.random.permutation(key=rng_key, x=inputs.shape[0])
-            inducing_inputs_output_vals = preds_f_samples[:, permutation[:inducing_inputs.shape[0]], :]
-            kl, scale = self.function_kl(
-                params, state, prior_mean, prior_cov, inputs, inducing_inputs_output_vals, rng_key,
-            )
-        else:
-            kl, scale = self.function_kl(
-                params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
-            )
+        kl, scale = self.function_kl(
+            params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
+        )
 
         log_likelihood = self.crossentropy_log_likelihood(preds_f_samples, targets,
                                                           class_weight)
@@ -242,11 +217,10 @@ class Objectives_hk:
             rng_key=rng_key,
         )
 
-    @partial(jit, static_argnums=(0, 10, 11, 12))
+    @partial(jit, static_argnums=(0, 9, 10, 11))
     def nelbo_fsvi_classification(
         self,
-        trainable_params,
-        non_trainable_params,
+        params,
         state,
         prior_mean,
         prior_cov,
@@ -258,7 +232,6 @@ class Objectives_hk:
         loss_type: int,
         l2_strength: float,
     ):
-        params = hk.data_structures.merge(trainable_params, non_trainable_params, )
         is_training = True
         elbo, log_likelihood, kl, scale = self._elbo_fsvi_classification(
             params,

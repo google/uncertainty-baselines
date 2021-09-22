@@ -279,11 +279,20 @@ def main(argv):
 
     # INITIALIZE TRAINING CLASS
     initializer = Initializer(
+        activation=FLAGS.activation,
+        dropout_rate=FLAGS.dropout_rate,
         input_shape=input_shape,
         output_dim=OUTPUT_DIM,
-        n_batches=train_steps_per_epoch,
-        # TODO: is there a better way than this?
-        **get_dict_of_flags(),
+        kl_scale=FLAGS.kl_scale,
+        stochastic_linearization=FLAGS.stochastic_linearization,
+        n_samples=FLAGS.n_samples,
+        uniform_init_minval=FLAGS.uniform_init_minval,
+        uniform_init_maxval=FLAGS.uniform_init_maxval,
+        w_init=FLAGS.w_init,
+        b_init=FLAGS.b_init,
+        init_strategy=FLAGS.init_strategy,
+        prior_mean=FLAGS.prior_mean,
+        prior_cov=FLAGS.prior_cov,
     )
     opt = OptimizerInitializer(
         optimizer=FLAGS.optimizer,

@@ -23,7 +23,6 @@ class Initializer:
         init_strategy,
         prior_mean,
         prior_cov,
-        **kwargs,
     ):
         """
 

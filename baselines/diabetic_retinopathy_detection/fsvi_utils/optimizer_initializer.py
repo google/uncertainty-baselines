@@ -30,7 +30,7 @@ class OptimizerInitializer:
         self.final_decay_factor = final_decay_factor
         self.lr_schedule = lr_schedule
 
-    def initialize_optimizer(self) -> optax.GradientTransformation:
+    def get(self) -> optax.GradientTransformation:
         if "adam" in self.optimizer:
             opt = optax.adam(self.base_learning_rate)
         elif "sgd" == self.optimizer and self.lr_schedule == "linear":

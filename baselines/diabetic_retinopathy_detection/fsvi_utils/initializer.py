@@ -21,6 +21,8 @@ class Initializer:
         w_init,
         b_init,
         init_strategy,
+        prior_mean,
+        prior_cov,
         **kwargs,
     ):
         """
@@ -41,6 +43,9 @@ class Initializer:
         self.w_init = w_init
         self.b_init = b_init
         self.init_strategy = init_strategy
+
+        self.prior_mean = prior_mean
+        self.prior_cov = prior_cov
 
         if self.init_strategy == "he_normal_and_zeros":
             self.w_init = "he_normal"
@@ -90,10 +95,8 @@ class Initializer:
         )
         return metrics.nelbo_fsvi_classification
 
-    @staticmethod
     def initialize_prior(
-        prior_mean: str,
-        prior_cov: str,
+        self,
     ) -> Callable[[Tuple], List[jnp.ndarray]]:
         """
         @predict_f_deterministic: function to do forward pass
@@ -104,7 +107,7 @@ class Initializer:
             prior_fn: a function that takes in an array of inducing input points and return the mean
                 and covariance of the outputs at those points
         """
-        _prior_mean, _prior_cov = jnp.float32(prior_mean), jnp.float32(prior_cov)
+        _prior_mean, _prior_cov = jnp.float32(self.prior_mean), jnp.float32(self.prior_cov)
 
         def prior_fn(shape):
             prior_mean = jnp.ones(shape) * _prior_mean

@@ -201,6 +201,8 @@ flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
 flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
 flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 
+flags.DEFINE_string('checkpoint_path', None, 'path to the checkpoint file')
+
 FLAGS = flags.FLAGS
 
 
@@ -294,10 +296,11 @@ def main(argv):
         lr_decay_epochs=FLAGS.lr_decay_epochs,
         final_decay_factor=FLAGS.final_decay_factor,
         lr_schedule=FLAGS.lr_schedule,
-    ).initialize_optimizer()
+    ).get()
 
     # initialization
     (model, _, apply_fn, state, params) = initializer.initialize_model(rng_key=rng_key)
+    prior_fn = initializer.initialize_prior()
     opt_state = opt.init(params)
     loss = initializer.initialize_loss(model=model)
 
@@ -305,24 +308,18 @@ def main(argv):
         os.path.join(output_dir, "summaries")
     )
 
-    latest_checkpoint = None  # get_latest_fsvi_checkpoint(FLAGS.output_dir)
+    # loading from checkpoint
     initial_epoch = 0
-    if latest_checkpoint and FLAGS.load_from_checkpoint:
-        with tf.io.gfile.GFile(latest_checkpoint, mode="rb") as f:
+    if FLAGS.checkpoint_path and FLAGS.load_from_checkpoint:
+        with tf.io.gfile.GFile(FLAGS.checkpoint_path, mode="rb") as f:
             chkpt = pickle.load(f)
-        # TODO: need to validate the chkpt has compatible hyperparameters, such as
-        # the type of the model, optimizer
+        assert chkpt["hparams"]["optimizer"] == FLAGS.optimizer
+        assert chkpt["hparams"]["lr_schedule"] == FLAGS.lr_schedule
         state, params, opt_state = chkpt["state"], chkpt["params"], chkpt["opt_state"]
-
-        logging.info("Loaded checkpoint %s", latest_checkpoint)
+        logging.info("Loaded checkpoint %s", FLAGS.checkpoint_path)
         initial_epoch = chkpt["epoch"] + 1
 
-    # INITIALIZE KL INPUT FUNCTIONS
-    prior_fn = initializer.initialize_prior(
-        prior_mean=FLAGS.prior_mean,
-        prior_cov=FLAGS.prior_cov,
-    )
-
+    # update metrics
     use_tpu = any(["tpu" in str(d).lower() for d in jax.devices()])
     metrics = utils.get_diabetic_retinopathy_base_metrics(
         use_tpu=use_tpu,

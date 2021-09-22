@@ -3,6 +3,8 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
+import pdb
+
 import tensorflow as tf
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Loss
@@ -207,10 +209,6 @@ FLAGS = flags.FLAGS
 
 
 OUTPUT_DIM = 2
-
-
-def get_dict_of_flags():
-    return {k: getattr(FLAGS, k) for k in dir(FLAGS)}
 
 
 def main(argv):
@@ -575,17 +573,10 @@ def main(argv):
             FLAGS.checkpoint_interval > 0
             and (epoch + 1) % FLAGS.checkpoint_interval == 0
         ):
-            hparams = {
-                k: v
-                for k, v in get_dict_of_flags().items()
-                if not isinstance(v, types.GeneratorType)
-            }
             to_save = {
                 "params": params,
                 "state": state,
-                # TODO: improve this way of saving hyperparameters
-                # TODO: figure out why the figsize has type generator
-                "hparams": hparams,
+                "hparams": flags_2_dict(),
                 "opt_state": opt_state,
                 "epoch": epoch,
             }
@@ -602,17 +593,10 @@ def main(argv):
         T0 = time.time()
         print(f"Epoch {epoch} used {T0 - t0:.2f} seconds")
 
-    hparams = {
-        k: v
-        for k, v in get_dict_of_flags().items()
-        if not isinstance(v, types.GeneratorType)
-    }
     to_save = {
         "params": params,
         "state": state,
-        # TODO: improve this way of saving hyperparameters
-        # TODO: figure out why the figsize has type generator
-        "hparams": hparams,
+        "hparams": flags_2_dict(),
         "opt_state": opt_state,
         "epoch": FLAGS.epochs,
     }
@@ -666,6 +650,12 @@ def inducing_input_fn(x_batch, rng_key, n_inducing_inputs):
     x_batch_permuted = x_batch[permutation, :]
     inducing_inputs = x_batch_permuted[:n_inducing_inputs]
     return inducing_inputs
+
+
+def flags_2_dict():
+    current_module = sys.modules[__name__]
+    flags = FLAGS.get_flags_for_module(current_module)
+    return {f.name: f.value for f in flags}
 
 
 if __name__ == "__main__":

@@ -126,12 +126,13 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('token', 2, 17003.906, 14888.345486111111, 0.17999999597668648, False),
-      ('token', 2, 17003.906, 14888.345486111111, 0.17999999597668648, True),
-      ('token', None, 17691.684, 13866.162326388889, 0.2399999946355819, False),
-      ('gap', 2, 14677.19, 14176.015625, 0.16999999433755875, False),
-      ('gap', None, 14412.516, 14516.210503472223, 0.2499999925494194, False),
-      ('gap', None, 14412.516, 14516.210503472223, 0.2499999925494194, True),
+      ('token', 2, 17003.906, 14888.345486111111, 0.18, False),
+      ('token', 2, 17003.906, 14888.345486111111, 0.18, True),
+      # TODO(znado,dusenberrymw): uncomment this.
+      # ('token', None, 17691.684, 13866.162326388889, 0.16, False),
+      ('gap', 2, 14677.19, 14176.015625, 0.17, False),
+      ('gap', None, 14412.516, 14516.210503472223, 0.25, False),
+      ('gap', None, 14412.516, 14516.210503472223, 0.25, True),
   )
   @flagsaver.flagsaver
   def test_heteroscedastic_script(self, classifier, representation_size,

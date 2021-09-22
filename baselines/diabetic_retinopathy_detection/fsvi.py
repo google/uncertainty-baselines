@@ -3,17 +3,12 @@ import os
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "true"
 # os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.85"
+import tensorflow as tf
+tf.config.experimental.set_visible_devices([], "GPU")
+print('WARNING: TensorFlow is set to only use CPU.')
 import pathlib
 from datetime import datetime
 from pprint import pformat
-
-import tensorflow as tf
-
-from baselines.diabetic_retinopathy_detection.fsvi_utils.optimizer import OptimizerInitializer
-
-tf.config.experimental.set_visible_devices([], "GPU")
-print('WARNING: TensorFlow is set to only use CPU.')
-import json
 import logging
 import pickle
 import time
@@ -40,6 +35,7 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import (
 )
 from baselines.diabetic_retinopathy_detection.fsvi_utils.initializer import Initializer
 from baselines.diabetic_retinopathy_detection import utils
+from baselines.diabetic_retinopathy_detection.fsvi_utils.optimizer_initializer import OptimizerInitializer
 
 # original flags
 flags.DEFINE_string("optimizer", "sgd", "Optimizer used (default: adam)")

@@ -155,8 +155,8 @@ class CNN(Model):
         linear_model: bool = False,
         dropout=False,
         dropout_rate=0.0,
-        uniform_init_minval: float = -20.,
-        uniform_init_maxval: float = -18.,
+        uniform_init_minval: float = -20.0,
+        uniform_init_maxval: float = -18.0,
         w_init: str = "uniform",
         b_init: str = "uniform",
     ):
@@ -187,6 +187,7 @@ class CNN(Model):
                 b_init=self.b_init,
             )
             return net(inputs, rng_key, stochastic, is_training)
+
         return forward_fn
 
 

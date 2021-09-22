@@ -39,7 +39,7 @@ class OptimizerInitializer:
                 end_learning_rate=self.final_decay_factor * self.base_learning_rate,
                 decay_steps=(self.n_batches * (self.epochs - self.lr_warmup_epochs)),
                 warmup_steps=self.n_batches * self.lr_warmup_epochs,
-                decay_power=1.0
+                decay_power=1.0,
             )
             momentum = 1 - self.one_minus_momentum
             opt = optax.chain(
@@ -57,7 +57,8 @@ class OptimizerInitializer:
                 base_learning_rate=self.base_learning_rate,
                 decay_ratio=self.lr_decay_ratio,
                 decay_epochs=lr_decay_epochs,
-                warmup_epochs=self.lr_warmup_epochs)
+                warmup_epochs=self.lr_warmup_epochs,
+            )
 
             momentum = 1 - self.one_minus_momentum
             opt = optax.chain(
@@ -71,12 +72,8 @@ class OptimizerInitializer:
 
 
 def warm_up_piecewise_constant_schedule(
-        steps_per_epoch,
-        base_learning_rate,
-        warmup_epochs,
-        decay_epochs,
-        decay_ratio,
-    ):
+    steps_per_epoch, base_learning_rate, warmup_epochs, decay_epochs, decay_ratio,
+):
     def schedule(count):
         lr_epoch = jnp.array(count, jnp.float32) / steps_per_epoch
         learning_rate = base_learning_rate
@@ -87,17 +84,15 @@ def warm_up_piecewise_constant_schedule(
             learning_rate = jnp.where(
                 lr_epoch >= start_epoch,
                 base_learning_rate * decay_ratio ** index,
-                learning_rate)
+                learning_rate,
+            )
         return learning_rate
+
     return schedule
 
 
 def warm_up_polynomial_schedule(
-    base_learning_rate,
-    end_learning_rate,
-    decay_steps,
-    warmup_steps,
-    decay_power,
+    base_learning_rate, end_learning_rate, decay_steps, warmup_steps, decay_power,
 ):
     poly_schedule = optax.polynomial_schedule(
         init_value=base_learning_rate,

@@ -4,7 +4,9 @@ import haiku as hk
 from jax import numpy as jnp
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
-from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import map_variable_name
+from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import (
+    map_variable_name,
+)
 from baselines.diabetic_retinopathy_detection.fsvi_utils.ntk_utils import explicit_ntk
 
 

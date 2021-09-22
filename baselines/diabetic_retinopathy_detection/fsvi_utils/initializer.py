@@ -59,8 +59,7 @@ class Initializer:
         print(f"Stochastic linearization (posterior): {self.stochastic_linearization}")
 
     def initialize_model(
-        self,
-        rng_key,
+        self, rng_key,
     ):
         model = self._compose_model()
         init_fn, apply_fn = model.forward
@@ -94,9 +93,7 @@ class Initializer:
         )
         return metrics.nelbo_fsvi_classification
 
-    def initialize_prior(
-        self,
-    ) -> Callable[[Tuple], List[jnp.ndarray]]:
+    def initialize_prior(self,) -> Callable[[Tuple], List[jnp.ndarray]]:
         """
         @predict_f_deterministic: function to do forward pass
         @param prior_mean: example: "0.0"
@@ -106,10 +103,14 @@ class Initializer:
             prior_fn: a function that takes in an array of inducing input points and return the mean
                 and covariance of the outputs at those points
         """
-        _prior_mean, _prior_cov = jnp.float32(self.prior_mean), jnp.float32(self.prior_cov)
+        _prior_mean, _prior_cov = (
+            jnp.float32(self.prior_mean),
+            jnp.float32(self.prior_cov),
+        )
 
         def prior_fn(shape):
             prior_mean = jnp.ones(shape) * _prior_mean
             prior_cov = jnp.ones(shape) * _prior_cov
             return [prior_mean, prior_cov]
+
         return prior_fn

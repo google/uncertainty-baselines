@@ -13,17 +13,16 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils import utils_linearizat
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.haiku_mod import (
     partition_params,
-    predicate_batchnorm)
-from baselines.diabetic_retinopathy_detection.utils import get_diabetic_retinopathy_class_balance_weights
+    predicate_batchnorm,
+)
+from baselines.diabetic_retinopathy_detection.utils import (
+    get_diabetic_retinopathy_class_balance_weights,
+)
 
 
 class Loss:
     def __init__(
-        self,
-        model: Model,
-        kl_scale: str,
-        n_samples,
-        stochastic_linearization,
+        self, model: Model, kl_scale: str, n_samples, stochastic_linearization,
     ):
         self.model = model
         self.kl_scale = kl_scale
@@ -46,19 +45,16 @@ class Loss:
         # get_positive_empirical_prob
         # TODO: remove the hardcoded 1
         minibatch_positive_empirical_prob = targets[:, 1].sum() / targets.shape[0]
-        minibatch_class_weights = (
-            get_diabetic_retinopathy_class_balance_weights(
-                positive_empirical_prob=minibatch_positive_empirical_prob))
+        minibatch_class_weights = get_diabetic_retinopathy_class_balance_weights(
+            positive_empirical_prob=minibatch_positive_empirical_prob
+        )
 
-        log_likelihoods = jnp.mean(jnp.sum(
-                    targets * jax.nn.log_softmax(preds_f_samples, axis=-1), axis=-1
-                ),
-            axis=0
+        log_likelihoods = jnp.mean(
+            jnp.sum(targets * jax.nn.log_softmax(preds_f_samples, axis=-1), axis=-1),
+            axis=0,
         )
         weights = jnp.where(
-            targets[:, 1] == 1,
-            minibatch_class_weights[1],
-            minibatch_class_weights[0]
+            targets[:, 1] == 1, minibatch_class_weights[1], minibatch_class_weights[0]
         )
         reduced_value = jnp.sum(jnp.multiply(log_likelihoods, weights))
         return reduced_value
@@ -93,12 +89,7 @@ class Loss:
             full_ntk=False,
         )
 
-        kl = utils.kl_divergence(
-            mean,
-            prior_mean,
-            cov,
-            prior_cov,
-        )
+        kl = utils.kl_divergence(mean, prior_mean, cov, prior_cov,)
 
         return kl, scale
 
@@ -124,20 +115,27 @@ class Loss:
             params, state, prior_mean, prior_cov, inputs, inducing_inputs, rng_key,
         )
 
-        log_likelihood = self.crossentropy_log_likelihood(preds_f_samples, targets,
-                                                          class_weight)
+        log_likelihood = self.crossentropy_log_likelihood(
+            preds_f_samples, targets, class_weight
+        )
         if loss_type == 1:
             elbo = log_likelihood - scale * kl
         elif loss_type == 2:
-            elbo = log_likelihood / inputs.shape[0] - scale * kl / inducing_inputs.shape[0]
+            elbo = (
+                log_likelihood / inputs.shape[0] - scale * kl / inducing_inputs.shape[0]
+            )
         elif loss_type == 3:
             elbo = (log_likelihood - scale * kl) / inputs.shape[0]
         elif loss_type == 4:
             elbo = log_likelihood / inputs.shape[0]
         elif loss_type == 5:
             batch_norm_params = hk.data_structures.filter(predicate_batchnorm, params)
-            l2_loss = jnp.sum(jnp.stack([jnp.sum(x * x) for x in tree.flatten(batch_norm_params)]))
-            elbo = (log_likelihood - scale * kl) / inputs.shape[0] - l2_loss * l2_strength
+            l2_loss = jnp.sum(
+                jnp.stack([jnp.sum(x * x) for x in tree.flatten(batch_norm_params)])
+            )
+            elbo = (log_likelihood - scale * kl) / inputs.shape[
+                0
+            ] - l2_loss * l2_strength
         else:
             raise NotImplementedError(loss_type)
 
@@ -146,7 +144,9 @@ class Loss:
     @partial(jit, static_argnums=(0, 3))
     def crossentropy_log_likelihood(self, preds_f_samples, targets, class_weight):
         if class_weight:
-            return self._crossentropy_log_likelihood_with_class_weights(preds_f_samples, targets)
+            return self._crossentropy_log_likelihood_with_class_weights(
+                preds_f_samples, targets
+            )
         else:
             return self._crossentropy_log_likelihood(preds_f_samples, targets)
 
@@ -205,8 +205,17 @@ class Loss:
             is_training=is_training,
         )[1]
 
-        return -elbo, {"state": state, "elbo": elbo, "log_likelihood": log_likelihood,
-                       "kl": kl, "scale": scale, "loss": -elbo}
+        return (
+            -elbo,
+            {
+                "state": state,
+                "elbo": elbo,
+                "log_likelihood": log_likelihood,
+                "kl": kl,
+                "scale": scale,
+                "loss": -elbo,
+            },
+        )
 
 
 @partial(jit, static_argnums=(0,))

@@ -2,7 +2,6 @@ from typing import List, Tuple, Callable
 
 import jax
 import jax.numpy as jnp
-import optax
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objectives_hk as Objectives
@@ -11,29 +10,18 @@ from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Objec
 class Initializer:
     def __init__(
         self,
-        optimizer: str,
         activation: str,
-        base_learning_rate,
         dropout_rate,
         input_shape: List[int],
         output_dim: int,
         kl_scale,
         stochastic_linearization: bool,
         n_samples,
-        n_batches,
-        epochs,
         uniform_init_minval,
         uniform_init_maxval,
         w_init,
         b_init,
         init_strategy,
-        one_minus_momentum,
-        lr_warmup_epochs,
-        lr_decay_ratio,
-        lr_decay_epochs,
-        final_decay_factor,
-        lr_schedule,
-        layer_to_linearize=1,
         **kwargs,
     ):
         """
@@ -42,29 +30,18 @@ class Initializer:
         @param n_inducing_inputs: number of inducing points to draw from each task
         @param output_dim: the task-specific number of output dimensions
         """
-        self.optimizer = optimizer
         self.activation = activation
-        self.base_learning_rate = base_learning_rate
         self.dropout_rate = dropout_rate
         self.input_shape = input_shape
         self.output_dim = output_dim
         self.kl_scale = kl_scale
         self.stochastic_linearization = stochastic_linearization
         self.n_samples = n_samples
-        self.n_batches = n_batches
-        self.epochs = epochs
         self.uniform_init_minval = uniform_init_minval
         self.uniform_init_maxval = uniform_init_maxval
         self.w_init = w_init
         self.b_init = b_init
         self.init_strategy = init_strategy
-        self.one_minus_momentum = one_minus_momentum
-        self.lr_warmup_epochs = lr_warmup_epochs
-        self.lr_decay_ratio = lr_decay_ratio
-        self.lr_decay_epochs = lr_decay_epochs
-        self.final_decay_factor = final_decay_factor
-        self.lr_schedule = lr_schedule
-        self.layer_to_linearize = layer_to_linearize
 
         if self.init_strategy == "he_normal_and_zeros":
             self.w_init = "he_normal"
@@ -76,11 +53,7 @@ class Initializer:
             raise NotImplementedError(self.init_strategy)
 
         self.dropout = self.dropout_rate > 0
-        self.stochastic_linearization_prior = False
-
         print(f"Stochastic linearization (posterior): {self.stochastic_linearization}")
-        print(f"Stochastic linearization (prior): {self.stochastic_linearization_prior}"
-              f"\n")
 
     def initialize_model(
         self,
@@ -109,50 +82,6 @@ class Initializer:
             b_init=self.b_init,
         )
         return model
-
-    def initialize_optimizer(self) -> optax.GradientTransformation:
-        if "adam" in self.optimizer:
-            opt = optax.adam(self.base_learning_rate)
-        elif "sgd" == self.optimizer and self.lr_schedule == "linear":
-            print("*" * 100)
-            print("The linear learning schedule to reproducing deterministic is used")
-            lr_schedule = warm_up_polynomial_schedule(
-                base_learning_rate=self.base_learning_rate,
-                end_learning_rate=self.final_decay_factor * self.base_learning_rate,
-                decay_steps=(self.n_batches * (self.epochs - self.lr_warmup_epochs)),
-                warmup_steps=self.n_batches * self.lr_warmup_epochs,
-                decay_power=1.0
-            )
-            momentum = 1 - self.one_minus_momentum
-            opt = optax.chain(
-                optax.trace(decay=momentum, nesterov=True),
-                optax.scale_by_schedule(lr_schedule),
-                optax.scale(-1),
-            )
-        elif "sgd" in self.optimizer and self.lr_schedule == "step":
-            print("*" * 100)
-            print("The step learning schedule to reproducing deterministic is used")
-            DEFAULT_NUM_EPOCHS = 90
-            lr_decay_epochs = [
-                (int(start_epoch_str) * self.epochs) // DEFAULT_NUM_EPOCHS
-                for start_epoch_str in self.lr_decay_epochs
-            ]
-            lr_schedule = warm_up_piecewise_constant_schedule(
-                steps_per_epoch=self.n_batches,
-                base_learning_rate=self.base_learning_rate,
-                decay_ratio=self.lr_decay_ratio,
-                decay_epochs=lr_decay_epochs,
-                warmup_epochs=self.lr_warmup_epochs)
-
-            momentum = 1 - self.one_minus_momentum
-            opt = optax.chain(
-                optax.trace(decay=momentum, nesterov=True),
-                optax.scale_by_schedule(lr_schedule),
-                optax.scale(-1),
-            )
-        else:
-            raise ValueError("No optimizer specified.")
-        return opt
 
     def initialize_objective(self, model) -> Objectives:
         metrics = Objectives(
@@ -194,49 +123,3 @@ class Initializer:
             prior_cov = jnp.ones(shape) * _prior_cov
             return [prior_mean, prior_cov]
         return prior_fn
-
-
-def warm_up_piecewise_constant_schedule(
-        steps_per_epoch,
-        base_learning_rate,
-        warmup_epochs,
-        decay_epochs,
-        decay_ratio,
-    ):
-    def schedule(count):
-        lr_epoch = jnp.array(count, jnp.float32) / steps_per_epoch
-        learning_rate = base_learning_rate
-        if warmup_epochs >= 1:
-            learning_rate *= lr_epoch / warmup_epochs
-        _decay_epochs = [warmup_epochs] + decay_epochs
-        for index, start_epoch in enumerate(_decay_epochs):
-            learning_rate = jnp.where(
-                lr_epoch >= start_epoch,
-                base_learning_rate * decay_ratio ** index,
-                learning_rate)
-        return learning_rate
-    return schedule
-
-
-def warm_up_polynomial_schedule(
-    base_learning_rate,
-    end_learning_rate,
-    decay_steps,
-    warmup_steps,
-    decay_power,
-):
-    poly_schedule = optax.polynomial_schedule(
-        init_value=base_learning_rate,
-        end_value=end_learning_rate,
-        power=decay_power,
-        transition_steps=decay_steps,
-    )
-
-    def schedule(step):
-        lr = poly_schedule(step)
-        indicator = jnp.maximum(0.0, jnp.sign(warmup_steps - step))
-        warmup_lr = base_learning_rate * step / warmup_steps
-        lr = warmup_lr * indicator + (1 - indicator) * lr
-        return lr
-
-    return schedule

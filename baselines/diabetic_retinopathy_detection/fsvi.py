@@ -8,6 +8,9 @@ from datetime import datetime
 from pprint import pformat
 
 import tensorflow as tf
+
+from baselines.diabetic_retinopathy_detection.fsvi_utils.optimizer import OptimizerInitializer
+
 tf.config.experimental.set_visible_devices([], "GPU")
 print('WARNING: TensorFlow is set to only use CPU.')
 import json
@@ -199,12 +202,6 @@ flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
 flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
 flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 
-
-flags.DEFINE_integer(
-    "layer_to_linearize",
-    1,
-    "The layer number to use",
-)
 FLAGS = flags.FLAGS
 
 
@@ -280,8 +277,6 @@ def main(argv):
     input_shape = [1] + utils.load_input_shape(dataset_train=datasets["train"])
     # TODO: remove this hardcoded value
     output_dim = 2
-    # TODO: do we really need to keep all the inducing inputs selection methods?
-    n_train = steps["train"] * per_core_batch_size
     dataset_train = datasets['train']
     train_steps_per_epoch = steps["train"]
 
@@ -298,10 +293,21 @@ def main(argv):
         # TODO: is there a better way than this?
         **get_dict_of_flags(),
     )
+    opt = OptimizerInitializer(
+        optimizer=FLAGS.optimizer,
+        base_learning_rate=FLAGS.base_learning_rate,
+        n_batches=train_steps_per_epoch,
+        epochs=FLAGS.epochs,
+        one_minus_momentum=FLAGS.one_minus_momentum,
+        lr_warmup_epochs=FLAGS.lr_warmup_epochs,
+        lr_decay_ratio=FLAGS.lr_decay_ratio,
+        lr_decay_epochs=FLAGS.lr_decay_epochs,
+        final_decay_factor=FLAGS.final_decay_factor,
+        lr_schedule=FLAGS.lr_schedule,
+    ).initialize_optimizer()
 
     # initialization
     (model, _, apply_fn, state, params) = initializer.initialize_model(rng_key=rng_key)
-    opt = initializer.initialize_optimizer()
     opt_state = opt.init(params)
     objective = initializer.initialize_objective(model=model)
     loss = objective.nelbo_fsvi_classification

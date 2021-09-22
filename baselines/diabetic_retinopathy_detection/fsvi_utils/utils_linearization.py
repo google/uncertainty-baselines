@@ -19,23 +19,24 @@ def bnn_linearized_predictive(
   stochastic_linearization: bool,
   full_ntk: bool,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-  """
-  Return the mean and covariance of output of linearized BNN
+  """Return the mean and covariance of output of linearized BNN on inducing inputs.
 
-  Currently this function is used in the following places
-      - in the definition of loss function when model type is "fsvi"
-      - in the definition of bnn induced prior function
-  Basically, whenever we need to calculate the function distribution of a BNN from its parameter
-  distribution, we can use this function.
+  Args:
+    apply_fn: forward pass function of model.
+    params_mean: variational mean.
+    params_log_var: log variational variance.
+    params_deterministic: other parameters like the one used in batch normalization.
+    state: state of model, e.g. mean and std used in batch normalization.
+    inducing_inputs: inducing inputs on which this function aims to produce an approximate posterior distribution.
+    rng_key: jax random key.
+    stochastic_linearization: if True, linearize model around a sampled parameter instead of mean parameter.
+    full_ntk: if True, evaluate the full covariance, otherwise, only the diagonal.
 
-  @param stochastic_linearization: if True, linearize around sampled parameter; otherwise linearize around mean
-      parameters.
-
-  @return
-      mean: array of shape (batch_dim, output_dim)
-      cov: array of shape
-          if full_ntk is True, then (batch_dim, output_dim, batch_dim, output_dim)
-          otherwise, (batch_dim, output_dim)
+  Returns:
+    jnp.ndarray, array of shape (batch_dim, output_dim)
+    jnp.ndarray, array of the following shape
+        if full_ntk is True, then (batch_dim, output_dim, batch_dim, output_dim)
+        otherwise, (batch_dim, output_dim)
   """
   params = hk.data_structures.merge(params_mean, params_log_var, params_deterministic)
   mean = apply_fn(
@@ -48,7 +49,7 @@ def bnn_linearized_predictive(
     is_training=True,
   )[0]
 
-  params_var = utils.sigma_transform(params_log_var)
+  params_var = utils.exp_params(params_log_var)
 
   predict_fn_for_empirical_ntk = convert_predict_f_only_mean(
     apply_fn,
@@ -59,7 +60,7 @@ def bnn_linearized_predictive(
     rng_key,
     stochastic_linearization,
   )
-  renamed_params_var = map_variable_name(
+  renamed_params_var = rename_params(
     params_var, lambda n: f"{n.split('_')[0]}_mu"
   )
   cov = explicit_ntk(
@@ -73,14 +74,16 @@ def bnn_linearized_predictive(
 
 
 def convert_predict_f_only_mean(
-  apply_fn,
-  inputs,
-  params_log_var,
-  params_batchnorm,
-  state,
-  rng_key,
-  stochastic_linearization,
-):
+  apply_fn: Callable,
+  inputs: jnp.ndarray,
+  params_log_var: hk.Params,
+  params_batchnorm: hk.Params,
+  state: hk.State,
+  rng_key: jnp.ndarray,
+  stochastic_linearization: bool,
+) -> Callable:
+  """Return a function that takes the variational mean and returns the output
+  """
   def predict_f_only_mean(params_mean):
     params = hk.data_structures.merge(params_mean, params_log_var, params_batchnorm)
     return apply_fn(
@@ -99,16 +102,17 @@ def convert_predict_f_only_mean(
 def explicit_ntk(
   fwd_fn: Callable, params: hk.Params, sigma: hk.Params, diag=False,
 ) -> jnp.ndarray:
-  """
-  Calculate J * diag(sigma) * J^T, where J is Jacobian of model with respect to model parameters
+  """Calculate J * diag(sigma) * J^T, where J is Jacobian of model with respect to model parameters
    using explicit implementation and einsum
 
-  @param fwd_fn: a function that only takes in parameters and returns model output of shape (batch_dim, output_dim)
-  @param params: the model parameters
-  @param sigma: it has the same structure and array shapes as the parameters of model
-  @param diag: if True, only calculating the diagonal of NTK
-  @return:
-      diag_ntk_sum_array: array of shape (batch_dim, output_dim) if diag==True else
+  Args:
+    fwd_fn: a function that only takes in parameters and returns model output of shape (batch_dim, output_dim).
+    params: the model parameters.
+    sigma: it has the same structure and array shapes as the parameters of model.
+    diag: if True, only calculating the diagonal of NTK.
+
+  Returns:
+    jnp.ndarray, array of shape (batch_dim, output_dim) if diag==True else
        (batch_dim, output_dim, batch_dim, output_dim)
   """
   jacobian = jax.jacobian(fwd_fn)(params)
@@ -138,7 +142,16 @@ def explicit_ntk(
   return diag_ntk_sum_array
 
 
-def map_variable_name(params: hk.Params, fn: Callable) -> hk.Params:
+def rename_params(params: hk.Params, fn: Callable[[str], str]) -> hk.Params:
+  """Rename variables in params according to `fn`
+
+  Args:
+    params: parameters to rename
+    fn: a renaming function that takes in old name and return new name.
+
+  Returns:
+    parameters with renamed variables.
+  """
   params = hk.data_structures.to_mutable_dict(params)
   for module in params:
     params[module] = {

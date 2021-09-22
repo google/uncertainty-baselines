@@ -84,7 +84,7 @@ class Loss:
       full_ntk=False,
     )
 
-    kl = utils.kl_divergence(mean, prior_mean, cov, prior_cov, )
+    kl = utils.kl_divergence_multi_output(mean, prior_mean, cov, prior_cov, )
 
     return kl, scale
 

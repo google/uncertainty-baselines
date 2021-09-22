@@ -62,7 +62,6 @@ def bnn_linearized_predictive(
   renamed_params_var = map_variable_name(
     params_var, lambda n: f"{n.split('_')[0]}_mu"
   )
-  # surprisingly, if I jit this function, there will be memory issue
   cov = explicit_ntk(
     fwd_fn=predict_fn_for_empirical_ntk,
     params=params_mean,

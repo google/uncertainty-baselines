@@ -1,11 +1,12 @@
 from typing import List, Tuple, Callable
 
-import jax.numpy as jnp
 import optax
 from jax import numpy as jnp
 
 from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN, Model
 from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Loss
+
+DEFAULT_NUM_EPOCHS = 90
 
 
 class Initializer:
@@ -182,9 +183,6 @@ class OptimizerInitializer:
     else:
       raise ValueError("No optimizer specified.")
     return opt
-
-
-DEFAULT_NUM_EPOCHS = 90
 
 
 def warm_up_piecewise_constant_schedule(

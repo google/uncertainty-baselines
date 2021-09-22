@@ -41,7 +41,7 @@ def sigma_transform(params_log_var):
 
 
 @jit
-def kl_divergence(
+def kl_divergence_multi_output(
   mean_q, mean_p, cov_q, cov_p,
 ):
   """

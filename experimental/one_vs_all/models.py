@@ -68,4 +68,4 @@ def create_model(
         outputs=out,
         name=resnet_model.name + "_distance-logits")
   else:
-    return resnet_model
+    return resnet_model  # pytype: disable=bad-return-type  # typed-keras

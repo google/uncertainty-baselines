@@ -300,6 +300,8 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
       # Here we parse batch_metric_args to compute OOD metrics.
       logits, labels, pre_logits, masks = batch_metric_args
       masks_bool = np.array(masks[0], dtype=bool)
+      if not np.any(masks_bool):
+        continue  # No valid examples in this batch.
       if val_name == 'train_maha':
         # For Mahalanobis distance, we need to first fit class conditional
         # Gaussian using training data.

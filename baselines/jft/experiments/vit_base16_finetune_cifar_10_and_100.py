@@ -182,8 +182,7 @@ def task(hyper,
   if name == 'cifar10':
     # CIFAR-10H eval
     eval_on_cifar_10h = True
-    pp_eval_cifar_10h = f'resize({size})' + '|value_range(-1, 1)' + (
-        '|keep(["image", "labels"])')
+    pp_eval_cifar_10h = f'decode|resize({size})|value_range(-1, 1)|keep(["image", "labels"])'
     task_hyper.update({
         'eval_on_cifar_10h': eval_on_cifar_10h,
         'pp_eval_cifar_10h': pp_eval_cifar_10h

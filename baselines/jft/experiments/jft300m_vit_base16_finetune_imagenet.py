@@ -59,7 +59,7 @@ def get_config():
 
   # Imagenet ReaL eval
   config.eval_on_imagenet_real = True
-  config.pp_eval_imagenet_real = f'resize({INPUT_RES})' + '|value_range(-1, 1)' + '|keep(["image", "labels"])'  # pylint: disable=line-too-long
+  config.pp_eval_imagenet_real = f'decode|resize({INPUT_RES})|value_range(-1, 1)|keep(["image", "labels"])'  # pylint: disable=line-too-long
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 

@@ -116,7 +116,10 @@ def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder],
 
 def _add_mask(batch, num_batch_dims):
   """Adds a mask to a dictionary of tensors."""
-  batch["mask"] = tf.ones(tf.shape(list(batch.values())[0])[:num_batch_dims])
+  mask = tf.ones(tf.shape(list(batch.values())[0])[:num_batch_dims])
+  if "mask" in batch:
+    mask *= batch["mask"]
+  batch["mask"] = mask
   return batch
 
 

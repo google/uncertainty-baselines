@@ -30,6 +30,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import ood_utils  # local file import
 import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
@@ -74,6 +75,18 @@ flags.DEFINE_float('dense_bias_l2', None,
 
 flags.DEFINE_bool('collect_profile', False,
                   'Whether to trace a profile with tensorboard')
+
+# OOD flags.
+flags.DEFINE_bool('eval_only', False,
+                  'Whether to run only eval and (maybe) OOD steps.')
+flags.DEFINE_bool('eval_on_ood', False,
+                  'Whether to run OOD evaluation on specified OOD datasets.')
+flags.DEFINE_list('ood_dataset', 'cifar100,svhn_cropped',
+                  'list of OOD datasets to evaluate on.')
+flags.DEFINE_string('saved_model_dir', None,
+                    'Directory containing the saved model checkpoints.')
+flags.DEFINE_bool('dempster_shafer_ood', False,
+                  'Wheter to use DempsterShafer Uncertainty score.')
 
 
 FLAGS = flags.FLAGS
@@ -168,7 +181,9 @@ def main(argv):
       split=tfds.Split.TRAIN,
       seed=seeds[0],
       aug_params=aug_params,
-      validation_percent=1. - FLAGS.train_proportion,)
+      shuffle_buffer_size=FLAGS.shuffle_buffer_size,
+      validation_percent=1. - FLAGS.train_proportion,
+  )
   train_dataset = train_builder.load(batch_size=batch_size)
   validation_dataset = None
   steps_per_validation = 0
@@ -197,6 +212,17 @@ def main(argv):
   steps_per_epoch = train_builder.num_examples // batch_size
   steps_per_eval = clean_test_builder.num_examples // batch_size
   num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
+
+  if FLAGS.eval_on_ood:
+    ood_dataset_names = FLAGS.ood_dataset
+    ood_ds, steps_per_ood = ood_utils.load_ood_datasets(
+        ood_dataset_names, clean_test_builder, 1. - FLAGS.train_proportion,
+        batch_size)
+    ood_datasets = {
+        name: strategy.experimental_distribute_dataset(ds)
+        for name, ds in ood_ds.items()
+    }
+
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar100':
       data_dir = FLAGS.cifar100_c_path
@@ -264,6 +290,9 @@ def main(argv):
           'validation/ece': rm.metrics.ExpectedCalibrationError(
               num_bins=FLAGS.num_bins),
       })
+    if FLAGS.eval_on_ood:
+      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+      metrics.update(ood_metrics)
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
@@ -285,6 +314,14 @@ def main(argv):
       checkpoint.restore(latest_checkpoint)
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
+
+    if FLAGS.saved_model_dir:
+      logging.info('Saved model dir : %s', FLAGS.saved_model_dir)
+      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
+      checkpoint.restore(latest_checkpoint)
+      logging.info('Loaded checkpoint %s', latest_checkpoint)
+    if FLAGS.eval_only:
+      initial_epoch = FLAGS.train_epochs - 1  # Run just one epoch of eval
 
   @tf.function
   def train_step(iterator):
@@ -349,6 +386,18 @@ def main(argv):
             negative_log_likelihood)
         metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
+      elif dataset_name.startswith('ood'):
+        ood_labels = 1 - inputs['is_in_distribution']
+        if FLAGS.dempster_shafer_ood:
+          ood_scores = ood_utils.DempsterShaferUncertainty(logits)
+        else:
+          ood_scores = 1 - tf.reduce_max(probs, axis=-1)
+
+        # Edgecase for if dataset_name contains underscores
+        ood_dataset_name = '_'.join(dataset_name.split('_')[1:])
+        for name, metric in metrics.items():
+          if ood_dataset_name in name:
+            metric.update_state(ood_labels, ood_scores)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -403,25 +452,22 @@ def main(argv):
     logging.info('Starting to run epoch: %s', epoch)
     if tb_callback:
       tb_callback.on_epoch_begin(epoch)
-    train_start_time = time.time()
-    train_step(train_iterator)
-    ms_per_example = (time.time() - train_start_time) * 1e6 / batch_size
-    metrics['train/ms_per_example'].update_state(ms_per_example)
+    if not FLAGS.eval_only:
+      train_start_time = time.time()
+      train_step(train_iterator)
+      ms_per_example = (time.time() - train_start_time) * 1e6 / batch_size
+      metrics['train/ms_per_example'].update_state(ms_per_example)
 
-    current_step = (epoch + 1) * steps_per_epoch
-    max_steps = steps_per_epoch * FLAGS.train_epochs
-    time_elapsed = time.time() - start_time
-    steps_per_sec = float(current_step) / time_elapsed
-    eta_seconds = (max_steps - current_step) / steps_per_sec
-    message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
-               'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                   current_step / max_steps,
-                   epoch + 1,
-                   FLAGS.train_epochs,
-                   steps_per_sec,
-                   eta_seconds / 60,
-                   time_elapsed / 60))
-    logging.info(message)
+      current_step = (epoch + 1) * steps_per_epoch
+      max_steps = steps_per_epoch * FLAGS.train_epochs
+      time_elapsed = time.time() - start_time
+      steps_per_sec = float(current_step) / time_elapsed
+      eta_seconds = (max_steps - current_step) / steps_per_sec
+      message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
+                 'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
+                     current_step / max_steps, epoch + 1, FLAGS.train_epochs,
+                     steps_per_sec, eta_seconds / 60, time_elapsed / 60))
+      logging.info(message)
     if tb_callback:
       tb_callback.on_epoch_end(epoch)
 
@@ -443,6 +489,16 @@ def main(argv):
       metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
+
+    if FLAGS.eval_on_ood:
+      for dataset_name in ood_dataset_names:
+        ood_iterator = iter(ood_datasets['ood_{}'.format(dataset_name)])
+        logging.info('Calculating OOD on dataset %s', dataset_name)
+        logging.info('Running OOD eval at epoch: %s', epoch)
+        test_step(ood_iterator, 'test', 'ood_{}'.format(dataset_name),
+                  steps_per_ood[dataset_name])
+
+        logging.info('Done with OOD eval on %s', dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
@@ -470,6 +526,10 @@ def main(argv):
 
     for metric in metrics.values():
       metric.reset_states()
+
+    if FLAGS.corruptions_interval > 0:
+      for metric in corrupt_metrics.values():
+        metric.reset_states()
 
     if (FLAGS.checkpoint_interval > 0 and
         (epoch + 1) % FLAGS.checkpoint_interval == 0):

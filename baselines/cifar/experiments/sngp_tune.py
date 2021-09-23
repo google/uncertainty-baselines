@@ -40,6 +40,7 @@ def get_config():
   config.args = {
       'train_epochs': 90,
       'per_core_batch_size': 64,
+      'shuffle_buffer_size': 1024,
       'checkpoint_interval': -1,
       'data_dir': output_dir,
       'output_dir': output_dir,
@@ -52,12 +53,12 @@ def get_config():
 
 
 def get_sweep(hyper):
-  num_trials = 5
-  return hyper.zipit([
-      hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.1)),
-      hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.1)),
-      hyper.loguniform('l2', hyper.interval(1e-5, 1e-3)),
-  ], length=num_trials)
-  # return hyper.product([
-  #     # hyper.sweep('dempster_shafer_ood', hyper.categorical([False, True])),
-  # ])
+  # num_trials = 5
+  # return hyper.zipit([
+  #     hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.1)),
+  #     hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.1)),
+  #     hyper.loguniform('l2', hyper.interval(1e-5, 1e-3)),
+  # ], length=num_trials)
+  return hyper.product([
+      # hyper.sweep('dempster_shafer_ood', hyper.categorical([False, True])),
+  ])

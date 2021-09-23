@@ -464,7 +464,7 @@ def eval_model_numpy(
 
   # Log metrics
   available_splits = [split for split in eval_results.keys()]
-  metrics_results = log_epoch_metrics_new(
+  metrics_results = log_epoch_metrics(
     metrics=None, eval_results=metrics_results,
     use_tpu=False, dataset_splits=available_splits)
 

@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - master
+      - main
   pull_request:
     branches:
-      - master
+      - main
 
 jobs:
   build:
@@ -23,7 +23,7 @@ jobs:
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e tensorflow
+          pip install tensorflow
           pip install -q -e .[tests]
       - name: Test Import
         run: |

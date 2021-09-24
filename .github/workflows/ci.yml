@@ -1,5 +1,7 @@
 name: GitHub Action pytest
+
 on:
+  workflow_dispatch:
   push:
     branches:
       - master

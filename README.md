@@ -1,6 +1,6 @@
 # Uncertainty Baselines
 
-![Tests](https://github.com/google/uncertainty-baselines/actions/workflows/ci/badge.svg)
+[![Tests](https://github.com/google/uncertainty-baselines/actions/workflows/ci.yml/badge.svg)](https://github.com/google/uncertainty-baselines/actions/workflows/ci.yml)
 
 The goal of Uncertainty Baselines is to provide a template for researchers to
 build on. The baselines can be a starting point for any new ideas, applications,

@@ -1,0 +1,38 @@
+name: GitHub Action pytest
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.6
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e tensorflow
+          pip install -q -e .[tests]
+      - name: Test Import
+        run: |
+          set -v
+          set -e
+          python -c "import uncertainty_baselines as ub"
+          python -c "ub.datasets"
+          python -c "ub.models"
+      - name: Run Pytest
+        run: |
+          set -v
+          set -e
+          python -m unittest -v *_test.py
+          python -m unittest -v models/*_test.py

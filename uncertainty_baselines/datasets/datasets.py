@@ -32,7 +32,7 @@ from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedD
 from uncertainty_baselines.datasets.cityscapes import CityscapesDataset
 from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionDataset
 from uncertainty_baselines.datasets.criteo import CriteoDataset
-from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
+from uncertainty_baselines.datasets.diabetic_retinopathy_detection import UBDiabeticRetinopathyDetectionDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_mild import DiabeticRetinopathySeverityShiftMildDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_moderate import DiabeticRetinopathySeverityShiftModerateDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import MultiWoZSynthDataset
@@ -75,7 +75,7 @@ DATASETS = {
     'civil_comments_identities': CivilCommentsIdentitiesDataset,
     'clinic_intent': ClincIntentDetectionDataset,
     'criteo': CriteoDataset,
-    'diabetic_retinopathy_detection': DiabeticRetinopathyDetectionDataset,
+    'ub_diabetic_retinopathy_detection': UBDiabeticRetinopathyDetectionDataset,
     'diabetic_retinopathy_severity_shift_mild': DiabeticRetinopathySeverityShiftMildDataset,
     'diabetic_retinopathy_severity_shift_moderate': DiabeticRetinopathySeverityShiftModerateDataset,
     'imagenet': ImageNetDataset,

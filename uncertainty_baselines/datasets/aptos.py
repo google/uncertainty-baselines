@@ -25,6 +25,8 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 
 from uncertainty_baselines.datasets import base
+from uncertainty_baselines.datasets.diabetic_retinopathy_dataset_utils import (
+  _btgraham_processing)
 
 _DESCRIPTION = """\
 APTOS is a dataset containing the 3,662 high-resolution fundus images 
@@ -54,16 +56,24 @@ _BTGRAHAM_DESCRIPTION_PATTERN = (
     "in 2015: first they are resized so that the radius of an eyeball is "
     "{} pixels, then they are cropped to 90% of the radius, and finally they "
     "are encoded with 72 JPEG quality.")
+_BLUR_BTGRAHAM_DESCRIPTION_PATTERN = (
+    "A variant of the processing method used by the winner of the 2015 Kaggle "
+    "competition: images are resized so that the radius of an eyeball is "
+    "{} pixels, then receive a Gaussian blur-based normalization with Kernel "
+    "standard deviation along the X-axis of {}. Then they are cropped to 90% "
+    "of the radius, and finally they are encoded with 72 JPEG quality.")
 
 
 class APTOSConfig(tfds.core.BuilderConfig):
   """BuilderConfig for APTOS 2019 Blindness Detection."""
 
-  def __init__(self, target_pixels=None, **kwargs):
+  def __init__(self, target_pixels=None, blur_constant=None, **kwargs):
     """BuilderConfig for APTOS 2019 Blindness Detection.
     Args:
       target_pixels: If given, rescale the images so that the total number of
         pixels is roughly this value.
+      blur_constant: Constant used to vary the Kernel standard deviation in
+        smoothing the image with Gaussian blur.
       **kwargs: keyword arguments forward to super.
     """
     super(APTOSConfig, self).__init__(
@@ -73,10 +83,15 @@ class APTOSConfig(tfds.core.BuilderConfig):
         },
         **kwargs)
     self._target_pixels = target_pixels
+    self._blur_constant = blur_constant
 
   @property
   def target_pixels(self):
     return self._target_pixels
+
+  @property
+  def blur_constant(self):
+    return self._blur_constant
 
 
 class APTOS(tfds.core.GeneratorBasedBuilder):
@@ -92,6 +107,16 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
     APTOSConfig(
       name="btgraham-300",
       description=_BTGRAHAM_DESCRIPTION_PATTERN.format(300),
+      target_pixels=300),
+    APTOSConfig(
+      name="blur-10-btgraham-300",
+      description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 10),
+      blur_constant=10,
+      target_pixels=300),
+    APTOSConfig(
+      name="blur-20-btgraham-300",
+      description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 20),
+      blur_constant=20,
       target_pixels=300)
   ]
 
@@ -183,6 +208,9 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
       data = [(fname[:-4], -1)
               for fname in tf.io.gfile.listdir(images_dir_path)
               if fname.endswith(".png")]
+
+    print(f'Using BuilderConfig {self.builder_config.name}.')
+
     for name, label in data:
       image_filepath = "%s/%s.png" % (images_dir_path, name)
       record = {
@@ -200,6 +228,13 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
             filepath=filepath,
             target_pixels=self.builder_config.target_pixels,
             crop_to_radius=True)
+      elif self.builder_config.name.startswith("blur"):
+        return _btgraham_processing(
+          image_fobj=image_fobj,
+          filepath=filepath,
+          target_pixels=self.builder_config.target_pixels,
+          blur_constant=self.builder_config.blur_constant,
+          crop_to_radius=True)
       else:
         return tfds.image_classification.diabetic_retinopathy_detection._resize_image_if_necessary(
             image_fobj=image_fobj,
@@ -211,6 +246,7 @@ class APTOSDataset(base.BaseDataset):
   def __init__(
       self,
       split: str,
+      builder_config: str = 'aptos/btgraham-300',
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
@@ -222,10 +258,10 @@ class APTOSDataset(base.BaseDataset):
     """Create a APTOS 2019 Blindness Detection tf.data.Dataset builder.
 
     Args:
-      builder_config: a builder config contained in the APTOS dataset builder
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDATION, TEST] or their lowercase string
         names.
+      builder_config: a builder config contained in the APTOS dataset builder
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
@@ -242,8 +278,8 @@ class APTOSDataset(base.BaseDataset):
         'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?
         'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?
     """
-    dataset_builder = tfds.builder(
-        'aptos/btgraham-300', data_dir=data_dir)
+    print(f'Using APTOS builder config {builder_config}.')
+    dataset_builder = tfds.builder(builder_config, data_dir=data_dir)
     super(APTOSDataset, self).__init__(
         name=f'{dataset_builder.name}/{dataset_builder.builder_config.name}',
         dataset_builder=dataset_builder,

@@ -42,6 +42,9 @@ from tensorflow_datasets.image_classification import (
   diabetic_retinopathy_detection)
 
 from uncertainty_baselines.datasets import base
+from uncertainty_baselines.datasets.diabetic_retinopathy_dataset_utils import (
+  _btgraham_processing)
+
 
 _CITATION = """\
 @ONLINE {kaggle-diabetic-retinopathy,
@@ -60,6 +63,12 @@ _BTGRAHAM_DESCRIPTION_PATTERN = (
     "in 2015: first they are resized so that the radius of an eyeball is "
     "{} pixels, then they are cropped to 90% of the radius, and finally they "
     "are encoded with 72 JPEG quality.")
+_BLUR_BTGRAHAM_DESCRIPTION_PATTERN = (
+    "A variant of the processing method used by the winner of the 2015 Kaggle "
+    "competition: images are resized so that the radius of an eyeball is "
+    "{} pixels, then receive a Gaussian blur-based normalization with Kernel "
+    "standard deviation along the X-axis of {}. Then they are cropped to 90% "
+    "of the radius, and finally they are encoded with 72 JPEG quality.")
 
 
 class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
@@ -67,6 +76,8 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
   def __init__(
       self,
       split: str,
+      builder_config: str = (
+          'diabetic_retinopathy_severity_shift_moderate/btgraham-300'),
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
@@ -81,6 +92,8 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
+      builder_config: a builder config used by the
+        DiabeticRetinopathySeverityShiftModerate builder.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
@@ -94,9 +107,10 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
     """
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
-    dataset_builder = tfds.builder(
-        'diabetic_retinopathy_severity_shift_moderate/btgraham-300',
-      data_dir=data_dir)
+
+    print(f'Using Severity Shift (Moderate decision threshold) '
+          f'builder config {builder_config}.')
+    dataset_builder = tfds.builder(builder_config, data_dir=data_dir)
     super(DiabeticRetinopathySeverityShiftModerateDataset, self).__init__(
         name='diabetic_retinopathy_severity_shift_moderate',
         dataset_builder=dataset_builder,
@@ -140,11 +154,13 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
 class DiabeticRetinopathySeverityShiftModerateConfig(tfds.core.BuilderConfig):
   """BuilderConfig for DiabeticRetinopathySeverityShiftModerate."""
 
-  def __init__(self, target_pixels=None, **kwargs):
+  def __init__(self, target_pixels=None, blur_constant=None, **kwargs):
     """BuilderConfig for DiabeticRetinopathySeverityShiftModerate.
     Args:
       target_pixels: If given, rescale the images so that the total number of
         pixels is roughly this value.
+      blur_constant: Constant used to vary the Kernel standard deviation in
+        smoothing the image with Gaussian blur.
       **kwargs: keyword arguments forward to super.
     """
     super(DiabeticRetinopathySeverityShiftModerateConfig, self).__init__(
@@ -154,10 +170,15 @@ class DiabeticRetinopathySeverityShiftModerateConfig(tfds.core.BuilderConfig):
         },
         **kwargs)
     self._target_pixels = target_pixels
+    self._blur_constant = blur_constant
 
   @property
   def target_pixels(self):
     return self._target_pixels
+
+  @property
+  def blur_constant(self):
+    return self._blur_constant
 
 
 class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
@@ -190,6 +211,16 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
           name="btgraham-300",
           description=_BTGRAHAM_DESCRIPTION_PATTERN.format(300),
           target_pixels=300),
+      DiabeticRetinopathySeverityShiftModerateConfig(
+          name="blur-10-btgraham-300",
+          description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 10),
+          blur_constant=10,
+          target_pixels=300),
+      DiabeticRetinopathySeverityShiftModerateConfig(
+          name="blur-20-btgraham-300",
+          description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 20),
+          blur_constant=20,
+          target_pixels=300)
   ]
 
   def _info(self):
@@ -321,6 +352,8 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
               for fname in tf.io.gfile.listdir(images_dir_path)
               if fname.endswith(".jpeg")]
 
+    print(f'Using BuilderConfig {self.builder_config.name}.')
+
     for name, label in data:
       image_filepath = "%s/%s.jpeg" % (images_dir_path, name)
       record = {
@@ -338,6 +371,13 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
             filepath=filepath,
             target_pixels=self.builder_config.target_pixels,
             crop_to_radius=True)
+      elif self.builder_config.name.startswith("blur"):
+        return _btgraham_processing(
+          image_fobj=image_fobj,
+          filepath=filepath,
+          target_pixels=self.builder_config.target_pixels,
+          blur_constant=self.builder_config.blur_constant,
+          crop_to_radius=True)
       else:
         return diabetic_retinopathy_detection._resize_image_if_necessary(
             image_fobj=image_fobj,

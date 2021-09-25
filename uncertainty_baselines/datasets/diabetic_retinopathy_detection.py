@@ -22,12 +22,13 @@ import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 
-class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
+class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
   """Kaggle diabetic retinopathy detection dataset builder class."""
 
   def __init__(
       self,
       split: str,
+      builder_config: str = 'ub_diabetic_retinopathy_detection/btgraham-300',
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
       data_dir: Optional[str] = None,
@@ -43,6 +44,8 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
+      builder_config: a builder config used by the
+        UBDiabeticRetinopathyDetectionBuilder.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
@@ -60,10 +63,11 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
     """
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
-    dataset_builder = tfds.builder(
-        'diabetic_retinopathy_detection/btgraham-300', data_dir=data_dir)
+    print(
+      f'Using UBDiabeticRetinopathyDetection builder config {builder_config}.')
+    dataset_builder = tfds.builder(builder_config, data_dir=data_dir)
     super().__init__(
-        name='diabetic_retinopathy_detection',
+        name='ub_diabetic_retinopathy_detection',
         dataset_builder=dataset_builder,
         split=split,
         is_training=is_training,

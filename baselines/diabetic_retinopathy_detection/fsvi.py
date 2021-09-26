@@ -2,27 +2,28 @@ import os
 import tensorflow as tf
 tf.config.experimental.set_visible_devices([], "GPU")
 print("WARNING: TensorFlow is set to only use CPU.")
-import pathlib
-from datetime import datetime
-from pprint import pformat
+
 import logging
+import pathlib
 import pickle
-import time
-from functools import partial
 import sys
+import time
+from datetime import datetime
+from functools import partial
+from pprint import pformat
 from typing import List, Dict, Tuple, Any
 
 import jax
+import jax.numpy as jnp
 import optax
 import tree
+import wandb
 from absl import app, flags
 from jax import jit
 from jax import random
-from tqdm import tqdm
-import jax.numpy as jnp
-from tensorboard.plugins.hparams import api as hp
-import wandb
 from jax.lib import xla_bridge
+from tensorboard.plugins.hparams import api as hp
+from tqdm import tqdm
 
 root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, root_path)
@@ -94,6 +95,11 @@ flags.DEFINE_string("data_dir", None, "Path to training and testing data.")
 
 flags.DEFINE_bool("use_validation", True, "Whether to use a validation split.")
 flags.DEFINE_bool("use_test", False, "Whether to use a test split.")
+flags.DEFINE_string(
+  'preproc_builder_config', 'btgraham-300',
+  ("Determines the preprocessing procedure for the images. Supported options: "
+   "{btgraham-300, blur-3-btgraham-300, blur-10-btgraham-300, "
+   "blur-20-btgraham-300}."))
 flags.DEFINE_string(
   "dr_decision_threshold",
   "moderate",

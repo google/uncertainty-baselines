@@ -109,6 +109,11 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
       description=_BTGRAHAM_DESCRIPTION_PATTERN.format(300),
       target_pixels=300),
     APTOSConfig(
+      name="blur-3-btgraham-300",
+      description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 / 3),
+      blur_constant=3,
+      target_pixels=300),
+    APTOSConfig(
       name="blur-10-btgraham-300",
       description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 10),
       blur_constant=10,

@@ -312,10 +312,14 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # we may as well repeat to speed things up
     # TODO(nband): benchmark
     if (self.name in {
-      'diabetic_retinopathy_detection',
+      'ub_diabetic_retinopathy_detection',
       'diabetic_retinopathy_severity_shift_mild',
       'diabetic_retinopathy_severity_shift_moderate',
-      'aptos/btgraham-300'}
+      'aptos/btgraham-300',
+      'aptos/blur-3-btgraham-300',
+      'aptos/blur-10-btgraham-300',
+      'aptos/blur-20-btgraham-300'
+      }
        and not self._is_training and self._drop_remainder):
       dataset = dataset.repeat()
       logging.info(f'Repeating dataset {self.name} '
@@ -365,10 +369,13 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
     if (not self._is_training and
         self.name not in {
-          'diabetic_retinopathy_detection',
+          'ub_diabetic_retinopathy_detection',
           'diabetic_retinopathy_severity_shift_mild',
           'diabetic_retinopathy_severity_shift_moderate',
-          'aptos/btgraham-300'}):
+          'aptos/btgraham-300',
+          'aptos/blur-3-btgraham-300',
+          'aptos/blur-10-btgraham-300',
+          'aptos/blur-20-btgraham-300'}):
       dataset = dataset.cache()
     else:
       if not self._cache:

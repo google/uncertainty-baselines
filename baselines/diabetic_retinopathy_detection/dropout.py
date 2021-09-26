@@ -45,6 +45,11 @@ flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
 flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
 flags.DEFINE_string(
+  'preproc_builder_config', 'btgraham-300',
+  ("Determines the preprocessing procedure for the images. Supported options: "
+   "{btgraham-300, blur-3-btgraham-300, blur-10-btgraham-300, "
+   "blur-20-btgraham-300}."))
+flags.DEFINE_string(
   'dr_decision_threshold', 'moderate',
   ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
    "binary classification task. Only affects the APTOS dataset partitioning. "

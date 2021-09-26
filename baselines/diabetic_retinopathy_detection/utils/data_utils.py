@@ -98,13 +98,16 @@ def load_kaggle_severity_shift_dataset(
   if flags.use_test:
     splits_to_return = splits_to_return + ['in_domain_test', 'ood_test']
 
+  dataset_name = (
+    f'diabetic_retinopathy_severity_shift_{flags.dr_decision_threshold}')
   split_to_dataset = {}
   for split in splits_to_return:
     dataset_builder = ub.datasets.get(
-      f'diabetic_retinopathy_severity_shift_{flags.dr_decision_threshold}',
+      dataset_name,
       split=split, data_dir=data_dir,
       cache=(flags.cache_eval_datasets and split != 'train'),
-      drop_remainder=not load_for_eval)
+      drop_remainder=not load_for_eval,
+      builder_config=f'{dataset_name}/{flags.preproc_builder_config}')
     dataset = dataset_builder.load(batch_size=split_to_batch_size[split])
 
     if strategy is not None:
@@ -161,13 +164,16 @@ def load_kaggle_aptos_country_shift_dataset(
   # * Load Datasets *
   split_to_dataset = {}
 
+  dr_dataset_name = 'ub_diabetic_retinopathy_detection'
+
   # Load validation data
   dataset_validation_builder = ub.datasets.get(
-    'diabetic_retinopathy_detection', split='validation', data_dir=data_dir,
+    dr_dataset_name, split='validation', data_dir=data_dir,
     is_training=not flags.use_validation,
     decision_threshold=flags.dr_decision_threshold,
     cache=flags.cache_eval_datasets,
-    drop_remainder=not load_for_eval)
+    drop_remainder=not load_for_eval,
+    builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
   validation_batch_size = (
     eval_batch_size if flags.use_validation else train_batch_size)
   dataset_validation = dataset_validation_builder.load(
@@ -182,7 +188,8 @@ def load_kaggle_aptos_country_shift_dataset(
       'aptos', split='validation', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold,
       cache=flags.cache_eval_datasets,
-      drop_remainder=not load_for_eval)
+      drop_remainder=not load_for_eval,
+      builder_config=f'aptos/{flags.preproc_builder_config}')
     dataset_ood_validation = aptos_validation_builder.load(
       batch_size=eval_batch_size)
 
@@ -198,8 +205,9 @@ def load_kaggle_aptos_country_shift_dataset(
   if load_train_split:
     # Load EyePACS train data
     dataset_train_builder = ub.datasets.get(
-      'diabetic_retinopathy_detection', split='train', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold)
+      dr_dataset_name, split='train', data_dir=data_dir,
+      decision_threshold=flags.dr_decision_threshold,
+      builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
     dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
 
     if not flags.use_validation:
@@ -220,10 +228,11 @@ def load_kaggle_aptos_country_shift_dataset(
   if flags.use_test:
     # In-Domain Test
     dataset_test_builder = ub.datasets.get(
-      'diabetic_retinopathy_detection', split='test', data_dir=data_dir,
+      dr_dataset_name, split='test', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold,
       cache=flags.cache_eval_datasets,
-      drop_remainder=not load_for_eval)
+      drop_remainder=not load_for_eval,
+      builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
     dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_test = strategy.experimental_distribute_dataset(dataset_test)
@@ -235,7 +244,8 @@ def load_kaggle_aptos_country_shift_dataset(
       'aptos', split='test', data_dir=data_dir,
       decision_threshold=flags.dr_decision_threshold,
       cache=flags.cache_eval_datasets,
-      drop_remainder=not load_for_eval)
+      drop_remainder=not load_for_eval,
+      builder_config=f'aptos/{flags.preproc_builder_config}')
     dataset_ood_test = aptos_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_ood_test = strategy.experimental_distribute_dataset(
@@ -281,6 +291,7 @@ def load_dataset(
       'Only support `severity` and `aptos` dataset partitions '
       '(None defaults to APTOS).')
 
+  logging.info(f'Datasets using builder config {flags.preproc_builder_config}.')
   logging.info(f'Successfully loaded the following dataset splits from the '
                f'{distribution_shift} shift dataset: {list(datasets.keys())}')
   return datasets, steps

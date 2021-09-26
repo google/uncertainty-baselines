@@ -250,7 +250,6 @@ if use_fsvi:
 
     hparams = chkpt["hparams"]
     model = CNN(
-      architecture=hparams["architecture"],
       output_dim=2,
       activation_fn=hparams["activation"],
       stochastic_parameters=True,

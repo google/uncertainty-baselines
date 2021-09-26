@@ -217,6 +217,11 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
         blur_constant=3,
         target_pixels=300),
       DiabeticRetinopathySeverityShiftModerateConfig(
+        name="blur-5-btgraham-300",
+        description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 / 5),
+        blur_constant=5,
+        target_pixels=300),
+      DiabeticRetinopathySeverityShiftModerateConfig(
           name="blur-10-btgraham-300",
           description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 10),
           blur_constant=10,

@@ -317,6 +317,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       'diabetic_retinopathy_severity_shift_moderate',
       'aptos/btgraham-300',
       'aptos/blur-3-btgraham-300',
+      'aptos/blur-5-btgraham-300',
       'aptos/blur-10-btgraham-300',
       'aptos/blur-20-btgraham-300'
       }
@@ -374,6 +375,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
           'diabetic_retinopathy_severity_shift_moderate',
           'aptos/btgraham-300',
           'aptos/blur-3-btgraham-300',
+          'aptos/blur-5-btgraham-300',
           'aptos/blur-10-btgraham-300',
           'aptos/blur-20-btgraham-300'}):
       dataset = dataset.cache()

@@ -18,9 +18,10 @@
 import json
 import os
 import pathlib
+import pdb
 import pickle
-from collections import defaultdict
-from typing import List, Dict
+from collections import defaultdict, OrderedDict
+from typing import List, Dict, Union
 from typing import Optional
 from typing import Tuple
 
@@ -439,7 +440,7 @@ def load_model_dir_result_with_cache(
   return dataset_results
 
 
-def parse_model_dir_name(model_dir: str) -> Tuple:
+def parse_model_dir_name_v1(model_dir: str) -> Tuple:
   try:
     model_type, ensemble_str, tuning_domain, mc_str = model_dir.split('_')
   except:
@@ -452,6 +453,39 @@ def parse_model_dir_name(model_dir: str) -> Tuple:
   return key
 
 
+def parse_model_dir_name(model_name: str, eval_type: str) -> Union[Tuple, str]:
+  version = decide_model_name_version(model_name)
+  if version == 1:
+    parsed = parse_model_dir_name_v1(model_name)
+    k = {
+      'single': 1,
+      'ensemble': 3
+    }[eval_type.strip('/')]
+    parsed = parsed[:1] + (k,) + parsed[2:]
+  elif version == 2:
+    parsed = model_name.strip("/") + f"__eval-type_{eval_type.strip('/')}"
+  else:
+    raise NotImplementedError(version)
+  return parsed
+
+
+def model_name_v2_to_dict(model_name: str) -> Dict:
+  d = OrderedDict()
+  for pair in model_name.split("__"):
+    k, v = pair.split("_")
+    if k in d:
+      pdb.set_trace()
+    d[k] = v
+  return d
+
+
+def decide_model_name_version(model_name: str) -> int:
+  if "__" in model_name:
+    return 2
+  else:
+    return 1
+
+
 def fast_load_dataset_to_model_results(
       results_dir, model_dir_cache_file_name="cache", invalid_cache=False):
   dataset_to_model_results = defaultdict(
@@ -460,7 +494,6 @@ def fast_load_dataset_to_model_results(
   model_dirs = tf.io.gfile.listdir(results_dir)
   for model_dir in tqdm(model_dirs, desc="loading model results..."):
     model_dir_path = os.path.join(results_dir, model_dir)
-    key = parse_model_dir_name(model_dir)
     model_result = load_model_dir_result_with_cache(
       model_dir_path=model_dir_path,
       cache_file_name=model_dir_cache_file_name,
@@ -468,16 +501,10 @@ def fast_load_dataset_to_model_results(
     )
     for eval_type, eval_dict in model_result.items():
       for dataset, array_dict in eval_dict.items():
-        model_type, _, is_deterministic, tuning_domain, num_mc_samples = key
-        k = {
-          'single': 1,
-          'ensemble': 3
-        }[eval_type.strip('/')]
-        updated_key = (
-          model_type, k, is_deterministic, tuning_domain, num_mc_samples)
+        parsed_model_key = parse_model_dir_name(model_dir, eval_type=eval_type)
         assert (
-          updated_key not in dataset_to_model_results[dataset],
+          parsed_model_key not in dataset_to_model_results[dataset],
           f"Already have keys {dataset_to_model_results[dataset].keys()}")
-        dataset_to_model_results[dataset][updated_key] = array_dict
+        dataset_to_model_results[dataset][parsed_model_key] = array_dict
 
   return dataset_to_model_results

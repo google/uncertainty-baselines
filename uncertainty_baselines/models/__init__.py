@@ -78,6 +78,15 @@ except tf.errors.NotFoundError:
   logging.warning('Skipped ViT models due to NotFoundError.', exc_info=True)
 
 try:
+  # Try to import SegViT models.
+  from uncertainty_baselines.models.segmenter import SegVitModel
+  from uncertainty_baselines.models.segmenter import SegVit
+except ImportError:
+  logging.warning('Skipped SegViT models due to ImportError.', exc_info=True)
+except tf.errors.NotFoundError:
+  logging.warning('Skipped SegViT models due to NotFoundError.', exc_info=True)
+
+try:
   # Try to import models depending on tensorflow_models.official.nlp.
   from uncertainty_baselines.models import bert
   from uncertainty_baselines.models.bert import bert_model

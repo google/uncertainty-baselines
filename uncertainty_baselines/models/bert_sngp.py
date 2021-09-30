@@ -245,7 +245,7 @@ class SpectralNormalizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
       value: value tensor or TensorShape.
       key: key tensor or TensorShape.
     """
-    super()._build_from_signature(query, value, key)
+    super()._build_from_signature(query, value, key)  # pytype: disable=attribute-error  # typed-keras
     # Overwrites EinsumDense layers.
     # TODO(b/168256394): Enable spectral normalization also for key, query and
     # value layers in the self-attention module.
@@ -430,7 +430,7 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
       outputs = [layer_output_data[-1], cls_output]
 
     # Compile model with updated graph.
-    super().__init__(
+    super(bert_encoder.EncoderScaffold, self).__init__(
         inputs=inputs, outputs=outputs, **self._kwargs)
 
 

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Tests for the input pipeline utilities used in the ViT experiments."""
+
 import os
 import pathlib
 import tempfile
@@ -93,6 +94,9 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
       def _reduce_fn(count, batch):
         x = tf.reshape(batch["image"], [-1, 224, 224, 3])
+        if "mask" in batch:
+          mask = tf.reshape(batch["mask"], [-1])
+          x = tf.boolean_mask(x, mask)
         return count + tf.shape(x)[0]
 
       return int(ds.reduce(0, _reduce_fn))

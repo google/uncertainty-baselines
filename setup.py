@@ -34,10 +34,7 @@ setup(
         'ml_collections',
         'numpy>=1.7',
         'opt_einsum',
-        'tb-nightly',
         'tensorflow-datasets',
-        'tf-nightly',
-        'tfa-nightly',
         'urllib3',
         'zipp',
     ],
@@ -64,6 +61,11 @@ setup(
         'jax': [
             'flax',
             'jax',
+        ],
+        'tensorflow': [
+            'tb-nightly',
+            'tf-nightly',
+            'tfa-nightly',
         ],
         'tests': ['pylint>=1.9.0'],
         'torch': [

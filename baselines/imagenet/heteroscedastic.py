@@ -64,6 +64,12 @@ flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
+flags.DEFINE_float('train_proportion', default=1.0,
+                   help='only use a proportion of training set and use the'
+                   'rest for validation instead of the test set.')
+flags.register_validator('train_proportion',
+                         lambda tp: tp > 0.0 and tp <= 1.0,
+                         message='--train_proportion must be in (0, 1].')
 
 # Mixup-related flags.
 flags.DEFINE_float('mixup_alpha', 0., 'Coefficient of mixup distribution.')
@@ -95,11 +101,9 @@ flags.DEFINE_integer('num_mc_samples', 5000,
 FLAGS = flags.FLAGS
 
 # Number of images in ImageNet-1k train dataset.
-APPROX_IMAGENET_TRAIN_IMAGES = 1281167
-# Number of images in eval dataset.
-IMAGENET_VALIDATION_IMAGES = 50000
-NUM_CLASSES = 1000
+APPROX_IMAGENET_TRAIN_IMAGES = int(1281167 * FLAGS.train_proportion)
 
+NUM_CLASSES = 1000
 
 IMAGE_SHAPE = (224, 224, 3)
 
@@ -112,13 +116,20 @@ def mean_truncated_beta_distribution(alpha):
 def main(argv):
 
   del argv  # unused arg
+
+  # Number of images in eval dataset.
+  if FLAGS.train_proportion != 1.:
+    imagenet_validation_images = 1281167 - APPROX_IMAGENET_TRAIN_IMAGES
+  else:
+    imagenet_validation_images = 50000
+
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
   tf.random.set_seed(FLAGS.seed)
 
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
-  steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
+  steps_per_eval = imagenet_validation_images // batch_size
 
   if FLAGS.use_gpu:
     logging.info('Use GPU')
@@ -143,11 +154,18 @@ def main(argv):
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
+      validation_percent=1.-FLAGS.train_proportion,
       one_hot=True,
       mixup_params=mixup_params)
-  test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16)
+  if FLAGS.train_proportion != 1.:
+    test_builder = ub.datasets.ImageNetDataset(
+        split=tfds.Split.VALIDATION,
+        use_bfloat16=FLAGS.use_bfloat16,
+        validation_percent=1.-FLAGS.train_proportion)
+  else:
+    test_builder = ub.datasets.ImageNetDataset(
+        split=tfds.Split.TEST,
+        use_bfloat16=FLAGS.use_bfloat16)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_dataset = test_builder.load(batch_size=batch_size, strategy=strategy)
 

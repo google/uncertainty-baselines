@@ -62,10 +62,10 @@ def get_config(classifier, representation_size):
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  pp_common += '|keep("image", "labels")'
+  pp_common += '|keep(["image", "labels"])'
   # TODO(dusenberrymw): Mocking doesn't seem to encode into jpeg format.
   # config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
-  config.pp_train = 'decode|resize_small(256)|central_crop(224)' + pp_common
+  config.pp_train = 'decode|inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
 
   config.init_head_bias = 1e-3
@@ -123,74 +123,69 @@ def get_config(classifier, representation_size):
 
 class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
-  @parameterized.parameters(
-      # TODO(dusenberrymw): This tests is flaky, often with a value of 1061.06
-      # for the val_loss. Need to investigate the issue.
-      # ('token', 2, 82502.49, 1695.701171875, 0.16999999806284904),
-      ('token', None, 2049.5173, 1680.5252821180557, 0.1799999922513961),
-      ('gap', 2, 82501.64, 301.17470296223956, 0.189999997615814),
-      ('gap', None, 2090.1018, 518.932373046875, 0.29999999701976776),
-  )
-  @flagsaver.flagsaver
-  def test_sngp_script(self, classifier, representation_size,
-                       correct_train_loss, correct_val_loss,
-                       correct_fewshot_acc_sum):
+  def setUp(self):
+    super().setUp()
     # Go two directories up to the root of the UB directory.
     ub_root_dir = pathlib.Path(__file__).parents[2]
     data_dir = str(ub_root_dir) + '/.tfds/metadata'
     logging.info('data_dir contents: %s', os.listdir(data_dir))
+    self.data_dir = data_dir
 
+  @parameterized.parameters(
+      # TODO(dusenberrymw): These tests are flaky, often with a value of 1061.06
+      # for the val_loss. Need to investigate the issue.
+      # ('token', 2, 82502.49, 1695.701171875, 0.16999999806284904, False),
+      # ('token', 2, 82502.49, 1695.701171875, 0.16999999806284904, True),
+      ('token', None, 1235.983, 1278.0880262586807, 0.23000000044703484, False),
+      ('gap', 2, 82480.11, 581.2986111111111, 0.16999999433755875, False),
+      ('gap', None, 312.10632, 580.241441514757, 0.2499999925494194, False),
+      ('gap', None, 312.10632, 580.241441514757, 0.2499999925494194, True),
+  )
+  @flagsaver.flagsaver
+  def test_sngp_script(self, classifier, representation_size,
+                       correct_train_loss, correct_val_loss,
+                       correct_fewshot_acc_sum, simulate_failure):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    FLAGS.config.dataset_dir = data_dir
+    FLAGS.config.dataset_dir = self.data_dir
 
-    # Check for any errors.
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      train_loss, val_loss, fewshot_results = sngp.main(None)
+    if not simulate_failure:
+      # Check for any errors.
+      with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+        train_loss, val_loss, fewshot_results = sngp.main(None)
+    else:
+      # Check for the ability to restart from a previous checkpoint (after
+      # failure, etc.).
+      FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+      # NOTE: Use this flag to simulate failing at a certain step.
+      FLAGS.config.testing_failure_step = FLAGS.config.total_steps - 1
+      FLAGS.config.checkpoint_steps = FLAGS.config.testing_failure_step
+      FLAGS.config.keep_checkpoint_steps = FLAGS.config.checkpoint_steps
+      with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+        sngp.main(None)
+
+      checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
+      self.assertTrue(os.path.exists(checkpoint_path))
+      checkpoint = checkpoint_utils.load_checkpoint(None, checkpoint_path)
+      self.assertEqual(
+          int(checkpoint['opt']['state']['step']),
+          FLAGS.config.testing_failure_step)
+
+      # This should resume from the failed step.
+      del FLAGS.config.testing_failure_step
+      with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+        train_loss, val_loss, fewshot_results = sngp.main(None)
 
     # Check for reproducibility.
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
-                 train_loss, val_loss, fewshot_acc_sum)
+                 train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
     self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=0.3)
-    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=0.3)
-    # The fewshot training pipeline is not completely deterministic. For now, we
-    # increase the tolerance to avoid the test being flaky.
-    self.assertAllClose(
-        fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
-
-    # Check for the ability to restart from a previous checkpoint (after
-    # failure, etc.).
-    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    # NOTE: Use this flag to simulate failing at a certain step.
-    FLAGS.config.testing_failure_step = FLAGS.config.total_steps - 1
-    FLAGS.config.checkpoint_steps = FLAGS.config.testing_failure_step
-    FLAGS.config.keep_checkpoint_steps = FLAGS.config.checkpoint_steps
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      sngp.main(None)
-
-    checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
-    self.assertTrue(os.path.exists(checkpoint_path))
-    checkpoint = checkpoint_utils.load_checkpoint(None, checkpoint_path)
-    self.assertEqual(
-        int(checkpoint['opt']['state']['step']),
-        FLAGS.config.testing_failure_step)
-
-    # This should resume from the failed step.
-    del FLAGS.config.testing_failure_step
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      train_loss, val_loss, fewshot_results = sngp.main(None)
-
-    fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
-    logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
-                 train_loss, val_loss, fewshot_acc_sum)
-    # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
-    self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=0.3)
-    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=0.3)
+    self.assertAllClose(val_loss['val'], correct_val_loss, atol=0.02, rtol=0.3)
     # The fewshot training pipeline is not completely deterministic. For now, we
     # increase the tolerance to avoid the test being flaky.
     self.assertAllClose(
@@ -198,30 +193,26 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
       # TODO(dusenberrymw): This tests is flaky. Need to investigate the issue.
-      # ('token', 2, 17.127628, 9.437467681037056, 0.12999999336898327),
-      ('token', None, 9.454525, 16.93018129136827, 0.14999999850988388),
-      ('gap', 2, 41.808563, 24.693617078993057, 0.09999999776482582),
-      ('gap', None, 47.113586, 15.444029914008247, 0.08999999798834324),
+      # ('token', 2, 17.127628, 9.437467681037056, 0.1299999933689832, 'cifar'),
+      ('token', None, 57.665764, 47.4102783203125, 0.0999999940395355, 'cifar'),
+      ('gap', 2, 35.87387, 9.02747525109185, 0.04999999888241291, 'cifar'),
+      ('gap', None, 51.77176, 25.256450653076172, 0.08999999798834324, 'cifar'),
+      ('token', None, 18.884363, 16.141374799940323, 0.09999999962, 'imagenet'),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, classifier, representation_size,
                                     correct_train_loss, correct_val_loss,
-                                    correct_fewshot_acc_sum):
-    # Go two directories up to the root of the UB directory.
-    ub_root_dir = pathlib.Path(__file__).parents[2]
-    data_dir = str(ub_root_dir) + '/.tfds/metadata'
-    logging.info('data_dir contents: %s', os.listdir(data_dir))
-
+                                    correct_fewshot_acc_sum, dataset):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    FLAGS.config.dataset_dir = data_dir
+    FLAGS.config.dataset_dir = self.data_dir
 
     # Run to save a checkpoint, then use that as a pretrained model.
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
       sngp.main(None)
 
     checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
@@ -230,26 +221,46 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.model_init = checkpoint_path
     FLAGS.config.model.representation_size = None
-    FLAGS.config.dataset = 'cifar10'
-    FLAGS.config.val_split = 'train[:9]'
-    FLAGS.config.train_split = 'train[30:60]'
-    FLAGS.config.num_classes = 10
+    if dataset == 'cifar':
+      FLAGS.config.dataset = 'cifar10'
+      FLAGS.config.val_split = 'train[:9]'
+      FLAGS.config.train_split = 'train[30:60]'
+      FLAGS.config.num_classes = 10
+      FLAGS.config.ood_dataset = 'cifar100'
+      FLAGS.config.ood_split = 'test[10:20]'
+      FLAGS.config.ood_methods = ['maha', 'rmaha', 'msp']
+      FLAGS.config.eval_on_cifar_10h = True
+      FLAGS.config.cifar_10h_split = 'test[:9]'
+      FLAGS.config.pp_eval_cifar_10h = ('decode|resize(384)|value_range(-1, '
+                                        '1)|keep(["image", "labels"])')
+    elif dataset == 'imagenet':
+      FLAGS.config.dataset = 'imagenet2012'
+      FLAGS.config.val_split = 'train[:9]'
+      FLAGS.config.train_split = 'train[30:60]'
+      FLAGS.config.num_classes = 1000
+      FLAGS.config.eval_on_imagenet_real = True
+      FLAGS.config.imagenet_real_split = 'validation[:9]'
+      FLAGS.config.pp_eval_imagenet_real = (
+          'decode|resize(384)|value_range(-1, '
+          '1)|keep(["image", "labels"])')
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-    pp_common += '|keep("image", "labels")'
-    FLAGS.config.pp_train = 'decode|resize_small(512)|central_crop(384)' + pp_common
+    pp_common += '|keep(["image", "labels"])'
+    FLAGS.config.pp_train = ('decode|resize_small(512)|random_crop(384)' +
+                             pp_common)
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
     FLAGS.config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+
+    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
       train_loss, val_loss, fewshot_results = sngp.main(None)
 
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
-                 train_loss, val_loss, fewshot_acc_sum)
+                 train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
     self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=0.3)
-    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=0.3)
+    self.assertAllClose(val_loss['val'], correct_val_loss, atol=0.02, rtol=0.3)
     # The fewshot training pipeline is not completely deterministic. For now, we
     # increase the tolerance to avoid the test being flaky.
     self.assertAllClose(

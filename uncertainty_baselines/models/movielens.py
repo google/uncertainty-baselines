@@ -33,7 +33,7 @@ _CATEGORICAL_EMBED_DIM = {
 _LAYER_SIZES = [50, 20, 10]
 
 
-def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:
+def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:  # pytype: disable=invalid-annotation  # typed-keras
   """Defines an input layer for tf.keras model with int32 and string dtypes."""
 
   # TODO(chenzhe): Add more user and movie related features as inputs. Currently

@@ -58,6 +58,8 @@ flags.DEFINE_integer('per_core_batch_size', 64,
                      'Batch size per TPU core/GPU. The number of new '
                      'datapoints gathered per batch is this number divided by '
                      'ensemble_size (we tile the batch by that # of times).')
+flags.DEFINE_integer('shuffle_buffer_size', None,
+                     'Shuffle buffer size for training dataset.')
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
 flags.DEFINE_float('train_proportion', default=1.0,

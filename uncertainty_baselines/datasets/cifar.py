@@ -265,6 +265,6 @@ class Cifar10CorruptedDataset(_CifarDataset):
     super().__init__(
         name=f'cifar10_corrupted/{corruption_type}_{severity}',
         fingerprint_key=None,
-        **kwargs)
+        **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
 
 

@@ -29,6 +29,7 @@ from uncertainty_baselines.models import genomics_cnn
 from uncertainty_baselines.models import movielens
 from uncertainty_baselines.models import resnet20
 from uncertainty_baselines.models import textcnn
+from uncertainty_baselines.models import unet
 from uncertainty_baselines.models import wide_resnet
 
 try:
@@ -50,6 +51,7 @@ def get_model_names() -> List[str]:
       'movielens',
       'resnet20',
       'textcnn',
+      'unet',
       'wide_resnet',
   ]
 
@@ -76,6 +78,7 @@ def get(model_name: str, **kwargs) -> tf.keras.Model:
   if model_name not in get_model_names():
     raise ValueError('Unrecognized model type: {!r}'.format(model_name))
 
+  # pytype: disable=bad-return-type  # typed-keras
   if model_name == 'criteo_mlp':
     return criteo_mlp.criteo_mlp(**kwargs)
   if model_name == 'movielens':
@@ -84,6 +87,8 @@ def get(model_name: str, **kwargs) -> tf.keras.Model:
     return resnet20.resnet20(**kwargs)
   if model_name == 'textcnn':
     return textcnn.textcnn(**kwargs)
+  if model_name == 'unet':
+    return unet.unet(**kwargs)
   if model_name == 'bert':
     return bert.bert_model(**kwargs)
   if model_name == 'wide_resnet':
@@ -96,3 +101,4 @@ def get(model_name: str, **kwargs) -> tf.keras.Model:
     return efficientnet.efficientnet(**kwargs)
   if model_name == 'efficientnet_batch_ensemble':
     return efficientnet_batch_ensemble.efficientnet_batch_ensemble(**kwargs)
+  # pytype: enable=bad-return-type  # typed-keras

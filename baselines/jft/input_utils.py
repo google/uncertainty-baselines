@@ -114,6 +114,35 @@ def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder],
   return num_examples
 
 
+def _add_mask(batch, num_batch_dims):
+  """Adds a mask to a dictionary of tensors."""
+  mask = tf.ones(tf.shape(list(batch.values())[0])[:num_batch_dims])
+  if "mask" in batch:
+    mask *= batch["mask"]
+  batch["mask"] = mask
+  return batch
+
+
+def _pad_reshape_mask_batch(batch, flat_batch_size, num_devices,
+                            num_batch_dims):
+  """Adds a mask, pads, and reshapes the tensors in the batch."""
+  batch = _add_mask(batch, num_batch_dims)
+
+  def f(x):
+    if num_batch_dims > 1:
+      x = tf.reshape(x, tf.concat([[-1], x.shape[num_batch_dims:]], axis=0))
+    actual_batch_size = tf.shape(x)[0]
+    needed = flat_batch_size - actual_batch_size
+    zeros = tf.zeros(tf.concat([[needed], x.shape[1:]], axis=0), dtype=x.dtype)
+    new_x = tf.concat([x, zeros], axis=0)
+    new_x = tf.reshape(new_x, tf.concat([[num_devices, -1], x.shape[1:]],
+                                        axis=0))
+    return new_x
+
+  new_batch = {k: f(v) for k, v in batch.items()}
+  return new_batch
+
+
 def get_data(
     dataset: Union[str, tfds.core.DatasetBuilder],
     split: str,
@@ -159,7 +188,7 @@ def get_data(
     data_dir: Directory for the dataset files.
 
   Returns:
-    The dataset with preprocessed and batched examples.
+    The dataset with preprocessed, masked, padded, and batched examples.
   """
   assert cache in ("loaded", "batched", False, None)
 
@@ -178,14 +207,10 @@ def get_data(
       dataset_info=dataset_builder.info,
       remainder_options=remainder_options)
 
-  batch_dims = [
-      jax.local_device_count(), host_batch_size // jax.local_device_count()
-  ]
-
   dataset = deterministic_data.create_dataset(
       dataset_builder,
       split=host_split,
-      batch_dims=batch_dims,
+      batch_dims=(),
       rng=rng,
       filter_fn=None,
       preprocess_fn=preprocess_fn,
@@ -199,6 +224,25 @@ def get_data(
       drop_remainder=drop_remainder,
   )
 
+  num_devices = jax.local_device_count()
+  if drop_remainder:
+    batch_dims = [num_devices, host_batch_size // num_devices]
+    for batch_size in reversed(batch_dims):
+      dataset = dataset.batch(batch_size, drop_remainder=True)
+    flat_batch_size = batch_dims[0] * batch_dims[1]
+    num_batch_dims = len(batch_dims)
+  else:
+    batch_size_per_device = math.ceil(host_batch_size / num_devices)
+    flat_batch_size = batch_size_per_device * num_devices
+    dataset = dataset.batch(flat_batch_size, drop_remainder=False)
+    num_batch_dims = 1
+
+  def f(xs):
+    return _pad_reshape_mask_batch(xs, flat_batch_size, num_devices,
+                                   num_batch_dims)
+
+  dataset = dataset.map(f, num_parallel_calls=tf.data.AUTOTUNE)
+
   if cache == "batched":
     dataset = dataset.cache()
 
@@ -208,68 +252,16 @@ def get_data(
   return dataset.prefetch(prefetch_size)
 
 
-
-
-def _getfirst(d, *keys, default=None):
-  """Returns the first of `keys` that's present in mapping `d`."""
-  for k in reversed(keys):
-    default = d.get(k, default)
-  return default
-
-
-def _prepare_data(xs, pad=None, devices=None, padrefkeys=("image",)):
-  """Makes sure data fits local devices.
-
-  Args:
-    xs: the data to be reshaped (tree-map'able).
-    pad: if not None, zero-pad arrays such that their first dimension has this
-      size. Also introduces a "mask" key in `xs` that contains ones where the
-      un-padded data resides and zeros where the padding is.
-    devices: the devices to distribute the data across. If None,
-      ``local_device_count`` will be used instead.
-    padrefkeys: list of keys, the first one that exists will be used to
-      determine the batch-size used for `pad`.
-
-  Returns:
-    `xs` but re-shaped to (local_devices, -1, ...) and optionally padded.
-  """
-  # Create a mask which will be 1 for real entries and 0 for padded ones.
-  if pad is not None:
-    pad_example = _getfirst(xs, *padrefkeys)
-    if pad_example is None:
-      raise ValueError(f"Could not find any of {padrefkeys} in data!")
-    xs["mask"] = np.full(pad_example.shape[:2], 1.0)
-
-  local_device_count = (
-      jax.local_device_count() if devices is None else len(devices))
+def start_input_pipeline(dataset, n_prefetch, devices=None):
+  """Creates a data iterator with optional prefetching and padding."""
+  it = iter(dataset)
 
   def _prepare(x):
     # Transforms x into read-only numpy array without copy if possible, see:
     # https://github.com/tensorflow/tensorflow/issues/33254#issuecomment-542379165
-    x = np.asarray(memoryview(x))
+    return np.asarray(memoryview(x))
 
-    if pad is not None and len(x) != pad:
-      # Append `pad - len(x)` rows of zeros.
-      x = x.reshape((-1,) + x.shape[2:])
-      x = np.r_[x, np.zeros((pad - len(x),) + x.shape[1:], x.dtype)]
-      x = x.reshape((local_device_count, -1) + x.shape[1:])
-
-    return x
-
-  return jax.tree_map(_prepare, xs)
-
-
-def start_input_pipeline(data,
-                         n_prefetch,
-                         devices=None,
-                         pad=None,
-                         padrefkeys=("image",)):
-  """Creates a data iterator with optional prefetching and padding."""
-  it = iter(data)
-  # TODO(dusenberrymw): Move batch padding to tf.data pipeline.
-  it = (
-      _prepare_data(xs, pad=pad, devices=devices, padrefkeys=padrefkeys)
-      for xs in it)
+  it = (jax.tree_map(_prepare, xs) for xs in it)
 
   if n_prefetch:
     it = flax.jax_utils.prefetch_to_device(it, n_prefetch, devices=devices)

@@ -57,13 +57,29 @@ from uncertainty_baselines.datasets.toxic_comments import WikipediaToxicityDatas
 try:
   from uncertainty_baselines.datasets.smcalflow import MultiWoZDataset  # pylint: disable=g-import-not-at-top
   from uncertainty_baselines.datasets.smcalflow import SMCalflowDataset  # pylint: disable=g-import-not-at-top
-  from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
 except ImportError:
-  logging.warning('Skipped due to ImportError. Try installing uncertainty '
-                  'baselines with the `datasets` extras.', exc_info=True)
-  SpeechCommandsDataset = None
+  logging.warning(
+      'Skipped importing the SMCalflow dataset due to ImportError. Try '
+      'installing uncertainty baselines with the `datasets` extras.',
+      exc_info=True)
   MultiWoZDataset = None
   SMCalflowDataset = None
+
+try:
+  # Try to import datasets depending on librosa.
+  from uncertainty_baselines.datasets.speech_commands import SpeechCommandsDataset  # pylint: disable=g-import-not-at-top
+except ImportError:
+  logging.warning(
+      'Skipped importing the Speech Commands dataset due to ImportError. Try '
+      'installing uncertainty baselines with the `datasets` extras.',
+      exc_info=True)
+  SpeechCommandsDataset = None
+except OSError:
+  logging.warning(
+      'Skipped importing the Speech Commands dataset due to OSError.',
+      exc_info=True)
+  SpeechCommandsDataset = None  # pylint: disable=invalid-name
+
 
 DATASETS = {
     'aptos': APTOSDataset,

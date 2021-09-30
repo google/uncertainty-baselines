@@ -349,7 +349,7 @@ def get_mc_dropout_transformer_encoder(bert_config,
       channel_wise_dropout_att=channel_wise_dropout_att,
       channel_wise_dropout_ffn=channel_wise_dropout_ffn,
       hidden_cfg=hidden_cfg,
-      **kwargs)
+      **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
 
 
 def bert_dropout_model(num_classes,

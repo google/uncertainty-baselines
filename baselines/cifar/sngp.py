@@ -238,7 +238,6 @@ def main(argv):
       shuffle_buffer_size=FLAGS.shuffle_buffer_size,
       seed=dataset_seed)
   train_dataset = train_dataset_builder.load(batch_size=batch_size)
-  train_sample_size = train_dataset_builder.num_examples
   if validation_proportion > 0.:
     validation_dataset_builder = dataset_builder_class(
         data_dir=data_dir,
@@ -246,11 +245,12 @@ def main(argv):
         split=tfds.Split.VALIDATION,
         use_bfloat16=FLAGS.use_bfloat16,
         validation_percent=validation_proportion)
-    validation_dataset = validation_dataset_builder.load(batch_size=batch_size)
+    validation_dataset = validation_dataset_builder.load(
+        batch_size=test_batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
     val_sample_size = validation_dataset_builder.num_examples
-    steps_per_val = steps_per_epoch = int(val_sample_size / batch_size)
+    steps_per_val = steps_per_epoch = int(val_sample_size / test_batch_size)
   clean_test_dataset_builder = dataset_builder_class(
       data_dir=data_dir,
       download_data=FLAGS.download_data,
@@ -259,9 +259,8 @@ def main(argv):
   clean_test_dataset = clean_test_dataset_builder.load(
       batch_size=test_batch_size)
 
-  steps_per_epoch = int(train_sample_size / batch_size)
   steps_per_epoch = train_dataset_builder.num_examples // batch_size
-  steps_per_eval = clean_test_dataset_builder.num_examples // batch_size
+  steps_per_eval = clean_test_dataset_builder.num_examples // test_batch_size
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
@@ -271,7 +270,7 @@ def main(argv):
     ood_dataset_names = FLAGS.ood_dataset
     ood_ds, steps_per_ood = ood_utils.load_ood_datasets(
         ood_dataset_names, clean_test_dataset_builder, validation_proportion,
-        batch_size)
+        test_batch_size)
     ood_datasets = {
         name: strategy.experimental_distribute_dataset(ds)
         for name, ds in ood_ds.items()
@@ -499,7 +498,8 @@ def main(argv):
       logits = tf.reduce_mean(logits_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.num_dropout_samples, labels.shape[0]])
+          labels, [FLAGS.num_dropout_samples,
+                   tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(

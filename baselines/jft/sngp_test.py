@@ -182,10 +182,10 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     # Check for reproducibility.
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
-                 train_loss, val_loss, fewshot_acc_sum)
+                 train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
     self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=0.3)
-    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=0.3)
+    self.assertAllClose(val_loss['val'], correct_val_loss, atol=0.02, rtol=0.3)
     # The fewshot training pipeline is not completely deterministic. For now, we
     # increase the tolerance to avoid the test being flaky.
     self.assertAllClose(
@@ -193,15 +193,16 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.parameters(
       # TODO(dusenberrymw): This tests is flaky. Need to investigate the issue.
-      # ('token', 2, 17.127628, 9.437467681037056, 0.12999999336898327),
-      ('token', None, 57.665764, 47.4102783203125, 0.09999999403953552),
-      ('gap', 2, 35.87387, 9.02747525109185, 0.04999999888241291),
-      ('gap', None, 51.77176, 25.256450653076172, 0.08999999798834324),
+      # ('token', 2, 17.127628, 9.437467681037056, 0.1299999933689832, 'cifar'),
+      ('token', None, 57.665764, 47.4102783203125, 0.0999999940395355, 'cifar'),
+      ('gap', 2, 35.87387, 9.02747525109185, 0.04999999888241291, 'cifar'),
+      ('gap', None, 51.77176, 25.256450653076172, 0.08999999798834324, 'cifar'),
+      ('token', None, 18.884363, 16.141374799940323, 0.09999999962, 'imagenet'),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, classifier, representation_size,
                                     correct_train_loss, correct_val_loss,
-                                    correct_fewshot_acc_sum):
+                                    correct_fewshot_acc_sum, dataset):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
@@ -220,10 +221,28 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.model_init = checkpoint_path
     FLAGS.config.model.representation_size = None
-    FLAGS.config.dataset = 'cifar10'
-    FLAGS.config.val_split = 'train[:9]'
-    FLAGS.config.train_split = 'train[30:60]'
-    FLAGS.config.num_classes = 10
+    if dataset == 'cifar':
+      FLAGS.config.dataset = 'cifar10'
+      FLAGS.config.val_split = 'train[:9]'
+      FLAGS.config.train_split = 'train[30:60]'
+      FLAGS.config.num_classes = 10
+      FLAGS.config.ood_dataset = 'cifar100'
+      FLAGS.config.ood_split = 'test[10:20]'
+      FLAGS.config.ood_methods = ['maha', 'rmaha', 'msp']
+      FLAGS.config.eval_on_cifar_10h = True
+      FLAGS.config.cifar_10h_split = 'test[:9]'
+      FLAGS.config.pp_eval_cifar_10h = ('decode|resize(384)|value_range(-1, '
+                                        '1)|keep(["image", "labels"])')
+    elif dataset == 'imagenet':
+      FLAGS.config.dataset = 'imagenet2012'
+      FLAGS.config.val_split = 'train[:9]'
+      FLAGS.config.train_split = 'train[30:60]'
+      FLAGS.config.num_classes = 1000
+      FLAGS.config.eval_on_imagenet_real = True
+      FLAGS.config.imagenet_real_split = 'validation[:9]'
+      FLAGS.config.pp_eval_imagenet_real = (
+          'decode|resize(384)|value_range(-1, '
+          '1)|keep(["image", "labels"])')
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({FLAGS.config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
     pp_common += '|keep(["image", "labels"])'
@@ -232,15 +251,16 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.config.pp_eval = 'decode|resize(384)' + pp_common
     FLAGS.config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
     FLAGS.config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'
+
     with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
       train_loss, val_loss, fewshot_results = sngp.main(None)
 
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
-                 train_loss, val_loss, fewshot_acc_sum)
+                 train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
     self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=0.3)
-    self.assertAllClose(val_loss, correct_val_loss, atol=0.02, rtol=0.3)
+    self.assertAllClose(val_loss['val'], correct_val_loss, atol=0.02, rtol=0.3)
     # The fewshot training pipeline is not completely deterministic. For now, we
     # increase the tolerance to avoid the test being flaky.
     self.assertAllClose(

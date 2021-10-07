@@ -33,7 +33,7 @@ _NUM_HAS_BUCKETS = [
 _LAYER_SIZES = [2572, 1454, 1596]
 
 
-def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:
+def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:  # pytype: disable=invalid-annotation  # typed-keras
   """Defines an input layer for tf.keras model with int32 and string dtypes."""
   out = {}
   for idx in range(1, datasets.criteo.NUM_TOTAL_FEATURES + 1):

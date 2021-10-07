@@ -26,10 +26,11 @@ Referneces:
 
 import jax
 import numpy as np
+import scipy
 import sklearn.metrics
 
 
-SUPPORTED_OOD_METRICS = ('msp', 'maha', 'rmaha')
+SUPPORTED_OOD_METRICS = ('msp', 'entropy', 'maha', 'rmaha')
 
 
 # TODO(dusenberrymw): Move it to robustness metrics.
@@ -104,20 +105,31 @@ class OODMetric:
 
     Returns:
       OOD scores: OOD scores that indicate uncertainty. Should be of the size
-      [batch_size, ]
+        [batch_size, ]
+
+    Raises:
+      KeyError: An error occurred when the corresponding scores needed for
+        computing OOD scores are not found in the scores dict.
     """
     if self.metric_name == 'msp':
       if 'probs' in scores:
         ood_scores = 1 - np.max(scores['probs'], axis=-1)
       else:
-        raise NotImplementedError(
+        raise KeyError(
             ('The variable probs is needed for computing MSP OOD score. ',
              'But it is not found in the dict.'))
+    elif self.metric_name == 'entropy':
+      if 'entropy' in scores:
+        ood_scores = scores['entropy']
+      else:
+        raise KeyError(
+            'The variable entropy is needed for computing Entropy OOD score.',
+            'But it is not found in the dict.')
     elif self.metric_name == 'maha':
       if 'dists' in scores:
         ood_scores = np.min(scores['dists'], axis=-1)
       else:
-        raise NotImplementedError(
+        raise KeyError(
             ('The variable dists is needed for computing Mahalanobis distance ',
              'OOD score. But it is not found in the dict.'))
     elif self.metric_name == 'rmaha':
@@ -125,7 +137,7 @@ class OODMetric:
         ood_scores = np.min(
             scores['dists'], axis=-1) - scores['dists_background'].reshape(-1)
       else:
-        raise NotImplementedError((
+        raise KeyError((
             'The variable dists and dists_background are needed for computing ',
             'Mahalanobis distance OOD score. But it is not found in the dict.'))
     return ood_scores
@@ -300,6 +312,8 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
       # Here we parse batch_metric_args to compute OOD metrics.
       logits, labels, pre_logits, masks = batch_metric_args
       masks_bool = np.array(masks[0], dtype=bool)
+      if not np.any(masks_bool):
+        continue  # No valid examples in this batch.
       if val_name == 'train_maha':
         # For Mahalanobis distance, we need to first fit class conditional
         # Gaussian using training data.
@@ -321,6 +335,11 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
         # Computes Maximum softmax probability (MSP)
         probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
         batch_scores['probs'] = probs
+
+        # Compute Entropy
+        batch_scores['entropy'] = np.array(
+            [scipy.stats.entropy(prob) for prob in probs])
+
         # Update metric state for each metric in ood_metrics
         for metric in ood_metrics:
           ood_scores = metric.compute_ood_scores(batch_scores)

@@ -37,11 +37,11 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
-import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
 import input_utils  # local file import
+import ood_utils  # local file import
 import preprocess_utils  # local file import
 import train_utils  # local file import
 
@@ -138,6 +138,7 @@ def main(argv):
       train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
+
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
     # We do ceil rounding such that we include the last incomplete batch.
     nval_img = input_utils.get_num_examples(
@@ -150,13 +151,16 @@ def main(argv):
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
+    if isinstance(pp_eval, str):
+      pp_eval = preprocess_spec.parse(
+          spec=pp_eval, available_ops=preprocess_utils.all_ops())
+
     val_ds = input_utils.get_data(
         dataset=dataset,
         split=split,
         rng=None,
         host_batch_size=local_batch_size_eval,
-        preprocess_fn=preprocess_spec.parse(
-            spec=pp_eval, available_ops=preprocess_utils.all_ops()),
+        preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
         shuffle=False,
@@ -175,75 +179,54 @@ def main(argv):
   }
 
   if config.get('eval_on_cifar_10h'):
-    val_steps = int(np.ceil(10000 / batch_size_eval))
-
-    cifar10h_dataset = cifar10h_utils.load_ds()
-
-    val_ds_cifar10h = input_utils.get_data(
-        dataset=cifar10h_dataset,
-        split='test',
-        rng=None,
-        host_batch_size=local_batch_size_eval,
-        preprocess_fn=preprocess_spec.parse(
-            spec=config.config.pp_eval_cifar_10h,
-            available_ops=preprocess_utils.all_ops()),
-        cache=config.get('val_cache', 'batched'),
-        repeat_after_batching=True,
-        shuffle=False,
-        prefetch_size=config.get('prefetch_to_host', 2),
-        drop_remainder=False)
-    val_iter_cifar10h = input_utils.start_input_pipeline(
-        val_ds_cifar10h, config.get('prefetch_to_device', 1))
-
-    val_iter_splits['cifar_10h'] = (val_iter_cifar10h, val_steps)
+    cifar10_to_cifar10h_fn = cifar10h_utils.create_cifar10_to_cifar10h_fn(
+        config.get('data_dir', None))
+    preprocess_fn = preprocess_spec.parse(
+        spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
+    pp_eval = lambda ex: preprocess_fn(cifar10_to_cifar10h_fn(ex))
+    val_iter_splits['cifar_10h'] = _get_val_split(
+        'cifar10',
+        split=config.get('cifar_10h_split') or 'test',
+        pp_eval=pp_eval,
+        data_dir=config.get('data_dir'))
   elif config.get('eval_on_imagenet_real'):
-    val_steps = int(np.ceil(46837 / batch_size_eval))
-
-    imagenet_real_ds = tfds.load('imagenet2012_real', split='validation')
-    imagenet_real_ds = imagenet_real_ds.filter(
-        lambda ex: tf.shape(ex['real_label'])[0] > 0)
 
     def avg_label(example):
-      one_hot = tf.one_hot(example['real_label'], 1000)
-      example['labels'] = tf.reduce_mean(one_hot, axis=0)
+      real_label = example['real_label']
+      if tf.shape(real_label)[0] > 0:
+        one_hot = tf.one_hot(real_label, 1000)
+        example['labels'] = tf.reduce_mean(one_hot, axis=0)
+        example['mask'] = tf.identity(1.)
+      else:
+        example['labels'] = tf.zeros([1000])
+        example['mask'] = tf.identity(0.)
       return example
 
-    imagenet_real_ds = imagenet_real_ds.map(avg_label)
-
-    val_ds_imagenet_real = input_utils.get_data(
-        dataset=imagenet_real_ds,
-        split='test',
-        rng=None,
-        host_batch_size=local_batch_size_eval,
-        preprocess_fn=preprocess_spec.parse(
-            spec=config.pp_eval_imagenet_real,
-            available_ops=preprocess_utils.all_ops()),
-        cache=config.get('val_cache', 'batched'),
-        repeat_after_batching=True,
-        shuffle=False,
-        prefetch_size=config.get('prefetch_to_host', 2),
-        drop_remainder=False)
-    val_iter_imagenet_real = input_utils.start_input_pipeline(
-        val_ds_imagenet_real, config.get('prefetch_to_device', 1))
-
+    preprocess_fn = preprocess_spec.parse(
+        spec=config.pp_eval_imagenet_real,
+        available_ops=preprocess_utils.all_ops())
+    pp_eval = lambda ex: preprocess_fn(avg_label(ex))
+    val_iter_imagenet_real, val_steps = _get_val_split(
+        'imagenet2012_real',
+        split=config.get('imagenet_real_split') or 'validation',
+        pp_eval=pp_eval,
+        data_dir=config.get('data_dir'))
     val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = None
-  if config.get('ood_dataset'):
-    logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
-    if isinstance(config.ood_split, str):
-      ood_ds = {
-          'ind':
-              _get_val_split(config.dataset, config.ood_split, config.pp_eval,
-                             config.get('data_dir')),
-          'ood':
-              _get_val_split(config.ood_dataset, config.ood_split,
-                             config.pp_eval, config.get('data_dir')),
-      }
-    else:
-      raise NotImplementedError(
-          'Only string type of val_split is supported! Got val_split=%s!' %
-          str(config.ood_split))
+  if config.get('ood_dataset') and config.get('ood_methods'):
+    if config.get('ood_methods'):  #  config.ood_methods is not a empty list
+      logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+      ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
+          config.dataset,
+          config.ood_dataset,
+          config.ood_split,
+          config.pp_eval,
+          config.ood_methods,
+          config.train_split,
+          config.get('data_dir'),
+          _get_val_split,
+      )
 
   ntrain_img = input_utils.get_num_examples(
       config.dataset,
@@ -320,13 +303,14 @@ def main(argv):
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    logits, _ = model.apply({'params': flax.core.freeze(params)},
-                            images,
-                            train=False,
-                            rngs={
-                                'dropout': rng,
-                                'diag_noise_samples': (rng + 1) * 7,
-                                'standard_norm_noise_samples': (rng + 3) * 13})
+    logits, out = model.apply({'params': flax.core.freeze(params)},
+                              images,
+                              train=False,
+                              rngs={
+                                  'dropout': rng,
+                                  'diag_noise_samples': (rng + 1) * 7,
+                                  'standard_norm_noise_samples': (rng + 3) * 13
+                              })
 
     losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -338,19 +322,20 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, mask], axis_name='batch')
-
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
+                                     axis_name='batch')
     return ncorrect, loss, n, metric_args
 
   @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, images, labels, mask):
-    logits, _ = model.apply({'params': flax.core.freeze(params)},
-                            images,
-                            train=False,
-                            rngs={
-                                'dropout': rng,
-                                'diag_noise_samples': (rng + 1) * 7,
-                                'standard_norm_noise_samples': (rng + 3) * 13})
+    logits, out = model.apply({'params': flax.core.freeze(params)},
+                              images,
+                              train=False,
+                              rngs={
+                                  'dropout': rng,
+                                  'diag_noise_samples': (rng + 1) * 7,
+                                  'standard_norm_noise_samples': (rng + 3) * 13
+                              })
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -365,7 +350,7 @@ def main(argv):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, mask],
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
@@ -530,8 +515,8 @@ def main(argv):
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
-  val_loss = -jnp.inf
-  results = {'dummy': {(0, 1): -jnp.inf}}
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
@@ -655,7 +640,7 @@ def main(argv):
 
           # Here we parse batch_metric_args to compute uncertainty metrics.
           # (e.g., ECE or Calibration AUC).
-          logits, labels, masks = batch_metric_args
+          logits, labels, _, masks = batch_metric_args
           masks = np.array(masks[0], dtype=np.bool)
           logits = np.array(logits[0])
           probs = jax.nn.softmax(logits)
@@ -680,10 +665,10 @@ def main(argv):
               sample_diversity.update_state(batch_sample_diversity)
               ged.update_state(batch_ged)
 
-        val_loss = loss / nseen  # Keep to return for reproducibility tests.
+        val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
-            f'{val_name}_loss': val_loss,
+            f'{val_name}_loss': val_loss[val_name],
             f'{val_name}_ece': ece.result()['ece'],
             f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
             f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
@@ -702,46 +687,14 @@ def main(argv):
           writer.write_scalars(step, cifar_10h_measurements)
 
       # OOD eval
-      if ood_ds:
-        ood_metrics = {
-            'auroc':
-                tf.keras.metrics.AUC(
-                    curve='ROC', summation_method='interpolation'),
-            'auprc':
-                tf.keras.metrics.AUC(
-                    curve='PR', summation_method='interpolation')
-        }
-        ood_measurements = {}
-        for metric in ood_metrics.values():
-          metric.reset_states()
-        for val_name, (val_iter, val_steps) in ood_ds.items():
-          for _, batch in zip(range(val_steps), val_iter):
-            batch_ncorrect, batch_losses, batch_n, batch_metric_args = evaluation_fn(
-                opt_repl.target, batch['image'], batch['labels'], batch['mask'])
-            # All results are a replicated array shaped as follows:
-            # (local_devices, per_device_batch_size, elem_shape...)
-            # with each local device's entry being identical as they got psum'd.
-            # So let's just take the first one to the host as numpy.
-            ncorrect += np.sum(np.array(batch_ncorrect[0]))
-            loss += np.sum(np.array(batch_losses[0]))
-            nseen += np.sum(np.array(batch_n[0]))
-
-            # Here we parse batch_metric_args to compute OOD metrics.
-            logits, _, masks = batch_metric_args
-            probs = jax.nn.softmax(logits[0], axis=-1)
-            probs = probs[jnp.array(masks[0], dtype=bool)]
-            confs = jnp.max(probs, axis=-1)
-            ood_labels = np.ones_like(
-                confs) if val_name == 'ind' else np.zeros_like(confs)
-            for metric in ood_metrics.values():
-              metric.update_state(ood_labels, confs)
-          if val_name == 'ind':
-            ood_measurements.update({
-                f'{val_name}_prec@1': ncorrect / nseen,
-                f'{val_name}_loss': loss / nseen,
-            })
-        for name, value in ood_metrics.items():
-          ood_measurements.update({f'ood_{name}': value.result()})
+      # There are two entries in the ood_ds dict (in-dist, ood), and this
+      # section computes metrics using both pieces. This is in contrast to
+      # normal validation eval above where we eval metrics separately for each
+      # val split in val_ds.
+      if ood_ds and config.ood_methods:
+        ood_measurements = ood_utils.eval_ood_metrics(ood_ds, ood_ds_names,
+                                                      config.ood_methods,
+                                                      evaluation_fn, opt_repl)
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
 
@@ -751,8 +704,8 @@ def main(argv):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
-        results, best_l2 = fewshotter.run_all(opt_repl.target,
-                                              config.fewshot.datasets)
+        fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
+                                                      config.fewshot.datasets)
 
         # TODO(dusenberrymw): Remove this once fewshot.py is updated.
         def make_writer_measure_fn(step):
@@ -762,7 +715,8 @@ def main(argv):
 
           return writer_measure
 
-        fewshotter.walk_results(make_writer_measure_fn(step), results, best_l2)
+        fewshotter.walk_results(
+            make_writer_measure_fn(step), fewshot_results, best_l2)
         chrono.resume()
 
     # End of step.
@@ -778,7 +732,7 @@ def main(argv):
 
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.
-  return train_loss, val_loss, results
+  return train_loss, val_loss, fewshot_results
 
 
 if __name__ == '__main__':

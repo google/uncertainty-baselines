@@ -139,6 +139,72 @@ class PSLModel(abc.ABC):
     return PSLModel.compute_rule_loss(body, head, logic=logic)
 
   @staticmethod
+  def template_rxy_and_sy_and_tx_implies_ux(
+      r_xy: tf.Tensor,
+      s_y: tf.Tensor,
+      t_x: tf.Tensor,
+      u_x: tf.Tensor,
+      logic: str = 'lukasiewicz') -> float:
+    """Template for R(x,y) & S(y) & T(x) -> U(x).
+
+    Converts s_y, t_x, and u_x into (batch_size, example_size, example_size)
+    tensors, inverts t_x and u_x, and computes the rule loss.
+
+    Args:
+      r_xy: a (batch_size, example_size, example_size) tensor.
+      s_y: a (batch_size, example_size) tensor.
+      t_x: a (batch_size, example_size) tensor.
+      u_x: a (batch_size, example_size) tensor.
+      logic: the type of logic being used.
+
+    Returns:
+      A computed loss for this type of rule.
+    """
+    s_y_matrix = PSLModel._unary_to_binary(s_y, transpose=False)
+    t_x_matrix = PSLModel._unary_to_binary(t_x, transpose=True)
+    u_x_matrix = PSLModel._unary_to_binary(u_x, transpose=True)
+
+    body = [r_xy, s_y_matrix, t_x_matrix]
+    head = u_x_matrix
+
+    return PSLModel.compute_rule_loss(body, head, logic=logic)
+
+  @staticmethod
+  def template_rxy_and_sy_and_tx_and_ux_implies_vx(
+      r_xy: tf.Tensor,
+      s_y: tf.Tensor,
+      t_x: tf.Tensor,
+      u_x: tf.Tensor,
+      v_x: tf.Tensor,
+      logic: str = 'lukasiewicz') -> float:
+    """Template for R(x,y) & S(y) & T(x) & U(x) -> V(x).
+
+    Converts s_y, t_x, u_x, and v_x into (batch_size, example_size,
+    example_size) tensors, inverts t_x, u_x, and v_x, and computes the rule
+    loss.
+
+    Args:
+      r_xy: a (batch_size, example_size, example_size) tensor.
+      s_y: a (batch_size, example_size) tensor.
+      t_x: a (batch_size, example_size) tensor.
+      u_x: a (batch_size, example_size) tensor.
+      v_x: a (batch_size, example_size) tensor.
+      logic: the type of logic being used.
+
+    Returns:
+      A computed loss for this type of rule.
+    """
+    s_y_matrix = PSLModel._unary_to_binary(s_y, transpose=False)
+    t_x_matrix = PSLModel._unary_to_binary(t_x, transpose=True)
+    u_x_matrix = PSLModel._unary_to_binary(u_x, transpose=True)
+    v_x_matrix = PSLModel._unary_to_binary(v_x, transpose=True)
+
+    body = [r_xy, s_y_matrix, t_x_matrix, u_x_matrix]
+    head = v_x_matrix
+
+    return PSLModel.compute_rule_loss(body, head, logic=logic)
+
+  @staticmethod
   def _unary_to_binary(predicate: tf.Tensor, transpose: bool) -> tf.Tensor:
     predicate_matrix = tf.repeat(predicate, predicate.shape[-1], axis=-1)
     predicate_matrix = tf.reshape(

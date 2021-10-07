@@ -65,9 +65,14 @@ def _annotate_if_contains_words(utterance: List[int], key_words: List[str],
 
 
 def add_features(dialogs: List[Dialog], vocab_mapping: Dict[str, int],
+                 accept_words: List[str], cancel_words: List[str],
                  end_words: List[str], greet_words: List[str],
-                 includes_word: int, excludes_word: int, greet_index: int,
-                 end_index: int, utterance_mask: int, pad_utterance_mask: int,
+                 info_question_words: List[str], insist_words: List[str],
+                 slot_question_words: List[str], includes_word: int,
+                 excludes_word: int, accept_index: int, cancel_index: int,
+                 end_index: int, greet_index: int, info_question_index: int,
+                 insist_index: int, slot_question_index: int,
+                 utterance_mask: int, pad_utterance_mask: int,
                  last_utterance_mask: int, mask_index: int) -> List[Dialog]:
   """Makes a copy of dialogs and annotates if it contains any special tokens.
 
@@ -79,15 +84,32 @@ def add_features(dialogs: List[Dialog], vocab_mapping: Dict[str, int],
   Args:
     dialogs: list of dialogs being annotated with special tokens.
     vocab_mapping: a dictionary that maps a vocab to integers.
+    accept_words: list of strings representing the known accept words.
+    cancel_words: list of strings representing the known cancel words.
     end_words: list of strings representing the known end words.
     greet_words: list of strings representing the known greet words.
+    info_question_words: list of strings representing the known info question
+      words.
+    insist_words: list of strings representing the known insist words.
+    slot_question_words: list of strings representing the known slot question
+      words.
     includes_word: an integer indicating an utterance does contain a key word.
     excludes_word: an integer indicating an utterance does not contain a key
       word.
-    greet_index: an integer representing the index a greet annotation will be
+    accept_index: an integer representing the index an accept annotation will be
+      placed in the utterance.
+    cancel_index: an integer representing the index a cancel annotation will be
       placed in the utterance.
     end_index: an integer representing the index an end annotation will be
       placed in the utterance.
+    greet_index: an integer representing the index a greet annotation will be
+      placed in the utterance.
+    info_question_index: an integer representing the index an info question
+      annotation will be placed in the utterance.
+    insist_index: an integer representing the index an insist annotation will be
+      placed in the utterance.
+    slot_question_index: an integer representing the index a slot question
+      annotation will be placed in the utterance.
     utterance_mask: an integer indicating if it is not a padded utterance.
     pad_utterance_mask: an integer indicating if it is a padded utterance.
     last_utterance_mask: an integer indicating if it is the final utterance
@@ -103,11 +125,11 @@ def add_features(dialogs: List[Dialog], vocab_mapping: Dict[str, int],
     first_padding = True
     for index_j in range(len(dialogs[index_i])):
       # Add null values for features.
-      utterance = [0, 0, 0] + dialogs_copy[index_i][index_j][0]
+      utterance = [0, 0, 0, 0, 0, 0, 0] + dialogs_copy[index_i][index_j][0]
 
       # Checks if the utternace in dialog is a padded utterance.
       utterance[mask_index] = utterance_mask
-      if all(word == 0 for word in utterance):
+      if all(word == 0 for word in dialogs_copy[index_i][index_j][0]):
         utterance[mask_index] = pad_utterance_mask
 
         # Checks if this is the first padding.
@@ -117,9 +139,18 @@ def add_features(dialogs: List[Dialog], vocab_mapping: Dict[str, int],
                                 1][0][mask_index] = last_utterance_mask
           first_padding = False
       # Check edge case where last utterance is not padding.
-      elif first_padding and index_j == len(
-          dialogs_copy[index_i][index_j][0]) - 1:
+      elif first_padding and index_j == (len(dialogs_copy[index_i]) - 1):
         utterance[mask_index] = last_utterance_mask
+
+      # Checks if utterance in dialog contains a known accept word.
+      utterance = _annotate_if_contains_words(utterance, accept_words,
+                                              vocab_mapping, accept_index,
+                                              excludes_word, includes_word)
+
+      # Checks if utterance in dialog contains a known cancel word.
+      utterance = _annotate_if_contains_words(utterance, cancel_words,
+                                              vocab_mapping, cancel_index,
+                                              excludes_word, includes_word)
 
       # Checks if utterance in dialog contains a known end word.
       utterance = _annotate_if_contains_words(utterance, end_words,
@@ -129,6 +160,23 @@ def add_features(dialogs: List[Dialog], vocab_mapping: Dict[str, int],
       # Checks if utterance in dialog contains a known greet word.
       utterance = _annotate_if_contains_words(utterance, greet_words,
                                               vocab_mapping, greet_index,
+                                              excludes_word, includes_word)
+
+      # Checks if utterance in dialog contains a known info question word.
+      utterance = _annotate_if_contains_words(utterance, info_question_words,
+                                              vocab_mapping,
+                                              info_question_index,
+                                              excludes_word, includes_word)
+
+      # Checks if utterance in dialog contains a known insist word.
+      utterance = _annotate_if_contains_words(utterance, insist_words,
+                                              vocab_mapping, insist_index,
+                                              excludes_word, includes_word)
+
+      # Checks if utterance in dialog contains a known slot question word.
+      utterance = _annotate_if_contains_words(utterance, slot_question_words,
+                                              vocab_mapping,
+                                              slot_question_index,
                                               excludes_word, includes_word)
 
       # Sets utterance with new features.

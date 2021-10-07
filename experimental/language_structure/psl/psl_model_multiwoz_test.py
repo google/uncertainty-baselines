@@ -35,12 +35,22 @@ class PslRulesTest(tf.test.TestCase):
     train_dialogs = data.add_features(
         self.data['train_data'],
         vocab_mapping=self.data['vocab_mapping'],
+        accept_words=self.config['accept_words'],
+        cancel_words=self.config['cancel_words'],
         end_words=self.config['end_words'],
         greet_words=self.config['greet_words'],
+        info_question_words=self.config['info_question_words'],
+        insist_words=self.config['insist_words'],
+        slot_question_words=self.config['slot_question_words'],
         includes_word=self.config['includes_word'],
         excludes_word=self.config['excludes_word'],
-        greet_index=self.config['greet_index'],
+        accept_index=self.config['accept_index'],
+        cancel_index=self.config['cancel_index'],
         end_index=self.config['end_index'],
+        greet_index=self.config['greet_index'],
+        info_question_index=self.config['info_question_index'],
+        insist_index=self.config['insist_index'],
+        slot_question_index=self.config['slot_question_index'],
         utterance_mask=self.config['utterance_mask'],
         pad_utterance_mask=self.config['pad_utterance_mask'],
         last_utterance_mask=self.config['last_utterance_mask'],
@@ -59,12 +69,22 @@ class PslRulesTest(tf.test.TestCase):
     test_dialogs = data.add_features(
         self.data['test_data'],
         vocab_mapping=self.data['vocab_mapping'],
+        accept_words=self.config['accept_words'],
+        cancel_words=self.config['cancel_words'],
         end_words=self.config['end_words'],
         greet_words=self.config['greet_words'],
+        info_question_words=self.config['info_question_words'],
+        insist_words=self.config['insist_words'],
+        slot_question_words=self.config['slot_question_words'],
         includes_word=self.config['includes_word'],
         excludes_word=self.config['excludes_word'],
-        greet_index=self.config['greet_index'],
+        accept_index=self.config['accept_index'],
+        cancel_index=self.config['cancel_index'],
         end_index=self.config['end_index'],
+        greet_index=self.config['greet_index'],
+        info_question_index=self.config['info_question_index'],
+        insist_index=self.config['insist_index'],
+        slot_question_index=self.config['slot_question_index'],
         utterance_mask=self.config['utterance_mask'],
         pad_utterance_mask=self.config['pad_utterance_mask'],
         last_utterance_mask=self.config['last_utterance_mask'],
@@ -280,10 +300,8 @@ class PslRulesTest(tf.test.TestCase):
                                                    self.test_ds,
                                                    psl_constraints)
     predictions = tf.math.argmax(logits[0], axis=-1)
-    self.assertNotEqual(predictions[0][0], self.config['class_map']['end'])
-    self.assertNotEqual(predictions[1][2], self.config['class_map']['end'])
-    self.assertNotEqual(predictions[2][3], self.config['class_map']['end'])
-    self.assertNotEqual(predictions[3][0], self.config['class_map']['end'])
+    self.assertEqual(predictions[1][2], self.config['class_map']['end'])
+    self.assertEqual(predictions[2][3], self.config['class_map']['end'])
 
   def test_psl_rule_7(self):
     rule_weights = (1.0,)
@@ -296,6 +314,60 @@ class PslRulesTest(tf.test.TestCase):
         logits=tf.constant(logits), data=test_util.FEATURES)
     self.assertNear(loss, 1.1, err=1e-6)
 
+  def test_psl_rule_8(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_8',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights, rule_names, config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_8(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertNear(loss, 0.9, err=1e-6)
+
+  def test_psl_rule_9(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_9',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights, rule_names, config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_9(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertNear(loss, 0.8, err=1e-6)
+
+  def test_psl_rule_10(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_10',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights, rule_names, config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_10(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertNear(loss, 0.3, err=1e-6)
+
+  def test_psl_rule_11(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_11',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights, rule_names, config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_11(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertNear(loss, 0.7, err=1e-6)
+
+  def test_psl_rule_12(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_12',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights, rule_names, config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_12(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertNear(loss, 0.1, err=1e-6)
 
 if __name__ == '__main__':
   tf.test.main()

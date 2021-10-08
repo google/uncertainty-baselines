@@ -217,12 +217,12 @@ def main(argv):
     val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = {}
-  if config.get('ood_dataset') and config.get('ood_methods'):
+  if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
       logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
       ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
           config.dataset,
-          config.ood_dataset,
+          config.ood_datasets,
           config.ood_split,
           config.pp_eval,
           config.ood_methods,
@@ -643,10 +643,11 @@ def main(argv):
           writer.write_scalars(step, cifar_10h_measurements)
 
       # OOD eval
-      # There are two entries in the ood_ds dict (in-dist, ood), and this
-      # section computes metrics using both pieces. This is in contrast to
-      # normal validation eval above where we eval metrics separately for each
-      # val split in val_ds.
+      # Entries in the ood_ds dict include:
+      # (ind_dataset, ood_dataset1, ood_dataset2, ...).
+      # OOD metrics are computed using ind_dataset paired with each of the
+      # ood_dataset. When Mahalanobis distance method is applied, train_ind_ds
+      # is also included in the ood_ds.
       if ood_ds and config.ood_methods:
         ood_measurements = ood_utils.eval_ood_metrics(ood_ds, ood_ds_names,
                                                       config.ood_methods,

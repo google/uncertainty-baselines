@@ -35,7 +35,7 @@ def get_config():
   config.num_classes = 100
 
   # OOD evaluation dataset
-  config.ood_dataset = 'cifar10'
+  config.ood_datasets = ['cifar10', 'svhn_cropped']
   config.ood_split = 'test'
   config.ood_methods = ['msp', 'maha', 'rmaha']
 

@@ -214,12 +214,12 @@ def main(argv):
     val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = None
-  if config.get('ood_dataset') and config.get('ood_methods'):
+  if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
       logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
       ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
           config.dataset,
-          config.ood_dataset,
+          config.ood_datasets,
           config.ood_split,
           config.pp_eval,
           config.ood_methods,

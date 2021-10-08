@@ -39,7 +39,7 @@ def get_config():
 
   # OOD eval
   # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_dataset = 'cifar100'
+  config.ood_datasets = ['cifar100', 'svhn_cropped']
   config.ood_split = 'test'
   config.ood_methods = ['msp', 'maha', 'rmaha']
 

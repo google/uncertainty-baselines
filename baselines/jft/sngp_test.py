@@ -192,10 +192,10 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
         fewshot_acc_sum, correct_fewshot_acc_sum, atol=0.02, rtol=0.15)
 
   @parameterized.parameters(
-      # TODO(dusenberrymw): This tests is flaky. Need to investigate the issue.
+      # TODO(dusenberrymw): This test is flaky. Need to investigate the issue.
       # ('token', 2, 17.127628, 9.437467681037056, 0.1299999933689832, 'cifar'),
       ('token', None, 57.665764, 47.4102783203125, 0.0999999940395355, 'cifar'),
-      ('gap', 2, 35.87387, 9.02747525109185, 0.04999999888241291, 'cifar'),
+      ('gap', 2, 7.564239, 18.838665856255425, 0.10999999567866325, 'cifar'),
       ('gap', None, 51.77176, 25.256450653076172, 0.08999999798834324, 'cifar'),
       ('token', None, 18.884363, 16.141374799940323, 0.09999999962, 'imagenet'),
   )

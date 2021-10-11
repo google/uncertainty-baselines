@@ -44,6 +44,11 @@ flags.DEFINE_string('data_dir', None,
 flags.DEFINE_bool('download_data', False,
                   'Whether to download data locally when initializing a '
                   'dataset.')
+flags.DEFINE_bool(
+    'drop_remainder_for_eval', False,
+    'Whether to drop the last batch in the case it has fewer than batch_size '
+    'elements. If your use TPU and XLA which requires data to have a '
+    'statically known shape, you should use drop_remainder=True.')
 flags.DEFINE_float('l2', 2e-4, 'L2 regularization coefficient.')
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],

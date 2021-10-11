@@ -20,6 +20,7 @@ r"""Deterministic baseline for Diabetic Retinopathy Detection.
 import datetime
 import getpass
 import os.path
+import random
 
 from ml_collections import config_dict
 
@@ -47,17 +48,17 @@ def get_config():
       'train_proportion': 0.9,
       'eval_on_ood': True,
       'ood_dataset': 'cifar100,svhn_cropped',
+      # If drop_remainder=false, it will cause the issue of
+      # `TPU has inputs with dynamic shapes` for sngp.py
+      # To make the evaluation comparable, we set true for deterministic.py too.
+      'drop_remainder_for_eval': True,
   }
   return config
 
 
 def get_sweep(hyper):
-  num_trials = 5
-  return hyper.zipit([
-      hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.1)),
-      hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.1)),
-      hyper.loguniform('l2', hyper.interval(1e-5, 1e-3)),
-  ], length=num_trials)
-  # return hyper.product([
-  #     # hyper.sweep('dempster_shafer_ood', hyper.categorical([False, True])),
-  # ])
+  return hyper.product([
+      hyper.sweep('dempster_shafer_ood', hyper.categorical([False, True])),
+      hyper.sweep('seed', hyper.discrete(random.sample(range(1, int(1e10)),
+                                                       5))),
+  ])

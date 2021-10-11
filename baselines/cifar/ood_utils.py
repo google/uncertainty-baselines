@@ -48,20 +48,24 @@ def create_ood_metrics(ood_dataset_names):
   """Create OOD metrics."""
   ood_metrics = {}
   for dataset_name in ood_dataset_names:
+    ood_dataset_name = f'ood/{dataset_name}'
     ood_metrics.update({
-        'ood/auroc_{}'.format(dataset_name):
+        f'{ood_dataset_name}_auroc':
             tf.keras.metrics.AUC(curve='ROC', num_thresholds=100000),
-        'ood/auprc_{}'.format(dataset_name):
+        f'{ood_dataset_name}_auprc':
             tf.keras.metrics.AUC(curve='PR', num_thresholds=100000),
-        'ood/(1-fpr)@95tpr_{}'.format(dataset_name):
+        f'{ood_dataset_name}_(1-fpr)@95tpr':
             tf.keras.metrics.SpecificityAtSensitivity(
                 0.95, num_thresholds=100000)
     })
   return ood_metrics
 
 
-def load_ood_datasets(ood_dataset_names, in_dataset_builder,
-                      in_dataset_validation_percent, batch_size):
+def load_ood_datasets(ood_dataset_names,
+                      in_dataset_builder,
+                      in_dataset_validation_percent,
+                      batch_size,
+                      drop_remainder=False):
   """Load OOD datasets."""
   steps = {}
   datasets = {}
@@ -75,14 +79,18 @@ def load_ood_datasets(ood_dataset_names, in_dataset_builder,
           in_dataset_builder,
           split='test',
           validation_percent=in_dataset_validation_percent,
-          normalize_by_cifar=True)
+          normalize_by_cifar=True,
+          drop_remainder=drop_remainder)
     else:
       ood_dataset_builder = ood_dataset_class(
           in_dataset_builder,
           split='test',
-          validation_percent=in_dataset_validation_percent)
+          validation_percent=in_dataset_validation_percent,
+          drop_remainder=drop_remainder)
     ood_dataset = ood_dataset_builder.load(batch_size=batch_size)
-    steps[ood_dataset_name] = ood_dataset_builder.num_examples // batch_size
-    datasets['ood_{}'.format(ood_dataset_name)] = ood_dataset
+    steps[f'ood/{ood_dataset_name}'] = ood_dataset_builder.num_examples(
+        'in_distribution') // batch_size + ood_dataset_builder.num_examples(
+            'ood') // batch_size
+    datasets[f'ood/{ood_dataset_name}'] = ood_dataset
 
   return datasets, steps

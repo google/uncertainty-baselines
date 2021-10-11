@@ -192,7 +192,8 @@ def main(argv):
         FLAGS.dataset,
         split=tfds.Split.VALIDATION,
         validation_percent=1. - FLAGS.train_proportion,
-        data_dir=data_dir)
+        data_dir=data_dir,
+        drop_remainder=FLAGS.drop_remainder_for_eval)
     validation_dataset = validation_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
@@ -200,7 +201,8 @@ def main(argv):
   clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
       split=tfds.Split.TEST,
-      data_dir=data_dir)
+      data_dir=data_dir,
+      drop_remainder=FLAGS.drop_remainder_for_eval)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
@@ -216,8 +218,11 @@ def main(argv):
   if FLAGS.eval_on_ood:
     ood_dataset_names = FLAGS.ood_dataset
     ood_ds, steps_per_ood = ood_utils.load_ood_datasets(
-        ood_dataset_names, clean_test_builder, 1. - FLAGS.train_proportion,
-        batch_size)
+        ood_dataset_names,
+        clean_test_builder,
+        1. - FLAGS.train_proportion,
+        batch_size,
+        drop_remainder=FLAGS.drop_remainder_for_eval)
     ood_datasets = {
         name: strategy.experimental_distribute_dataset(ds)
         for name, ds in ood_ds.items()
@@ -386,7 +391,7 @@ def main(argv):
             negative_log_likelihood)
         metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
-      elif dataset_name.startswith('ood'):
+      elif dataset_name.startswith('ood/'):
         ood_labels = 1 - inputs['is_in_distribution']
         if FLAGS.dempster_shafer_ood:
           ood_scores = ood_utils.DempsterShaferUncertainty(logits)
@@ -394,9 +399,8 @@ def main(argv):
           ood_scores = 1 - tf.reduce_max(probs, axis=-1)
 
         # Edgecase for if dataset_name contains underscores
-        ood_dataset_name = '_'.join(dataset_name.split('_')[1:])
         for name, metric in metrics.items():
-          if ood_dataset_name in name:
+          if dataset_name in name:
             metric.update_state(ood_labels, ood_scores)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
@@ -491,14 +495,14 @@ def main(argv):
       logging.info('Done with testing on %s', dataset_name)
 
     if FLAGS.eval_on_ood:
-      for dataset_name in ood_dataset_names:
-        ood_iterator = iter(ood_datasets['ood_{}'.format(dataset_name)])
-        logging.info('Calculating OOD on dataset %s', dataset_name)
+      for ood_dataset_name, ood_dataset in ood_datasets.items():
+        ood_iterator = iter(ood_dataset)
+        logging.info('Calculating OOD on dataset %s', ood_dataset_name)
         logging.info('Running OOD eval at epoch: %s', epoch)
-        test_step(ood_iterator, 'test', 'ood_{}'.format(dataset_name),
-                  steps_per_ood[dataset_name])
+        test_step(ood_iterator, 'test', ood_dataset_name,
+                  steps_per_ood[ood_dataset_name])
 
-        logging.info('Done with OOD eval on %s', dataset_name)
+        logging.info('Done with OOD eval on %s', ood_dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and

@@ -19,7 +19,7 @@ import copy
 import functools
 import multiprocessing
 import time
-from typing import Any, Iterable, Mapping, Sequence, Tuple
+from typing import Any, Iterable, Mapping, Tuple
 
 from absl import app
 from absl import flags
@@ -42,13 +42,11 @@ u = None
 ensemble = None
 experts_pipeline = None
 metric_writers = None
-partitioning = None
 train = None
 experts_utils = None
 xprof = None
 core = None
 metrics = None
-ema = None
 pp_builder = None
 config_flags = None
 xm = None
@@ -74,7 +72,6 @@ jax.config.parse_flags_with_absl()
 def restore_model_and_put_to_devices(
     config: ml_collections.ConfigDict,
     output_dir: str,
-    partition_specs: Sequence[partitioning.PartitionSpec],
     model: flax.nn.Module,
     optimizer: flax.optim.Optimizer,
     train_iter: Iterable[Any],
@@ -86,7 +83,7 @@ def restore_model_and_put_to_devices(
    global_state) = train.restore_checkpoints(
        workdir=output_dir,
        step=None,
-       partition_specs=partition_specs,
+       partition_specs=[],
        optimizer=optimizer,
        train_iter=train_iter,
        rng_state_tf=tf.random.get_global_generator().state.numpy(),
@@ -114,7 +111,7 @@ def restore_model_and_put_to_devices(
         init_params=optimizer.target,
         model_params=config.model,
         keep_head=config.get('keep_head', False),
-        partition_specs=partition_specs)
+        partition_specs=[])
     # Shard restored parameters and replicate original optimizer state.
     optimizer = optimizer.replace(
         target=core.tree_shard(restored_params),
@@ -250,33 +247,13 @@ def main(_):
 
   # Restore parameters from checkpoints (if possible) and put to TPU devices.
   opt, train_iter, rngs_per_device, global_state = restore_model_and_put_to_devices(
-      config, output_dir, partition_specs, model, opt, iter(train_ds), rngs,
+      config, output_dir, model, opt, iter(train_ds), rngs,
       pool)
   del rngs
   first_step = global_state['step']
   accum_train_time = global_state['accum_train_time']
   start_time = time.time()
   logging.info('Initial step for training = %d.', first_step)
-
-  local_devices = sorted(jax.local_devices(), key=lambda device: device.id)
-  if config.get('ema', {}):
-    ema_updater = ema.ExponentialMovingAverage(
-        target=partitioning.tree_unreplicate_using_partition_specs(
-            jax.tree_map(np.zeros_like, opt.target),
-            partition_specs=partition_specs,
-            local_devices=local_devices),
-        num_updates=0,
-        **config.ema)
-  else:
-    ema_updater = None
-  if first_step != 0 and ema_updater is not None:
-    ema_updater = train.restore_ema_checkpoints(
-        output_dir,
-        first_step,
-        partition_specs,
-        ema_updater,
-        local_devices=local_devices,
-        thread_pool=pool)
 
   train_iter = u.start_input_pipeline(train_iter, config.prefetch_to_device)
   eval_iters = train.get_dataset_eval_iters_from_config(
@@ -309,14 +286,6 @@ def main(_):
               train_batch['image'],
               train_batch['labels'],
               batch_loss_fn)
-
-      if (ema_updater is not None and
-          step % config.get('ema', {}).get('period', 10) == 0):
-        ema_updater = ema_updater.update(
-            partitioning.tree_unreplicate_using_partition_specs(
-                tree=opt.target,
-                partition_specs=partition_specs,
-                local_devices=local_devices))
 
         # Checkpoint saving.
       backup_checkpoints_every_n_steps = config.get('backup_checkpoint_steps')
@@ -358,14 +327,6 @@ def main(_):
                 'accum_train_time': accum_train_time + time_since_last_start,
             },
             thread_pool=pool)
-        if ema_updater is not None:
-          checkpoint_async_results.append(train.save_ema_checkpoints(
-              workdir=output_dir,
-              step=step,
-              partition_specs=partition_specs,
-              ema_updater=ema_updater,
-              local_devices=local_devices,
-              thread_pool=pool))
 
       # Report training progress
       if (jax.host_id() == 0 and config.log_training_every_n_steps > 0 and
@@ -396,59 +357,12 @@ def main(_):
               step, {key: np.mean(value) for key, value in aux_info.items()})
 
 
-      # Run checks to detect if the model partitioning is unhealthy.
-      # Global health metrics will be logged, and in case of problems a
-      # WARNING or ERROR message will be logged.
-      train.monitor_partitioning_health(
-          optimizer=opt,
-          partition_specs=partition_specs,
-          metric_writer=writer,
-          step=step,
-          first_step=first_step + 1,
-          every_n_steps=config.get('check_partitioning_health_every_n_steps',
-                                   total_steps // 20))
       # Evaluate model on validation, test, ...
       rngs_per_device = train.run_evaluation_on_multiple_splits(
           pmap_evaluation_fn, opt.target, eval_iters, rngs_per_device,
           step / steps_per_epoch, step, total_steps,
           config.run_evaluation_every_n_steps, writer, compute_ece,
           config.get('ece_num_bins', 15), suffix='')
-      if ema_updater and config.run_evaluation_every_n_steps > 0 and (
-          step == first_step + 1 or
-          step % config.run_evaluation_every_n_steps == 0 or
-          step == total_steps):
-        logging.info('Evaluation with EMA weights at step %d: started.', step)
-        # Copy current parameters to CPU. Only one replica of each local
-        # partition is copied to prevent redundant data transfers (e.g.
-        # non-expert parameters).
-        curr_params = partitioning.tree_unreplicate_using_partition_specs(
-            tree=opt.target,
-            partition_specs=partition_specs,
-            local_devices=local_devices)
-        # Block curr_params until TPU->CPU copy has finished to prevent multiple
-        # copies of the TPU parameters.
-        curr_params = core.tree_block_until_ready(curr_params)
-        # Allow TPU parameters to be freed.
-        opt = opt.replace(target=None)
-        # Copy EMA parameters to TPU and run evaluation.
-        rngs_per_device = train.run_evaluation_on_multiple_splits(
-            pmap_evaluation_fn,
-            partitioning.tree_replicate_from_partitioned_tree(
-                ema_updater.get(),
-                partition_specs=partition_specs,
-                local_devices=local_devices),
-            eval_iters, rngs_per_device, step / steps_per_epoch, step,
-            total_steps, config.run_evaluation_every_n_steps, writer,
-            compute_ece, config.get('ece_num_bins', 15), suffix='_ema')
-        rngs_per_device = core.tree_block_until_ready(rngs_per_device)
-        # Copy current parameters back to the TPU.
-        opt = opt.replace(
-            target=partitioning.tree_replicate_from_partitioned_tree(
-                curr_params,
-                partition_specs=partition_specs,
-                local_devices=local_devices))
-        logging.info('Evaluation with EMA weights at step %d: finished.', step)
-        del curr_params
 
   pool.close()
   pool.join()

@@ -30,18 +30,21 @@ def get_config():
 
   # JFT parameters.
   config.dataset = 'jft/entity:1.0.0'
+  config.val_split = 'test[:49511]'  # aka tiny_test/test[:5%] in task_adapt
+  config.train_split = 'train'  # task_adapt used train+validation so +64167
   config.num_classes = 18291
   config.init_head_bias = -10.0    # ~= ln(1/18k) ~= ln(1/num_classes)
+
   config.loss_to_apply = 'softmax_xent'
 
-  pp_common = f'|value_range(-1, 1)|onehot({config.num_classes})'
+  pp_common = '|value_range(-1, 1)'
+  pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
   # pp_common += f'|onehot({config.num_classes}, key='labels_extended', key_result='labels')  # pylint: disable=line-too-long
-  pp_common += '|keep("image", "labels")'
-  pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
+  pp_common += '|keep(["image", "labels"])'
   config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
-  config.train_split = 'train'  # task_adapt used train+validation so +641676
-  config.eval_split = {'val': ('test[:10000]', pp_eval)}
+  config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
+  config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   # Model parameters.
   config.model_name = 'PatchTransformerBE'
@@ -84,13 +87,13 @@ def get_config():
 
   config.batch_size = 1024         # Global batch size.
   config.batch_size_eval = 1024    # Global batch size.
-  config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   config.num_epochs = 5
 
   config.log_training_every_n_steps = 50
   config.run_evaluation_every_n_steps = 1000
   config.log_training_first_n_steps = 10
+  config.log_eval_steps = 1000
 
   config.write_checkpoint_every_n_steps = 5000
   config.checkpoint_write_timeout_secs = 10

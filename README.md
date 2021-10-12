@@ -99,6 +99,7 @@ The
 module consists of datasets following the
 [TensorFlow Datasets](https://www.tensorflow.org/datasets) API.
 They add minimal logic such as default data preprocessing.
+Note: in ipython/colab notebook, one may need to activate tf earger execution mode `tf.compat.v1.enable_eager_execution()`.
 
 ```python
 import uncertainty_baselines as ub

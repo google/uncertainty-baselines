@@ -49,7 +49,8 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
                                   ('Test', tfds.Split.TEST))
   def testDatasetShape(self, split):
     batch_size = 9 if split == tfds.Split.TRAIN else 5
-    dataset_builder = self.dataset_class(split=split, shuffle_buffer_size=20)
+    dataset_builder = self.dataset_class(
+        split=split, add_dialog_turn_id=True, shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
 
@@ -58,11 +59,13 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
     labels = element['label']
     dialog_len = element['dialog_len']
+    dialog_turn_id = element['dialog_turn_id']
 
     features_usr_shape = features_usr.shape
     features_sys_shape = features_sys.shape
     labels_shape = labels.shape
     dialog_len_shape = dialog_len.shape
+    dialog_turn_id_shape = dialog_turn_id.shape
 
     max_dial_len = MAX_DIALOG_LEN[dataset_builder.name]
     max_utt_len = MAX_UTT_LEN[dataset_builder.name]
@@ -73,6 +76,7 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
                      (batch_size, max_dial_len, max_utt_len))
     self.assertEqual(labels_shape, (batch_size, max_dial_len))
     self.assertEqual(dialog_len_shape, (batch_size,))
+    self.assertEqual(dialog_turn_id_shape, (batch_size, max_dial_len))
 
   @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
                                   ('Test', tfds.Split.TEST))
@@ -122,6 +126,22 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
     np.testing.assert_array_equal(dialog_len_usr, dialog_len)
     np.testing.assert_array_equal(dialog_len_sys, dialog_len)
     np.testing.assert_array_equal(dialog_len_label, dialog_len)
+
+  @parameterized.named_parameters(('Train', tfds.Split.TRAIN),
+                                  ('Test', tfds.Split.TEST))
+  def testDialogTurnId(self, split):
+    """Checks dialog turn ids are unique."""
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
+    dataset_builder = self.dataset_class(
+        split=split, add_dialog_turn_id=True, shuffle_buffer_size=20)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
+    element = next(iter(dataset))
+
+    dialog_turn_id = element['dialog_turn_id'].numpy()
+    unique_dialog_turn_id = np.unique(dialog_turn_id)
+
+    np.testing.assert_array_equal(
+        np.sort(dialog_turn_id.flatten()), np.sort(unique_dialog_turn_id))
 
   def testVocab(self):
     """Tests if vocab is loaded correctly."""

@@ -251,7 +251,13 @@ def main(_):
               pp_eval=config.pp_eval,
               data_dir=config.get('data_dir'))
   }
+
+  # Note: we return the train loss and val loss for use in reproducibility unit
+  # tests.
+  train_loss = -jnp.inf
   val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  # TODO(zmariet): Add fewshot evaluation.
+  fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   opt_def = train.get_optimizer_from_config(config, f'{BIG_VISION_DIR}.optims')
   eval_config = copy.deepcopy(config)
@@ -406,6 +412,7 @@ def main(_):
       if (jax.host_id() == 0 and config.log_training_every_n_steps > 0 and
           (step % config.log_training_every_n_steps == 0 or
            step == total_steps or step < log_training_first_n_steps)):
+        train_loss = loss_value[0]
         time_elapsed = time.time() - start_time + accum_train_time
         img_sec_core = (
             config.batch_size * step / time_elapsed / jax.device_count())
@@ -501,6 +508,9 @@ def main(_):
   pool.close()
   pool.join()
 
+  # Return final training loss, validation loss, and fewshot results for
+  # reproducibility test cases.
+  return train_loss, val_loss, fewshot_results
 
 if __name__ == '__main__':
   app.run(main)

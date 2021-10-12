@@ -60,7 +60,7 @@ def get_config():
   config.model.transformer.num_heads = 8
   config.model.transformer.attention_dropout_rate = 0.0
 
-  # BatchEnsemblee parameters.
+  # BatchEnsemble parameters.
   config.model.transformer.be_layers = (1, 3, 5, 7)
   config.model.transformer.ens_size = 4
   config.model.transformer.random_sign_init = 0.5

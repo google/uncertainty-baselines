@@ -33,7 +33,7 @@ flags.adopt_module_key_flags(sngp)
 FLAGS = flags.FLAGS
 
 
-def get_config(classifier, representation_size):
+def get_config(classifier, representation_size, use_gp_layer):
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
   config.seed = 0
@@ -89,6 +89,7 @@ def get_config(classifier, representation_size):
       'head/output_layer/kernel', 'head/output_layer/bias', 'head/kernel',
       'head/bias'
   ]
+  config.use_gp_layer = use_gp_layer
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -136,19 +137,23 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
       # for the val_loss. Need to investigate the issue.
       # ('token', 2, 82502.49, 1695.701171875, 0.16999999806284904, False),
       # ('token', 2, 82502.49, 1695.701171875, 0.16999999806284904, True),
-      ('token', None, 1235.983, 1278.0880262586807, 0.23000000044703484, False),
-      ('gap', 2, 82480.11, 581.2986111111111, 0.16999999433755875, False),
-      ('gap', None, 312.10632, 580.241441514757, 0.2499999925494194, False),
-      ('gap', None, 312.10632, 580.241441514757, 0.2499999925494194, True),
+      ('token', None, True, 1235.983, 1278.0880262586807, 0.23000000044703484,
+       False),
+      ('gap', 2, True, 82480.11, 581.2986111111111, 0.16999999433755875, False),
+      ('gap', None, True, 312.10632, 580.241441514757, 0.2499999925494194,
+       False),
+      ('gap', None, True, 312.10632, 580.241441514757, 0.2499999925494194,
+       True),
   )
   @flagsaver.flagsaver
-  def test_sngp_script(self, classifier, representation_size,
+  def test_sngp_script(self, classifier, representation_size, use_gp_layer,
                        correct_train_loss, correct_val_loss,
                        correct_fewshot_acc_sum, simulate_failure):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
-        classifier=classifier, representation_size=representation_size)
+        classifier=classifier, representation_size=representation_size,
+        use_gp_layer=use_gp_layer)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.dataset_dir = self.data_dir
 
@@ -194,19 +199,27 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
   @parameterized.parameters(
       # TODO(dusenberrymw): This test is flaky. Need to investigate the issue.
       # ('token', 2, 17.127628, 9.437467681037056, 0.1299999933689832, 'cifar'),
-      ('token', None, 57.665764, 47.4102783203125, 0.0999999940395355, 'cifar'),
-      ('gap', 2, 7.564239, 18.838665856255425, 0.10999999567866325, 'cifar'),
-      ('gap', None, 51.77176, 25.256450653076172, 0.08999999798834324, 'cifar'),
-      ('token', None, 18.884363, 16.141374799940323, 0.09999999962, 'imagenet'),
+      ('token', None, True, 57.665764, 47.4102783203125, 0.0999999940395355,
+       'cifar'),
+      ('gap', 2, True, 7.564239, 18.838665856255425, 0.10999999567866325,
+       'cifar'),
+      ('gap', 2, False, 6.495101, 6.035849889119466, 0.07000000029802322,
+       'cifar'),
+      ('gap', None, True, 51.77176, 25.256450653076172, 0.08999999798834324,
+       'cifar'),
+      ('token', None, True, 18.884363, 16.141374799940323, 0.09999999962,
+       'imagenet'),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, classifier, representation_size,
+                                    use_gp_layer,
                                     correct_train_loss, correct_val_loss,
                                     correct_fewshot_acc_sum, dataset):
     # Set flags.
     FLAGS.xm_runlocal = True
     FLAGS.config = get_config(
-        classifier=classifier, representation_size=representation_size)
+        classifier=classifier, representation_size=representation_size,
+        use_gp_layer=use_gp_layer)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.dataset_dir = self.data_dir
 

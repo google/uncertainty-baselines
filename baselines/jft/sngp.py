@@ -348,7 +348,7 @@ def main(argv):
   logging.info('config.model = %s', config.get('model'))
 
   # Specify Gaussian process layer configs.
-  use_gp_layer = True
+  use_gp_layer = config.get('use_gp_layer', True)
   gp_config = config.get('gp_layer', {})
   gp_layer_kwargs = get_gp_kwargs(gp_config)
 
@@ -382,9 +382,8 @@ def main(argv):
           params['head']['output_layer']['bias'],
           config.get('init_head_bias', 0))
     else:
-      params['vit_backbone']['head']['bias'] = jnp.full_like(
-          params['vit_backbone']['head']['bias'],
-          config.get('init_head_bias', 0))
+      params['head']['bias'] = jnp.full_like(
+          params['head']['bias'], config.get('init_head_bias', 0))
 
     return params, states
 
@@ -498,7 +497,7 @@ def main(argv):
 
     # Performs exact covariance update (i.e., reset precision matrix resetting
     # at begining of new epoch) if covmat_momentum is a null value.
-    if gp_config.get('covmat_momentum', -1.) < 0:
+    if use_gp_layer and gp_config.get('covmat_momentum', -1.) < 0:
       # Resets precision matrix to Identity * ridge_penalty if at the begining
       # of a new epoch. This should be done before accumulate gradient.
       ridge_penalty = gp_config.get('ridge_penalty', 1.)

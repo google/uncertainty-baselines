@@ -1,0 +1,31 @@
+# sweep.yaml
+name: eval-single-multi-seeds
+program: baselines/diabetic_retinopathy_detection/eval_model.py
+method: grid
+project: eval-multi-seeds
+entity: uncertainty-baselines
+parameters:
+  eval_batch_size:
+    value: 64
+  num_mc_samples:
+    value: 5
+  dr_decision_threshold:
+    value: 'moderate'
+  single_model_multi_train_seeds:
+    value: True
+  model_type:
+    values:
+    - 'deterministic'
+    - 'dropout'
+    - 'fsvi'
+    - 'radial'
+    - 'vi'
+    - 'rank1'
+  tuning_domain:
+    values:
+    - 'indomain'
+    - 'joint'
+  distribution_shift:
+    values:
+    - 'aptos'
+    - 'severity'

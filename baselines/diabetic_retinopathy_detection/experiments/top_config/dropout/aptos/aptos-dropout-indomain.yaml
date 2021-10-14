@@ -1,0 +1,49 @@
+"""
+Top hyperparameter configuration of the
+MC Dropout baseline for Diabetic Retinopathy Detection,
+tuning on in-domain validation AUC,
+evaluated on the OOD APTOS Indian retinopathy dataset
+with moderate decision threshold.
+"""
+name: aptos-dropout-indomain
+program: baselines/diabetic_retinopathy_detection/dropout.py
+method: grid
+project: aptos-dropout-indomain
+entity: uncertainty-baselines
+
+parameters:
+  tpu:
+    value: 'read-from-file'
+  per_core_batch_size:
+    value: 16
+  num_dropout_samples_eval:
+    value: 5
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'aptos'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-dropout-aptos-finetune/indomain'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+  use_wandb:
+    value: True
+  seed:
+    values: [42, 43, 44, 45, 46, 47]
+
+  base_learning_rate:
+    value: 0.027250
+  one_minus_momentum:
+    value: 0.035193
+  l2:
+    value: 0.000014128
+  dropout_rate:
+    value: 0.17798

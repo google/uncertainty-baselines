@@ -1,17 +1,117 @@
-# Diabetic Retinopathy
+# Diabetic Retinopathy Detection Benchmark
 
-In this baseline, models try to predict the presence or absence of diabetic
-retinopathy (a binary classification task) using data from the
-[Kaggle Diabetic Retinopathy Detection challenge](https://www.kaggle.com/c/diabetic-retinopathy-detection/data). Please see
-that page for details on data collection, etc.
+## Overview
 
-Models are trained with images of blood vessels in the eye, as seen in the
-[TensorFlow Datasets description](https://www.tensorflow.org/datasets/catalog/diabetic_retinopathy_detection).
+Hi, good to see you here! 👋
 
-## Model Checkpoints
-For each method we release the best-performaing checkpoints. These checkpoints were trained on the combined training and validation set, using hyperparameters selected from the best validation performance. Each checkpoint was selected to be from the step during training with the best test AUC (averaged across the 10 random seeds). This was epoch 63 for the deterministic model, epoch 72 for the MC-Dropout method, epoch 31 for the Variational Inference method, and epoch 61 for the Radial BNNs method. For more details on the models, see the accompanying [Model Card](./model_card.md), which covers all the models below, as the dataset is exactly the same across them all, and the only model differences are minor calibration improvements. The checkpoints can be browsed [here](https://console.cloud.google.com/storage/browser/gresearch/reliable-deep-learning/checkpoints/baselines/diabetic_retinopathy_detection).
+Thanks for checking out the code for the Diabetic Retinopathy Detection benchmark, part of the Uncertainty Baselines project.
 
-## Tuning
+This codebase will allow you to reproduce experiments from the paper (see citation [here](#cite)) as well as use the benchmarking utilities for predictive performance, robustness, and uncertainty quantification (evaluation and plotting) for your own Bayesian deep learning methods.
+
+## Prediction Task Overview
+
+In this benchmark, models try to predict the presence or absence of diabetic retinopathy (a binary classification task) using data from the [Kaggle Diabetic Retinopathy Detection challenge](https://www.kaggle.com/c/diabetic-retinopathy-detection/data) and the [APTOS 2019 Blindness Detection](https://www.kaggle.com/c/aptos2019-blindness-detection). Please see these pages for details on data collection, etc.
+
+Models are trained with images of blood vessels in the eye, as seen in the [TensorFlow Datasets description](https://www.tensorflow.org/datasets/catalog/diabetic_retinopathy_detection).
+
+## Abstract
+
+Bayesian deep learning seeks to equip deep neural networks with the ability to precisely quantify their predictive uncertainty, and has promised to make deep learning more reliable for safety-critical real-world applications.
+Yet, existing Bayesian deep learning methods fall short of this promise; new methods continue to be evaluated on unrealistic test beds that do not reflect the complexities of the downstream real-world tasks that would benefit most from reliable uncertainty quantification.
+We propose a set of real-world tasks that accurately reflect such complexities and assess the reliability of predictive models in safety-critical scenarios.
+Specifically, we curate two publicly available datasets of high-resolution human retina images exhibiting varying degrees of diabetic retinopathy, a medical condition that can lead to blindness, and use them to design a suite of automated diagnosis tasks that require reliable predictive uncertainty quantification.
+We use these tasks to benchmark well-established and state-of-the-art Bayesian deep learning methods on task-specific evaluation metrics.
+We provide an easy-to-use codebase for fast and easy benchmarking following reproducibility and software design principles.
+
+## Installation
+
+Set up and activate the Python environment by executing
+
+```
+conda create -n ub python=3.8
+conda activate ub
+python setup.py install  # In uncertainty-baselines root directory
+pip install "git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics"
+pip install 'git+https://github.com/google/edward2.git'
+```
+
+## Tuning Scripts
+
+All hyperparameter tuning and fine-tuning (i.e., retraining with 6 different training seed) scripts are located in [baselines/diabetic_retinopathy_detection/experiments/tuning](baselines/diabetic_retinopathy_detection/experiments/tuning) and [baselines/diabetic_retinopathy_detection/experiments/top_config](baselines/diabetic_retinopathy_detection/experiments/top_config) respectively.
+
+## Train a Model
+
+Tuning scripts accept hyperparameters as simple Python arguments. We also implement logging using TensorBoard and Weights and Biases across all methods for the convenience of the user.
+
+Execute a tuning script as follows (all tuning scripts are located in [baselines/diabetic_retinopathy_detection](baselines/diabetic_retinopathy_detection), and have by default had their arguments fixed to the configuration achieving the highest AUC on the in-domain validation set for the Country Shift task).
+
+```
+python baselines/diabetic_retinopathy_detection/deterministic.py --data_dir='gs://ub-data/retinopathy' --use_gpu=True --output_dir='gs://ub-data/retinopathy-out/deterministic'
+``` 
+
+## Select Top Performing Models
+
+Model selection utilities are provided in [baselines/diabetic_retinopathy_detection/model_selection](baselines/diabetic_retinopathy_detection/model_selection).
+
+First, follow the steps detailed in [parse_tensorboards.py](baselines/diabetic_retinopathy_detection/model_selection/parse_tensorboards.py) to convert TensorFlow event files to a public TensorBoard, and then parse this into a DataFrame containing results (per epoch metric logs, and hyperparameter details). The script expects that the TensorFlow event files are each in a folder corresponding to their identity, such as
+
+```
+dr_tuning/
+   |--> 1/
+        |--> tuning-run-seed-1.out.tfevents...
+   |--> 2/
+        |--> tuning-run-seed-2.out.tfevents...
+   |--> 3/
+        |--> tuning-run-seed-3.out.tfevents...
+  ...
+```
+
+Following the steps in [parse_tensorboards.py](baselines/diabetic_retinopathy_detection/model_selection/parse_tensorboards.py) produces a file `results.tsv`. We can parse this file to obtain a ranking of the models based on our two tuning criteria: in-domain validation AUC, and area under the balanced accuracy referral curve (see paper), by executing `python analyze_tensorboards.py` in the directory containing the `results.tsv` file. This ranking allows the user to select top performing checkpoints.
+
+## Evaluate a Model
+
+### Evaluation Sweep Scripts
+
+Scripts for the evaluation sweeps used for the paper are located in [baselines/diabetic_retinopathy_detection/experiments/eval](baselines/diabetic_retinopathy_detection/experiments/eval).
+
+### Selective Prediction and Referral Curves
+
+In Selective Prediction, a model's predictive uncertainty is used to choose a subset of the test set for which predictions will be evaluated. In particular, the uncertainty per test input forms a ranking. The X% of test inputs with the highest uncertainty are referred to a specialist, and the model performance is evaluated on the (100 - X)% remaining inputs. Standard evaluation therefore uses a _referral fraction_ = 0, i.e., the full test set is retained.
+
+We may wish to use a predictive model of diabetic retinopathy to ease the burden on clinical practitioners. Under Selective Prediction, the model refers the examples on which it is least confident to specialists. We can tune the _referral fraction_ parameter based on practitioner availability, and a model with well-calibrated uncertainty will have high performance on metrics such as AUC/accuracy on the retained (non-referred) evaluation data, because its uncertainty and predictive performance are correlated.
+
+### Using Evaluation Utilities
+
+Once you have trained a few models and have placed the top performing checkpoints in a `checkpoint_bucket`, run an evaluation over the methods, and store both scalar results on predictive performance and uncertainty quantification metrics (e.g., accuracy, AUC, expected calibration error) as well as results needed for _selective prediction_ and _receiver operating characteristic_ plots, as follows.
+
+Single model evaluation (e.g., X different training seeds for a deterministic model).
+```
+python baselines/diabetic_retinopathy_detection/eval_model.py --checkpoint_bucket='bucket-name' --output_bucket='results-bucket-name' --dr_decision_threshold='moderate' --model_type='deterministic' --single_model_multi_train_seeds=True
+```
+
+Ensemble evaluation, where each ensemble is formed by sampling without replacement from all available checkpoints in the directory, with sample size `k_ensemble_members` = 3 and number of sampling repetitions `ensemble_sampling_repetitions` = 6 (as in paper):
+```
+python baselines/diabetic_retinopathy_detection/eval_model.py --checkpoint_bucket='bucket-name' --output_bucket='results-bucket-name' --dr_decision_threshold='moderate' --model_type='deterministic' --k_ensemble_members=3 --ensemble_sampling_repetitions=6
+```
+
+## Plot ROC and Selective Prediction Curves
+
+Now we can generate the same ROC and selective prediction plots as appear in the paper (e.g., if you have run the above training and evaluation for many different Bayesian deep learning methods).
+
+Note the flag `distribution_shift` to specify for which distribution shift you aim to generate outputs. See [plot_results.py](baselines/diabetic_retinopathy_detection/plot_results.py) for info on expected directory structure.
+
+```
+python baselines/diabetic_retinopathy_detection/plot_results.py --results_dir='gs://results-bucket-name' --output_dir='gs://plot-outputs' --distribution_shift=aptos
+```
+
+## Previous Tuning Details
+
+The below tuning was done for the initial Uncertainty Baselines release. See [baselines/diabetic_retinopathy_detection/experiments/initial_tuning](baselines/diabetic_retinopathy_detection/experiments/initial_tuning) for the corresponding tuning scripts.
+
+### Model Checkpoints
+For each method we release the best-performing checkpoints. These checkpoints were trained on the combined training and validation set, using hyperparameters selected from the best validation performance. Each checkpoint was selected to be from the step during training with the best test AUC (averaged across the 10 random seeds). This was epoch 63 for the deterministic model, epoch 72 for the MC-Dropout method, epoch 31 for the Variational Inference method, and epoch 61 for the Radial BNNs method. For more details on the models, see the accompanying [Model Card](./model_card.md), which covers all the models below, as the dataset is exactly the same across them all, and the only model differences are minor calibration improvements. The checkpoints can be browsed [here](https://console.cloud.google.com/storage/browser/gresearch/reliable-deep-learning/checkpoints/baselines/diabetic_retinopathy_detection).
+
+### Tuning
 For this baseline, two rounds of quasirandom search were conducted on the hyperparameters listed below, where the first round was a heuristically-picked larger search space and the second round was a hand-tuned smaller range around the better performing values. Each round was for 50 trials, and the final hyperparemeters were selected using the final validation AUC from the second tuning round. These best hyperparameters were used to retrain combined train and validation sets over 10 seeds. **We note that the learning rate schedules could likely be tuned for improved performance, but leave this to future work.** All our intermediate and final tuning results are available below hosted on [tensorboard.dev](tensorboard.dev).
 
 Below are links to [tensorboard.dev](tensorboard.dev) TensorBoards for each baseline method that contain the metric values of the various tuning runs as well as the hyperparameter points sampled in the `HPARAMS` tab at the top of the page.
@@ -78,34 +178,6 @@ Please cite our paper if you use this code in your own work:
   year={2019}
 }
 ```
-
-## Deferred Prediction
-
-### Task Description
-In Deferred Prediction, a model's predictive uncertainty is used to choose a subset of the test set for which predictions will be evaluated. In particular, the uncertainty per test input forms a ranking, and the model's performance is evaluated on the X% of test inputs with the least uncertainty. X is referred to as the _retain percentage_, and the other (100 - X)% of the data is _deferred_. Standard evaluation therefore uses a _retain fraction_ = [1], i.e., the full test set is retained.
-
-### Real-World Relevance
-We may wish to use a predictive model of diabetic retinopathy to ease the burden on clinical practitioners. Under deferred prediction, the model refers the examples on which it is least confident to expert doctors. We can tune the _retain fraction_ parameter based on practitioner availability, and a model with well-calibrated uncertainty will have high performance on metrics such as AUC/accuracy on the retained evaluation data, because its uncertainty and predictive performance are correlated.
-
-### Usage
-* Given: trained models with varied random seeds
-1.  For each model, compute deferred prediction metric results with `run_deferred_prediction.py`.
-    * The user should specify a path to the model checkpoint (`--checkpoint_dir`), its training random seed (`--train_seed`), and the type of model (e.g., 'dropout', `--model_type`). The script can be run for different models/seeds with a consistent output directory (e.g., `--output_dir='gs://uncertainty-baselines/deferred_prediction_results`). The user can set an array of retain fractions, e.g., [0.5, 0.6, 0.7, 0.8, 0.9, 1], with the `--deferred_prediction_fractions` hyperparameter.
-    * Example usage:
-        ```
-      python baselines/diabetic_retinopathy_detection/run_deferred_prediction.py --data_dir='/path/to/retinopathy/data' --num_cores=1 --use_gpu=True --checkpoint_dir='gs://uncertainty-baselines/variational_inference_checkpoint' --train_seed=42 --model_type=variational_inference --output_dir='gs://uncertainty-baselines/deferred_prediction_results'
-        ```
-2. Plot results with `plot_deferred_prediction.py`.
-    * Each plot will contain deferred prediction curves for a particular metric, and one or many model types.
-    * To generate a plot for a particular model type:
-        ```
-        python baselines/diabetic_retinopathy_detection/plot_deferred_prediction.py --results_dir='gs://uncertainty-baselines/deferred_prediction_results/variational_inference' --plot_dir='.' --model_type=variational_inference
-        ```
-      where the `--results_dir` should point to the subdirectory of a particular type of model, as generated by `run_deferred_prediction.py`.
-    * To generate a plot for all model types stored under the `--results_dir` (and also found in the `DEFERRED_PREDICTION_MODEL_TYPES` list in the` plot_deferred_prediction.py` file):
-        ```
-        python baselines/diabetic_retinopathy_detection/plot_deferred_prediction.py --results_dir='gs://uncertainty-baselines/deferred_prediction_results' --plot_dir='.'
-        ```
 
 ## Acknowledgements
 

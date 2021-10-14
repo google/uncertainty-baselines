@@ -42,7 +42,7 @@ def get_config():
   config.ood_split = 'test'
   config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
 
-  BATCH_SIZE = 512  # pylint: disable=invalid-name
+  BATCH_SIZE = 256  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
 
   config.total_steps = 10_000
@@ -70,7 +70,8 @@ def get_config():
   # Model section
   # pre-trained model ckpt file
   # !!!  The below section should be modified per experiment
-  config.model_init = '/path/to/pretrained_model_ckpt.npz'
+  config.model_init = (
+    'gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz')
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()

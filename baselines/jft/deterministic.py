@@ -50,8 +50,8 @@ import train_utils  # local file import
 fewshot = None
 
 
-ml_collections.config_flags.DEFINE_config_file(
-    'config', None, 'Training configuration.', lock_config=True)
+# ml_collections.config_flags.DEFINE_config_file(
+#     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
     'num_cores', default=None, help='Unused. How many devices being used.')
@@ -66,7 +66,9 @@ FLAGS = flags.FLAGS
 def main(argv):
   del argv
 
-  config = FLAGS.config
+  # config = FLAGS.config
+  from baselines.jft.experiments import imagenet21k_vit_base16_finetune_cifar10
+  config = imagenet21k_vit_base16_finetune_cifar10.get_config()
   output_dir = FLAGS.output_dir
 
   seed = config.get('seed', 0)

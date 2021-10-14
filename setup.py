@@ -47,8 +47,6 @@ setup(
              'git+https://github.com/google-research/robustness_metrics.git'
              '#egg=robustness_metrics'),
             'scipy',
-            'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
-            'tfp-nightly',
         ],
         'datasets': [
             'librosa',  # Needed for speech_commands dataset
@@ -66,12 +64,20 @@ setup(
             'tb-nightly',
             'tf-nightly',
             'tfa-nightly',
+            'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
+            'tfp-nightly',
         ],
         'tests': ['pylint>=1.9.0'],
         'torch': [
             'torch',
             'torchvision',
         ],
+        'tpuvm': [
+            'tensorflow',
+            'clu',
+            'tensorflow-probability',
+            'tfds-nightly'
+        ]
     },
     classifiers=[
         'Development Status :: 3 - Alpha',

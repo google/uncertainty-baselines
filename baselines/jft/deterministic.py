@@ -38,7 +38,6 @@ import robustness_metrics as rm
 
 import tensorflow as tf
 from tensorflow.io import gfile
-import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
 import cifar10h_utils  # local file import
@@ -139,6 +138,7 @@ def main(argv):
       train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
+
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
     # We do ceil rounding such that we include the last incomplete batch.
     nval_img = input_utils.get_num_examples(
@@ -151,13 +151,16 @@ def main(argv):
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
+    if isinstance(pp_eval, str):
+      pp_eval = preprocess_spec.parse(
+          spec=pp_eval, available_ops=preprocess_utils.all_ops())
+
     val_ds = input_utils.get_data(
         dataset=dataset,
         split=split,
         rng=None,
         host_batch_size=local_batch_size_eval,
-        preprocess_fn=preprocess_spec.parse(
-            spec=pp_eval, available_ops=preprocess_utils.all_ops()),
+        preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
         shuffle=False,
@@ -171,71 +174,55 @@ def main(argv):
 
   val_iter_splits = {
       'val':
-          _get_val_split(config.dataset, config.val_split, config.pp_eval,
-                         config.get('data_dir'))
+          _get_val_split(
+              config.dataset,
+              split=config.val_split,
+              pp_eval=config.pp_eval,
+              data_dir=config.get('data_dir'))
   }
 
   if config.get('eval_on_cifar_10h'):
-    val_steps = int(np.ceil(10000 / batch_size_eval))
-
-    cifar10h_dataset = cifar10h_utils.load_ds()
-
-    val_ds_cifar10h = input_utils.get_data(
-        dataset=cifar10h_dataset,
-        split='test',
-        rng=None,
-        host_batch_size=local_batch_size_eval,
-        preprocess_fn=preprocess_spec.parse(
-            spec=config.config.pp_eval_cifar_10h,
-            available_ops=preprocess_utils.all_ops()),
-        cache=config.get('val_cache', 'batched'),
-        repeat_after_batching=True,
-        shuffle=False,
-        prefetch_size=config.get('prefetch_to_host', 2),
-        drop_remainder=False)
-    val_iter_cifar10h = input_utils.start_input_pipeline(
-        val_ds_cifar10h, config.get('prefetch_to_device', 1))
-
-    val_iter_splits['cifar_10h'] = (val_iter_cifar10h, val_steps)
+    cifar10_to_cifar10h_fn = cifar10h_utils.create_cifar10_to_cifar10h_fn(
+        config.get('data_dir', None))
+    preprocess_fn = preprocess_spec.parse(
+        spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
+    pp_eval = lambda ex: preprocess_fn(cifar10_to_cifar10h_fn(ex))
+    val_iter_splits['cifar_10h'] = _get_val_split(
+        'cifar10',
+        split=config.get('cifar_10h_split') or 'test',
+        pp_eval=pp_eval,
+        data_dir=config.get('data_dir'))
   elif config.get('eval_on_imagenet_real'):
-    val_steps = int(np.ceil(46837 / batch_size_eval))
-
-    imagenet_real_ds = tfds.load('imagenet2012_real', split='validation')
-    imagenet_real_ds = imagenet_real_ds.filter(
-        lambda ex: tf.shape(ex['real_label'])[0] > 0)
 
     def avg_label(example):
-      one_hot = tf.one_hot(example['real_label'], 1000)
-      example['labels'] = tf.reduce_mean(one_hot, axis=0)
+      real_label = example['real_label']
+      if tf.shape(real_label)[0] > 0:
+        one_hot = tf.one_hot(real_label, 1000)
+        example['labels'] = tf.reduce_mean(one_hot, axis=0)
+        example['mask'] = tf.identity(1.)
+      else:
+        example['labels'] = tf.zeros([1000])
+        example['mask'] = tf.identity(0.)
       return example
 
-    imagenet_real_ds = imagenet_real_ds.map(avg_label)
-
-    val_ds_imagenet_real = input_utils.get_data(
-        dataset=imagenet_real_ds,
-        split='test',
-        rng=None,
-        host_batch_size=local_batch_size_eval,
-        preprocess_fn=preprocess_spec.parse(
-            spec=config.pp_eval_imagenet_real,
-            available_ops=preprocess_utils.all_ops()),
-        cache=config.get('val_cache', 'batched'),
-        repeat_after_batching=True,
-        shuffle=False,
-        prefetch_size=config.get('prefetch_to_host', 2),
-        drop_remainder=False)
-    val_iter_imagenet_real = input_utils.start_input_pipeline(
-        val_ds_imagenet_real, config.get('prefetch_to_device', 1))
-
+    preprocess_fn = preprocess_spec.parse(
+        spec=config.pp_eval_imagenet_real,
+        available_ops=preprocess_utils.all_ops())
+    pp_eval = lambda ex: preprocess_fn(avg_label(ex))
+    val_iter_imagenet_real, val_steps = _get_val_split(
+        'imagenet2012_real',
+        split=config.get('imagenet_real_split') or 'validation',
+        pp_eval=pp_eval,
+        data_dir=config.get('data_dir'))
     val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = {}
-  if config.get('ood_dataset') and config.get('ood_methods'):
+  if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
       logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
       ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
           config.dataset,
-          config.ood_dataset,
+          config.ood_datasets,
           config.ood_split,
           config.pp_eval,
           config.ood_methods,
@@ -485,8 +472,8 @@ def main(argv):
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
-  val_loss = -jnp.inf
-  results = {'dummy': {(0, 1): -jnp.inf}}
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
@@ -634,10 +621,10 @@ def main(argv):
               sample_diversity.update_state(batch_sample_diversity)
               ged.update_state(batch_ged)
 
-        val_loss = loss / nseen  # Keep to return for reproducibility tests.
+        val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
-            f'{val_name}_loss': val_loss,
+            f'{val_name}_loss': val_loss[val_name],
             f'{val_name}_ece': ece.result()['ece'],
             f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
             f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
@@ -656,15 +643,11 @@ def main(argv):
           writer.write_scalars(step, cifar_10h_measurements)
 
       # OOD eval
-      # TODO(dusenberrymw): Add the OOD eval results to the training script
-      # reproducibility tests.
-      # There are two entries in the ood_ds dict (in-dist, ood), and that this
-      # section computes metrics using both pieces. This is in contrast to
-      # normal validation eval above where we eval metrics separately for each
-      # val split in val_ds.
-      # TODO(jjren): abstract this entire section out to a `eval_ood` function
-      # that takes in the model, parameters, and OOD datasets, and returns a
-      # dict of metrics
+      # Entries in the ood_ds dict include:
+      # (ind_dataset, ood_dataset1, ood_dataset2, ...).
+      # OOD metrics are computed using ind_dataset paired with each of the
+      # ood_dataset. When Mahalanobis distance method is applied, train_ind_ds
+      # is also included in the ood_ds.
       if ood_ds and config.ood_methods:
         ood_measurements = ood_utils.eval_ood_metrics(ood_ds, ood_ds_names,
                                                       config.ood_methods,
@@ -678,8 +661,8 @@ def main(argv):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
-        results, best_l2 = fewshotter.run_all(opt_repl.target,
-                                              config.fewshot.datasets)
+        fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
+                                                      config.fewshot.datasets)
 
         # TODO(dusenberrymw): Remove this once fewshot.py is updated.
         def make_writer_measure_fn(step):
@@ -689,7 +672,8 @@ def main(argv):
 
           return writer_measure
 
-        fewshotter.walk_results(make_writer_measure_fn(step), results, best_l2)
+        fewshotter.walk_results(
+            make_writer_measure_fn(step), fewshot_results, best_l2)
         chrono.resume()
 
     # End of step.
@@ -705,7 +689,7 @@ def main(argv):
 
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.
-  return train_loss, val_loss, results
+  return train_loss, val_loss, fewshot_results
 
 
 if __name__ == '__main__':

@@ -19,11 +19,12 @@ import copy
 import functools
 import multiprocessing
 import time
-from typing import Any, Iterable, Mapping, Sequence, Tuple
+from typing import Any, Iterable, Mapping, Tuple
 
 from absl import app
 from absl import flags
 from absl import logging
+from clu import preprocess_spec
 import flax
 import flax.jax_utils
 import flax.struct
@@ -33,23 +34,23 @@ import jax.nn
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
+import robustness_metrics as rm
+
 import tensorflow as tf
 import uncertainty_baselines as ub
 import batchensemble_utils  # local file import
+import input_utils  # local file import
+import preprocess_utils  # local file import
+import train_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
-u = None
 ensemble = None
-experts_pipeline = None
 metric_writers = None
-partitioning = None
 train = None
 experts_utils = None
 xprof = None
 core = None
 metrics = None
-ema = None
-pp_builder = None
 config_flags = None
 xm = None
 xm_api = None
@@ -74,7 +75,6 @@ jax.config.parse_flags_with_absl()
 def restore_model_and_put_to_devices(
     config: ml_collections.ConfigDict,
     output_dir: str,
-    partition_specs: Sequence[partitioning.PartitionSpec],
     model: flax.nn.Module,
     optimizer: flax.optim.Optimizer,
     train_iter: Iterable[Any],
@@ -86,7 +86,7 @@ def restore_model_and_put_to_devices(
    global_state) = train.restore_checkpoints(
        workdir=output_dir,
        step=None,
-       partition_specs=partition_specs,
+       partition_specs=[],
        optimizer=optimizer,
        train_iter=train_iter,
        rng_state_tf=tf.random.get_global_generator().state.numpy(),
@@ -114,7 +114,7 @@ def restore_model_and_put_to_devices(
         init_params=optimizer.target,
         model_params=config.model,
         keep_head=config.get('keep_head', False),
-        partition_specs=partition_specs)
+        partition_specs=[])
     # Shard restored parameters and replicate original optimizer state.
     optimizer = optimizer.replace(
         target=core.tree_shard(restored_params),
@@ -137,7 +137,10 @@ def main(_):
   output_dir = flags.FLAGS.output_dir
   tf.io.gfile.makedirs(output_dir)
 
+  seed = config.get('seed', 0)
   partition_specs = []
+  rng = jax.random.PRNGKey(seed)
+  tf.random.set_seed(seed)
 
   # Loss to apply.
   loss_to_apply = getattr(core, config.get('loss_to_apply', 'softmax_xent'))
@@ -171,23 +174,90 @@ def main(_):
   batch_size_per_host = config.batch_size // jax.host_count()
   batch_size_per_core = config.batch_size // jax.device_count()
   batch_size_per_host_eval = config.batch_size_eval // jax.host_count()
-  input_pipeline, eval_cache = experts_pipeline.get_pipeline(config)
 
-  train_ds = input_pipeline.get_data(
+  rng, train_ds_rng = jax.random.split(rng)
+  train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
+
+  train_ds = input_utils.get_data(
       dataset=config.dataset,
-      data_dir=config.get('dataset_dir'),
       split=config.train_split,
-      batch_size=batch_size_per_host,
-      preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
+      rng=train_ds_rng,
+      host_batch_size=batch_size_per_host,
+      preprocess_fn=preprocess_spec.parse(
+          spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
-      shuffle_files=True,
-      cache=False)
-  steps_per_epoch = input_pipeline.get_num_examples(
-      config.dataset, config.train_split,
-      data_dir=config.get('dataset_dir')) / config.batch_size
-  total_steps = train.get_total_steps_from_config(config, steps_per_epoch)
-  logging.info('Running for %d steps per epoch (%d steps total)',
-               steps_per_epoch, total_steps)
+      prefetch_size=config.get('prefetch_to_host', 2),
+      data_dir=config.get('dataset_dir'))
+
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+
+  ntrain_img = input_utils.get_num_examples(
+      config.dataset,
+      split=config.train_split,
+      host_batch_size=batch_size_per_host,
+      data_dir=config.get('dataset_dir'))
+  steps_per_epoch = ntrain_img / config.batch_size
+
+  if config.get('num_epochs'):
+    total_steps = int(config.num_epochs * steps_per_epoch)
+    assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
+  else:
+    total_steps = config.total_steps
+
+  logging.info(
+      'Running for %d steps, that means %f epochs and %f steps per epoch',
+      total_steps, total_steps * config.batch_size / ntrain_img,
+      steps_per_epoch)
+
+  def _get_val_split(dataset, split, pp_eval, data_dir=None):
+    # We do ceil rounding such that we include the last incomplete batch.
+    nval_img = input_utils.get_num_examples(
+        dataset,
+        split=split,
+        host_batch_size=batch_size_per_host_eval,
+        drop_remainder=False,
+        data_dir=data_dir)
+    val_steps = int(np.ceil(nval_img / config.batch_size_eval))
+    logging.info('Running validation for %d steps for %s, %s', val_steps,
+                 dataset, split)
+
+    if isinstance(pp_eval, str):
+      pp_eval = preprocess_spec.parse(
+          spec=pp_eval, available_ops=preprocess_utils.all_ops())
+
+    val_ds = input_utils.get_data(
+        dataset=dataset,
+        split=split,
+        rng=None,
+        host_batch_size=batch_size_per_host_eval,
+        preprocess_fn=pp_eval,
+        cache=config.get('val_cache', 'batched'),
+        repeat_after_batching=True,
+        shuffle=False,
+        prefetch_size=config.get('prefetch_to_host', 2),
+        drop_remainder=False,
+        data_dir=data_dir)
+    val_iter = input_utils.start_input_pipeline(
+        val_ds, config.get('prefetch_to_device', 1))
+
+    return (val_iter, val_steps)
+
+  val_iter_splits = {
+      'val':
+          _get_val_split(
+              config.dataset,
+              split=config.val_split,
+              pp_eval=config.pp_eval,
+              data_dir=config.get('data_dir'))
+  }
+
+  # Note: we return the train loss and val loss for use in reproducibility unit
+  # tests.
+  train_loss = -jnp.inf
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  # TODO(zmariet): Add fewshot evaluation.
+  fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   opt_def = train.get_optimizer_from_config(config, f'{BIG_VISION_DIR}.optims')
   eval_config = copy.deepcopy(config)
@@ -198,9 +268,9 @@ def main(_):
   model_train = model(
       num_classes=config.num_classes, train=True, **config.model)
   model_eval = model(
-      num_classes=config.num_classes, train=False, **eval_config.model)
+      num_classes=config.num_classes, train=False, **config.model)
 
-  image_size = tuple(train_ds.element_spec['image'].shape[1:])
+  image_size = tuple(train_ds.element_spec['image'].shape[2:])
   logging.info('Model initialization: Starting.')
   opt, rngs = train.model_and_optim_init(
       model_train.init, opt_def, (batch_size_per_core,) + image_size,
@@ -221,20 +291,6 @@ def main(_):
       loss_fn=loss_to_apply,
       auxiliary_loss_weight=config.get('auxiliary_loss_weight', 0.0),
       ens_size=ens_size)
-  if ens_size == 1:
-    evaluation_fn = functools.partial(
-        train.evaluation_fn,
-        apply_fn=model_eval.apply,
-        loss_fn=loss_to_apply,
-        correct_fn=train.correct_multilabel,
-        return_metric_args=compute_ece)
-  else:
-    evaluation_fn = functools.partial(
-        ensemble.evaluation_fn,
-        apply_fn=model_eval.apply,
-        return_metric_args=compute_ece,
-        ens_size=ens_size)
-  pmap_evaluation_fn = core.pmap_sorted(evaluation_fn, axis_name='batch')
 
   update_fn = functools.partial(
       batchensemble_utils.update_fn_be,
@@ -248,9 +304,29 @@ def main(_):
       update_fn, axis_name='batch', donate_argnums=(0, 1),
       static_broadcasted_argnums=(5,))
 
+  @functools.partial(jax.pmap, axis_name='batch')
+  def evaluation_fn(params, images, labels, mask):
+    # Ignore the entries with all zero labels for evaluation.
+    mask *= labels.max(axis=1)
+    tiled_logits, _ = model_eval.apply({'params': flax.core.freeze(params)},
+                                       images)
+    ens_logits = jnp.asarray(jnp.split(tiled_logits, ens_size))
+
+    losses = ensemble.ensemble_softmax_xent(
+        logits=ens_logits, labels=labels)
+    loss = jax.lax.psum(losses * mask, axis_name='batch')
+
+    ncorrect = ensemble.ensemble_softmax_correct_multilabel(
+        ens_logits, labels, mask, psum_axis_name='batch')
+    n = jax.lax.psum(mask, axis_name='batch')
+    logits = jnp.log(jnp.mean(jax.nn.softmax(ens_logits), axis=0))
+    metric_args = jax.lax.all_gather([logits, labels, mask],
+                                     axis_name='batch')
+    return ncorrect, loss, n, metric_args
+
   # Restore parameters from checkpoints (if possible) and put to TPU devices.
   opt, train_iter, rngs_per_device, global_state = restore_model_and_put_to_devices(
-      config, output_dir, partition_specs, model, opt, iter(train_ds), rngs,
+      config, output_dir, model, opt, iter(train_ds), rngs,
       pool)
   del rngs
   first_step = global_state['step']
@@ -258,33 +334,14 @@ def main(_):
   start_time = time.time()
   logging.info('Initial step for training = %d.', first_step)
 
-  local_devices = sorted(jax.local_devices(), key=lambda device: device.id)
-  if config.get('ema', {}):
-    ema_updater = ema.ExponentialMovingAverage(
-        target=partitioning.tree_unreplicate_using_partition_specs(
-            jax.tree_map(np.zeros_like, opt.target),
-            partition_specs=partition_specs,
-            local_devices=local_devices),
-        num_updates=0,
-        **config.ema)
-  else:
-    ema_updater = None
-  if first_step != 0 and ema_updater is not None:
-    ema_updater = train.restore_ema_checkpoints(
-        output_dir,
-        first_step,
-        partition_specs,
-        ema_updater,
-        local_devices=local_devices,
-        thread_pool=pool)
-
-  train_iter = u.start_input_pipeline(train_iter, config.prefetch_to_device)
-  eval_iters = train.get_dataset_eval_iters_from_config(
-      config, batch_size_per_host_eval, eval_cache, input_pipeline)
-  lr_fn = u.create_learning_rate_schedule(
-      config.batch_size, total_steps, steps_per_epoch, **config.lr)
-  lr_iter = u.prefetch_scalar(map(lr_fn, range(first_step, total_steps)),
-                              config.get('prefetch_to_device', 1))
+  train_iter = input_utils.start_input_pipeline(
+      train_iter, config.get('prefetch_to_device', 1))
+  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
 
   writer = metric_writers.create_default_writer(
       output_dir, just_logging=jax.host_id() > 0,
@@ -310,15 +367,7 @@ def main(_):
               train_batch['labels'],
               batch_loss_fn)
 
-      if (ema_updater is not None and
-          step % config.get('ema', {}).get('period', 10) == 0):
-        ema_updater = ema_updater.update(
-            partitioning.tree_unreplicate_using_partition_specs(
-                tree=opt.target,
-                partition_specs=partition_specs,
-                local_devices=local_devices))
-
-        # Checkpoint saving.
+      # Checkpoint saving.
       backup_checkpoints_every_n_steps = config.get('backup_checkpoint_steps')
       if (step % config.write_checkpoint_every_n_steps == 0 or
           (backup_checkpoints_every_n_steps is not None and
@@ -358,19 +407,12 @@ def main(_):
                 'accum_train_time': accum_train_time + time_since_last_start,
             },
             thread_pool=pool)
-        if ema_updater is not None:
-          checkpoint_async_results.append(train.save_ema_checkpoints(
-              workdir=output_dir,
-              step=step,
-              partition_specs=partition_specs,
-              ema_updater=ema_updater,
-              local_devices=local_devices,
-              thread_pool=pool))
 
       # Report training progress
       if (jax.host_id() == 0 and config.log_training_every_n_steps > 0 and
           (step % config.log_training_every_n_steps == 0 or
            step == total_steps or step < log_training_first_n_steps)):
+        train_loss = loss_value[0]
         time_elapsed = time.time() - start_time + accum_train_time
         img_sec_core = (
             config.batch_size * step / time_elapsed / jax.device_count())
@@ -396,63 +438,79 @@ def main(_):
               step, {key: np.mean(value) for key, value in aux_info.items()})
 
 
-      # Run checks to detect if the model partitioning is unhealthy.
-      # Global health metrics will be logged, and in case of problems a
-      # WARNING or ERROR message will be logged.
-      train.monitor_partitioning_health(
-          optimizer=opt,
-          partition_specs=partition_specs,
-          metric_writer=writer,
-          step=step,
-          first_step=first_step + 1,
-          every_n_steps=config.get('check_partitioning_health_every_n_steps',
-                                   total_steps // 20))
-      # Evaluate model on validation, test, ...
-      rngs_per_device = train.run_evaluation_on_multiple_splits(
-          pmap_evaluation_fn, opt.target, eval_iters, rngs_per_device,
-          step / steps_per_epoch, step, total_steps,
-          config.run_evaluation_every_n_steps, writer, compute_ece,
-          config.get('ece_num_bins', 15), suffix='')
-      if ema_updater and config.run_evaluation_every_n_steps > 0 and (
-          step == first_step + 1 or
-          step % config.run_evaluation_every_n_steps == 0 or
-          step == total_steps):
-        logging.info('Evaluation with EMA weights at step %d: started.', step)
-        # Copy current parameters to CPU. Only one replica of each local
-        # partition is copied to prevent redundant data transfers (e.g.
-        # non-expert parameters).
-        curr_params = partitioning.tree_unreplicate_using_partition_specs(
-            tree=opt.target,
-            partition_specs=partition_specs,
-            local_devices=local_devices)
-        # Block curr_params until TPU->CPU copy has finished to prevent multiple
-        # copies of the TPU parameters.
-        curr_params = core.tree_block_until_ready(curr_params)
-        # Allow TPU parameters to be freed.
-        opt = opt.replace(target=None)
-        # Copy EMA parameters to TPU and run evaluation.
-        rngs_per_device = train.run_evaluation_on_multiple_splits(
-            pmap_evaluation_fn,
-            partitioning.tree_replicate_from_partitioned_tree(
-                ema_updater.get(),
-                partition_specs=partition_specs,
-                local_devices=local_devices),
-            eval_iters, rngs_per_device, step / steps_per_epoch, step,
-            total_steps, config.run_evaluation_every_n_steps, writer,
-            compute_ece, config.get('ece_num_bins', 15), suffix='_ema')
-        rngs_per_device = core.tree_block_until_ready(rngs_per_device)
-        # Copy current parameters back to the TPU.
-        opt = opt.replace(
-            target=partitioning.tree_replicate_from_partitioned_tree(
-                curr_params,
-                partition_specs=partition_specs,
-                local_devices=local_devices))
-        logging.info('Evaluation with EMA weights at step %d: finished.', step)
-        del curr_params
+      # Evaluate the model.
+      if train_utils.itstime(step, config.log_eval_steps, total_steps):
+        for val_name, (val_iter, val_steps) in val_iter_splits.items():
+          # Sets up evaluation metrics.
+          ece_num_bins = config.get('ece_num_bins', 15)
+          auc_num_bins = config.get('auc_num_bins', 1000)
+          ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+          calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+          oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
+                                                         num_bins=auc_num_bins)
+          oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
+                                                       num_bins=auc_num_bins)
+          oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
+                                                       num_bins=auc_num_bins)
+          oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
+                                                       num_bins=auc_num_bins)
+
+          # Runs evaluation loop.
+          ncorrect, loss, nseen = 0, 0, 0
+          for _, batch in zip(range(val_steps), val_iter):
+            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+                evaluation_fn(opt.target, batch['image'],
+                              batch['labels'], batch['mask']))
+            # All results are a replicated array shaped as follows:
+            # (local_devices, per_device_batch_size, elem_shape...)
+            # with each local device's entry being identical as they got psum'd.
+            # So let's just take the first one to the host as numpy.
+            ncorrect += np.sum(np.array(batch_ncorrect[0]))
+            loss += np.sum(np.array(batch_losses[0]))
+            nseen += np.sum(np.array(batch_n[0]))
+            # Here we parse batch_metric_args to compute uncertainty metrics.
+            # (e.g., ECE or Calibration AUC).
+            logits, labels, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits = np.array(logits[0])
+            print('logits', logits.shape)
+            probs = jax.nn.softmax(logits)
+            print('probs', probs.shape)
+            # From one-hot to integer labels, as required by ECE.
+            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+            int_preds = np.argmax(logits, axis=-1)
+            confidence = np.max(probs, axis=-1)
+            print('confidence', confidence.shape)
+            for p, c, l, d, m in zip(probs, confidence, int_labels,
+                                     int_preds, masks):
+              ece.add_batch(p[m, :], label=l[m])
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              # TODO(jereliu): Extend to support soft multi-class probabilities.
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+
+          val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
+          val_measurements = {
+              f'{val_name}_prec@1': ncorrect / nseen,
+              f'{val_name}_loss': val_loss[val_name],
+              f'{val_name}_ece': ece.result()['ece'],
+              f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
+              f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
+                  'collaborative_auc'],
+              f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
+              f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
+              f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
+          }
+          writer.write_scalars(step, val_measurements)
 
   pool.close()
   pool.join()
 
+  # Return final training loss, validation loss, and fewshot results for
+  # reproducibility test cases.
+  return train_loss, val_loss, fewshot_results
 
 if __name__ == '__main__':
   app.run(main)

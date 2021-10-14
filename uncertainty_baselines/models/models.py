@@ -78,6 +78,7 @@ def get(model_name: str, **kwargs) -> tf.keras.Model:
   if model_name not in get_model_names():
     raise ValueError('Unrecognized model type: {!r}'.format(model_name))
 
+  # pytype: disable=bad-return-type  # typed-keras
   if model_name == 'criteo_mlp':
     return criteo_mlp.criteo_mlp(**kwargs)
   if model_name == 'movielens':
@@ -100,3 +101,4 @@ def get(model_name: str, **kwargs) -> tf.keras.Model:
     return efficientnet.efficientnet(**kwargs)
   if model_name == 'efficientnet_batch_ensemble':
     return efficientnet_batch_ensemble.efficientnet_batch_ensemble(**kwargs)
+  # pytype: enable=bad-return-type  # typed-keras

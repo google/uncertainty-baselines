@@ -15,16 +15,23 @@
 
 """Utilities for CIFAR-10H."""
 
+import os
+
+from absl import logging
 import numpy as np
 import tensorflow as tf
-import tensorflow_datasets as tfds
 
 
-def load_cifar10h_labels():
+def _load_cifar10h_labels(data_dir=None):
   """Load the Cifar-10H labels."""
   # copy of unzipped:
   # https://github.com/jcpeterson/cifar-10h/blob/master/data/cifar10h-raw.zip
-  with tf.compat.v1.io.gfile.GFile(fname) as f:
+  fname = None
+  if fname is None:
+    url = 'https://github.com/jcpeterson/cifar-10h/raw/master/data/cifar10h-raw.zip'
+    fname = tf.keras.utils.get_file(origin=url, extract=True)
+    fname = fname[:-4] + '.csv'
+  with tf.io.gfile.GFile(fname) as f:
     csv_reader = f.readlines()[1:]
 
     labels = {}
@@ -54,23 +61,22 @@ def load_cifar10h_labels():
   return id_mappings, tf.cast(counts, tf.float32), tf.cast(probs, tf.float32)
 
 
-def load_ds():
-  """Load CIFAR-10H TFDS.
+def create_cifar10_to_cifar10h_fn(data_dir=None):
+  """Creates a function that maps CIFAR-10 to CIFAR-10H."""
+  idx_map, cifar10h_counts, cifar10h_probs = _load_cifar10h_labels(data_dir)
 
-  Returns:
-    Cifar-10H TFDS.
-  """
-  cifar10_ds = tfds.load('cifar10', split='test')
-  idx_map, cifar10h_counts, cifar10h_probs = load_cifar10h_labels()
-
-  def cifar10h_labels(example):
+  def convert(example):
     idx = idx_map.lookup(example['id'])
-    example['labels'] = tf.gather(cifar10h_probs, idx)
-    example['count'] = tf.gather(cifar10h_counts, idx)
-    example['mask'] = 1.0
+    if idx == -1:
+      logging.warn('Index -1 encountered in the CIFAR-10H dataset.')
+      example['labels'] = tf.zeros_like(tf.gather(cifar10h_probs, 0))
+      example['count'] = tf.zeros_like(tf.gather(cifar10h_counts, 0))
+    else:
+      example['labels'] = tf.gather(cifar10h_probs, idx)
+      example['count'] = tf.gather(cifar10h_counts, idx)
     return example
 
-  return cifar10_ds.map(cifar10h_labels)
+  return convert
 
 
 def generalized_energy_distance(labels, predictions, num_classes):

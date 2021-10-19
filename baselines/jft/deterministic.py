@@ -94,7 +94,6 @@ def main(argv):
       logging.info('NOTE: %s', note)
   write_note('Initializing...')
 
-  fillin = lambda *_: None
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
@@ -131,7 +130,7 @@ def main(argv):
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
-      data_dir=fillin(config.get('data_dir')))
+      data_dir=config.get('data_dir'))
 
   # Start prefetching already.
   train_iter = input_utils.start_input_pipeline(
@@ -146,7 +145,7 @@ def main(argv):
         split=split,
         host_batch_size=local_batch_size_eval,
         drop_remainder=False,
-        data_dir=fillin(data_dir))
+        data_dir=data_dir)
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
@@ -166,7 +165,7 @@ def main(argv):
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        data_dir=fillin(data_dir))
+        data_dir=data_dir)
     val_iter = input_utils.start_input_pipeline(
         val_ds, config.get('prefetch_to_device', 1))
 
@@ -235,7 +234,7 @@ def main(argv):
       config.dataset,
       split=config.train_split,
       host_batch_size=local_batch_size,
-      data_dir=fillin(config.get('data_dir')))
+      data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size
 
   if config.get('num_epochs'):
@@ -416,7 +415,7 @@ def main(argv):
   if save_checkpoint_path and gfile.exists(save_checkpoint_path):
     resume_checkpoint_path = save_checkpoint_path
   elif config.get('resume'):
-    resume_checkpoint_path = fillin(config.resume)
+    resume_checkpoint_path = config.resume
   if resume_checkpoint_path:
     write_note('Resume training from checkpoint...')
     checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}

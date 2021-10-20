@@ -35,9 +35,9 @@ def get_config():
 
   # OOD eval
   # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_dataset = 'cifar100'
+  config.ood_datasets = ['cifar100', 'svhn_cropped']
   config.ood_split = 'test'
-  config.ood_methods = ['msp', 'maha', 'rmaha']
+  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
@@ -112,16 +112,14 @@ def get_sweep(hyper):
       hyper,
       'cifar100',
       'train[:98%]',
-      'train[98%:]',
-      'cifar10',
+      'train[98%:]', ['cifar10', 'svhn_cropped'],
       n_cls=100,
       **kw)
   c10 = lambda **kw: task(
       hyper,
       'cifar10',
       'train[:98%]',
-      'train[98%:]',
-      'cifar100',
+      'train[98%:]', ['cifar100', 'svhn_cropped'],
       n_cls=10,
       **kw)
   # pylint: enable=g-long-lambda
@@ -172,7 +170,7 @@ def task(hyper,
       'train_split': train,
       'pp_train': pp_train,
       'val_split': val,
-      'ood_dataset': ood_name,
+      'ood_datasets': ood_name,
       'pp_eval': pp_eval,
       'num_classes': n_cls,
       'lr.warmup_steps': warmup,
@@ -182,8 +180,7 @@ def task(hyper,
   if name == 'cifar10':
     # CIFAR-10H eval
     eval_on_cifar_10h = True
-    pp_eval_cifar_10h = f'resize({size})' + '|value_range(-1, 1)' + (
-        '|keep(["image", "labels"])')
+    pp_eval_cifar_10h = f'decode|resize({size})|value_range(-1, 1)|keep(["image", "labels"])'
     task_hyper.update({
         'eval_on_cifar_10h': eval_on_cifar_10h,
         'pp_eval_cifar_10h': pp_eval_cifar_10h

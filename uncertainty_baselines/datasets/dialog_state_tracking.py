@@ -53,12 +53,12 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
-
 USR_UTT_NAME = 'usr_utt'
 SYS_UTT_NAME = 'sys_utt'
 STATE_LABEL_NAME = 'label'
 DOMAIN_LABEL_NAME = 'domain_label'
 DIAL_LEN_NAME = 'dialog_len'
+DIAL_TURN_ID_NAME = 'dialog_turn_id'
 
 FILENAME_META = 'meta.json'
 FILENAME_TOKENIZER = 'id_to_vocab.json'
@@ -100,8 +100,9 @@ def _make_features_spec(
   }
 
   if load_domain_label:
-    feature_spec[DOMAIN_LABEL_NAME] = tf.io.FixedLenFeature(
-        [], tf.string, default_value='')
+    feature_spec[DOMAIN_LABEL_NAME] = tf.io.FixedLenFeature([],
+                                                            tf.string,
+                                                            default_value='')
 
   return feature_spec
 
@@ -265,6 +266,7 @@ class _DialogStateTrackingDataset(base.BaseDataset):
                name: str,
                split: str,
                load_domain_label: bool = False,
+               add_dialog_turn_id: Optional[bool] = False,
                shuffle_buffer_size: Optional[int] = None,
                num_parallel_parser_calls: int = 64,
                data_dir: Optional[str] = None,
@@ -280,6 +282,7 @@ class _DialogStateTrackingDataset(base.BaseDataset):
         names.
       load_domain_label: Whether to load dialog domain labels as well. Currently
         only wroks for `SGDSyntheticDataset`.
+      add_dialog_turn_id: Whether to add a unique id for each dialog turn.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
@@ -294,6 +297,8 @@ class _DialogStateTrackingDataset(base.BaseDataset):
     """
     # Load vocab for dialog utterances and state labels.
     self.load_domain_label = load_domain_label
+    # Specify a unique id for a turn in a dialog.
+    self.add_dialog_turn_id = add_dialog_turn_id
 
     self.vocab_utter = load_json(os.path.join(data_dir, FILENAME_TOKENIZER))
     self.vocab_label = load_json(
@@ -337,19 +342,29 @@ class _DialogStateTrackingDataset(base.BaseDataset):
       usr_utt = tf.ensure_shape(usr_utt, (max_dialog_len, max_utt_len))
       state_label = tf.ensure_shape(state_label, (max_dialog_len,))
 
-      example = {SYS_UTT_NAME: sys_utt,
-                 USR_UTT_NAME: usr_utt,
-                 STATE_LABEL_NAME: state_label,
-                 DIAL_LEN_NAME: dialog_len}
+      parsed_example = {
+          SYS_UTT_NAME: sys_utt,
+          USR_UTT_NAME: usr_utt,
+          STATE_LABEL_NAME: state_label,
+          DIAL_LEN_NAME: dialog_len,
+      }
 
       # Optionally, load domain labels.
       if self.load_domain_label:
         domain_label = tf.io.parse_tensor(
             features[DOMAIN_LABEL_NAME], out_type=tf.int32)
         domain_label = tf.ensure_shape(domain_label, (max_dialog_len,))
-        example[DOMAIN_LABEL_NAME] = domain_label
+        parsed_example[DOMAIN_LABEL_NAME] = domain_label
 
-      return example
+      if self.add_dialog_turn_id:
+        example_id = example[self._fingerprint_key]
+        dialog_turn_id = tf.range(
+            example_id * max_dialog_len, (example_id + 1) * max_dialog_len,
+            dtype=tf.int32)
+        dialog_turn_id = tf.ensure_shape(dialog_turn_id, (max_dialog_len))
+        parsed_example[DIAL_TURN_ID_NAME] = dialog_turn_id
+
+      return parsed_example
 
     return _example_parser
 

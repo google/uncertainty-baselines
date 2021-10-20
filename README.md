@@ -1,6 +1,6 @@
 # Uncertainty Baselines
 
-[![Travis](https://travis-ci.org/google/uncertainty-baselines.svg?branch=main)](https://travis-ci.org/google/uncertainty-baselines)
+[![Tests](https://github.com/google/uncertainty-baselines/actions/workflows/ci.yml/badge.svg)](https://github.com/google/uncertainty-baselines/actions/workflows/ci.yml)
 
 The goal of Uncertainty Baselines is to provide a template for researchers to
 build on. The baselines can be a starting point for any new ideas, applications,
@@ -99,6 +99,7 @@ The
 module consists of datasets following the
 [TensorFlow Datasets](https://www.tensorflow.org/datasets) API.
 They add minimal logic such as default data preprocessing.
+Note: in ipython/colab notebook, one may need to activate tf earger execution mode `tf.compat.v1.enable_eager_execution()`.
 
 ```python
 import uncertainty_baselines as ub

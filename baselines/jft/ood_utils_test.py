@@ -28,8 +28,10 @@ class OodUtilsTest(tf.test.TestCase):
     self.cov = np.identity(2)
 
   def test_ood_metric(self):
-    metric_name = "msp"
-    ood_metric = ood_utils.OODMetric(metric_name)
+    dataset_name = "cifar10"
+    method_name = "msp"
+    metric_name = f"{dataset_name}_{method_name}"
+    ood_metric = ood_utils.OODMetric(dataset_name, method_name)
     scores = [0.2, 0.4, 0.35, 0.1]
     labels = [0, 0, 1, 1]
     ood_metric.update(scores, labels)
@@ -39,8 +41,8 @@ class OodUtilsTest(tf.test.TestCase):
     self.assertDictEqual(
         ood_metric.compute_metrics(),
         {
-            "auc-roc": 0.25,
-            "auc-pr": 0.5,
+            "auroc": 0.25,
+            "auprc": 0.5,
             "fprn": 1.0
         },
     )

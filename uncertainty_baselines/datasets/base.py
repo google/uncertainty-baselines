@@ -522,11 +522,16 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
         combined_dataset = combined_dataset.shuffle(self._shuffle_buffer_size)
       return combined_dataset
 
-    @property
-    def num_examples(self):
-      return (
-          self._in_distribution_dataset.num_examples +
-          super(_OodBaseDataset, self).num_examples)
+    def num_examples(self, data_type='default'):
+      if data_type == 'default':
+        return (self._in_distribution_dataset.num_examples +
+                super().num_examples)
+      elif data_type == 'in_distribution':
+        return self._in_distribution_dataset.num_examples
+      elif data_type == 'ood':
+        return super().num_examples
+      else:
+        raise NotImplementedError('The data_type %s is not valid.' % data_type)
 
   return _OodBaseDataset
 

@@ -190,8 +190,10 @@ class _CifarDataset(base.BaseDataset):
               image, image_dtype, mean=CIFAR10_MEAN, std=CIFAR10_STD)
         else:
           image = tf.image.convert_image_dtype(image, image_dtype)
-      parsed_example = example.copy()
-      parsed_example['features'] = image
+      parsed_example = {'features': image}
+      parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
+      if self._add_fingerprint_key:
+        parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
 
       # Note that labels are always float32, even when images are bfloat16.
       mixup_alpha = self._aug_params.get('mixup_alpha', 0)
@@ -207,9 +209,6 @@ class _CifarDataset(base.BaseDataset):
       else:
         parsed_example['labels'] = tf.cast(labels, tf.float32)
 
-
-      del parsed_example['image']
-      del parsed_example['label']
       return parsed_example
 
     return _example_parser
@@ -265,6 +264,6 @@ class Cifar10CorruptedDataset(_CifarDataset):
     super().__init__(
         name=f'cifar10_corrupted/{corruption_type}_{severity}',
         fingerprint_key=None,
-        **kwargs)
+        **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
 
 

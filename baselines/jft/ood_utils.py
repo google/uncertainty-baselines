@@ -26,10 +26,11 @@ Referneces:
 
 import jax
 import numpy as np
+import scipy
 import sklearn.metrics
 
 
-SUPPORTED_OOD_METRICS = ('msp', 'maha', 'rmaha')
+SUPPORTED_OOD_METHODS = ('msp', 'entropy', 'maha', 'rmaha')
 
 
 # TODO(dusenberrymw): Move it to robustness metrics.
@@ -64,8 +65,8 @@ def compute_ood_metrics(targets,
   fprn = fpr[np.argmax(tpr >= tpr_thres)]
 
   return {
-      'auc-roc': sklearn.metrics.roc_auc_score(targets, predictions),
-      'auc-pr': sklearn.metrics.average_precision_score(targets, predictions),
+      'auroc': sklearn.metrics.roc_auc_score(targets, predictions),
+      'auprc': sklearn.metrics.average_precision_score(targets, predictions),
       'fprn': fprn,
   }
 
@@ -73,18 +74,24 @@ def compute_ood_metrics(targets,
 class OODMetric:
   """OOD metric class that stores scores and OOD labels."""
 
-  def __init__(self, metric_name):
-    if metric_name not in SUPPORTED_OOD_METRICS:
+  def __init__(self, dataset_name, method_name):
+    if method_name not in SUPPORTED_OOD_METHODS:
       raise NotImplementedError(
-          ('Only msp, maha, and rmaha are supported for OOD evaluation!',
-           'Got metric_name=%s!') % metric_name)
-    self.metric_name = metric_name
+          'Only %s are supported for OOD evaluation! Got metric_name=%s!' %
+          (','.join(SUPPORTED_OOD_METHODS), method_name))
+    self.datatset_name = dataset_name
+    self.method_name = method_name
+    self.metric_name = f'{dataset_name}_{method_name}'
     self.scores = []
     self.labels = []
 
   def update(self, scores, labels):
     self.scores += list(scores)
     self.labels += list(labels)
+
+  def reset_states(self):
+    self.scores = []
+    self.labels = []
 
   def get_scores_and_labels(self):
     return self.scores, self.labels
@@ -104,28 +111,40 @@ class OODMetric:
 
     Returns:
       OOD scores: OOD scores that indicate uncertainty. Should be of the size
-      [batch_size, ]
+        [batch_size, ]
+
+    Raises:
+      KeyError: An error occurred when the corresponding scores needed for
+        computing OOD scores are not found in the scores dict.
     """
-    if self.metric_name == 'msp':
+    ood_scores = None
+    if self.method_name == 'msp':
       if 'probs' in scores:
         ood_scores = 1 - np.max(scores['probs'], axis=-1)
       else:
-        raise NotImplementedError(
+        raise KeyError(
             ('The variable probs is needed for computing MSP OOD score. ',
              'But it is not found in the dict.'))
-    elif self.metric_name == 'maha':
+    elif self.method_name == 'entropy':
+      if 'entropy' in scores:
+        ood_scores = scores['entropy']
+      else:
+        raise KeyError(
+            'The variable entropy is needed for computing Entropy OOD score.',
+            'But it is not found in the dict.')
+    elif self.method_name == 'maha':
       if 'dists' in scores:
         ood_scores = np.min(scores['dists'], axis=-1)
       else:
-        raise NotImplementedError(
+        raise KeyError(
             ('The variable dists is needed for computing Mahalanobis distance ',
              'OOD score. But it is not found in the dict.'))
-    elif self.metric_name == 'rmaha':
+    elif self.method_name == 'rmaha':
       if 'dists' in scores and 'dists_background' in scores:
         ood_scores = np.min(
             scores['dists'], axis=-1) - scores['dists_background'].reshape(-1)
       else:
-        raise NotImplementedError((
+        raise KeyError((
             'The variable dists and dists_background are needed for computing ',
             'Mahalanobis distance OOD score. But it is not found in the dict.'))
     return ood_scores
@@ -204,7 +223,7 @@ def compute_mahalanobis_distance(embeds, mean_list, cov, epsilon=1e-20):
 
 def load_ood_datasets(
     dataset,
-    ood_dataset,
+    ood_datasets,
     ood_split,
     pp_eval,
     ood_methods,
@@ -220,7 +239,7 @@ def load_ood_datasets(
 
   Args:
     dataset: The name of in-distribution dataset.
-    ood_dataset: The name of OOD dataset.
+    ood_datasets: A list of OOD dataset names.
     ood_split: The split of the OOD dataset.
     pp_eval: The pre-processing method applied to the input data.
     ood_methods: The OOD methods used for evaluation. Can be choose from 'msp',
@@ -237,12 +256,16 @@ def load_ood_datasets(
     ood_ds_names: A list of dataset labels.
   """
   ood_ds = {}
+  ood_ds_names = []
   if isinstance(ood_split, str):
-    ood_ds.update({
-        'ind': get_data_fn(dataset, ood_split, pp_eval, data_dir),
-        'ood': get_data_fn(ood_dataset, ood_split, pp_eval, data_dir),
-    })
-    ood_ds_names = list(ood_ds.keys())
+    ood_ds.update({'ind': get_data_fn(dataset, ood_split, pp_eval, data_dir)})
+    ood_ds_names.append('ind')
+    for ood_dataset in ood_datasets:
+      ood_ds_name = 'ood_' + ood_dataset
+      ood_ds.update({
+          ood_ds_name: get_data_fn(ood_dataset, ood_split, pp_eval, data_dir),
+      })
+      ood_ds_names.append(ood_ds_name)
   else:
     raise NotImplementedError(
         'Only string type of ood_split is supported for OOD evaluation! Got ood_split=%s!'
@@ -274,7 +297,12 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
   # confidence score.
   # RMaha stnads for Relative Mahalanobis distance (Ren et al. 2021)
   # https://arxiv.org/abs/2106.09022
-  ood_metrics = [OODMetric(name) for name in ood_methods]
+  ood_metrics = {}
+  for ood_ds_name in ood_ds_names:
+    if 'ood' in ood_ds_name:
+      ood_metrics[ood_ds_name] = [
+          OODMetric(ood_ds_name, ood_method) for ood_method in ood_methods
+      ]
 
   output = {}
   # Mean and cov of class conditional Guassian in Mahalanobis distance.
@@ -282,11 +310,11 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
   # regardless of class labels for computing Relative Mahalanobis distance
   mean_list, cov = None, None
   mean_list_background, cov_background = None, None
-  for val_name in ood_ds_names:
+  for ood_ds_name in ood_ds_names:
     # The dataset train_maha must come before ind and ood
     # because the train_maha will be used to esimate the class conditional
     # mean and shared covariance.
-    val_iter, val_steps = ood_ds[val_name]
+    val_iter, val_steps = ood_ds[ood_ds_name]
     ncorrect, loss, nseen = 0, 0, 0
     pre_logits_list, labels_list = [], []
     for _, batch in zip(range(val_steps), val_iter):
@@ -300,7 +328,9 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
       # Here we parse batch_metric_args to compute OOD metrics.
       logits, labels, pre_logits, masks = batch_metric_args
       masks_bool = np.array(masks[0], dtype=bool)
-      if val_name == 'train_maha':
+      if not np.any(masks_bool):
+        continue  # No valid examples in this batch.
+      if ood_ds_name == 'train_maha':
         # For Mahalanobis distance, we need to first fit class conditional
         # Gaussian using training data.
         pre_logits_list.append(np.array(pre_logits[0])[masks_bool])
@@ -321,28 +351,41 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
         # Computes Maximum softmax probability (MSP)
         probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
         batch_scores['probs'] = probs
-        # Update metric state for each metric in ood_metrics
-        for metric in ood_metrics:
-          ood_scores = metric.compute_ood_scores(batch_scores)
-          ood_labels = np.zeros_like(
-              ood_scores) if val_name == 'ind' else np.ones_like(ood_scores)
-          metric.update(ood_scores, ood_labels)
 
-    if val_name == 'train_maha':
+        # Compute Entropy
+        batch_scores['entropy'] = np.array(
+            [scipy.stats.entropy(prob) for prob in probs])
+
+        # Update metric state for each metric in ood_metrics
+        if ood_ds_name == 'ind':
+          for metric_list in ood_metrics.values():
+            for metric in metric_list:
+              ood_scores = metric.compute_ood_scores(batch_scores)
+              ood_labels = np.zeros_like(ood_scores)
+              metric.update(ood_scores, ood_labels)
+        else:
+          for metric in ood_metrics[ood_ds_name]:
+            ood_scores = metric.compute_ood_scores(batch_scores)
+            ood_labels = np.ones_like(ood_scores)
+            metric.update(ood_scores, ood_labels)
+
+    if ood_ds_name == 'train_maha':
+      # Estimate class conditional Gaussian distribution for Mahalanobis dist.
       pre_logits_train = np.vstack(np.vstack(pre_logits_list))
       labels_train = np.argmax(np.vstack(np.vstack(labels_list)), axis=-1)
       mean_list, cov = compute_mean_and_cov(pre_logits_train, labels_train)
       mean_list_background, cov_background = compute_mean_and_cov(
           pre_logits_train, np.zeros_like(labels_train))
-    elif val_name == 'ind':
-      output[f'{val_name}_prec@1'] = ncorrect / nseen
-      output[f'{val_name}_loss'] = loss / nseen
+    elif ood_ds_name == 'ind':
+      # Evaluate in-distribution prediction accuracy
+      output[f'{ood_ds_name}_prec@1'] = ncorrect / nseen
+      output[f'{ood_ds_name}_loss'] = loss / nseen
 
-  for metric in ood_metrics:
-    metric_name = metric.get_metric_name()
-    metric_values = metric.compute_metrics()
-    output[f'ood_{metric_name}_auroc'] = metric_values['auc-roc']
-    output[f'ood_{metric_name}_auprc'] = metric_values['auc-pr']
-    output[f'ood_{metric_name}_fprn'] = metric_values['fprn']
+  for metric_list in ood_metrics.values():
+    for metric in metric_list:
+      metric_name = metric.get_metric_name()
+      metric_values = metric.compute_metrics()
+      for key, value in metric_values.items():
+        output[f'{metric_name}_{key}'] = value
 
   return output

@@ -76,6 +76,9 @@ setup(
             'tensorflow',
             'clu',
             'tensorflow-probability',
+            # tfds-nightly needed due to a bug in v4.4.0
+            # “TypeError: '>' not supported between instances
+            #   of 'int' and 'SplitInfo'”
             'tfds-nightly'
         ]
     },

@@ -30,9 +30,11 @@ import tensorflow_datasets as tfds
 def _get_dataset_builder(
     dataset: Union[str, tfds.core.DatasetBuilder],
     data_dir: Optional[str] = None) -> tfds.core.DatasetBuilder:
-  """Returns a dataset builder."""
+  """Returns a dataset builder, downloading and preparing the dataset
+  if retrieved by string."""
   if isinstance(dataset, str):
     dataset_builder = tfds.builder(dataset, data_dir=data_dir)
+    dataset_builder.download_and_prepare()
   elif isinstance(dataset, tfds.core.DatasetBuilder):
     dataset_builder = dataset
   else:

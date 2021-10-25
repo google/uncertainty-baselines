@@ -15,6 +15,8 @@
 
 """ViT-SNGP on JFT-300M."""
 
+# pass
+
 from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
 import multiprocessing

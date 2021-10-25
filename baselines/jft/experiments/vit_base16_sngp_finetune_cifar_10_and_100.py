@@ -35,7 +35,7 @@ def get_config():
 
   # OOD eval
   # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_dataset = 'cifar100'
+  config.ood_datasets = ['cifar100']
   config.ood_split = 'test'
   config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
 
@@ -59,8 +59,8 @@ def get_config():
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 10
-  config.log_eval_steps = 100
+  config.log_training_steps = 1
+
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
   config.checkpoint_steps = 1000
   config.checkpoint_timeout = 1
@@ -120,7 +120,7 @@ def get_sweep(hyper):
       'cifar100',
       'train[:98%]',
       'train[98%:]',
-      'cifar10',
+      ['cifar10'],
       n_cls=100,
       **kw)
   c10 = lambda **kw: task(
@@ -128,7 +128,7 @@ def get_sweep(hyper):
       'cifar10',
       'train[:98%]',
       'train[98%:]',
-      'cifar100',
+      ['cifar100'],
       n_cls=10,
       **kw)
   # pylint: enable=g-long-lambda
@@ -145,7 +145,7 @@ def get_sweep(hyper):
                 MODEL_INIT_I21K_VIT_GP, MODEL_INIT_JFT_VIT_GP]
   lr_grid = [1e-4, 3e-4, 5e-4, 1e-3, 3e-3, 5e-3, 1e-2]
   clip_grid = [-1.]
-  mf_grid = [20.]
+  mf_grid = [-1., 0.1, 0.15, 0.2, 0.25, 0.3, 0.5]
   return hyper.product([
       hyper.sweep('config.model_init', model_init),
       tasks,
@@ -186,7 +186,7 @@ def task(hyper,
       'train_split': train,
       'pp_train': pp_train,
       'val_split': val,
-      'ood_dataset': ood_name,
+      'ood_datasets': ood_name,
       'pp_eval': pp_eval,
       'num_classes': n_cls,
       'lr.warmup_steps': warmup,

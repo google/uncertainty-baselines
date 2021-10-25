@@ -314,7 +314,7 @@ def main(argv):
   ood_ds = {}
   if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
-      logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+      logging.info('loading OOD dataset = %s', config.get('ood_datasets'))
       ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
           config.dataset,
           config.ood_datasets,
@@ -331,7 +331,7 @@ def main(argv):
       split=config.train_split,
       host_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
-  steps_per_epoch = ntrain_img / batch_size
+  steps_per_epoch = int(ntrain_img / batch_size)
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -339,8 +339,9 @@ def main(argv):
   else:
     total_steps = config.total_steps
 
+  logging.info('Total train data points: %d', ntrain_img)
   logging.info(
-      'Running for %d steps, that means %f epochs and %f steps per epoch',
+      'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')
@@ -546,6 +547,7 @@ def main(argv):
 
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
+    measurements['reset_covmat'] = reset_covmat
 
     return opt, s, l, rng, measurements
 
@@ -644,6 +646,11 @@ def main(argv):
   logging.info('first_step = %s', first_step)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+
+  # Makes sure log_eval_steps is same as steps_per_epoch. This is because
+  # the precision matrix needs to be updated fully (at the end of each epoch)
+  # when eval takes place.
+  log_eval_steps = steps_per_epoch
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
@@ -652,7 +659,7 @@ def main(argv):
     # times it was run previously.
     num_val_runs = sum(
         map(
-            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
+            lambda i: train_utils.itstime(i, log_eval_steps, total_steps
                                          ), range(1, first_step + 1)))
     for val_name, (val_iter, val_steps) in val_iter_splits.items():
       val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
@@ -733,7 +740,7 @@ def main(argv):
       writer.write_scalars(step, train_measurements)
 
     # Report validation performance
-    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+    if train_utils.itstime(step, log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_iter_splits.items():

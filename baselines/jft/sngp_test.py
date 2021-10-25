@@ -239,7 +239,7 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
       FLAGS.config.val_split = 'train[:9]'
       FLAGS.config.train_split = 'train[30:60]'
       FLAGS.config.num_classes = 10
-      FLAGS.config.ood_dataset = 'cifar100'
+      FLAGS.config.ood_datasets = ['cifar100']
       FLAGS.config.ood_split = 'test[10:20]'
       FLAGS.config.ood_methods = ['maha', 'rmaha', 'msp']
       FLAGS.config.eval_on_cifar_10h = True

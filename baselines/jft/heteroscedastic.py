@@ -232,7 +232,7 @@ def main(argv):
       split=config.train_split,
       host_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
-  steps_per_epoch = ntrain_img / batch_size
+  steps_per_epoch = int(ntrain_img / batch_size)
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -240,8 +240,9 @@ def main(argv):
   else:
     total_steps = config.total_steps
 
+  logging.info('Total train data points: %d', ntrain_img)
   logging.info(
-      'Running for %d steps, that means %f epochs and %f steps per epoch',
+      'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')

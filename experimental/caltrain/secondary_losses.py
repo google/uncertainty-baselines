@@ -38,7 +38,7 @@ def compute_squared_error_label_binning_tensorflow(logits,
   (label-binned) which is defined in equation (7).
 
   Args:
-    logits: tensor of predicted logits of (batch-size, num-classes) shapes
+    logits: tensor of predicted logits of (batch-size, num-classes) shape
     y: tensor of labels in [0,num-classes) of (batch-size,) shape
     m: number of bins
     temperature: soft binning temperature
@@ -215,3 +215,188 @@ def get_soft_binning_ece_tensor(predictions, labels, soft_binning_bins,
       ))
 
   return soft_binning_ece
+
+
+def get_avuc_loss(probabilities, labels, avuc_stop_prob_gradients,
+                  avuc_entropy_threshold):
+  """Computes and returns the AvUC loss tensor.
+
+  AvUC loss is defined in equation (3) in this paper:
+  https://arxiv.org/pdf/2012.07923.pdf. AvUC-with-gradient-stopping is defined
+  in the appendix of this paper: https://arxiv.org/pdf/2108.00106.pdf.
+
+  Args:
+    probabilities: tensor of predicted probabilities of
+      (batch-size, num-classes) shape
+    labels: tensor of labels in [0,num-classes) of (batch-size,) shape
+    avuc_stop_prob_gradients: whether to use gradient-stopping
+    avuc_entropy_threshold: entropy threshold (u_th in equation (3) cited above)
+
+  Returns:
+    A tensor of () shape containing a single value: the AvUC loss.
+  """
+
+  if avuc_stop_prob_gradients:
+    confidences = tf.stop_gradient(tf.reduce_max(probabilities, axis=1))
+  else:
+    confidences = tf.reduce_max(probabilities, axis=1)
+
+  accuracies = tf.dtypes.cast(
+      tf.math.equal(
+          tf.argmax(probabilities, axis=1),
+          tf.cast(labels, tf.int64),
+      ),
+      tf.float32,
+  )
+
+  dim = int(probabilities.shape[1])
+  uniform_probabilities = tf.convert_to_tensor([1.0 / dim] * dim)
+  log_safe_probabilities = ((1.0 - EPS) * probabilities +
+                            EPS * uniform_probabilities)
+  log_probabilities = tf.math.log(log_safe_probabilities)
+  entropies = tf.math.negative(
+      tf.reduce_sum(
+          tf.multiply(log_safe_probabilities, log_probabilities), axis=1))
+
+  accuracies_entropies_and_confidences = tf.stack(
+      [accuracies, entropies, confidences], axis=-1)
+
+  ac_clause = (lambda aec: aec[1] < avuc_entropy_threshold and aec[0] > 0.5)
+  au_clause = (lambda aec: aec[1] >= avuc_entropy_threshold and aec[0] > 0.5)
+  ic_clause = (lambda aec: aec[1] < avuc_entropy_threshold and aec[0] < 0.5)
+  iu_clause = (lambda aec: aec[1] >= avuc_entropy_threshold and aec[0] < 0.5)
+
+  # pylint: disable=g-long-lambda
+  nac_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_confidences,
+          fn=lambda aec: tf.convert_to_tensor(aec[2]) *
+          (tf.constant(1.0) - tf.math.tanh(tf.convert_to_tensor(aec[1])))
+          if ac_clause(aec) else 0.0))
+  nau_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_confidences,
+          fn=lambda aec: tf.convert_to_tensor(aec[2]) * tf.math.tanh(
+              tf.convert_to_tensor(aec[1])) if au_clause(aec) else 0.0))
+  nic_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_confidences,
+          fn=lambda aec: (tf.constant(1.0) - tf.convert_to_tensor(aec[2])) *
+          (tf.constant(1.0) - tf.math.tanh(tf.convert_to_tensor(aec[1])))
+          if ic_clause(aec) else 0.0))
+  niu_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_confidences,
+          fn=lambda aec:
+          (tf.constant(1.0) - tf.convert_to_tensor(aec[2])) * tf.math.tanh(
+              tf.convert_to_tensor(aec[1])) if iu_clause(aec) else 0.0))
+  # pylint: enable=g-long-lambda
+
+  avuc_loss = tf.math.log(
+      tf.constant(1.0) +
+      ((nau_diff + nic_diff) /
+       tf.math.maximum(nac_diff + niu_diff, tf.constant(EPS))))
+
+  return avuc_loss
+
+
+def get_soft_avuc_loss(probabilities, labels, soft_avuc_use_deprecated_v0,
+                       soft_avuc_temp, soft_avuc_theta):
+  """Computes and returns the soft AvUC loss tensor.
+
+  Soft AvUC loss is defined in equation (15) in this paper:
+  https://arxiv.org/pdf/2108.00106.pdf.
+
+  Args:
+    probabilities: tensor of predicted probabilities of
+      (batch-size, num-classes) shape
+    labels: tensor of labels in [0,num-classes) of (batch-size,) shape
+    soft_avuc_use_deprecated_v0: whether to use a deprecated formulation
+    soft_avuc_temp: temperature > 0 (T in equation (15) cited above)
+    soft_avuc_theta: threshold in (0,1) (kappa in equation (15) cited above)
+
+  Returns:
+    A tensor of () shape containing a single value: the soft AvUC loss.
+  """
+
+  accuracies = tf.dtypes.cast(
+      tf.math.equal(
+          tf.argmax(probabilities, axis=1),
+          tf.cast(labels, tf.int64),
+      ),
+      tf.float32,
+  )
+
+  dim = int(probabilities.shape[1])
+  uniform_probabilities = tf.convert_to_tensor([1.0 / dim] * dim)
+  log_safe_probabilities = (1.0 -
+                            EPS) * probabilities + EPS * uniform_probabilities
+  log_probabilities = tf.math.log(log_safe_probabilities)
+  entropies = tf.math.negative(
+      tf.reduce_sum(
+          tf.multiply(log_safe_probabilities, log_probabilities), axis=1))
+
+  entmax = math.log(dim)
+
+  # pylint: disable=g-long-lambda
+  def soft_uncertainty(e, temp=1, theta=0.5):
+    return tf.math.sigmoid(
+        (1 / temp) * tf.math.log(e * (1 - theta) / ((1 - e) * theta)))
+
+  if soft_avuc_use_deprecated_v0:
+    xus = tf.map_fn(
+        elems=entropies,
+        fn=lambda ent: -((ent - entmax)**2),
+    )
+    xcs = tf.map_fn(
+        elems=entropies,
+        fn=lambda ent: -(ent**2),
+    )
+    qucs = tf.nn.softmax(tf.stack([xus, xcs], axis=1), axis=1)
+    qus = tf.squeeze(tf.slice(qucs, [0, 0], [-1, 1]))
+    qcs = tf.squeeze(tf.slice(qucs, [0, 1], [-1, 1]))
+  else:
+    qus = tf.map_fn(
+        elems=entropies,
+        fn=lambda ent: soft_uncertainty(
+            ent / entmax, temp=soft_avuc_temp, theta=soft_avuc_theta),
+    )
+    qcs = tf.map_fn(
+        elems=qus,
+        fn=lambda qu: 1 - qu,
+    )
+  # pylint: enable=g-long-lambda
+
+  accuracies_entropies_and_qucs = tf.stack([accuracies, entropies, qus, qcs],
+                                           axis=1)
+
+  # pylint: disable=g-long-lambda
+  nac_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_qucs,
+          fn=lambda e: tf.convert_to_tensor(e[3]) *
+          (tf.constant(1.0) - tf.math.tanh(tf.convert_to_tensor(e[1])))
+          if e[0] > 0.5 else 0.0))
+  nau_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_qucs,
+          fn=lambda e: tf.convert_to_tensor(e[2]) * tf.math.tanh(
+              tf.convert_to_tensor(e[1])) if e[0] > 0.5 else 0.0))
+  nic_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_qucs,
+          fn=lambda e: tf.convert_to_tensor(e[3]) *
+          (tf.constant(1.0) - tf.math.tanh(tf.convert_to_tensor(e[1])))
+          if e[0] < 0.5 else 0.0))
+  niu_diff = tf.reduce_sum(
+      tf.map_fn(
+          elems=accuracies_entropies_and_qucs,
+          fn=lambda e: tf.convert_to_tensor(e[2]) * tf.math.tanh(
+              tf.convert_to_tensor(e[1])) if e[0] < 0.5 else 0.0))
+  # pylint: enable=g-long-lambda
+
+  avuc_loss = tf.math.log(
+      tf.constant(1.0) + (nau_diff + nic_diff) /
+      tf.math.maximum(nac_diff + niu_diff, tf.constant(EPS)))
+
+  return avuc_loss

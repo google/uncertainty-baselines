@@ -593,44 +593,52 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute uncertainty metrics.
-          # (e.g., ECE or Calibration AUC).
-          logits, labels, _, masks = batch_metric_args
-          masks = np.array(masks[0], dtype=np.bool)
-          logits = np.array(logits[0])
-          probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          int_preds = np.argmax(logits, axis=-1)
-          confidence = np.max(probs, axis=-1)
-          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
-                                          int_preds, masks, labels[0]):
-            ece.add_batch(p[m, :], label=l[m])
-            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-            # TODO(jereliu): Extend to support soft multi-class probabilities.
-            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+          if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+            # Here we parse batch_metric_args to compute uncertainty metrics.
+            # (e.g., ECE or Calibration AUC).
+            logits, labels, _, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits = np.array(logits[0])
+            probs = jax.nn.softmax(logits)
+            # From one-hot to integer labels, as required by ECE.
+            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+            int_preds = np.argmax(logits, axis=-1)
+            confidence = np.max(probs, axis=-1)
+            for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                            int_preds, masks, labels[0]):
+              ece.add_batch(p[m, :], label=l[m])
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              # TODO(jereliu): Extend to support soft multi-class probabilities.
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-            if val_name == 'cifar_10h':
-              batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
-                  label[m], p[m, :], 10)
-              label_diversity.update_state(batch_label_diversity)
-              sample_diversity.update_state(batch_sample_diversity)
-              ged.update_state(batch_ged)
+              if val_name == 'cifar_10h':
+                (batch_label_diversity, batch_sample_diversity,
+                 batch_ged) = cifar10h_utils.generalized_energy_distance(
+                     label[m], p[m, :], 10)
+                label_diversity.update_state(batch_label_diversity)
+                sample_diversity.update_state(batch_sample_diversity)
+                ged.update_state(batch_ged)
 
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
             f'{val_name}_loss': val_loss[val_name],
-            f'{val_name}_ece': ece.result()['ece'],
-            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
         }
+        if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+          val_measurements[f'{val_name}_ece'] = ece.result()['ece']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[
+              'calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[
+              'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h':

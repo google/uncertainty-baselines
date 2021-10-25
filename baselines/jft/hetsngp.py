@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ViT-SNGP on JFT-300M."""
+"""ViT-HetSNGP on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
@@ -194,6 +194,7 @@ def main(argv):
       logging.info('NOTE: %s', note)
   write_note('Initializing...')
 
+  fillin = lambda *_: None
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
@@ -228,7 +229,7 @@ def main(argv):
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
-      data_dir=config.get('data_dir'))
+      data_dir=fillin(config.get('data_dir')))
   logging.info('image_size = %s', train_ds.element_spec['image'].shape[1:])
 
   # Start prefetching already.
@@ -244,7 +245,7 @@ def main(argv):
         split=split,
         host_batch_size=local_batch_size_eval,
         drop_remainder=False,
-        data_dir=data_dir)
+        data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
@@ -264,7 +265,7 @@ def main(argv):
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        data_dir=data_dir)
+        data_dir=fillin(data_dir))
     val_iter = input_utils.start_input_pipeline(
         val_ds, config.get('prefetch_to_device', 1))
 
@@ -330,7 +331,7 @@ def main(argv):
       config.dataset,
       split=config.train_split,
       host_batch_size=local_batch_size,
-      data_dir=config.get('data_dir'))
+      data_dir=fillin(config.get('data_dir')))
   steps_per_epoch = ntrain_img / batch_size
 
   if config.get('num_epochs'):
@@ -347,18 +348,25 @@ def main(argv):
   logging.info('config.model = %s', config.get('model'))
 
   # Specify Gaussian process layer configs.
-  use_gp_layer = config.get('use_gp_layer', True)
+  use_gp_layer = True
   gp_config = config.get('gp_layer', {})
   gp_layer_kwargs = get_gp_kwargs(gp_config)
 
   # Process ViT backbone model configs.
   vit_kwargs = config.get('model')
 
-  model = ub.models.vision_transformer_gp(
+  het_kwargs = config.get('het')
+
+  model = ub.models.vision_transformer_hetgp(
       num_classes=config.num_classes,
       use_gp_layer=use_gp_layer,
       vit_kwargs=vit_kwargs,
-      gp_layer_kwargs=gp_layer_kwargs)
+      gp_layer_kwargs=gp_layer_kwargs,
+      multiclass=het_kwargs.multiclass,
+      temperature=het_kwargs.temperature,
+      mc_samples=het_kwargs.mc_samples,
+      num_factors=het_kwargs.num_factors,
+      param_efficient=het_kwargs.param_efficient)
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two
@@ -368,7 +376,10 @@ def main(argv):
     image_size = tuple(train_ds.element_spec['image'].shape[2:])
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
-    variables = model.init(rng, dummy_input, train=False)
+
+    init_rngs = {'params': rng, 'diag_noise_samples': (rng + 1) * 7,
+                 'standard_norm_noise_samples': (rng + 3) * 13}
+    variables = model.init(init_rngs, dummy_input, train=False)
     # Split model parameters into trainable and untrainable collections.
     states, params = variables.pop('params')
     del variables
@@ -377,12 +388,13 @@ def main(argv):
     params = flax.core.unfreeze(params)
     if use_gp_layer:
       # Modify the head parameter in the GP head.
-      params['head']['output_layer']['bias'] = jnp.full_like(
-          params['head']['output_layer']['bias'],
+      params['head']['loc_layer']['output_layer']['bias'] = jnp.full_like(
+          params['head']['loc_layer']['output_layer']['bias'],
           config.get('init_head_bias', 0))
     else:
-      params['head']['bias'] = jnp.full_like(
-          params['head']['bias'], config.get('init_head_bias', 0))
+      params['vit_backbone']['head']['bias'] = jnp.full_like(
+          params['vit_backbone']['head']['bias'],
+          config.get('init_head_bias', 0))
 
     return params, states
 
@@ -403,7 +415,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        mean_field_factor=gp_config.get('mean_field_factor', -1.))
+        rngs={'dropout': rng,
+              'diag_noise_samples': (rng + 1) * 7,
+              'standard_norm_noise_samples': (rng + 3) * 13})
 
     losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -426,7 +440,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        mean_field_factor=gp_config.get('mean_field_factor', -1.))
+        rngs={'dropout': rng,
+              'diag_noise_samples': (rng + 1) * 7,
+              'standard_norm_noise_samples': (rng + 3) * 13})
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -453,7 +469,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        mean_field_factor=gp_config.get('mean_field_factor', -1.))
+        rngs={'dropout': rng,
+              'diag_noise_samples': (rng + 1) * 7,
+              'standard_norm_noise_samples': (rng + 3) * 13})
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -485,9 +503,10 @@ def main(argv):
           variable_dict,
           images,
           train=True,
-          rngs={'dropout': rng_model_local},
-          mutable=list(states.keys()),
-          mean_field_factor=gp_config.get('mean_field_factor', -1.))
+          rngs={'dropout': rng_model_local,
+                'diag_noise_samples': (rng_model_local + 1) * 7,
+                'standard_norm_noise_samples': (rng_model_local + 3) * 13},
+          mutable=list(states.keys()))
 
       logits, _ = model_results
       loss = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
@@ -496,7 +515,7 @@ def main(argv):
 
     # Performs exact covariance update (i.e., reset precision matrix resetting
     # at begining of new epoch) if covmat_momentum is a null value.
-    if use_gp_layer and gp_config.get('covmat_momentum', -1.) < 0:
+    if gp_config.get('covmat_momentum', -1.) < 0:
       # Resets precision matrix to Identity * ridge_penalty if at the begining
       # of a new epoch. This should be done before accumulate gradient.
       ridge_penalty = gp_config.get('ridge_penalty', 1.)
@@ -563,7 +582,7 @@ def main(argv):
   if save_checkpoint_path and gfile.exists(save_checkpoint_path):
     resume_checkpoint_path = save_checkpoint_path
   elif config.get('resume'):
-    resume_checkpoint_path = config.resume
+    resume_checkpoint_path = fillin(config.resume)
   if resume_checkpoint_path:
     write_note('Resume training from checkpoint...')
     checkpoint_tree = {
@@ -805,7 +824,7 @@ def main(argv):
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
-            f'{val_name}_loss': val_loss[val_name]
+            f'{val_name}_loss': val_loss[val_name],
         }
         if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
           val_measurements[f'{val_name}_ece'] = ece.result()['ece']

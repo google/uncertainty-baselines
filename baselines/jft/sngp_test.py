@@ -199,10 +199,12 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
   @parameterized.parameters(
       # TODO(dusenberrymw): This test is flaky. Need to investigate the issue.
       # ('token', 2, 17.127628, 9.437467681037056, 0.1299999933689832, 'cifar'),
+      ('token', 4, True, 78.72482, 33.127906, 0.0999999977, 'cifar'),
       ('token', None, True, 57.665764, 47.4102783203125, 0.0999999940395355,
        'cifar'),
       # ('gap', 2, True, 7.564239, 18.838665856255425, 0.10999999567866325,
       # 'cifar'),
+      ('gap', 4, True, 43.24677, 17.197547488, 0.06999999, 'cifar'),
       ('gap', 2, False, 6.495101, 6.035849889119466, 0.07000000029802322,
        'cifar'),
       ('gap', None, True, 51.77176, 25.256450653076172, 0.08999999798834324,
@@ -272,8 +274,8 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
-    self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=0.3)
-    self.assertAllClose(val_loss['val'], correct_val_loss, atol=0.02, rtol=0.3)
+    self.assertAllClose(train_loss, correct_train_loss, atol=1e-3, rtol=1e-3)
+    self.assertAllClose(val_loss['val'], correct_val_loss, atol=1e-3, rtol=1e-3)
     # The fewshot training pipeline is not completely deterministic. For now, we
     # increase the tolerance to avoid the test being flaky.
     self.assertAllClose(

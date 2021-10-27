@@ -33,7 +33,7 @@ from uncertainty_baselines.models import unet
 from uncertainty_baselines.models import wide_resnet
 
 try:
-  from uncertainty_baselines.models import bert  # pylint: disable=g-import-not-at-top
+  from uncertainty_baselines.models.bert import bert_model  # pylint: disable=g-import-not-at-top
 except ImportError:
   logging.warning(
       'Skipped bert model import due to ImportError.', exc_info=True)
@@ -43,8 +43,10 @@ except tf.errors.NotFoundError:
       exc_info=True)
 
 
+# TODO(dusenberrymw): Update to the full list of models, or remove this module.
 def get_model_names() -> List[str]:
-  return [
+  """Returns a list of valid model names."""
+  model_names = [
       'bert',
       'criteo_mlp',
       'genomics_cnn',
@@ -54,10 +56,12 @@ def get_model_names() -> List[str]:
       'unet',
       'wide_resnet',
   ]
+  return model_names
 
 
 # TODO(znado): check into using Keras' deserialization functionality, similar to
 # edward2/tensorflow/initializers.py line 772.
+# TODO(dusenberrymw): Update to the full list of models, or remove this module.
 def get(model_name: str, **kwargs) -> tf.keras.Model:
   """Gets a model builder by name.
 
@@ -79,26 +83,28 @@ def get(model_name: str, **kwargs) -> tf.keras.Model:
     raise ValueError('Unrecognized model type: {!r}'.format(model_name))
 
   # pytype: disable=bad-return-type  # typed-keras
+  # pytype: disable=not-callable  # PyType's type inference is incorrect here.
   if model_name == 'criteo_mlp':
-    return criteo_mlp.criteo_mlp(**kwargs)
+    return criteo_mlp(**kwargs)
   if model_name == 'movielens':
-    return movielens.movielens(**kwargs)
+    return movielens(**kwargs)
   if model_name == 'resnet20':
-    return resnet20.resnet20(**kwargs)
+    return resnet20(**kwargs)
   if model_name == 'textcnn':
-    return textcnn.textcnn(**kwargs)
+    return textcnn(**kwargs)
   if model_name == 'unet':
-    return unet.unet(**kwargs)
+    return unet(**kwargs)
   if model_name == 'bert':
-    return bert.bert_model(**kwargs)
+    return bert_model(**kwargs)
   if model_name == 'wide_resnet':
-    return wide_resnet.wide_resnet(**kwargs)
+    return wide_resnet(**kwargs)
   if model_name == 'genomics_cnn':
-    return genomics_cnn.genomics_cnn(**kwargs)
+    return genomics_cnn(**kwargs)
 
   # EfficientNet models don't take in the batch size.
   if model_name == 'efficientnet':
-    return efficientnet.efficientnet(**kwargs)
+    return efficientnet(**kwargs)
   if model_name == 'efficientnet_batch_ensemble':
-    return efficientnet_batch_ensemble.efficientnet_batch_ensemble(**kwargs)
+    return efficientnet_batch_ensemble(**kwargs)
+  # pytype: enable=not-callable
   # pytype: enable=bad-return-type  # typed-keras

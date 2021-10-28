@@ -16,7 +16,7 @@
 """Tests for single_model_uncertainty.models.get()."""
 
 import tensorflow as tf
-import models  # local file import
+from uncertainty_baselines.experimental.single_model_uncertainty.models import models
 
 
 class ModelsTest(tf.test.TestCase):

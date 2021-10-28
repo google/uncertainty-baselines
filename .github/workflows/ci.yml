@@ -10,31 +10,95 @@ on:
       - main
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.6
+          python-version: 3.7
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install tensorflow
-          pip install -q -e .[tests]
+          pip install -q -e .[tensorflow,jax,models,tests]
       - name: Test Import
         run: |
           set -v
           set -e
           python -c "import uncertainty_baselines as ub"
-          python -c "ub.datasets"
-          python -c "ub.models"
+          python -c "import uncertainty_baselines as ub; print(ub.datasets)"
+          python -c "import uncertainty_baselines as ub; print(ub.models)"
       - name: Run Pytest
         run: |
           set -v
           set -e
-          python -m unittest -v *_test.py
-          python -m unittest -v models/*_test.py
+          python -m unittest -v uncertainty_baselines/datasets/random_test.py
+          python -m unittest -v uncertainty_baselines/models/*_test.py
+          python -m unittest -v uncertainty_baselines/*_test.py
+  test_jft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e .[tensorflow,jax,models,tests]
+      - name: Run Pytest
+        # Note that this does not include baselines/jft/input_utils_test.py.
+        run: |
+          set -v
+          set -e
+          python -m unittest -v baselines/jft/checkpoint_utils_test.py
+          python -m unittest -v baselines/jft/ood_utils_test.py
+          python -m unittest -v baselines/jft/deterministic_test.py
+          python -m unittest -v baselines/jft/preprocess_utils_test.py
+          python -m unittest -v baselines/jft/train_utils_test.py
+  test_jft_heteroscedastic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e .[tensorflow,jax,models,tests]
+      - name: Run Pytest
+        # Note that this does not include baselines/jft/input_utils_test.py.
+        run: |
+          set -v
+          set -e
+          python -m unittest -v baselines/jft/heteroscedastic_test.py
+  test_jft_sngp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e .[tensorflow,jax,models,tests]
+      - name: Run Pytest
+        # Note that this does not include baselines/jft/input_utils_test.py.
+        run: |
+          set -v
+          set -e
+          python -m unittest -v baselines/jft/sngp_test.py

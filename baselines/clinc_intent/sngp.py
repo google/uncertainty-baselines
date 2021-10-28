@@ -51,7 +51,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 
 import uncertainty_baselines as ub
-import bert_utils  # local file import
+from  baselines.clinc_intent import bert_utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
 # Data flags

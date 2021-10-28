@@ -30,10 +30,10 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow as tf
 import uncertainty_baselines as ub
-import bert_utils  # local file import
+from  baselines.clinc_intent import bert_utils  # local file import
 # import clinc_intent.deterministic to inhere its flags
-import deterministic  # pylint:disable=unused-import  # local file import
-import deterministic_model_textcnn as cnn_model  # local file import
+from  baselines.clinc_intent import deterministic  # pylint:disable=unused-import  # local file import
+from  baselines.clinc_intent import deterministic_model_textcnn as cnn_model  # local file import
 
 # TODO(trandustin): We inherit
 # FLAGS.{dataset,per_core_batch_size,output_dir,seed} from deterministic. This

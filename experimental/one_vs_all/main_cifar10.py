@@ -25,8 +25,8 @@ from absl import logging
 import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
-import losses as loss_lib  # local file import
-import models as models_lib  # local file import
+from uncertainty_baselines.experimental.one_vs_all import losses as loss_lib
+from uncertainty_baselines.experimental.one_vs_all import models as models_lib
 
 
 # Flags relating to hyperparameters.

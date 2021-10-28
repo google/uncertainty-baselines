@@ -32,24 +32,24 @@ import flax
 import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
-import ml_collections
+from ml_collections.config_flags import config_flags
 import numpy as np
 import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
-import checkpoint_utils  # local file import
-import cifar10h_utils  # local file import
-import input_utils  # local file import
-import ood_utils  # local file import
-import preprocess_utils  # local file import
-import train_utils  # local file import
+from  baselines.jft import checkpoint_utils  # local file import
+from  baselines.jft import cifar10h_utils  # local file import
+from  baselines.jft import input_utils  # local file import
+from  baselines.jft import ood_utils  # local file import
+from  baselines.jft import preprocess_utils  # local file import
+from  baselines.jft import train_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
 
 
-ml_collections.config_flags.DEFINE_config_file(
+config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
@@ -63,12 +63,7 @@ flags.DEFINE_integer('seed', default=0, help='Random seed.')
 FLAGS = flags.FLAGS
 
 
-def main(argv):
-  del argv
-
-  config = FLAGS.config
-  output_dir = FLAGS.output_dir
-
+def main(config, output_dir):
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -505,7 +500,8 @@ def main(argv):
   opt_repl = flax_utils.replicate(opt_cpu)
 
   write_note(f'Initializing few-shotters...\n{chrono.note}')
-  if 'fewshot' in config:
+  fewshotter = None
+  if 'fewshot' in config and fewshot is not None:
     fewshotter = fewshot.FewShotEvaluator(
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
@@ -698,7 +694,7 @@ def main(argv):
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
 
-    if 'fewshot' in config:
+    if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.
       if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
         chrono.pause()
@@ -744,6 +740,7 @@ if __name__ == '__main__':
   # and then have `main` return None.
 
   def _main(argv):
-    main(argv)
+    del argv
+    main(FLAGS.config, FLAGS.output_dir)
 
   app.run(_main)  # Ignore the returned values from `main`.

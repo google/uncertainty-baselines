@@ -23,7 +23,7 @@ File consists of:
 from typing import List
 
 import tensorflow as tf
-import psl_model  # local file import
+from uncertainty_baselines.experimental.language_structure.psl import psl_model
 
 
 class PSLModelMultiWoZ(psl_model.PSLModel):

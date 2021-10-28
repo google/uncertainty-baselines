@@ -26,11 +26,11 @@ from absl import logging
 import numpy as np
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import eval as eval_lib  # local file import
-import flags as flags_lib  # local file import
-import losses as loss_lib  # local file import
-import models as models_lib  # local file import
-import train as train_lib  # local file import
+from uncertainty_baselines.experimental.one_vs_all import eval as eval_lib
+from uncertainty_baselines.experimental.one_vs_all import flags as flags_lib
+from uncertainty_baselines.experimental.one_vs_all import losses as loss_lib
+from uncertainty_baselines.experimental.one_vs_all import models as models_lib
+from uncertainty_baselines.experimental.one_vs_all import train as train_lib
 
 
 

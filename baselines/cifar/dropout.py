@@ -24,8 +24,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import ood_utils  # local file import
-import utils  # local file import
+from  baselines.cifar import ood_utils  # local file import
+from  baselines.cifar import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')

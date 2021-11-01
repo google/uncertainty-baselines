@@ -26,7 +26,7 @@ import tensorflow as tf
 import tensorflow.compat.v1 as tf1
 import tensorflow_probability as tfp
 import uncertainty_baselines as ub
-from  baselines.mnist import utils  # local file import
+import utils  # local file import
 
 flags.DEFINE_enum('dataset', 'mnist',
                   enum_values=['mnist', 'fashion_mnist'],

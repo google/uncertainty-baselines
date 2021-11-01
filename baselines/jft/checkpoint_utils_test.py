@@ -25,7 +25,7 @@ import jax.numpy as jnp
 import ml_collections
 import tensorflow as tf
 import uncertainty_baselines as ub
-from  baselines.jft import checkpoint_utils  # local file import
+import checkpoint_utils  # local file import
 
 
 def _make_model(num_classes=21843, representation_size=2):

@@ -40,7 +40,7 @@ import functools
 from typing import Any, Dict, Iterable, Optional
 import tensorflow as tf
 
-from uncertainty_baselines.experimental.single_model_uncertainty.models import util as models_util
+import util as models_util  # local file import
 # pylint: disable=invalid-name
 
 BatchNormalization = functools.partial(

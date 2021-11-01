@@ -15,11 +15,11 @@
 
 """Diversity metrics and utils."""
 
-from uncertainty_baselines.experimental.diversity.diversity_metrics import dpp_negative_logdet
-from uncertainty_baselines.experimental.diversity.diversity_metrics import pairwise_cosine_similarity
-from uncertainty_baselines.experimental.diversity.diversity_metrics import pairwise_euclidean_distances
-from uncertainty_baselines.experimental.diversity.diversity_utils import ExponentialDecay
-from uncertainty_baselines.experimental.diversity.diversity_utils import fast_weights_similarity
-from uncertainty_baselines.experimental.diversity.diversity_utils import LinearAnnealing
-from uncertainty_baselines.experimental.diversity.diversity_utils import outputs_similarity
-from uncertainty_baselines.experimental.diversity.diversity_utils import scaled_similarity_loss
+import dpp_negative_logdet  # local file import
+import pairwise_cosine_similarity  # local file import
+import pairwise_euclidean_distances  # local file import
+import ExponentialDecay  # local file import
+import fast_weights_similarity  # local file import
+import LinearAnnealing  # local file import
+import outputs_similarity  # local file import
+import scaled_similarity_loss  # local file import

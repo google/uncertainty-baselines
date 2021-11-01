@@ -57,11 +57,12 @@ jobs:
         run: |
           set -v
           set -e
-          python -m unittest -v baselines/jft/checkpoint_utils_test.py
-          python -m unittest -v baselines/jft/ood_utils_test.py
-          python -m unittest -v baselines/jft/deterministic_test.py
-          python -m unittest -v baselines/jft/preprocess_utils_test.py
-          python -m unittest -v baselines/jft/train_utils_test.py
+          cd baselines/jft
+          python -m unittest -v checkpoint_utils_test.py
+          python -m unittest -v ood_utils_test.py
+          python -m unittest -v deterministic_test.py
+          python -m unittest -v preprocess_utils_test.py
+          python -m unittest -v train_utils_test.py
   test_jft_heteroscedastic:
     runs-on: ubuntu-latest
     steps:
@@ -81,7 +82,8 @@ jobs:
         run: |
           set -v
           set -e
-          python -m unittest -v baselines/jft/heteroscedastic_test.py
+          cd baselines/jft
+          python -m unittest -v heteroscedastic_test.py
   test_jft_sngp:
     runs-on: ubuntu-latest
     steps:
@@ -101,4 +103,5 @@ jobs:
         run: |
           set -v
           set -e
-          python -m unittest -v baselines/jft/sngp_test.py
+          cd baselines/jft
+          python -m unittest -v sngp_test.py

@@ -23,7 +23,7 @@ File consists of:
 from typing import List
 
 import tensorflow as tf
-from uncertainty_baselines.experimental.language_structure.psl import psl_model
+import psl_model  # local file import
 
 
 def satisfy_weights(model, data: tf.Tensor, labels: tf.Tensor,

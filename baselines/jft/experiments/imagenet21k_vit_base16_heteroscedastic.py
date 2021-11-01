@@ -20,7 +20,7 @@ r"""ViT-HetSNGP B/16.
 # pylint: enable=line-too-long
 
 import ml_collections
-from  baselines.jft.experiments.common_fewshot import get_fewshot  # local file import
+import get_fewshot  # local file import
 
 
 def get_config():

@@ -39,12 +39,12 @@ import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
-from  baselines.jft import checkpoint_utils  # local file import
-from  baselines.jft import cifar10h_utils  # local file import
-from  baselines.jft import input_utils  # local file import
-from  baselines.jft import ood_utils  # local file import
-from  baselines.jft import preprocess_utils  # local file import
-from  baselines.jft import train_utils  # local file import
+import checkpoint_utils  # local file import
+import cifar10h_utils  # local file import
+import input_utils  # local file import
+import ood_utils  # local file import
+import preprocess_utils  # local file import
+import train_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None

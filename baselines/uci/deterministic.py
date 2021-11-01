@@ -23,7 +23,7 @@ from absl import logging
 import edward2 as ed
 import numpy as np
 import tensorflow as tf
-from  baselines.uci import utils  # local file import
+import utils  # local file import
 
 flags.DEFINE_enum('dataset', 'boston_housing',
                   enum_values=['boston_housing',

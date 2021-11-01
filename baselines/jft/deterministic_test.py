@@ -26,9 +26,9 @@ import jax
 # import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
-from  baselines.jft import checkpoint_utils  # local file import
-from  baselines.jft import deterministic  # local file import
-from  baselines.jft import test_utils  # local file import
+import checkpoint_utils  # local file import
+import deterministic  # local file import
+import test_utils  # local file import
 
 flags.adopt_module_key_flags(deterministic)
 FLAGS = flags.FLAGS

@@ -39,7 +39,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-from  baselines.cifar import utils  # local file import
+import utils  # local file import
 
 flags.register_validator('train_proportion',
                          lambda tp: tp > 0.0 and tp <= 1.0,

@@ -49,7 +49,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-from  baselines.cifar import utils  # local file import
+import utils  # local file import
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer(

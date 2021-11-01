@@ -39,10 +39,10 @@ import robustness_metrics as rm
 
 import tensorflow as tf
 import uncertainty_baselines as ub
-from  baselines.jft import batchensemble_utils  # local file import
-from  baselines.jft import input_utils  # local file import
-from  baselines.jft import preprocess_utils  # local file import
-from  baselines.jft import train_utils  # local file import
+import batchensemble_utils  # local file import
+import input_utils  # local file import
+import preprocess_utils  # local file import
+import train_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 ensemble = None

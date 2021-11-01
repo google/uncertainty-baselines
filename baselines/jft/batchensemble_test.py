@@ -25,7 +25,7 @@ from absl.testing import parameterized
 import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
-from  baselines.jft import batchensemble  # local file import
+import batchensemble  # local file import
 
 flags.adopt_module_key_flags(batchensemble)
 FLAGS = flags.FLAGS

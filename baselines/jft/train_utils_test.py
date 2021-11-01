@@ -17,7 +17,7 @@
 
 import jax
 import tensorflow as tf
-from  baselines.jft import train_utils  # local file import
+import train_utils  # local file import
 
 
 class TrainUtilsTest(tf.test.TestCase):

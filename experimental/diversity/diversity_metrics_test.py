@@ -27,7 +27,7 @@ import numpy as np
 import sklearn.metrics
 import tensorflow.compat.v2 as tf
 
-from uncertainty_baselines.experimental.diversity import diversity_metrics
+import diversity_metrics  # local file import
 
 
 class DiversityMetricsTest(parameterized.TestCase, tf.test.TestCase):

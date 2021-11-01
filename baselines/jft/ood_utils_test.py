@@ -17,7 +17,7 @@
 
 import numpy as np
 import tensorflow as tf
-from  baselines.jft import ood_utils  # local file import
+import ood_utils  # local file import
 
 
 class OodUtilsTest(tf.test.TestCase):

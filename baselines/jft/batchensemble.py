@@ -319,7 +319,7 @@ def main(_):
 
   # Restore parameters from checkpoints (if possible) and put to TPU devices.
   opt, train_iter, rngs_per_device, global_state = restore_model_and_put_to_devices(
-      config, output_dir, model, opt, iter(train_ds), rngs,
+      config, output_dir, model, opt, train_iter, rngs,
       pool)
   del rngs
   first_step = global_state['step']
@@ -327,8 +327,6 @@ def main(_):
   start_time = time.time()
   logging.info('Initial step for training = %d.', first_step)
 
-  train_iter = input_utils.start_input_pipeline(
-      train_iter, config.get('prefetch_to_device', 1))
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
                                                     **config.get('lr', {}))
@@ -344,8 +342,8 @@ def main(_):
         profile_steps=20,    # For how many steps to profile after warmup.
         warmup_steps=170,    # For how many steps to wait before profiling.
         stop_callback_fn=callback_fn)
-    for step, lr_repl in zip(range(first_step + 1, total_steps + 1), lr_iter):
-      train_batch = next(train_iter)
+    for step, train_batch, lr_repl in zip(
+        range(first_step + 1, total_steps + 1), train_iter, lr_iter):
       with xprof_session:
         with jax.profiler.StepTraceAnnotation(name='train', step_num=step):
           opt, rngs_per_device, loss_value, _ = pmap_update_fn(

@@ -41,6 +41,10 @@ except tf.errors.NotFoundError:
   logging.warning(
       'Skipped bert model import due to tf.errors.NotFoundError.',
       exc_info=True)
+except AttributeError:
+  # TODO(dusenberrymw): Check if this is fixed upstream.
+  logging.warning(
+      'Skipped bert model import due to AttributeError.', exc_info=True)
 
 
 # TODO(dusenberrymw): Update to the full list of models, or remove this module.

@@ -43,7 +43,7 @@ import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 # filenames for datasets
-_FILENAME_TRAIN = 'vishal_herg_train_*.tfrecords'
+_FILENAME_TRAIN = 'vishal_herg_train_*.tfrecords*'
 _FILENAME_VAL = 'vishal_herg_val.tfrecords'
 _FILENAME_TEST = 'test1_herg.tfrecords'
 _FILENAME_TEST2 = 'test2a_herg.tfrecords'

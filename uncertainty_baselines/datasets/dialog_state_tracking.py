@@ -265,7 +265,7 @@ class _DialogStateTrackingDataset(base.BaseDataset):
   def __init__(self,
                name: str,
                split: str,
-               load_domain_label: bool = False,
+               load_domain_label: bool = True,
                add_dialog_turn_id: Optional[bool] = False,
                shuffle_buffer_size: Optional[int] = None,
                num_parallel_parser_calls: int = 64,
@@ -386,9 +386,5 @@ class MultiWoZSynthDataset(_DialogStateTrackingDataset):
 class SGDSynthDataset(_DialogStateTrackingDataset):
   """SimDial dataset builder class."""
 
-  def __init__(self, data_dir=None, load_domain_label=True, **kwargs):
-    super().__init__(
-        name='sgd_synth',
-        data_dir=data_dir,
-        load_domain_label=load_domain_label,
-        **kwargs)
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='sgd_synth', data_dir=data_dir, **kwargs)

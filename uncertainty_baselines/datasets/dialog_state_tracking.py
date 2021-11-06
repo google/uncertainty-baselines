@@ -55,6 +55,9 @@ from uncertainty_baselines.datasets import base
 
 USR_UTT_NAME = 'usr_utt'
 SYS_UTT_NAME = 'sys_utt'
+USR_UTT_RAW_NAME = 'usr_utt_raw'
+SYS_UTT_RAW_NAME = 'sys_utt_raw'
+
 STATE_LABEL_NAME = 'label'
 DOMAIN_LABEL_NAME = 'domain_label'
 DIAL_LEN_NAME = 'dialog_len'
@@ -95,6 +98,8 @@ def _make_features_spec(
   feature_spec = {
       USR_UTT_NAME: tf.io.FixedLenFeature([], tf.string, default_value=''),
       SYS_UTT_NAME: tf.io.FixedLenFeature([], tf.string, default_value=''),
+      USR_UTT_RAW_NAME: tf.io.FixedLenFeature([], tf.string, default_value=''),
+      SYS_UTT_RAW_NAME: tf.io.FixedLenFeature([], tf.string, default_value=''),
       STATE_LABEL_NAME: tf.io.FixedLenFeature([], tf.string, default_value=''),
       DIAL_LEN_NAME: tf.io.FixedLenFeature([], tf.int64, default_value=0)
   }
@@ -210,6 +215,8 @@ class _DialogStateTrackingDatasetBuilder(tfds.core.DatasetBuilder):
     features = {
         USR_UTT_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
         SYS_UTT_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
+        USR_UTT_RAW_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
+        SYS_UTT_RAW_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
         STATE_LABEL_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
         DIAL_LEN_NAME: tfds.features.Tensor(shape=[], dtype=tf.int64)
     }
@@ -329,6 +336,10 @@ class _DialogStateTrackingDataset(base.BaseDataset):
 
       sys_utt = tf.io.parse_tensor(features[SYS_UTT_NAME], out_type=tf.int32)
       usr_utt = tf.io.parse_tensor(features[USR_UTT_NAME], out_type=tf.int32)
+      sys_utt_raw = tf.io.parse_tensor(
+          features[SYS_UTT_RAW_NAME], out_type=tf.string)
+      usr_utt_raw = tf.io.parse_tensor(
+          features[USR_UTT_RAW_NAME], out_type=tf.string)
       state_label = tf.io.parse_tensor(
           features[STATE_LABEL_NAME], out_type=tf.int32)
       dialog_len = features[DIAL_LEN_NAME]
@@ -340,11 +351,15 @@ class _DialogStateTrackingDataset(base.BaseDataset):
       # Ensure shape of parsed tensors.
       sys_utt = tf.ensure_shape(sys_utt, (max_dialog_len, max_utt_len))
       usr_utt = tf.ensure_shape(usr_utt, (max_dialog_len, max_utt_len))
+      sys_utt_raw = tf.ensure_shape(sys_utt_raw, (max_dialog_len,))
+      usr_utt_raw = tf.ensure_shape(usr_utt_raw, (max_dialog_len,))
       state_label = tf.ensure_shape(state_label, (max_dialog_len,))
 
       parsed_example = {
           SYS_UTT_NAME: sys_utt,
           USR_UTT_NAME: usr_utt,
+          USR_UTT_RAW_NAME: sys_utt_raw,
+          SYS_UTT_RAW_NAME: usr_utt_raw,
           STATE_LABEL_NAME: state_label,
           DIAL_LEN_NAME: dialog_len,
       }

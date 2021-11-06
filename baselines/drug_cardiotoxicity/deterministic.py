@@ -48,7 +48,7 @@ flags.DEFINE_integer('batch_size', 128, 'Batch size.')
 flags.DEFINE_integer('num_epochs', 200, 'Number of epochs.')
 flags.DEFINE_boolean('use_gpu', True, 'If True, uses GPU.')
 flags.DEFINE_integer('num_cores', 1, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('master', '', 'TPU master.')
+flags.DEFINE_string('tpu', '', 'TPU master.')
 # Parameter flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_float('learning_rate', 0.001, 'Learning rate.')
@@ -131,7 +131,9 @@ def train_step(model, strategy, iterator, steps_per_epoch, optimizer, metrics,
         loss = focal_loss + l2_loss
       else:
         loss = negative_log_likelihood + l2_loss
-      # Scale the loss given the TPUStrategy will reduce sum all gradients.
+      # Scale the loss given the tf.distribute.Strategy will reduce sum all
+      # gradients. See details in
+      # https://www.tensorflow.org/tutorials/distribute/custom_training#define_the_loss_function
       scaled_loss = loss / strategy.num_replicas_in_sync
 
     grads = tape.gradient(scaled_loss, model.trainable_variables)
@@ -150,7 +152,7 @@ def train_step(model, strategy, iterator, steps_per_epoch, optimizer, metrics,
 
 
 @tf.function
-def eval_step(model, iterator, dataset_name, num_steps, metrics):
+def eval_step(model, strategy, iterator, dataset_name, num_steps, metrics):
   """Evaluation StepFn."""
 
   def step_fn(model, inputs, dataset_name, metrics):
@@ -173,7 +175,9 @@ def eval_step(model, iterator, dataset_name, num_steps, metrics):
     metrics[f'{dataset_name}/brier'].add_batch(probs, label=labels[:, 1])
 
   for _ in tf.range(tf.cast(num_steps, tf.int32)):
-    step_fn(model, next(iterator), dataset_name, metrics)
+    strategy.run(
+        step_fn,
+        args=(model, next(iterator), dataset_name, metrics))
 
 
 def get_metric_result_value(metric):
@@ -194,33 +198,44 @@ def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
         summary_writer: tf.summary.SummaryWriter,
         loss_type: str):
   """Trains and evaluates the model."""
-  model = ub.models.mpnn(
-      nodes_shape=train_dataset.element_spec[0]['atoms'].shape[1:],
-      edges_shape=train_dataset.element_spec[0]['pairs'].shape[1:],
-      num_heads=params.num_heads,
-      num_layers=params.num_layers,
-      message_layer_size=params.message_layer_size,
-      readout_layer_size=params.readout_layer_size,
-      use_gp_layer=params.use_gp_layer)
-  optimizer = tf.keras.optimizers.RMSprop(learning_rate=params.learning_rate)
-  metrics = {
-      'train/negative_log_likelihood': tf.keras.metrics.Mean(),
-      'train/accuracy': tf.keras.metrics.CategoricalAccuracy(),
-      'train/loss': tf.keras.metrics.Mean(),
-      'train/roc_auc': tf.keras.metrics.AUC(),
-  }
+  with strategy.scope():
+    model = ub.models.mpnn(
+        nodes_shape=train_dataset.element_spec[0]['atoms'].shape[1:],
+        edges_shape=train_dataset.element_spec[0]['pairs'].shape[1:],
+        num_heads=params.num_heads,
+        num_layers=params.num_layers,
+        message_layer_size=params.message_layer_size,
+        readout_layer_size=params.readout_layer_size,
+        use_gp_layer=params.use_gp_layer)
+    optimizer = tf.keras.optimizers.RMSprop(learning_rate=params.learning_rate)
+    metrics = {
+        'train/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'train/accuracy': tf.keras.metrics.CategoricalAccuracy(),
+        'train/loss': tf.keras.metrics.Mean(),
+        'train/roc_auc': tf.keras.metrics.AUC(),
+    }
 
-  for dataset_name in eval_datasets:
-    metrics[f'{dataset_name}/accuracy'] = tf.keras.metrics.CategoricalAccuracy()
-    metrics[f'{dataset_name}/roc_auc'] = tf.keras.metrics.AUC()
-    metrics[f'{dataset_name}/negative_log_likelihood'] = tf.keras.metrics.Mean()
-    if dataset_name == 'test2':
-      ece_num_bins = 5
-    else:
-      ece_num_bins = 10
-    metrics[f'{dataset_name}/ece'] = rm.metrics.ExpectedCalibrationError(
-        num_bins=ece_num_bins)
-    metrics[f'{dataset_name}/brier'] = rm.metrics.Brier()
+    for dataset_name in eval_datasets:
+      metrics[
+          f'{dataset_name}/accuracy'] = tf.keras.metrics.CategoricalAccuracy()
+      metrics[f'{dataset_name}/roc_auc'] = tf.keras.metrics.AUC()
+      metrics[
+          f'{dataset_name}/negative_log_likelihood'] = tf.keras.metrics.Mean()
+      if dataset_name == 'test2':
+        ece_num_bins = 5
+      else:
+        ece_num_bins = 10
+      metrics[f'{dataset_name}/ece'] = rm.metrics.ExpectedCalibrationError(
+          num_bins=ece_num_bins)
+      metrics[f'{dataset_name}/brier'] = rm.metrics.Brier()
+
+  # Makes datasets into distributed version.
+  train_dataset = strategy.experimental_distribute_dataset(train_dataset)
+  eval_datasets = {
+      ds_name: strategy.experimental_distribute_dataset(ds)
+      for ds_name, ds in eval_datasets.items()
+  }
+  logging.info('Number of replicas in sync: %s', strategy.num_replicas_in_sync)
 
   train_iterator = iter(train_dataset)
   start_time = time.time()
@@ -245,7 +260,7 @@ def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
     logging.info('Starting to run eval at epoch: %s', epoch)
     for dataset_name, eval_dataset in eval_datasets.items():
       eval_iterator = iter(eval_dataset)
-      eval_step(model, eval_iterator, dataset_name,
+      eval_step(model, strategy, eval_iterator, dataset_name,
                 steps_per_eval[dataset_name], metrics)
 
     metrics_history['epoch'].append(epoch + 1)
@@ -274,9 +289,11 @@ def main(argv: Sequence[str]):
   tf.random.set_seed(FLAGS.seed)
 
   if not FLAGS.use_gpu:
-    strategy = get_tpu_strategy(FLAGS.master)
+    logging.info('Using TPU for training.')
+    strategy = get_tpu_strategy(FLAGS.tpu)
   else:
-    strategy = tf.distribute.OneDeviceStrategy(device='/cpu:0')
+    logging.info('Using GPU for training.')
+    strategy = tf.distribute.MirroredStrategy()
 
   train_dataset_builder = DrugCardiotoxicityDataset(
       split=tfds.Split.TRAIN,
@@ -341,15 +358,14 @@ def main(argv: Sequence[str]):
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(model_dir, 'summaries'))
-  with strategy.scope():
-    run(train_dataset=train_dataset,
-        eval_datasets=eval_datasets,
-        steps_per_eval=steps_per_eval,
-        params=params,
-        model_dir=model_dir,
-        strategy=strategy,
-        summary_writer=summary_writer,
-        loss_type=FLAGS.loss_type)
+  run(train_dataset=train_dataset,
+      eval_datasets=eval_datasets,
+      steps_per_eval=steps_per_eval,
+      params=params,
+      model_dir=model_dir,
+      strategy=strategy,
+      summary_writer=summary_writer,
+      loss_type=FLAGS.loss_type)
 
 
 if __name__ == '__main__':

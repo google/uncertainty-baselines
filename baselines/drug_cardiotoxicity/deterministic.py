@@ -104,82 +104,6 @@ def write_params(params: Any, filename: str):
     json.dump(params, f, indent=2)
 
 
-@tf.function
-def train_step(model, strategy, iterator, steps_per_epoch, optimizer, metrics,
-               loss_type):
-  """Training StepFn."""
-
-  def step_fn(inputs, metrics, model, strategy, optimizer, loss_type):
-    """Per-Replica StepFn."""
-    if len(inputs) == 3:
-      features, labels, sample_weights = inputs
-    else:
-      features, labels = inputs
-      sample_weights = 1
-
-    with tf.GradientTape() as tape:
-      probs = model(features, training=True)
-      negative_log_likelihood = tf.reduce_mean(
-          tf.keras.losses.categorical_crossentropy(labels, probs) *
-          sample_weights)
-
-      l2_loss = sum(model.losses)
-      if loss_type == 'focal':
-        focal_loss_fn = tfa_losses.SigmoidFocalCrossEntropy()
-        focal_loss = tf.reduce_mean(
-            focal_loss_fn(labels, probs) * sample_weights)
-        loss = focal_loss + l2_loss
-      else:
-        loss = negative_log_likelihood + l2_loss
-      # Scale the loss given the tf.distribute.Strategy will reduce sum all
-      # gradients. See details in
-      # https://www.tensorflow.org/tutorials/distribute/custom_training#define_the_loss_function
-      scaled_loss = loss / strategy.num_replicas_in_sync
-
-    grads = tape.gradient(scaled_loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
-    metrics['train/loss'].update_state(loss)
-    metrics['train/negative_log_likelihood'].update_state(
-        negative_log_likelihood)
-    metrics['train/accuracy'].update_state(labels, probs)
-    metrics['train/roc_auc'].update_state(labels[:, 1], probs[:, 1])
-
-  for _ in tf.range(tf.cast(steps_per_epoch, tf.int32)):
-    strategy.run(
-        step_fn,
-        args=(next(iterator), metrics, model, strategy, optimizer, loss_type))
-
-
-@tf.function
-def eval_step(model, strategy, iterator, dataset_name, num_steps, metrics):
-  """Evaluation StepFn."""
-
-  def step_fn(model, inputs, dataset_name, metrics):
-    """Per-Replica StepFn."""
-    if len(inputs) == 3:
-      features, labels, _ = inputs
-    else:
-      features, labels = inputs
-
-    probs = model(features, training=False)
-    negative_log_likelihood = tf.reduce_mean(
-        tf.keras.losses.categorical_crossentropy(labels, probs))
-
-    metrics[f'{dataset_name}/negative_log_likelihood'].update_state(
-        negative_log_likelihood)
-    metrics[f'{dataset_name}/accuracy'].update_state(labels, probs)
-    metrics[f'{dataset_name}/roc_auc'].update_state(
-        labels[:, 1], probs[:, 1])
-    metrics[f'{dataset_name}/ece'].add_batch(probs[:, 1], label=labels[:, 1])
-    metrics[f'{dataset_name}/brier'].add_batch(probs, label=labels[:, 1])
-
-  for _ in tf.range(tf.cast(num_steps, tf.int32)):
-    strategy.run(
-        step_fn,
-        args=(model, next(iterator), dataset_name, metrics))
-
-
 def get_metric_result_value(metric):
   """Gets the value of the input metric current result."""
   result = metric.result()
@@ -229,6 +153,75 @@ def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
           num_bins=ece_num_bins)
       metrics[f'{dataset_name}/brier'] = rm.metrics.Brier()
 
+  @tf.function
+  def train_step(iterator):
+    """Training StepFn."""
+
+    def step_fn(inputs):
+      """Per-Replica StepFn."""
+      if len(inputs) == 3:
+        features, labels, sample_weights = inputs
+      else:
+        features, labels = inputs
+        sample_weights = 1
+
+      with tf.GradientTape() as tape:
+        probs = model(features, training=True)
+        negative_log_likelihood = tf.reduce_mean(
+            tf.keras.losses.categorical_crossentropy(labels, probs) *
+            sample_weights)
+
+        l2_loss = sum(model.losses)
+        if loss_type == 'focal':
+          focal_loss_fn = tfa_losses.SigmoidFocalCrossEntropy()
+          focal_loss = tf.reduce_mean(
+              focal_loss_fn(labels, probs) * sample_weights)
+          loss = focal_loss + l2_loss
+        else:
+          loss = negative_log_likelihood + l2_loss
+        # Scale the loss given the tf.distribute.Strategy will reduce sum all
+        # gradients. See details in
+        # https://www.tensorflow.org/tutorials/distribute/custom_training#define_the_loss_function
+        scaled_loss = loss / strategy.num_replicas_in_sync
+
+      grads = tape.gradient(scaled_loss, model.trainable_variables)
+      optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+      metrics['train/loss'].update_state(loss)
+      metrics['train/negative_log_likelihood'].update_state(
+          negative_log_likelihood)
+      metrics['train/accuracy'].update_state(labels, probs)
+      metrics['train/roc_auc'].update_state(labels[:, 1], probs[:, 1])
+
+    for _ in tf.range(tf.cast(params.steps_per_epoch, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
+
+  @tf.function
+  def eval_step(iterator, dataset_name, num_steps):
+    """Evaluation StepFn."""
+
+    def step_fn(inputs):
+      """Per-Replica StepFn."""
+      if len(inputs) == 3:
+        features, labels, _ = inputs
+      else:
+        features, labels = inputs
+
+      probs = model(features, training=False)
+      negative_log_likelihood = tf.reduce_mean(
+          tf.keras.losses.categorical_crossentropy(labels, probs))
+
+      metrics[f'{dataset_name}/negative_log_likelihood'].update_state(
+          negative_log_likelihood)
+      metrics[f'{dataset_name}/accuracy'].update_state(labels, probs)
+      metrics[f'{dataset_name}/roc_auc'].update_state(
+          labels[:, 1], probs[:, 1])
+      metrics[f'{dataset_name}/ece'].add_batch(probs[:, 1], label=labels[:, 1])
+      metrics[f'{dataset_name}/brier'].add_batch(probs, label=labels[:, 1])
+
+    for _ in tf.range(tf.cast(num_steps, tf.int32)):
+      strategy.run(step_fn, args=(next(iterator),))
+
   # Makes datasets into distributed version.
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   eval_datasets = {
@@ -242,8 +235,7 @@ def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
   metrics_history = collections.defaultdict(list)
   for epoch in range(params.num_epochs):
     logging.info('Starting to run epoch: %s', epoch)
-    train_step(model, strategy, train_iterator, params.steps_per_epoch,
-               optimizer, metrics, loss_type)
+    train_step(train_iterator)
 
     current_step = (epoch + 1) * params.steps_per_epoch
     max_steps = params.steps_per_epoch * params.num_epochs
@@ -260,8 +252,7 @@ def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
     logging.info('Starting to run eval at epoch: %s', epoch)
     for dataset_name, eval_dataset in eval_datasets.items():
       eval_iterator = iter(eval_dataset)
-      eval_step(model, strategy, eval_iterator, dataset_name,
-                steps_per_eval[dataset_name], metrics)
+      eval_step(eval_iterator, dataset_name, steps_per_eval[dataset_name])
 
     metrics_history['epoch'].append(epoch + 1)
     with summary_writer.as_default():

@@ -112,8 +112,8 @@ def get_config(
       'pets': ('oxford_iiit_pet', 'train', 'test'),
       'imagenet': ('imagenet2012_subset/10pct', 'train', 'validation'),
   }
-  config.fewshot.pp_train = 'decode|resize(256)|central_crop(224)|value_range(-1,1)'
-  config.fewshot.pp_eval = 'decode|resize(256)|central_crop(224)|value_range(-1,1)'
+  config.fewshot.pp_train = 'decode|resize(256)|central_crop(224)|value_range(-1,1)|drop("segmentation_mask")'
+  config.fewshot.pp_eval = 'decode|resize(256)|central_crop(224)|value_range(-1,1)|drop("segmentation_mask")'
   config.fewshot.shots = [10]
   config.fewshot.l2_regs = [2.0**-6]
   config.fewshot.walk_first = ('imagenet', config.fewshot.shots[0])

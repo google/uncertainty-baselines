@@ -16,7 +16,7 @@
 """Tests for mpnn."""
 import tensorflow as tf
 
-from uncertainty_baselines.models import mpnn
+import uncertainty_baselines as ub
 
 
 class MpnnTest(tf.test.TestCase):
@@ -39,7 +39,7 @@ class MpnnTest(tf.test.TestCase):
     """Tests if MPNN can be compiled successfully."""
 
     # Compiles classifier model.
-    model = mpnn.mpnn(
+    model = ub.models.mpnn(
         nodes_shape=(self.max_nodes, self.node_dim),
         edges_shape=(self.max_nodes, self.max_nodes, self.edge_dim),
         num_heads=self.num_classes,

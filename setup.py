@@ -34,6 +34,11 @@ setup(
         'ml_collections',
         'numpy>=1.7',
         'opt_einsum',
+        ('robustness_metrics @ '
+         'git+https://github.com/google-research/robustness_metrics.git'
+         '#egg=robustness_metrics'),
+        # Required because RM does not do lazy loading and RM requires TFP.
+        'tensorflow_probability',
         'tensorflow-datasets',
         'urllib3',
         'zipp',
@@ -43,9 +48,6 @@ setup(
         'models': [
             'edward2 @ git+https://github.com/google/edward2.git#egg=edward2',
             'pandas',
-            ('robustness_metrics @ '
-             'git+https://github.com/google-research/robustness_metrics.git'
-             '#egg=robustness_metrics'),
             'scipy',
         ],
         'datasets': [
@@ -57,10 +59,18 @@ setup(
             # 't5',  # Needed for smcalflow and multiwoz datasets
         ],
         'jax': [
+            'clu',
             'flax',
             'jax',
+            'jaxlib',
         ],
         'tensorflow': [
+            'tensorboard',
+            'tensorflow>=2.6',
+            'tensorflow_addons',  # Required for optimizers.py.
+            'tf-models-official',  # Needed for BERT.
+        ],
+        'tf-nightly': [
             'tb-nightly',
             'tf-nightly',
             'tfa-nightly',

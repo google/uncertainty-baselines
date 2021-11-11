@@ -18,6 +18,7 @@
 import os.path
 from typing import Dict, Optional, Union
 
+from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
@@ -114,6 +115,11 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
     del read_config
     del shuffle_files
     is_training = False
+    if isinstance(split, tfds.core.ReadInstruction):
+      logging.warn(
+          'ReadInstruction splits are currently not supported. Using '
+          'the split name `%s` instead of `%s`.', split.split_name, split)
+      split = tfds.Split(split.split_name)
     if split == tfds.Split.TRAIN:
       file_pattern = 'train-*-of-*'
       is_training = True
@@ -171,13 +177,14 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
 class CriteoDataset(base.BaseDataset):
   """Criteo dataset builder class."""
 
-  def __init__(
-      self,
-      split: Union[float, str],
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               split: Union[float, str],
+               seed: Optional[Union[int, tf.Tensor]] = None,
+               validation_percent: float = 0.0,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None):
     """Create a Criteo tf.data.Dataset builder.
 
     Args:
@@ -185,6 +192,9 @@ class CriteoDataset(base.BaseDataset):
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names. For Criteo it can also be a float to represent the level of data
         augmentation.
+      seed: the seed used as a source of randomness.
+      validation_percent: the percent of the training set to use as a validation
+        set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
@@ -202,10 +212,16 @@ class CriteoDataset(base.BaseDataset):
       split = 'test'
     else:
       self._corruption_level = None
+    dataset_builder = _CriteoDatasetBuilder(data_dir=data_dir)
+    if is_training is None:
+      is_training = split in ['train', tfds.Split.TRAIN]
+    new_split = base.get_validation_percent_split(dataset_builder,
+                                                  validation_percent, split)
     super().__init__(
         name='criteo',
-        dataset_builder=_CriteoDatasetBuilder(data_dir=data_dir),
-        split=split,
+        dataset_builder=dataset_builder,
+        split=new_split,
+        seed=seed,
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,

@@ -34,7 +34,7 @@ def get_config():
   config.num_classes = 21843
 
   config.trial = 0
-  config.batch_size = 4096
+  config.batch_size = 1024
   config.num_epochs = 90
 
   pp_common = '|value_range(-1, 1)'
@@ -44,8 +44,8 @@ def get_config():
   config.pp_eval += f'|onehot({config.num_classes})'
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 50
-  config.log_eval_steps = 1000
+  config.log_training_steps = 1000
+  config.log_eval_steps = 10000
   # NOTE: Save infrequently to prevent crowding the disk space.
   config.checkpoint_steps = 17250
   config.checkpoint_timeout = 10

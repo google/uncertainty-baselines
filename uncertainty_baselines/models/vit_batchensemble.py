@@ -28,6 +28,9 @@ import numpy as np
 import scipy
 
 # TODO(dusenberrymw): Open-source remaining imports.
+patch_transformer_lib = None
+identity = None
+checkpoints_model = None
 
 DType = type(jnp.float32)
 InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]

@@ -52,7 +52,14 @@ def _get_host_num_examples(builder, split, batch_size, process_index,
       host_id=process_index,
       host_count=process_count,
       drop_remainder=drop_remainder)
-  abs_ris = ris.to_absolute(builder.info.splits)
+  # Passing a dict of SplitInfos will not work with tfds 4.4.0, which is the
+  # latest external pip installable version, so we need to convert to a dict of
+  # {split: num_examples}.
+  splits = {
+      k: v.num_examples if isinstance(v, tfds.core.SplitInfo) else v
+      for k, v in builder.info.splits.items()
+  }
+  abs_ris = ris.to_absolute(splits)
 
   num_examples = 0
   for abs_ri in abs_ris:

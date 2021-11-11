@@ -34,7 +34,7 @@ import flax.traverse_util as trav_utils
 
 import jax
 import jax.numpy as jnp
-import ml_collections
+from ml_collections.config_flags import config_flags
 import numpy as np
 import robustness_metrics as rm
 
@@ -52,7 +52,7 @@ import train_utils  # local file import
 fewshot = None
 
 
-ml_collections.config_flags.DEFINE_config_file(
+config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
@@ -163,12 +163,7 @@ def pretrained_sngp_load(init_params, init_file, model_config, reinit_params):
   return _unflatten_dict(restored_flat)
 
 
-def main(argv):
-  del argv
-
-  config = FLAGS.config
-  output_dir = FLAGS.output_dir
-
+def main(config, output_dir):
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -194,7 +189,6 @@ def main(argv):
       logging.info('NOTE: %s', note)
   write_note('Initializing...')
 
-  fillin = lambda *_: None
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
@@ -229,7 +223,7 @@ def main(argv):
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
-      data_dir=fillin(config.get('data_dir')))
+      data_dir=config.get('data_dir'))
   logging.info('image_size = %s', train_ds.element_spec['image'].shape[1:])
 
   # Start prefetching already.
@@ -245,7 +239,7 @@ def main(argv):
         split=split,
         host_batch_size=local_batch_size_eval,
         drop_remainder=False,
-        data_dir=fillin(data_dir))
+        data_dir=data_dir)
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
@@ -265,7 +259,7 @@ def main(argv):
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        data_dir=fillin(data_dir))
+        data_dir=data_dir)
     val_iter = input_utils.start_input_pipeline(
         val_ds, config.get('prefetch_to_device', 1))
 
@@ -315,7 +309,7 @@ def main(argv):
   ood_ds = {}
   if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
-      logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+      logging.info('loading OOD dataset = %s', config.get('ood_datasets'))
       ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
           config.dataset,
           config.ood_datasets,
@@ -331,8 +325,8 @@ def main(argv):
       config.dataset,
       split=config.train_split,
       host_batch_size=local_batch_size,
-      data_dir=fillin(config.get('data_dir')))
-  steps_per_epoch = ntrain_img / batch_size
+      data_dir=config.get('data_dir'))
+  steps_per_epoch = int(ntrain_img / batch_size)
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -340,8 +334,9 @@ def main(argv):
   else:
     total_steps = config.total_steps
 
+  logging.info('Total train data points: %d', ntrain_img)
   logging.info(
-      'Running for %d steps, that means %f epochs and %f steps per epoch',
+      'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')
@@ -547,6 +542,7 @@ def main(argv):
 
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
+    measurements['reset_covmat'] = reset_covmat
 
     return opt, s, l, rng, measurements
 
@@ -564,7 +560,7 @@ def main(argv):
   if save_checkpoint_path and gfile.exists(save_checkpoint_path):
     resume_checkpoint_path = save_checkpoint_path
   elif config.get('resume'):
-    resume_checkpoint_path = fillin(config.resume)
+    resume_checkpoint_path = config.resume
   if resume_checkpoint_path:
     write_note('Resume training from checkpoint...')
     checkpoint_tree = {
@@ -628,7 +624,8 @@ def main(argv):
   states_repl = flax_utils.replicate(states_cpu)
 
   write_note(f'Initializing few-shotters...\n{chrono.note}')
-  if 'fewshot' in config:
+  fewshotter = None
+  if 'fewshot' in config and fewshot is not None:
     fewshotter = fewshot.FewShotEvaluator(
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
@@ -645,6 +642,11 @@ def main(argv):
   logging.info('first_step = %s', first_step)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+
+  # Makes sure log_eval_steps is same as steps_per_epoch. This is because
+  # the precision matrix needs to be updated fully (at the end of each epoch)
+  # when eval takes place.
+  log_eval_steps = steps_per_epoch
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
@@ -653,7 +655,7 @@ def main(argv):
     # times it was run previously.
     num_val_runs = sum(
         map(
-            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
+            lambda i: train_utils.itstime(i, log_eval_steps, total_steps
                                          ), range(1, first_step + 1)))
     for val_name, (val_iter, val_steps) in val_iter_splits.items():
       val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
@@ -734,7 +736,7 @@ def main(argv):
       writer.write_scalars(step, train_measurements)
 
     # Report validation performance
-    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+    if train_utils.itstime(step, log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, (val_iter, val_steps) in val_iter_splits.items():
@@ -775,43 +777,51 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute uncertainty metrics.
-          # (e.g., ECE or Calibration AUC).
-          logits, labels, _, masks = batch_metric_args
-          masks = np.array(masks[0], dtype=np.bool)
-          logits = np.array(logits[0])
-          probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          int_preds = np.argmax(logits, axis=-1)
-          confidence = np.max(probs, axis=-1)
-          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
-                                          int_preds, masks, labels[0]):
-            ece.add_batch(p[m, :], label=l[m])
-            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+          if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+            # Here we parse batch_metric_args to compute uncertainty metrics.
+            # (e.g., ECE or Calibration AUC).
+            logits, labels, _, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits = np.array(logits[0])
+            probs = jax.nn.softmax(logits)
+            # From one-hot to integer labels, as required by ECE.
+            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+            int_preds = np.argmax(logits, axis=-1)
+            confidence = np.max(probs, axis=-1)
+            for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                            int_preds, masks, labels[0]):
+              ece.add_batch(p[m, :], label=l[m])
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-            if val_name == 'cifar_10h':
-              batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
-                  label[m], p[m, :], 10)
-              label_diversity.update_state(batch_label_diversity)
-              sample_diversity.update_state(batch_sample_diversity)
-              ged.update_state(batch_ged)
+              if val_name == 'cifar_10h':
+                (batch_label_diversity, batch_sample_diversity,
+                 batch_ged) = cifar10h_utils.generalized_energy_distance(
+                     label[m], p[m, :], 10)
+                label_diversity.update_state(batch_label_diversity)
+                sample_diversity.update_state(batch_sample_diversity)
+                ged.update_state(batch_ged)
 
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
-            f'{val_name}_loss': val_loss[val_name],
-            f'{val_name}_ece': ece.result()['ece'],
-            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
+            f'{val_name}_loss': val_loss[val_name]
         }
+        if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+          val_measurements[f'{val_name}_ece'] = ece.result()['ece']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[
+              'calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[
+              'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h':
@@ -848,7 +858,7 @@ def main(argv):
 
       chrono.resume()
 
-    if 'fewshot' in config:
+    if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.
       if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
         chrono.pause()
@@ -896,6 +906,7 @@ if __name__ == '__main__':
   # and then have `main` return None.
 
   def _main(argv):
-    main(argv)
+    del argv
+    main(FLAGS.config, FLAGS.output_dir)
 
   app.run(_main)  # Ignore the returned values from `main`.

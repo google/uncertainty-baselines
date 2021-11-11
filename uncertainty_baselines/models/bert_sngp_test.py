@@ -179,7 +179,7 @@ class SngpModelTest(tf.test.TestCase, parameterized.TestCase):
         spec_norm_list_observed, spec_norm_list_expected, atol=1e-3)
 
   def test_transformer_encoder_spectral_normalization(self):
-    """Tests if the transorfmer encoder weights are correctly normalized."""
+    """Tests if the transformer encoder weights are correctly normalized."""
     input_ids = tf.ones((self.batch_size, self.seq_length), dtype=tf.int32)
     input_tensors = [input_ids, input_ids, input_ids]
 

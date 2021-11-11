@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Heteroscedastic ViT on JFT-300M."""
+"""ViT-HetSNGP on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
@@ -30,11 +30,14 @@ from clu import periodic_actions
 from clu import preprocess_spec
 import flax
 import flax.jax_utils as flax_utils
+import flax.traverse_util as trav_utils
+
 import jax
 import jax.numpy as jnp
-from ml_collections.config_flags import config_flags
+import ml_collections
 import numpy as np
 import robustness_metrics as rm
+
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
@@ -49,7 +52,7 @@ import train_utils  # local file import
 fewshot = None
 
 
-config_flags.DEFINE_config_file(
+ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
@@ -58,12 +61,114 @@ flags.DEFINE_boolean(
     'use_gpu', default=None, help='Unused. Whether or not running on GPU.')
 flags.DEFINE_string('tpu', None,
                     'Unused. Name of the TPU. Only used if use_gpu is False.')
-flags.DEFINE_integer('seed', default=0, help='Random seed.')
 
 FLAGS = flags.FLAGS
 
 
-def main(config, output_dir):
+# Utility functions.
+def accumulate_gradient_with_states(
+    loss_and_grad_fn,
+    params,
+    states,  # Allows for states.
+    images,
+    labels,
+    accum_steps):
+  """Improved version of `train_utils.accumulate_gradient()` that allows for states."""
+  # This function handles the `loss_and_grad_fn` function which takes a state
+  # argument and returns ((losses, states), grads).
+  if accum_steps and accum_steps > 1:
+    assert images.shape[0] % accum_steps == 0, (
+        f'Bad accum_steps {accum_steps} for batch size {images.shape[0]}')
+    step_size = images.shape[0] // accum_steps
+
+    # Run the first step.
+    (l, s), g = loss_and_grad_fn(params, states, images[:step_size],
+                                 labels[:step_size])
+
+    # Run the rest of the steps.
+    def acc_grad_and_loss(i, l_s_g):
+      # Extract data for current step.
+      imgs = jax.lax.dynamic_slice(images, (i * step_size, 0, 0, 0),
+                                   (step_size,) + images.shape[1:])
+      lbls = jax.lax.dynamic_slice(labels, (i * step_size, 0),
+                                   (step_size, labels.shape[1]))
+      # Update state and accumulate gradient.
+      l, s, g = l_s_g
+      (li, si), gi = loss_and_grad_fn(params, s, imgs, lbls)
+      return (l + li, si, jax.tree_multimap(lambda x, y: x + y, g, gi))
+
+    l, s, g = jax.lax.fori_loop(1, accum_steps, acc_grad_and_loss, (l, s, g))
+    l, g = jax.tree_map(lambda x: x / accum_steps, (l, g))
+    return (l, s), g
+  else:
+    return loss_and_grad_fn(params, states, images, labels)
+
+
+def get_gp_kwargs(gp_config):
+  """Extract keyword argument parameters for the Gaussian process layer."""
+  covmat_momentum = gp_config.get('covmat_momentum', 0.999)
+
+  # Extracts model parameter.
+  logging.info('gp_config.covmat_momentum = %s', covmat_momentum)
+  covmat_momentum = None if covmat_momentum < 0. else covmat_momentum
+  covmat_kwargs = dict(momentum=covmat_momentum)
+
+  # Assembles into kwargs dictionary.
+  gp_layer_kwargs = dict(covmat_kwargs=covmat_kwargs)
+
+  return gp_layer_kwargs
+
+
+def pretrained_sngp_load(init_params, init_file, model_config, reinit_params):
+  """Load model parameters from checkpoint and align that with ViT-SNGP."""
+
+  def _flatten_dict(params):
+    return {'/'.join(k): v for k, v in trav_utils.flatten_dict(params).items()}
+
+  def _unflatten_dict(flat_params):
+    tuple_to_value = {tuple(k.split('/')): v for k, v in flat_params.items()}
+    return trav_utils.unflatten_dict(tuple_to_value)
+
+  # Restores parameters from the checkpoint.
+  restored_params = checkpoint_utils.load_from_pretrained_checkpoint(
+      init_params, init_file, model_config.representation_size,
+      model_config.classifier, reinit_params)
+
+  # Align restored parameter dict (restored_params) with model parameters
+  # (init_params) by adding in missing parameters and removing extra parameters.
+  # This is needed for ViT-GP to use pre-trained embeddings from
+  # other models.
+  restored_flat = _flatten_dict(restored_params)
+  expected_flat = _flatten_dict(init_params)
+  missing_keys = expected_flat.keys() - restored_flat.keys()
+  extra_keys = restored_flat.keys() - expected_flat.keys()
+
+  logging.info(
+      'Restored params from checkpoint: %s.\n'
+      'Expected params from code: %s.', restored_flat.keys(),
+      expected_flat.keys())
+
+  # Remove extra parameters.
+  for k in extra_keys:
+    del restored_flat[k]
+
+  # Add missing parameters using initialized values.
+  for k in missing_keys:
+    restored_flat[k] = expected_flat[k]
+
+  logging.info(
+      'Added Missing params from checkpoint: %s.\n'
+      'Removed Extra params in checkpoint: %s.\n', missing_keys, extra_keys)
+
+  return _unflatten_dict(restored_flat)
+
+
+def main(argv):
+  del argv
+
+  config = FLAGS.config
+  output_dir = FLAGS.output_dir
+
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -89,6 +194,7 @@ def main(config, output_dir):
       logging.info('NOTE: %s', note)
   write_note('Initializing...')
 
+  fillin = lambda *_: None
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
@@ -107,11 +213,9 @@ def main(config, output_dir):
   local_batch_size_eval = batch_size_eval // jax.host_count()
   logging.info(
       'Global batch size %d on %d hosts results in %d local batch size. '
-      'With %d devices per host (%d devices total), that\'s a %d per-device '
-      'batch size.',
-      batch_size, jax.host_count(), local_batch_size,
-      jax.local_device_count(), jax.device_count(),
-      local_batch_size // jax.local_device_count())
+      'With %d dev per host (%d dev total), that is a %d per-device batch size.',
+      batch_size, jax.host_count(), local_batch_size, jax.local_device_count(),
+      jax.device_count(), local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
@@ -125,7 +229,8 @@ def main(config, output_dir):
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
-      data_dir=config.get('data_dir'))
+      data_dir=fillin(config.get('data_dir')))
+  logging.info('image_size = %s', train_ds.element_spec['image'].shape[1:])
 
   # Start prefetching already.
   train_iter = input_utils.start_input_pipeline(
@@ -140,7 +245,7 @@ def main(config, output_dir):
         split=split,
         host_batch_size=local_batch_size_eval,
         drop_remainder=False,
-        data_dir=data_dir)
+        data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
@@ -160,7 +265,7 @@ def main(config, output_dir):
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
-        data_dir=data_dir)
+        data_dir=fillin(data_dir))
     val_iter = input_utils.start_input_pipeline(
         val_ds, config.get('prefetch_to_device', 1))
 
@@ -169,7 +274,7 @@ def main(config, output_dir):
   val_iter_splits = {
       'val':
           _get_val_split(config.dataset, config.val_split, config.pp_eval,
-                         config.get('data_dir'))
+                         config.get('dataset_dir'))
   }
 
   if config.get('eval_on_cifar_10h'):
@@ -207,7 +312,7 @@ def main(config, output_dir):
         data_dir=config.get('data_dir'))
     val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
-  ood_ds = None
+  ood_ds = {}
   if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
       logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
@@ -226,8 +331,8 @@ def main(config, output_dir):
       config.dataset,
       split=config.train_split,
       host_batch_size=local_batch_size,
-      data_dir=config.get('data_dir'))
-  steps_per_epoch = int(ntrain_img / batch_size)
+      data_dir=fillin(config.get('data_dir')))
+  steps_per_epoch = ntrain_img / batch_size
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -235,15 +340,33 @@ def main(config, output_dir):
   else:
     total_steps = config.total_steps
 
-  logging.info('Total train data points: %d', ntrain_img)
   logging.info(
-      'Running for %d steps, that means %f epochs and %d steps per epoch',
+      'Running for %d steps, that means %f epochs and %f steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
-  model = ub.models.het_vision_transformer(
-      num_classes=config.num_classes, **config.get('model', {}))
+
+  # Specify Gaussian process layer configs.
+  use_gp_layer = True
+  gp_config = config.get('gp_layer', {})
+  gp_layer_kwargs = get_gp_kwargs(gp_config)
+
+  # Process ViT backbone model configs.
+  vit_kwargs = config.get('model')
+
+  het_kwargs = config.get('het')
+
+  model = ub.models.vision_transformer_hetgp(
+      num_classes=config.num_classes,
+      use_gp_layer=use_gp_layer,
+      vit_kwargs=vit_kwargs,
+      gp_layer_kwargs=gp_layer_kwargs,
+      multiclass=het_kwargs.multiclass,
+      temperature=het_kwargs.temperature,
+      mc_samples=het_kwargs.mc_samples,
+      num_factors=het_kwargs.num_factors,
+      param_efficient=het_kwargs.param_efficient)
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two
@@ -256,38 +379,27 @@ def main(config, output_dir):
 
     init_rngs = {'params': rng, 'diag_noise_samples': (rng + 1) * 7,
                  'standard_norm_noise_samples': (rng + 3) * 13}
-
-    params = flax.core.unfreeze(model.init(init_rngs, dummy_input,
-                                           train=False))['params']
+    variables = model.init(init_rngs, dummy_input, train=False)
+    # Split model parameters into trainable and untrainable collections.
+    states, params = variables.pop('params')
+    del variables
 
     # Set bias in the head to a low value, such that loss is small initially.
-    if 'head' in params:
-      params['head']['loc_layer']['bias'] = jnp.full_like(
-          params['head']['loc_layer']['bias'], config.get('init_head_bias', 0))
+    params = flax.core.unfreeze(params)
+    if use_gp_layer:
+      # Modify the head parameter in the GP head.
+      params['head']['loc_layer']['output_layer']['bias'] = jnp.full_like(
+          params['head']['loc_layer']['output_layer']['bias'],
+          config.get('init_head_bias', 0))
+    else:
+      params['vit_backbone']['head']['bias'] = jnp.full_like(
+          params['vit_backbone']['head']['bias'],
+          config.get('init_head_bias', 0))
 
-    # init head kernel to all zeros for fine-tuning
-    if config.get('model_init'):
-      params['head']['loc_layer']['kernel'] = jnp.full_like(
-          params['head']['loc_layer']['kernel'], 0)
-      if 'scale_layer_homoscedastic' in params['head']:
-        params['head']['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
-            params['head']['scale_layer_homoscedastic']['kernel'], 0)
-        params['head']['scale_layer_homoscedastic']['bias'] = jnp.full_like(
-            params['head']['scale_layer_homoscedastic']['bias'], 0)
-      if 'scale_layer_heteroscedastic' in params['head']:
-        params['head']['scale_layer_heteroscedastic']['kernel'] = jnp.full_like(
-            params['head']['scale_layer_heteroscedastic']['kernel'], 0)
-        params['head']['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
-            params['head']['scale_layer_heteroscedastic']['bias'], 0)
-      params['head']['diag_layer']['kernel'] = jnp.full_like(
-          params['head']['diag_layer']['kernel'], 0)
-      params['head']['diag_layer']['bias'] = jnp.full_like(
-          params['head']['diag_layer']['bias'], 0)
-
-    return params
+    return params, states
 
   rng, rng_init = jax.random.split(rng)
-  params_cpu = init(rng_init)
+  params_cpu, states_cpu = init(rng_init)
 
   if jax.host_id() == 0:
     num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
@@ -295,17 +407,17 @@ def main(config, output_dir):
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 
   @partial(jax.pmap, axis_name='batch')
-  def evaluation_fn(params, images, labels, mask):
+  def evaluation_fn(params, states, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False,
-                              rngs={
-                                  'dropout': rng,
-                                  'diag_noise_samples': (rng + 1) * 7,
-                                  'standard_norm_noise_samples': (rng + 3) * 13
-                              })
+    variable_dict = {'params': flax.core.freeze(params), **states}
+    logits, out = model.apply(
+        variable_dict,
+        images,
+        train=False,
+        rngs={'dropout': rng,
+              'diag_noise_samples': (rng + 1) * 7,
+              'standard_norm_noise_samples': (rng + 3) * 13})
 
     losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -322,15 +434,15 @@ def main(config, output_dir):
     return ncorrect, loss, n, metric_args
 
   @partial(jax.pmap, axis_name='batch')
-  def cifar_10h_evaluation_fn(params, images, labels, mask):
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False,
-                              rngs={
-                                  'dropout': rng,
-                                  'diag_noise_samples': (rng + 1) * 7,
-                                  'standard_norm_noise_samples': (rng + 3) * 13
-                              })
+  def cifar_10h_evaluation_fn(params, states, images, labels, mask):
+    variable_dict = {'params': flax.core.freeze(params), **states}
+    logits, out = model.apply(
+        variable_dict,
+        images,
+        train=False,
+        rngs={'dropout': rng,
+              'diag_noise_samples': (rng + 1) * 7,
+              'standard_norm_noise_samples': (rng + 3) * 13})
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -351,14 +463,15 @@ def main(config, output_dir):
 
   # Setup function for computing representation.
   @partial(jax.pmap, axis_name='batch')
-  def representation_fn(params, images, labels, mask):
-    _, outputs = model.apply({'params': flax.core.freeze(params)},
-                             images,
-                             train=False,
-                             rngs={
-                                 'dropout': rng,
-                                 'diag_noise_samples': (rng + 1) * 7,
-                                 'standard_norm_noise_samples': (rng + 3) * 13})
+  def representation_fn(params, images, labels, mask, states):
+    variable_dict = {'params': flax.core.freeze(params), **states}
+    _, outputs = model.apply(
+        variable_dict,
+        images,
+        train=False,
+        rngs={'dropout': rng,
+              'diag_noise_samples': (rng + 1) * 7,
+              'standard_norm_noise_samples': (rng + 3) * 13})
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -375,42 +488,66 @@ def main(config, output_dir):
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
   @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
-  def update_fn(opt, lr, images, labels, rng):
+  def update_fn(opt, states, lr, reset_covmat, images, labels, rng):
     """Update step."""
-
     measurements = {}
 
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
     rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
 
-    def loss_fn(params, images, labels):
-      logits, _ = model.apply(
-          {'params': flax.core.freeze(params)}, images,
-          train=True, rngs={
-              'dropout': rng_model_local,
-              'diag_noise_samples': (rng_model_local + 1) * 7,
-              'standard_norm_noise_samples': (rng_model_local + 3) * 13})
-      return getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
+    def loss_fn(params, states, images, labels):
+      # Specify mutable collection to update untrainable GP parameters.
+      variable_dict = {'params': flax.core.freeze(params), **states}
+      model_results, updated_states = model.apply(
+          variable_dict,
+          images,
+          train=True,
+          rngs={'dropout': rng_model_local,
+                'diag_noise_samples': (rng_model_local + 1) * 7,
+                'standard_norm_noise_samples': (rng_model_local + 3) * 13},
+          mutable=list(states.keys()))
+
+      logits, _ = model_results
+      loss = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
           logits=logits, labels=labels)
+      return loss, updated_states
+
+    # Performs exact covariance update (i.e., reset precision matrix resetting
+    # at begining of new epoch) if covmat_momentum is a null value.
+    if gp_config.get('covmat_momentum', -1.) < 0:
+      # Resets precision matrix to Identity * ridge_penalty if at the begining
+      # of a new epoch. This should be done before accumulate gradient.
+      ridge_penalty = gp_config.get('ridge_penalty', 1.)
+      prec_mat_old = states['laplace_covariance']['head']['covmat_layer'][
+          'precision_matrix']
+      prec_mat_new = (
+          (1. - reset_covmat) * prec_mat_old +
+          reset_covmat * jnp.eye(prec_mat_old.shape[0]) * ridge_penalty)
+
+      states = flax.core.unfreeze(states)
+      states['laplace_covariance']['head']['covmat_layer'][
+          'precision_matrix'] = prec_mat_new
+      states = flax.core.freeze(states)
 
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
-    l, g = train_utils.accumulate_gradient(
-        jax.value_and_grad(loss_fn), opt.target, images, labels,
-        config.get('grad_accum_steps'))
+    (l, s), g = accumulate_gradient_with_states(
+        jax.value_and_grad(loss_fn, has_aux=True), opt.target, states, images,
+        labels, config.get('grad_accum_steps'))
     l, g = jax.lax.pmean((l, g), axis_name='batch')
 
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
-    if config.get('grad_accum_steps', 1) == 1 or config.get('grad_clip_norm'):
+    do_grad_clip = config.get('grad_clip_norm', -1.) > 0.
+    if config.get('grad_accum_steps', 1) == 1 or do_grad_clip:
       grads, _ = jax.tree_flatten(g)
       l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
       measurements['l2_grads'] = l2_g
 
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
-    if config.get('grad_clip_norm'):
+    if do_grad_clip:
       g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
       g = jax.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
@@ -429,7 +566,7 @@ def main(config, output_dir):
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
 
-    return opt, l, rng, measurements
+    return opt, s, l, rng, measurements
 
   # Other things besides optimizer state to be stored.
   rng, rng_loop = jax.random.split(rng, 2)
@@ -445,31 +582,33 @@ def main(config, output_dir):
   if save_checkpoint_path and gfile.exists(save_checkpoint_path):
     resume_checkpoint_path = save_checkpoint_path
   elif config.get('resume'):
-    resume_checkpoint_path = config.resume
+    resume_checkpoint_path = fillin(config.resume)
   if resume_checkpoint_path:
     write_note('Resume training from checkpoint...')
-    checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}
+    checkpoint_tree = {
+        'opt': opt_cpu,
+        'states': states_cpu,
+        'extra': checkpoint_extra
+    }
     checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
                                                   resume_checkpoint_path)
-    opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
+    opt_cpu, states_cpu, checkpoint_extra = (checkpoint['opt'],
+                                             checkpoint['states'],
+                                             checkpoint['extra'])
     rngs_loop = checkpoint_extra['rngs_loop']
   elif config.get('model_init'):
-    write_note(f'Initialize model from {config.model_init}...')
-    reinit_params = config.get('model_reinit_params', [
-        'head/scale_layer_homoscedastic/kernel',
-        'head/scale_layer_homoscedastic/bias',
-        'head/scale_layer_heteroscedastic/kernel',
-        'head/scale_layer_heteroscedastic/bias', 'head/loc_layer/kernel',
-        'head/diag_layer/kernel', 'head/loc_layer/bias', 'head/diag_layer/bias'
-    ])
-    for param in reinit_params:
-      if param in params_cpu:
-        del params_cpu[param]
-
+    # Load trainable parameters from the checkpoint.
+    # This does not cause issue for SNGP since all non-trainable parameters
+    # (random feature, precision matrix, etc) are last-layer parameters that
+    # should be re-trained during fine-tuning.
+    write_note(f'Initialize trainable parameters from {config.model_init}...')
+    reinit_params = config.get(
+        'model_reinit_params',
+        ('head/output_layer/kernel', 'head/output_layer/bias', 'head/kernel',
+         'head/bias'))
     logging.info('Reinitializing these parameters: %s', reinit_params)
-    loaded = checkpoint_utils.load_from_pretrained_checkpoint(
-        params_cpu, config.model_init, config.model.representation_size,
-        config.model.classifier, reinit_params)
+    loaded = pretrained_sngp_load(params_cpu, config.model_init,
+                                  config.get('model'), reinit_params)
     opt_cpu = opt_cpu.replace(target=loaded)
     if jax.host_id() == 0:
       logging.info('Restored parameter overview:')
@@ -496,12 +635,18 @@ def main(config, output_dir):
   lr_iter = train_utils.prefetch_scalar(
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
+  # Prepare the precision matrix resetting schedule, and pre-fetch it to device.
+  reset_covmat_fn = lambda step: float(step % steps_per_epoch == 0)
+  reset_covmat_iter = train_utils.prefetch_scalar(
+      map(reset_covmat_fn, range(first_step, total_steps)),
+      nprefetch=config.get('prefetch_to_device', 1))
+
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
+  states_repl = flax_utils.replicate(states_cpu)
 
   write_note(f'Initializing few-shotters...\n{chrono.note}')
-  fewshotter = None
-  if 'fewshot' in config and fewshot is not None:
+  if 'fewshot' in config:
     fewshotter = fewshot.FewShotEvaluator(
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
@@ -534,16 +679,21 @@ def main(config, output_dir):
 
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
-  for step, train_batch, lr_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
+  for step, train_batch, lr_repl, reset_covmat_repl in zip(
+      range(first_step + 1, total_steps + 1), train_iter, lr_iter,
+      reset_covmat_iter):
 
     with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
-      opt_repl, loss_value, rngs_loop, extra_measurements = update_fn(
-          opt_repl,
-          lr_repl,
-          train_batch['image'],
-          train_batch['labels'],
-          rng=rngs_loop)
+      # TODO(jereliu): Expand to allow precision matrix resetting.
+      (opt_repl, states_repl, loss_value, rngs_loop,
+       extra_measurements) = update_fn(
+           opt_repl,
+           states_repl,
+           lr_repl,
+           reset_covmat_repl,
+           train_batch['image'],
+           train_batch['labels'],
+           rng=rngs_loop)
 
     if jax.host_id() == 0:
       profiler(step)
@@ -556,11 +706,15 @@ def main(config, output_dir):
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
       checkpoint_extra['accum_train_time'] = chrono.accum_train_time
-      checkpoint_extra['rngs_loop'] = rngs_loop
       # We need to transfer the weights over now or else we risk keeping them
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
+      # For GP layer, we will also do the same for untrainable parameters
+      # (`states`). This is ok since `random features` are frozen throughout
+      # pre-training, and `precision matrix` is a finetuning-specific parameters
+      # that will be re-learned in the finetuning task.
       opt_cpu = jax.tree_map(lambda x: np.array(x[0]), opt_repl)
+      states_cpu = jax.tree_map(lambda x: np.array(x[0]), states_repl)
 
       # Check whether we want to keep a copy of the current checkpoint.
       copy_step = None
@@ -571,7 +725,11 @@ def main(config, output_dir):
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
       # `flax.struct`. Both can be present in a checkpoint.
-      checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
+      checkpoint = {
+          'opt': opt_cpu,
+          'states': states_cpu,
+          'extra': checkpoint_extra
+      }
       checkpoint_writer = pool.apply_async(
           checkpoint_utils.save_checkpoint,
           (checkpoint, save_checkpoint_path, copy_step))
@@ -603,6 +761,7 @@ def main(config, output_dir):
         auc_num_bins = config.get('auc_num_bins', 1000)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
         calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+        # TODO(jereliu): Extend to support soft multi-class probabilities.
         oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(
             oracle_fraction=0.005, num_bins=auc_num_bins)
         oc_auc_1 = rm.metrics.OracleCollaborativeAUC(
@@ -620,11 +779,12 @@ def main(config, output_dir):
         for _, batch in zip(range(val_steps), val_iter):
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                cifar_10h_evaluation_fn(opt_repl.target, batch['image'],
-                                        batch['labels'], batch['mask']))
+                cifar_10h_evaluation_fn(
+                    opt_repl.target, states_repl, batch['image'],
+                    batch['labels'], batch['mask']))
           else:
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                evaluation_fn(opt_repl.target, batch['image'],
+                evaluation_fn(opt_repl.target, states_repl, batch['image'],
                               batch['labels'], batch['mask']))
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
@@ -633,45 +793,51 @@ def main(config, output_dir):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
+          if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+            # Here we parse batch_metric_args to compute uncertainty metrics.
+            # (e.g., ECE or Calibration AUC).
+            logits, labels, _, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits = np.array(logits[0])
+            probs = jax.nn.softmax(logits)
+            # From one-hot to integer labels, as required by ECE.
+            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+            int_preds = np.argmax(logits, axis=-1)
+            confidence = np.max(probs, axis=-1)
+            for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                            int_preds, masks, labels[0]):
+              ece.add_batch(p[m, :], label=l[m])
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-          # Here we parse batch_metric_args to compute uncertainty metrics.
-          # (e.g., ECE or Calibration AUC).
-          logits, labels, _, masks = batch_metric_args
-          masks = np.array(masks[0], dtype=np.bool)
-          logits = np.array(logits[0])
-          probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          int_preds = np.argmax(logits, axis=-1)
-          confidence = np.max(probs, axis=-1)
-          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
-                                          int_preds, masks, labels[0]):
-            ece.add_batch(p[m, :], label=l[m])
-            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-            # TODO(jereliu): Extend to support soft multi-class probabilities.
-            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-
-            if val_name == 'cifar_10h':
-              batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
-                  label[m], p[m, :], 10)
-              label_diversity.update_state(batch_label_diversity)
-              sample_diversity.update_state(batch_sample_diversity)
-              ged.update_state(batch_ged)
+              if val_name == 'cifar_10h':
+                (batch_label_diversity, batch_sample_diversity,
+                 batch_ged) = cifar10h_utils.generalized_energy_distance(
+                     label[m], p[m, :], 10)
+                label_diversity.update_state(batch_label_diversity)
+                sample_diversity.update_state(batch_sample_diversity)
+                ged.update_state(batch_ged)
 
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
             f'{val_name}_loss': val_loss[val_name],
-            f'{val_name}_ece': ece.result()['ece'],
-            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
         }
+        if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+          val_measurements[f'{val_name}_ece'] = ece.result()['ece']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[
+              'calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[
+              'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h':
@@ -683,25 +849,41 @@ def main(config, output_dir):
           writer.write_scalars(step, cifar_10h_measurements)
 
       # OOD eval
-      # There are two entries in the ood_ds dict (in-dist, ood), and this
+      # There are two entries in the ood_ds dict (in-dist, ood), and that this
       # section computes metrics using both pieces. This is in contrast to
       # normal validation eval above where we eval metrics separately for each
       # val split in val_ds.
       if ood_ds and config.ood_methods:
-        ood_measurements = ood_utils.eval_ood_metrics(ood_ds, ood_ds_names,
-                                                      config.ood_methods,
-                                                      evaluation_fn, opt_repl)
+
+        def make_sngp_eval_fn(states):
+
+          def sngp_eval_fn(params, images, labels, mask):
+            return evaluation_fn(
+                params=params,
+                states=states,
+                images=images,
+                labels=labels,
+                mask=mask)
+
+          return sngp_eval_fn
+
+        ood_measurements = ood_utils.eval_ood_metrics(
+            ood_ds, ood_ds_names, config.ood_methods,
+            make_sngp_eval_fn(states_repl), opt_repl)
         writer.write_scalars(step, ood_measurements)
+
       chrono.resume()
 
-    if 'fewshot' in config and fewshotter is not None:
+    if 'fewshot' in config:
       # Compute few-shot on-the-fly evaluation.
       if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
-        fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
-                                                      config.fewshot.datasets)
+        fewshot_results, best_l2 = fewshotter.run_all(
+            opt_repl.target,
+            datasets=config.fewshot.datasets,
+            states=states_repl)
 
         # TODO(dusenberrymw): Remove this once fewshot.py is updated.
         def make_writer_measure_fn(step):
@@ -740,7 +922,6 @@ if __name__ == '__main__':
   # and then have `main` return None.
 
   def _main(argv):
-    del argv
-    main(FLAGS.config, FLAGS.output_dir)
+    main(argv)
 
   app.run(_main)  # Ignore the returned values from `main`.

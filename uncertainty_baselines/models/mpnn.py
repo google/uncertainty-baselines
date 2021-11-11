@@ -25,12 +25,17 @@ from uncertainty_baselines.models import classifier_utils
 class MpnnLayer(tf.keras.layers.Layer):
   """Message passing layer."""
 
-  def __init__(self, num_node_features: int, message_layer_size: int):
+  def __init__(
+      self,
+      num_node_features: int,
+      message_layer_size: int,
+      kernel_regularizer: Optional[tf.keras.regularizers.Regularizer] = None):
     """Initializes the instance.
 
     Args:
       num_node_features: Number of node input features.
       message_layer_size: Number of hidden nodes in the message function.
+      kernel_regularizer: Regularization function for inner layers of MpnnLayer.
     """
     super().__init__()
     self.num_node_features = num_node_features
@@ -38,9 +43,12 @@ class MpnnLayer(tf.keras.layers.Layer):
     # Follow the section of Gated Graph Neural Networks (GG-NN),
     # Li et al. (2016) to define message function: a simple
     # linear transformation of h_v, h_w and e_{vw}.
-    self.message_function = tf.keras.layers.Dense(self.message_layer_size)
+    self.message_function = tf.keras.layers.Dense(
+        self.message_layer_size,
+        kernel_regularizer=kernel_regularizer)
     self.update_function = tf.keras.layers.GRU(
-        self.num_node_features, return_state=True)
+        self.num_node_features, return_state=True,
+        kernel_regularizer=kernel_regularizer)
 
   def prepare_message_input(self, nodes: tf.Tensor,
                             edges: tf.Tensor) -> tf.Tensor:
@@ -154,12 +162,17 @@ def get_adjacency_matrix(pairs: tf.Tensor) -> tf.Tensor:
 class MpnnModel(tf.keras.Model):
   """Classifier model based on a MPNN encoder."""
 
-  def __init__(self,
-               nodes_shape: Tuple[int, int], edges_shape: Tuple[int, int, int],
-               num_heads: int, num_layers: int, message_layer_size: int,
-               readout_layer_size: int,
-               gp_layer_kwargs: Optional[Dict[str, Any]] = None,
-               use_gp_layer: bool = False):
+  def __init__(
+      self,
+      nodes_shape: Tuple[int, int],
+      edges_shape: Tuple[int, int, int],
+      num_heads: int,
+      num_layers: int,
+      message_layer_size: int,
+      readout_layer_size: int,
+      gp_layer_kwargs: Optional[Dict[str, Any]] = None,
+      use_gp_layer: bool = False,
+      kernel_regularizer: Optional[tf.keras.regularizers.Regularizer] = None):
     """Constructor.
 
     Notes:
@@ -174,24 +187,27 @@ class MpnnModel(tf.keras.Model):
       readout_layer_size: Number of hidden units in the readout function.
       gp_layer_kwargs: Dict of parameters used in Gaussian Process layer.
       use_gp_layer: Bool, if set True, GP layer is used to build classifier.
+      kernel_regularizer: Regularization function for Dense layer.
 
     """
     super().__init__()
     self.use_gp_layer = use_gp_layer
 
     self.mpnn_layers = [
-        MpnnLayer(
-            num_node_features=nodes_shape[-1],
-            message_layer_size=message_layer_size) for _ in range(num_layers)
+        MpnnLayer(nodes_shape[-1], message_layer_size, kernel_regularizer)
+        for _ in range(num_layers)
     ]
     self.i_layer = tf.keras.layers.Dense(
-        readout_layer_size, activation='sigmoid')
-    self.j_layer = tf.keras.layers.Dense(readout_layer_size)
+        readout_layer_size, activation='sigmoid',
+        kernel_regularizer=kernel_regularizer)
+    self.j_layer = tf.keras.layers.Dense(
+        readout_layer_size, kernel_regularizer=kernel_regularizer)
 
     self.classifier = classifier_utils.build_classifier(
         num_classes=num_heads,
         gp_layer_kwargs=gp_layer_kwargs,
-        use_gp_layer=use_gp_layer)
+        use_gp_layer=use_gp_layer,
+        kernel_regularizer=kernel_regularizer)
 
     self.softmax = tf.keras.layers.Softmax()
 
@@ -220,14 +236,17 @@ class MpnnModel(tf.keras.Model):
     return self.softmax(logits)
 
 
-def mpnn(nodes_shape: Tuple[int, int],
-         edges_shape: Tuple[int, int, int],
-         num_heads: int,
-         num_layers: int,
-         message_layer_size: int,
-         readout_layer_size: int,
-         gp_layer_kwargs: Optional[Dict[str, Any]] = None,
-         use_gp_layer: bool = False) -> tf.keras.Model:
+def mpnn(
+    nodes_shape: Tuple[int, int],
+    edges_shape: Tuple[int, int, int],
+    num_heads: int,
+    num_layers: int,
+    message_layer_size: int,
+    readout_layer_size: int,
+    gp_layer_kwargs: Optional[Dict[str, Any]] = None,
+    use_gp_layer: bool = False,
+    kernel_regularizer: Optional[tf.keras.regularizers.Regularizer] = None
+) -> tf.keras.Model:
   """Builds a MPNN model.
 
   Notes:
@@ -242,6 +261,7 @@ def mpnn(nodes_shape: Tuple[int, int],
     readout_layer_size: Number of hidden units in the readout function.
     gp_layer_kwargs: Dict of parameters used in Gaussian Process layer.
     use_gp_layer: Bool, if set True, GP layer is used to build classifier.
+    kernel_regularizer: Regularization function for Dense layer.
 
   Returns:
     A Keras Model (not compiled).
@@ -253,4 +273,5 @@ def mpnn(nodes_shape: Tuple[int, int],
                    message_layer_size=message_layer_size,
                    readout_layer_size=readout_layer_size,
                    gp_layer_kwargs=gp_layer_kwargs,
-                   use_gp_layer=use_gp_layer)
+                   use_gp_layer=use_gp_layer,
+                   kernel_regularizer=kernel_regularizer)

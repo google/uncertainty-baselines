@@ -24,6 +24,7 @@ from typing import Any, Iterable, Mapping, Tuple
 from absl import app
 from absl import flags
 from absl import logging
+from clu import metric_writers
 from clu import preprocess_spec
 import flax
 import flax.jax_utils
@@ -45,21 +46,15 @@ import train_utils  # local file import
 
 # TODO(dusenberrymw): Open-source remaining imports.
 ensemble = None
-metric_writers = None
 train = None
-experts_utils = None
 xprof = None
 core = None
-metrics = None
-config_flags = None
 xm = None
 xm_api = None
 BIG_VISION_DIR = None
 
-
-config_flags.DEFINE_config_file(
+ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
-
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
     'num_cores', default=None, help='Unused. How many devices being used.')
@@ -142,6 +137,10 @@ def main(_):
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
+  # Create an asynchronous multi-metric writer.
+  writer = metric_writers.create_default_writer(
+      output_dir, just_logging=jax.process_index() > 0)
+
   # Loss to apply.
   loss_to_apply = getattr(core, config.get('loss_to_apply', 'softmax_xent'))
   compute_ece = config.get('compute_ece', False)
@@ -159,10 +158,10 @@ def main(_):
   # not there yet. For instance, tf.data.map is not determisntic.
   rng_generator = tf.random.Generator.from_seed(config.get('seed', 0))
   tf.random.set_global_generator(
-      rng_generator.split(jax.host_count())[jax.host_id()])
+      rng_generator.split(jax.process_count())[jax.process_index()])
 
-  logging.info('Number of devices: %s  (host_id: %s)', jax.device_count(),
-               jax.host_id())
+  logging.info('Number of devices: %s  (process index: %s)', jax.device_count(),
+               jax.process_index())
   logging.info('Config:\n%s', str(config))
 
   if (config.batch_size % jax.device_count() != 0 or
@@ -171,9 +170,9 @@ def main(_):
                      f'{config.batch_size_eval}) must be divisible by '
                      f'the number of devices ({jax.device_count()})')
 
-  batch_size_per_host = config.batch_size // jax.host_count()
+  batch_size_per_host = config.batch_size // jax.process_count()
   batch_size_per_core = config.batch_size // jax.device_count()
-  batch_size_per_host_eval = config.batch_size_eval // jax.host_count()
+  batch_size_per_host_eval = config.batch_size_eval // jax.process_count()
 
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
@@ -275,15 +274,9 @@ def main(_):
   opt, rngs = train.model_and_optim_init(
       model_train.init, opt_def, (batch_size_per_core,) + image_size,
       config.get('init_head_bias'), config.get('seed', 0),
-      config.get('extra_rngs', ['dropout', 'gating']))
+      config.get('extra_rngs', []))
   logging.info('Model initialization: Done.')
   # TODO(jpuigcerver): Support logging parameter count with new sharding.
-
-  if config.get('plot_grad_norm_patterns'):
-    plot_grad_norm_name_fn = experts_utils.make_match_fn_from_prefixes(
-        config.plot_grad_norm_patterns)
-  else:
-    plot_grad_norm_name_fn = None
 
   weight_decay_fn = train.get_weight_decay_function_from_config(config)
   batch_loss_fn = ensemble.wrap_ensemble_module_with_auxiliary_loss_fn(
@@ -295,7 +288,7 @@ def main(_):
   update_fn = functools.partial(
       batchensemble_utils.update_fn_be,
       weight_decay_fn=weight_decay_fn,
-      plot_grad_norm_name_fn=plot_grad_norm_name_fn,
+      plot_grad_norm_name_fn=None,
       plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
       max_grad_norm_global=config.get('clip_grad_norm', None),
       frozen_vars_patterns=config.get('frozen_var_patterns', None),
@@ -326,7 +319,7 @@ def main(_):
 
   # Restore parameters from checkpoints (if possible) and put to TPU devices.
   opt, train_iter, rngs_per_device, global_state = restore_model_and_put_to_devices(
-      config, output_dir, model, opt, iter(train_ds), rngs,
+      config, output_dir, model, opt, train_iter, rngs,
       pool)
   del rngs
   first_step = global_state['step']
@@ -334,18 +327,12 @@ def main(_):
   start_time = time.time()
   logging.info('Initial step for training = %d.', first_step)
 
-  train_iter = input_utils.start_input_pipeline(
-      train_iter, config.get('prefetch_to_device', 1))
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
                                                     **config.get('lr', {}))
   lr_iter = train_utils.prefetch_scalar(
       map(lr_fn, range(first_step, total_steps)),
       config.get('prefetch_to_device', 1))
-
-  writer = metric_writers.create_default_writer(
-      output_dir, just_logging=jax.host_id() > 0,
-      summary_writer=config.get('write_tf_summaries', False))
 
   checkpoint_async_results = []
   log_training_first_n_steps = config.get('log_training_first_n_steps', -1)
@@ -355,11 +342,11 @@ def main(_):
         profile_steps=20,    # For how many steps to profile after warmup.
         warmup_steps=170,    # For how many steps to wait before profiling.
         stop_callback_fn=callback_fn)
-    for step, lr_repl in zip(range(first_step + 1, total_steps + 1), lr_iter):
-      train_batch = next(train_iter)
+    for step, train_batch, lr_repl in zip(
+        range(first_step + 1, total_steps + 1), train_iter, lr_iter):
       with xprof_session:
         with jax.profiler.StepTraceAnnotation(name='train', step_num=step):
-          opt, rngs_per_device, loss_value, aux_info = pmap_update_fn(
+          opt, rngs_per_device, loss_value, _ = pmap_update_fn(
               opt,
               rngs_per_device,
               lr_repl,
@@ -381,7 +368,7 @@ def main(_):
         train.sync_all_hosts()
         # Now host 0 can remove all the checkpoints older than the previous
         # checkpointed step. The pool is used to remove files in parallel.
-        if jax.host_id() == 0:
+        if jax.process_index() == 0:
           train.remove_old_checkpoints(
               output_dir,
               keep_steps_from=step - config.write_checkpoint_every_n_steps,
@@ -409,7 +396,7 @@ def main(_):
             thread_pool=pool)
 
       # Report training progress
-      if (jax.host_id() == 0 and config.log_training_every_n_steps > 0 and
+      if (jax.process_index() == 0 and config.log_training_every_n_steps > 0 and
           (step % config.log_training_every_n_steps == 0 or
            step == total_steps or step < log_training_first_n_steps)):
         train_loss = loss_value[0]
@@ -420,23 +407,6 @@ def main(_):
                                     'training_loss': np.mean(loss_value),
                                     'img/sec/core': img_sec_core,
                                     'epoch': step / steps_per_epoch})
-        if aux_info:
-          # Per-block info has to be dealt especially.
-          if 'per_block_info' in aux_info:
-            scalar_metrics_to_aggregate = config.get(
-                'scalar_metrics_to_aggregate', ())
-            metrics.write_info_to_metric_writer(
-                metric_writer=writer,
-                step=step,
-                gating_info_dict=jax.tree_map(lambda x: np.mean(x, axis=0),
-                                              aux_info['per_block_info']),
-                scalar_metrics_to_aggregate=scalar_metrics_to_aggregate,
-                write_matrices=True)
-            del aux_info['per_block_info']
-          # Plot rest of metrics as scalars.
-          writer.write_scalars(
-              step, {key: np.mean(value) for key, value in aux_info.items()})
-
 
       # Evaluate the model.
       if train_utils.itstime(step, config.log_eval_steps, total_steps):

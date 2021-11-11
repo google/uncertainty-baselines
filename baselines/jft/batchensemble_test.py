@@ -121,10 +121,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('token', 2, 346.3576, 219.6938),
-      ('token', None, 346.3831, 213.9493),
-      ('gap', 2, 346.3709, 219.7947),
-      ('gap', None, 346.3417, 219.4016),
+      ('token', 2, 346.3586, 222.2917),
+      ('token', None, 346.4359, 215.2735),
+      ('gap', 2, 346.4248, 219.5641),
+      ('gap', None, 346.5784, 220.4620),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,

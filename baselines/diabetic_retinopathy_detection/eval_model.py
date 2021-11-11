@@ -1,4 +1,6 @@
 import os
+from collections import OrderedDict
+
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 import contextlib
 import pathlib
@@ -113,6 +115,9 @@ flags.DEFINE_string(
 flags.DEFINE_string(
   'output_bucket', 'drd-final-results-multi-seeds',
   'The name of the output bucket.')
+flags.DEFINE_integer(
+  'blur', 30,
+  'The value of Gaussian blur applied in the preprocessing.')
 FLAGS = flags.FLAGS
 
 
@@ -148,14 +153,15 @@ def main(argv):
   tuning_domain = FLAGS.tuning_domain
   n_samples = FLAGS.num_mc_samples
 
-  # Checkpoint and output directory setup
-  checkpoint_dir = (
-      f'gs://{FLAGS.chkpt_bucket}/{dist_shift}/'
-      f'{model_type}_k{k}_{tuning_domain}')
-  output_suffix = "single" if single_model_multi_train_seeds else "ensemble"
-  output_dir = (
-      f'gs://{FLAGS.output_bucket}/{dist_shift}/'
-      f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}/{output_suffix}')
+  checkpoint_dir, output_dir = construct_input_and_output_dir(
+    model_type=model_type,
+    dist_shift=dist_shift,
+    tuning_domain=tuning_domain,
+    single_model_multi_train_seeds=single_model_multi_train_seeds,
+    n_samples=n_samples,
+    k=k,
+    FLAGS=FLAGS,
+  )
   tf.io.gfile.makedirs(output_dir)
   logging.info(
     'Saving robustness and uncertainty evaluation results to %s', output_dir)
@@ -377,6 +383,30 @@ def main(argv):
   logging.info('Wrote out scalar results.')
 
   wandb_run.finish()
+
+
+def construct_input_and_output_dir(model_type, dist_shift, tuning_domain, single_model_multi_train_seeds,
+                                   n_samples, k, FLAGS):
+  output_suffix = "single" if single_model_multi_train_seeds else "ensemble"
+  if FLAGS.chkpt_bucket == "drd-final-eval-multi-seeds-rebuttal":
+    checkpoint_dir = (
+      f'gs://{FLAGS.chkpt_bucket}/{dist_shift}/'
+      f'model-type_{model_type}__task_{dist_shift}__blur_{FLAGS.blur}__domain_{tuning_domain}')
+
+    output_dir = (
+      f'gs://{FLAGS.output_bucket}/{dist_shift}/'
+      f'model-type_{model_type}__blur_{FLAGS.blur}__domain_{tuning_domain}__mc_{n_samples}/{output_suffix}')
+  elif FLAGS.chkpt_bucket == "drd-final-eval-multi-seeds":
+    checkpoint_dir = (
+        f'gs://{FLAGS.chkpt_bucket}/{dist_shift}/'
+        f'{model_type}_k{k}_{tuning_domain}')
+    output_dir = (
+        f'gs://{FLAGS.output_bucket}/{dist_shift}/'
+        f'{model_type}_k{k}_{tuning_domain}_mc{n_samples}/{output_suffix}')
+  else:
+    raise NotImplementedError(FLAGS.chkpt_bucket)
+
+  return checkpoint_dir, output_dir
 
 
 if __name__ == '__main__':

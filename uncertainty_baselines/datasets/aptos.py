@@ -308,7 +308,10 @@ class APTOSDataset(base.BaseDataset):
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
-      """A pre-process function to return images in [0, 1]."""
+      """
+      Resize images, binarize task based on provided decision threshold,
+      produce example `Dict`.
+      """
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)
       image = tf.image.resize(image, size=(512, 512), method='bilinear')

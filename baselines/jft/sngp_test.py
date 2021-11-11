@@ -153,8 +153,8 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     pp_common += '|keep(["image", "labels"])'
     config.pp_train = 'decode|resize_small(512)|random_crop(384)' + pp_common
     config.pp_eval = 'decode|resize(384)' + pp_common
-    config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)'
-    config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)'
+    config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)|drop("segmentation_mask")'
+    config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)|drop("segmentation_mask")'
 
     with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
       train_loss, val_loss, fewshot_results = sngp.main(config, output_dir)

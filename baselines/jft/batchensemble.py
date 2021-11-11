@@ -274,7 +274,7 @@ def main(_):
   opt, rngs = train.model_and_optim_init(
       model_train.init, opt_def, (batch_size_per_core,) + image_size,
       config.get('init_head_bias'), config.get('seed', 0),
-      config.get('extra_rngs', ['dropout', 'gating']))
+      config.get('extra_rngs', []))
   logging.info('Model initialization: Done.')
   # TODO(jpuigcerver): Support logging parameter count with new sharding.
 

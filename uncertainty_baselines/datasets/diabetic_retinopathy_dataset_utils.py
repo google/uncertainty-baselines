@@ -33,7 +33,9 @@ _CITATION = """\
     url    = "https://www.kaggle.com/c/diabetic-retinopathy-detection/data"
 }
 """
-_URL_TEST_LABELS = "https://storage.googleapis.com/kaggle-forum-message-attachments/90528/2877/retinopathy_solution.csv"
+_URL_TEST_LABELS = (
+  "https://storage.googleapis.com/kaggle-forum-message-attachments/"
+  "90528/2877/retinopathy_solution.csv")
 _BTGRAHAM_DESCRIPTION_PATTERN = (
     "Images have been preprocessed as the winner of the Kaggle competition did "
     "in 2015: first they are resized so that the radius of an eyeball is "

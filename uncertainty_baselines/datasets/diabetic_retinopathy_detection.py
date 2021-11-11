@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Kaggle diabetic retinopathy detection dataset builder."""
+"""Kaggle Diabetic Retinopathy Detection dataset builder."""
 
 from typing import Dict, Optional
 
@@ -86,7 +86,8 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """
-      Resize images, binarize task based on provided decision threshold,
+      Preprocess images to range [0, 1],
+      binarize task based on provided decision threshold,
       produce example `Dict`.
       """
       image = example['image']

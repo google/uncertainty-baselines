@@ -6,6 +6,8 @@ Hi, good to see you here! 👋
 
 Thanks for checking out the code for the Diabetic Retinopathy Detection benchmark, part of the Uncertainty Baselines project.
 
+See our 2021 NeurIPS Datasets and Benchmarks paper introducing this benchmark in detail [here](https://openreview.net/forum?id=jyd4Lyjr2iB).
+
 This codebase will allow you to reproduce experiments from the paper (see citation [here](#cite)) as well as use the benchmarking utilities for predictive performance, robustness, and uncertainty quantification (evaluation and plotting) for your own Bayesian deep learning methods.
 
 ## Prediction Task Overview
@@ -16,12 +18,7 @@ Models are trained with images of blood vessels in the eye, as seen in the [Tens
 
 ## Abstract
 
-Bayesian deep learning seeks to equip deep neural networks with the ability to precisely quantify their predictive uncertainty, and has promised to make deep learning more reliable for safety-critical real-world applications.
-Yet, existing Bayesian deep learning methods fall short of this promise; new methods continue to be evaluated on unrealistic test beds that do not reflect the complexities of the downstream real-world tasks that would benefit most from reliable uncertainty quantification.
-We propose a set of real-world tasks that accurately reflect such complexities and assess the reliability of predictive models in safety-critical scenarios.
-Specifically, we curate two publicly available datasets of high-resolution human retina images exhibiting varying degrees of diabetic retinopathy, a medical condition that can lead to blindness, and use them to design a suite of automated diagnosis tasks that require reliable predictive uncertainty quantification.
-We use these tasks to benchmark well-established and state-of-the-art Bayesian deep learning methods on task-specific evaluation metrics.
-We provide an easy-to-use codebase for fast and easy benchmarking following reproducibility and software design principles.
+Bayesian deep learning seeks to equip deep neural networks with the ability to precisely quantify their predictive uncertainty, and has promised to make deep learning more reliable for safety-critical real-world applications. Yet, existing Bayesian deep learning methods fall short of this promise; new methods continue to be evaluated on unrealistic test beds that do not reflect the complexities of downstream real-world tasks that would benefit most from reliable uncertainty quantification. We propose a set of real-world tasks that accurately reflect such complexities and are designed to assess the reliability of predictive models in safety-critical scenarios. Specifically, we curate two publicly available datasets of high-resolution human retina images exhibiting varying degrees of diabetic retinopathy, a medical condition that can lead to blindness, and use them to design a suite of automated diagnosis tasks that require reliable predictive uncertainty quantification. We use these tasks to benchmark well-established and state-of-the-art Bayesian deep learning methods on task-specific evaluation metrics. We provide an easy-to-use codebase for fast and easy benchmarking following reproducibility and software design principles. We provide implementations of all methods included in the benchmark as well as results computed over 100 TPU days, 20 GPU days, 400 hyperparameter configurations, and evaluation on at least 6 random seeds each.
 
 ## Installation
 
@@ -66,7 +63,16 @@ dr_tuning/
   ...
 ```
 
-Following the steps in [parse_tensorboards.py](baselines/diabetic_retinopathy_detection/model_selection/parse_tensorboards.py) produces a file `results.tsv`. We can parse this file to obtain a ranking of the models based on our two tuning criteria: in-domain validation AUC, and area under the balanced accuracy referral curve (see paper), by executing `python analyze_tensorboards.py` in the directory containing the `results.tsv` file. This ranking allows the user to select top performing checkpoints.
+Following the steps in [parse_tensorboards.py](baselines/diabetic_retinopathy_detection/model_selection/parse_tensorboards.py) produces a file `results.tsv`. We can parse this file to obtain a ranking of the models based on our two tuning criteria: in-domain validation AUC, and area under the balanced accuracy referral curve (see [paper](https://openreview.net/pdf?id=jyd4Lyjr2iB)), by executing `python analyze_tensorboards.py` in the directory containing the `results.tsv` file. This ranking allows the user to select top performing checkpoints.
+
+## Accessing Model Checkpoints
+
+For each method, task (Country or Severity Shifts), and tuning method (see model selection details above) we release the six best-performing checkpoints. 
+
+For more details on the models, see the accompanying [Model Card](./model_card.md), which covers all the models below, as the dataset is exactly the same across them all, and the only model differences are minor calibration improvements. The checkpoints can be browsed [here](https://console.cloud.google.com/storage/browser/gresearch/reliable-deep-learning/checkpoints/baselines/diabetic_retinopathy_detection).
+
+
+Model checkpoints are hosted in a Google Storage bucket here.
 
 ## Evaluate a Model
 
@@ -171,11 +177,13 @@ Search space for the initial and final rounds of tuning on the Variational Infer
 Please cite our paper if you use this code in your own work:
 
 ```
-@article{filos2019systematic,
-  title={A Systematic Comparison of Bayesian Deep Learning Robustness in Diabetic Retinopathy Tasks},
-  author={Filos, Angelos and Farquhar, Sebastian and Gomez, Aidan N and Rudner, Tim GJ and Kenton, Zachary and Smith, Lewis and Alizadeh, Milad and de Kroon, Arnoud and Gal, Yarin},
-  journal={arXiv preprint arXiv:1912.10481},
-  year={2019}
+@inproceedings{
+    band2021benchmarking,
+    title={Benchmarking Bayesian Deep Learning on Diabetic Retinopathy Detection Tasks},
+    author={Neil Band and Tim G. J. Rudner and Qixuan Feng and Angelos Filos and Zachary Nado and Michael W Dusenberry and Ghassen Jerfel and Dustin Tran and Yarin Gal},
+    booktitle={Thirty-fifth Conference on Neural Information Processing Systems Datasets and Benchmarks Track},
+    year={2021},
+    url={https://openreview.net/forum?id=jyd4Lyjr2iB}
 }
 ```
 

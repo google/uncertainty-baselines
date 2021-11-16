@@ -58,7 +58,7 @@ from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_float('base_learning_rate', 0.1,
+flags.DEFINE_float('base_learning_rate', 0.07,
                    'Base learning rate when train batch size is 256.')
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
@@ -66,8 +66,8 @@ flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 90, 'Number of training epochs.')
-flags.DEFINE_integer('corruptions_interval', 90,
+flags.DEFINE_integer('train_epochs', 270, 'Number of training epochs.')
+flags.DEFINE_integer('corruptions_interval', 270,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
 flags.DEFINE_integer(
@@ -138,9 +138,9 @@ flags.DEFINE_bool(
 # heteroscedastic flags
 flags.DEFINE_integer('num_factors', 15,
                      'Num factors to approximate full rank covariance matrix.')
-flags.DEFINE_float('temperature', 0.3,
+flags.DEFINE_float('temperature', 1.25,
                    'Temperature for heteroscedastic head.')
-flags.DEFINE_integer('num_mc_samples', 100,
+flags.DEFINE_integer('num_mc_samples', 5000,
                      'Num MC samples for heteroscedastic layer.')
 
 # HetSNGP-specific flags
@@ -151,7 +151,7 @@ flags.DEFINE_float('het_var_weight', 1., 'Weight for the het. variance.')
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 # TODO(jereliu): Support use_bfloat16=True which currently raises error with
 # spectral normalization.
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_bool('use_bfloat16', True, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 32, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')

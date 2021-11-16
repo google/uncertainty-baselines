@@ -172,7 +172,7 @@ def eval_step(
       'params': train_state.optimizer.target,
       **train_state.model_state
   }
-  logits, _ = flax_model.apply(
+  (logits, _) = flax_model.apply(
       variables, batch['inputs'], train=False, mutable=False, debug=debug)
   metrics = metrics_fn(logits, batch)
 

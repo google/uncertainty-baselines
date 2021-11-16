@@ -78,11 +78,13 @@ def get_config():
   config.focal_loss_gamma = 0.0
 
   # learning rate
-  steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size
+  #steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size
+  steps_per_epoch = 10 // config.batch_size
+
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
   config.lr_configs = ml_collections.ConfigDict()
   config.lr_configs.learning_rate_schedule = 'compound'
-  config.lr_configs.factors = 'constant * cosine_decay * linear_warmup'
+  config.lr_configs.factors = 'constant' # * cosine_decay * linear_warmup'
   config.lr_configs.warmup_steps = 1 * steps_per_epoch
   config.lr_configs.steps_per_cycle = num_training_epochs * steps_per_epoch
   config.lr_configs.base_learning_rate = 1e-4
@@ -100,7 +102,7 @@ def get_config():
 
   config.debug_train = True  # debug mode during training
   config.debug_eval = True  # debug mode during eval
-  config.log_eval_steps = 200
+  config.log_eval_steps = 1 #200
 
   # extra
   config.args = {}

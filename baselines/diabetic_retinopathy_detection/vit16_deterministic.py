@@ -1,82 +1,3 @@
-"""
-
-# Create the TPU VM
-gcloud alpha compute tpus tpu-vm create nband-tpuv2_vm-000 --zone=us-central1-f --accelerator-type='v2-8' --version='v2-alpha'
-gcloud alpha compute tpus tpu-vm ssh nband-tpuv2_vm-000 --zone us-central1-f
-
-# Install conda and activate
-# In the future, switch this to yaml environment file
-wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
-sudo bash Miniconda3-latest-Linux-x86_64.sh -b -p /miniconda3 &&
-sudo chmod -R 777 /miniconda3/
-/miniconda3/condabin/conda init
-source /home/nband/.bashrc
-conda create --no-default-packages -n ub python=3.8
-conda activate ub
-
-# Clone UB, install dependencies
-git clone --branch drd-vit https://github.com/nband/uncertainty-baselines.git
-cd uncertainty-baselines
-pip install -e .[jax,models,datasets]
-pip install "git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics"
-pip install 'git+https://github.com/google/edward2.git'
-pip install --upgrade "jax[tpu]>=0.2.16" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-pip install wandb torch
-
-
-
-# Try running this script
-python baselines/diabetic_retinopathy_detection/dr_vit_working.py
-
-# More installs
-cd
-pip3 install --upgrade clu
-pip3 install ipython
-pip3 install seaborn
-git clone https://github.com/google/flax.git
-cd flax/examples/mnist
-python3 main.py --workdir=/tmp/mnist \
-  --config=configs/default.py \
-  --config.learning_rate=0.05 \
-  --config.num_epochs=1000
-
-# Tensorflow version wrangling
-# pip install --upgrade tf-nightly tfp-nightly
-
-# If you encounter ioctl authentication error,
-# tf might be stealing TPUs from Jax
-pip uninstall tf-nightly tensorflow tensorboard tfp-nightly
-
-# Install tensorflow-cpu
-pip install tensorflow-cpu tensorflow-probability
-pip uninstall tensorflow tensorboard
-
-# If you see an issue with metrics, try uninstalling keras
-pip uninstall keras
-
-
-# The above is failing
-# Let's just try using the current main of uncertainty-baselines
-pip install -e .
-pip install --upgrade "jax[tpu]>=0.2.16" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-pip install matplotlib tensorflow-cpu pandas
-pip install "git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics"
-pip install flax
-pip install 'git+https://github.com/google/edward2.git'
-Oh, it works!
-
-# Just kidding, we need CLU
-pip install clu
-pip uninstall tensorflow
-pip uninstall tensorflow-cpu
-pip install tensorflow-cpu
-pip install tfds-nightly  # For int > split issue
-"""
-
-# if '../../../vision_transformer' not in sys.path:
-#   sys.path.append('../../../vision_transformer')
-
-import matplotlib.pyplot as plt
 import tensorflow as tf
 
 tf.config.experimental.set_visible_devices([], 'GPU')
@@ -87,9 +8,7 @@ print(tf.config.experimental.get_visible_devices())
 
 import uncertainty_baselines as ub
 
-
 import wandb
-import utils  # local file import
 import pathlib
 from datetime import datetime
 
@@ -106,6 +25,7 @@ from absl import logging
 from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
+from clu import preprocess_spec
 import flax
 import flax.jax_utils as flax_utils
 import jax
@@ -118,7 +38,9 @@ from tensorflow.io import gfile
 import checkpoint_utils  # local file import
 import input_utils  # local file import
 import train_utils  # local file import
-
+import preprocess_utils  # local file import
+# local file import
+from imagenet21k_vit_base16_finetune_country_shift import get_config
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -179,11 +101,11 @@ flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_string(
     'class_reweight_mode', None,
-    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,'
-    'test respectively). `None` (default) will not perform any loss reweighting. '
-    '`constant` will use the train proportions to reweight the binary cross '
-    'entropy loss. `minibatch` will use the proportions of each minibatch to '
-    'reweight the loss.')
+    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, '
+    'val, test respectively). `None` (default) will not perform any loss '
+    'reweighting. `constant` will use the train proportions to reweight the '
+    'binary cross entropy loss. `minibatch` will use the proportions of each '
+    'minibatch to reweight the loss.')
 flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
@@ -272,60 +194,17 @@ def main(argv):
   logging.info('Saving checkpoints at %s', output_dir)
 
   # Reweighting loss for class imbalance
-  class_reweight_mode = FLAGS.class_reweight_mode
-  if class_reweight_mode == 'constant':
-    class_weights = utils.get_diabetic_retinopathy_class_balance_weights()
-  else:
-    class_weights = None
-
-  checkpoint_path = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
-  model_name = 'ViT-B_16'
+  # class_reweight_mode = FLAGS.class_reweight_mode
+  # if class_reweight_mode == 'constant':
+  #   class_weights = utils.get_diabetic_retinopathy_class_balance_weights()
+  # else:
+  #   class_weights = None
 
   # Shows the number of available devices.
   # In a CPU/GPU runtime this will be a single device.
   # In a TPU runtime this will be 8 cores.
   print('Number of Jax local devices:', jax.local_devices())
 
-  # Helper functions for images.
-  labelnames = dict(
-    # https://www.cs.toronto.edu/~kriz/cifar.html
-    cifar10=('airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck'),
-    # https://www.cs.toronto.edu/~kriz/cifar.html
-    cifar100=('apple', 'aquarium_fish', 'baby', 'bear', 'beaver', 'bed', 'bee', 'beetle', 'bicycle', 'bottle', 'bowl', 'boy', 'bridge', 'bus', 'butterfly', 'camel', 'can', 'castle', 'caterpillar', 'cattle', 'chair', 'chimpanzee', 'clock', 'cloud', 'cockroach', 'couch', 'crab', 'crocodile', 'cup', 'dinosaur', 'dolphin', 'elephant', 'flatfish', 'forest', 'fox', 'girl', 'hamster', 'house', 'kangaroo', 'computer_keyboard', 'lamp', 'lawn_mower', 'leopard', 'lion', 'lizard', 'lobster', 'man', 'maple_tree', 'motorcycle', 'mountain', 'mouse', 'mushroom', 'oak_tree', 'orange', 'orchid', 'otter', 'palm_tree', 'pear', 'pickup_truck', 'pine_tree', 'plain', 'plate', 'poppy', 'porcupine', 'possum', 'rabbit', 'raccoon', 'ray', 'road', 'rocket', 'rose', 'sea', 'seal', 'shark', 'shrew', 'skunk', 'skyscraper', 'snail', 'snake', 'spider', 'squirrel', 'streetcar', 'sunflower', 'sweet_pepper', 'table', 'tank', 'telephone', 'television', 'tiger', 'tractor', 'train', 'trout', 'tulip', 'turtle', 'wardrobe', 'whale', 'willow_tree', 'wolf', 'woman', 'worm')
-  )
-
-  def make_label_getter(dataset):
-    """Returns a function converting label indices to names."""
-    def getter(label):
-      if dataset in labelnames:
-        return labelnames[dataset][label]
-      return f'label={label}'
-    return getter
-
-  def show_img(img, ax=None, title=None):
-    """Shows a single image."""
-    if ax is None:
-      ax = plt.gca()
-    ax.imshow(img[...])
-    ax.set_xticks([])
-    ax.set_yticks([])
-    if title:
-      ax.set_title(title)
-
-  # def show_img_grid(imgs, titles):
-  #   """Shows a grid of images."""
-  #   n = int(np.ceil(len(imgs)**.5))
-  #   _, axs = plt.subplots(n, n, figsize=(3 * n, 3 * n))
-  #   for i, (img, title) in enumerate(zip(imgs, titles)):
-  #     img = (img + 1) / 2  # Denormalize
-  #     show_img(img, axs[i // n][i % n], title)
-
-  dataset = 'cifar10'
-  # config = common_config.with_dataset(common_config.get_config(), dataset)
-  # from baselines.jft.experiments import imagenet21k_vit_base16_finetune_cifar10
-  # config.update(imagenet21k_vit_base16_finetune_cifar10.get_config())
-  # from baselines.jft.experiments.imagenet21k_vit_base16_finetune_cifar10 import get_config
-  from baselines.diabetic_retinopathy_detection.imagenet21k_vit_base16_finetune_country_shift import get_config
   config = get_config()
 
   # config = FLAGS.config
@@ -401,15 +280,36 @@ def main(argv):
   #   prefetch_size=config.get('prefetch_to_host', 2),
   #   data_dir=fillin(config.get('data_dir')))
 
-  train_ds = input_utils.get_ub_data(
-    dataset=config.in_domain_dataset,
-    # split=config.train_split,
+  # train_ds = input_utils.get_ub_data(
+  #   dataset=config.in_domain_dataset,
+  #   # split=config.train_split,
+  #   split=config.train_split,
+  #   rng=train_ds_rng,
+  #   # rng=None,  # TODO; figure out how to use
+  #   # shuffle=False,
+  #   host_batch_size=local_batch_size,
+  #   preprocess_fn=None,
+  #   shuffle_buffer_size=config.shuffle_buffer_size,
+  #   prefetch_size=config.get('prefetch_to_host', 2),
+  #   data_dir=config.get('data_dir'))
+
+  train_base_dataset = ub.datasets.get(
+    config.in_domain_dataset, split=config.train_split,
+    data_dir=config.get('data_dir'))
+  train_dataset_builder = train_base_dataset._dataset_builder
+  # train_preproc_fn = train_base_dataset._create_process_example_fn()
+
+  # Same for training and evaluation
+  preproc_fn = preprocess_spec.parse(
+    spec=config.pp_train, available_ops=preprocess_utils.all_ops())
+
+  train_ds = input_utils.get_data(
+    # dataset=config.in_domain_dataset,
+    dataset=train_dataset_builder,
     split=config.train_split,
     rng=train_ds_rng,
-    # rng=None,  # TODO; figure out how to use
-    # shuffle=False,
     host_batch_size=local_batch_size,
-    preprocess_fn=None,
+    preprocess_fn=preproc_fn,
     shuffle_buffer_size=config.shuffle_buffer_size,
     prefetch_size=config.get('prefetch_to_host', 2),
     data_dir=config.get('data_dir'))
@@ -418,12 +318,16 @@ def main(argv):
   train_iter = input_utils.start_input_pipeline(
     train_ds, config.get('prefetch_to_device', 1))
 
+  print(next(train_iter))
+
   write_note('Initializing val dataset(s)...')
 
   def _get_val_split(dataset,
                      split,
-                     # pp_eval,
+                     pp_eval,
                      data_dir=None):
+    del pp_eval  # Same as pp_train for Diabetic Retinopathy.
+
     # We do ceil rounding such that we include the last incomplete batch.
     nval_img = input_utils.get_num_examples(
       dataset,
@@ -435,46 +339,70 @@ def main(argv):
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
-    val_ds = input_utils.get_ub_data(
-      # dataset=dataset,
-      dataset=config.in_domain_dataset,
-      # split=split,
+    val_ds = input_utils.get_data(
+      # dataset=config.in_domain_dataset,
+      dataset=dataset,
       split=config.val_split,
       rng=None,
       host_batch_size=local_batch_size_eval,
       # preprocess_fn=preprocess_spec.parse(
       #   spec=pp_eval, available_ops=preprocess_utils.all_ops()),
-      preprocess_fn=None,
+      preprocess_fn=preproc_fn,
       # cache=config.get('val_cache', 'batched'),
       cache=False,
       repeat_after_batching=True,
       shuffle=False,
       prefetch_size=config.get('prefetch_to_host', 2),
       drop_remainder=False,
-      # data_dir=fillin(data_dir))
       data_dir=config.get('data_dir'))
+
+    # val_ds = input_utils.get_ub_data(
+    #   # dataset=dataset,
+    #   dataset=config.in_domain_dataset,
+    #   # split=split,
+    #   split=config.val_split,
+    #   rng=None,
+    #   host_batch_size=local_batch_size_eval,
+    #   # preprocess_fn=preprocess_spec.parse(
+    #   #   spec=pp_eval, available_ops=preprocess_utils.all_ops()),
+    #   preprocess_fn=None,
+    #   # cache=config.get('val_cache', 'batched'),
+    #   cache=False,
+    #   repeat_after_batching=True,
+    #   shuffle=False,
+    #   prefetch_size=config.get('prefetch_to_host', 2),
+    #   drop_remainder=False,
+    #   # data_dir=fillin(data_dir))
+    #   data_dir=config.get('data_dir'))
     val_iter = input_utils.start_input_pipeline(
       val_ds, config.get('prefetch_to_device', 1))
 
     return (val_iter, val_steps)
 
+  val_base_dataset = ub.datasets.get(
+    config.in_domain_dataset, split=config.val_split,
+    data_dir=config.get('data_dir'))
+  val_dataset_builder = val_base_dataset._dataset_builder
+  # val_preproc_fn = train_base_dataset._create_process_example_fn()
   val_iter_splits = {
-    'val':
-      _get_val_split(
-        config.in_domain_dataset, config.val_split,
-        # config.pp_eval,
-        config.get('data_dir'))
+    'val': _get_val_split(
+        # config.in_domain_dataset,
+        val_dataset_builder,
+        config.val_split,
+        pp_eval=config.pp_eval,
+        data_dir=config.get('data_dir'))
   }
 
   ood_ds = {}
 
   ntrain_img = input_utils.get_num_examples(
       # config.dataset,
-      config.in_domain_dataset,
+      # config.in_domain_dataset,
+      train_dataset_builder,
       split=config.train_split,
       host_batch_size=local_batch_size,
       # data_dir=fillin(config.get('data_dir')))
-      data_dir= config.get('data_dir'))
+      data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -496,8 +424,12 @@ def main(argv):
   # situations where we allocate them twice.
   @partial(jax.jit, backend='cpu')
   def init(rng):
+    # print(train_ds.element_spec['image'].shape)
     # image_size = tuple(train_ds.element_spec['image'].shape[2:])
-    image_size = tuple(train_ds.element_spec['features'].shape[2:])
+    # image_size = tuple(train_ds.element_spec['image'])
+    image_size = (config.pp_input_res, config.pp_input_res, 3)
+    # print(image_size)
+    # image_size = tuple(train_ds.element_spec['features'].shape[2:])
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
     params = flax.core.unfreeze(model.init(rng, dummy_input,
@@ -522,26 +454,39 @@ def main(argv):
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 
   @partial(jax.pmap, axis_name='batch')
-  def evaluation_fn(params, images, labels, mask):
-    # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
+  def evaluation_fn(params, images, labels):
+    # # Ignore the entries with all zero labels for evaluation.
+    # print('labels')
+    # print(labels.shape)
+    # mask *= labels.max(axis=1)
+    # logits, out = model.apply({'params': flax.core.freeze(params)},
+    #                           images,
+    #                           train=False)
+    #
+    # losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
+    #     logits=logits, labels=labels, reduction=False)
+    # loss = jax.lax.psum(losses * mask, axis_name='batch')
+    #
+    # top1_idx = jnp.argmax(logits, axis=1)
+    # # Extracts the label at the highest logit index for each image.
+    # top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
+    # ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
+    # n = jax.lax.psum(mask, axis_name='batch')
+    #
+    # metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
+    #                                  axis_name='batch')
+    # return ncorrect, loss, n, metric_args
     logits, out = model.apply({'params': flax.core.freeze(params)},
                               images,
                               train=False)
-
     losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
-        logits=logits, labels=labels, reduction=False)
-    loss = jax.lax.psum(losses * mask, axis_name='batch')
-
-    top1_idx = jnp.argmax(logits, axis=1)
-    # Extracts the label at the highest logit index for each image.
-    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
-    ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
-    n = jax.lax.psum(mask, axis_name='batch')
-
-    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
+      logits=logits, labels=labels, reduction=False)
+    loss = jax.lax.psum(losses, axis_name='batch')
+    logits = jax.lax.squeeze(logits, (-1,))
+    n = batch_size_eval
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits']],
                                      axis_name='batch')
-    return ncorrect, loss, n, metric_args
+    return loss, n, metric_args
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
@@ -701,8 +646,7 @@ def main(argv):
       opt_repl, loss_value, rngs_loop, extra_measurements = update_fn(
         opt_repl,
         lr_repl,
-        # train_batch['image'],
-        train_batch['features'],
+        train_batch['image'],
         train_batch['labels'],
         rng=rngs_loop)
 
@@ -780,39 +724,43 @@ def main(argv):
         # Runs evaluation loop.
         ncorrect, loss, nseen = 0, 0, 0
         for _, batch in zip(range(val_steps), val_iter):
-          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-            evaluation_fn(
-              opt_repl.target,
-              # batch['image'],
-              batch['features'],
-              batch['labels'],
-              batch['mask']))
+          batch_losses, batch_n, batch_metric_args = evaluation_fn(
+            opt_repl.target, batch['image'], batch['labels'])
+
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
           # with each local device's entry being identical as they got psum'd.
           # So let's just take the first one to the host as numpy.
-          ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute uncertainty metrics.
+
+          # Here we parse batch_metric_args to compute probs and uncertainty metrics.
           # (e.g., ECE or Calibration AUC).
-          logits, labels, _, masks = batch_metric_args
-          masks = np.array(masks[0], dtype=np.bool)
+          logits, labels, _ = batch_metric_args
+          labels = np.ravel(np.array(labels[0]))
           logits = np.array(logits[0])
-          probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          int_preds = np.argmax(logits, axis=-1)
-          confidence = np.max(probs, axis=-1)
-          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
-                                          int_preds, masks, labels[0]):
-            ece.add_batch(p[m, :], label=l[m])
-            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-            # TODO(jereliu): Extend to support soft multi-class probabilities.
-            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+          logits = np.ravel(logits)  # Flatten to eval batch size
+          probs = jax.nn.sigmoid(logits)
+          preds = probs > 0.5
+          ncorrect_ = np.sum(np.equal(labels, preds))
+          ncorrect += ncorrect_
+
+          # In binary classification, `labels` are already integers (np.int32)
+          # `probs` are already probabilities
+          # Confidence can be obtained as max(probs, 1 - probs)
+          confidences = np.maximum(probs, 1 - probs)
+
+          ece.add_batch(probs, label=labels)
+          calib_auc.add_batch(preds, label=labels, confidence=confidences)
+          # TODO(jereliu): Extend to support soft multi-class probabilities.
+          oc_auc_0_5.add_batch(preds, label=labels,
+                               custom_binning_score=confidences)
+          oc_auc_1.add_batch(preds, label=labels,
+                             custom_binning_score=confidences)
+          oc_auc_2.add_batch(preds, label=labels,
+                             custom_binning_score=confidences)
+          oc_auc_5.add_batch(preds, label=labels,
+                             custom_binning_score=confidences)
 
         val_loss = loss / nseen  # Keep to return for reproducibility tests.
         val_measurements = {

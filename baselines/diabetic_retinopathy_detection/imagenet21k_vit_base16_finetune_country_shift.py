@@ -38,7 +38,7 @@ def get_config():
   # config.val_split = 'train[98%:]'
   # config.train_split = 'train[:98%]'
 
-  config.in_domain_dataset = 'diabetic_retinopathy_detection'
+  config.in_domain_dataset = 'ub_diabetic_retinopathy_detection'
   config.ood_dataset = 'aptos'
 
   config.train_split = 'train'
@@ -50,21 +50,23 @@ def get_config():
   # OOD eval
   # ood_split is the data split for both the ood_dataset and the dataset.
   # config.ood_dataset = 'cifar100'
-  config.ood_dataset = 'aptos'
+  # config.ood_dataset = 'aptos'
 
   BATCH_SIZE = 64  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
 
   config.total_steps = 10_000
 
-  INPUT_RES = 512  # pylint: disable=invalid-name
+  config.pp_input_res = 64  # pylint: disable=invalid-name
   # pp_common = '|value_range(-1, 1)'
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
   # pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-  # pp_common += '|keep("image", "labels")'
+  # pp_common += '|keep(["image", "labels"])'
   # config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   # config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
+  config.pp_train = 'diabetic_retinopathy_preprocess'
+  config.pp_eval = 'diabetic_retinopathy_preprocess'
 
   config.shuffle_buffer_size = 15_000  # Per host, so small-ish is ok.
 

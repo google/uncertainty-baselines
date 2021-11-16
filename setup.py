@@ -74,8 +74,8 @@ setup(
             'tb-nightly',
             'tf-nightly',
             'tfa-nightly',
-            'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
             'tfp-nightly',
+            'tf-models-nightly',  # Needed for BERT, depends on tf-nightly.
         ],
         'tests': ['pylint>=1.9.0'],
         'torch': [

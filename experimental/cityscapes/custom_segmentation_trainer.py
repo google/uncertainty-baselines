@@ -26,6 +26,7 @@ from scenic.train_lib import lr_schedules
 from scenic.train_lib import optimizers
 from scenic.train_lib import train_utils
 
+# instead of importing we use local functions
 # from scenic.train_lib.segmentation_trainer import train_step, eval_step, _draw_side_by_side
 Batch = Dict[str, jnp.ndarray]
 MetricFn = Callable[[jnp.ndarray, Dict[str, jnp.ndarray]],

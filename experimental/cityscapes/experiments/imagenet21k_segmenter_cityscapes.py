@@ -35,6 +35,9 @@ def get_config():
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = (512, 512)
+  # flags to debug scenic on mac
+  config.dataset_configs.number_train_examples_debug = 10
+  config.dataset_configs.number_eval_examples_debug = 10
 
   # config following scenic
   config.num_classes = 19

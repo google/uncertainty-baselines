@@ -1,6 +1,5 @@
 
 # Log
 
-[] include loading cityscapes dataset
-
-[] include deterministic training for segmenter 
+[x] include loading cityscapes dataset
+[x] include deterministic training for segmenter 

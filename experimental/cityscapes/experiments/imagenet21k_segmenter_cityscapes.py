@@ -92,9 +92,12 @@ def get_config():
   config.write_summary = True  # write TB and/or XM summary
   config.write_xm_measurements = True  # write XM measurements
   #config.xprof = False  # Profile using xprof
-  config.checkpoint = False  # do checkpointing
+  config.checkpoint = True  # do checkpointing
   config.checkpoint_steps = 5 * steps_per_epoch
 
+  config.debug_train = True  # debug mode during training
+  config.debug_eval = True  # debug mode during eval
+  config.log_eval_steps = 200
 
   # extra
   config.args = {}

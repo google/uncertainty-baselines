@@ -20,42 +20,28 @@ Step 1: aim to train model on cityscapes for 1 step
 # Runs with
 
 """
-import functools
 
-from functools import partial  # pylint: disable=g-importing-member so standard
-import itertools
-import multiprocessing
-import numbers
 import os
 import sys
-#%%
+
+# %%
+import jax
+# %%
+import tensorflow as tf
+# %%
 from absl import app
 from absl import flags
 from absl import logging
-from clu import metric_writers
-from clu import parameter_overview
-from clu import periodic_actions
-from clu import preprocess_spec
-#%%
-import flax
-import flax.jax_utils as flax_utils
-import jax
-import jax.numpy as jnp
 from ml_collections.config_flags import config_flags
-import numpy as np
-import robustness_metrics as rm
-#%%
-import tensorflow as tf
-#import train_utils  # local file import
-import uncertainty_baselines as ub
-
-# scenic dependencies for debugging
-from scenic.train_lib import lr_schedules
-from scenic.train_lib import optimizers
-from scenic.train_lib import train_utils
-from flax import jax_utils
+from tensorflow.io import gfile
 
 import custom_models
+import custom_segmentation_trainer
+# scenic dependencies for debugging
+from scenic.train_lib import train_utils
+
+# import train_utils  # local file import
+
 #%%
 config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
@@ -74,138 +60,88 @@ FLAGS = flags.FLAGS
 def write_note(note):
     if jax.process_index() == 0:
         logging.info('NOTE: %s', note)
-#%%
+
+
+from clu import metric_writers
+
+
+def run(config, workdir):
+    """Prepares model, and dataset for training.
+
+    This creates summary directories, summary writers, model definition, and
+    builds datasets to be sent to the main training script.
+
+    Args:
+      config:  ConfigDict; Hyper parameters.
+      workdir: string; Root directory for the experiment.
+
+    Returns:
+      The outputs of trainer.train(), which are train_state, train_summary, and
+        eval_summary.
+    """
+    lead_host = jax.process_index() == 0
+    # set up the train_dir and log_dir
+    gfile.makedirs(workdir)
+    #workdir = os.path.join(workdir, 'trial')
+    #gfile.makedirs(workdir)
+
+    summary_writer = None
+    if lead_host and config.write_summary:
+        tensorboard_dir = os.path.join(workdir, 'tb_summaries')
+        gfile.makedirs(tensorboard_dir)
+        # summary_writer = tensorboard.SummaryWriter(tensorboard_dir)
+        summary_writer = metric_writers.SummaryWriter(tensorboard_dir)
+
+    device_count = jax.device_count()
+    logging.info('device_count: %d', device_count)
+    logging.info('num_hosts : %d', jax.process_count())
+    logging.info('host_id : %d', jax.process_index())
+
+    rng = jax.random.PRNGKey(config.rng_seed)
+    logging.info('rng: %s', rng)
+
+    model_cls = custom_models.SegmenterSegmentationModel
+
+    # ----------------------
+    # Load dataset
+    # ----------------------
+    data_rng, rng = jax.random.split(rng)
+    # set resource limit to debug in mac osx (see https://github.com/tensorflow/datasets/issues/1441)
+    if jax.process_index() == 0 and sys.platform == 'darwin':
+        import resource
+        low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (high, high))
+    write_note('Loading dataset...')
+
+    # TODO: update num_classes
+    dataset = train_utils.get_dataset(
+        config, data_rng, dataset_service_address=FLAGS.dataset_service_address)
+
+    return rng, model_cls, dataset, config, workdir, summary_writer
+
+
 def main(config, output_dir):
+
+  print('config')
+  print(config)
   seed = config.get('rng_seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
-  write_note('Initializing...')
-
-  # Train dataset configs
-  data_rng, rng = jax.random.split(rng)
-
-  # ----------------------
-  # Load dataset
-  # ----------------------
-  # set resource limit to debug in mac osx (see https://github.com/tensorflow/datasets/issues/1441)
-  if jax.process_index() == 0 and sys.platform == 'darwin':
-    import resource
-    low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (high, high))
-  write_note('Loading dataset...')
-
-  dataset = train_utils.get_dataset(
-      config, data_rng, dataset_service_address=FLAGS.dataset_service_address)
+  print('workdir ', output_dir)
+  rng, model_cls, dataset, config, workdir, summary_writer = run(config, output_dir)
+  print('workdir ', workdir)
 
   # ----------------------
-  # Define model
+  # Train function
   # ----------------------
-  write_note('Creating model...')
-  model = ub.models.segmenter_transformer(
-      num_classes=config.num_classes,
-      patches=config.patches,
-      backbone_configs=config.backbone_configs,
-      decoder_configs=config.decoder_configs
-  )
-  # ----------------------
-  # Initialize model
-  # ----------------------
-  # Here we follow the scenic/model_lib/base_models/segmentation_model.py
-  from scenic.train_lib.train_utils import initialize_model
-  """
-  #TODO(kellybuchanan): update local_batch_size according to train_utils
-  local_batch_size = 1
-  @partial(jax.jit, backend='cpu')
-  def init(rng):
-    #image_size = tuple(train_ds.element_spec['image'].shape[2:])
-    image_size = config.dataset_configs.target_size + (3,)
-    logging.info('image_size = %s', image_size)
-    dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
-    params = flax.core.unfreeze(model.init(rng, dummy_input,
-                                           train=False))['params']
+  train_fn = custom_segmentation_trainer.train
 
-    return params
-  rng, init_rng = jax.random.split(rng)
-  params_cpu = init(init_rng)
-  """
-  rng, init_rng = jax.random.split(rng)
-  (params, model_state, num_trainable_params,
-   gflops) = train_utils.initialize_model(
-      model_def=model, #.flax_model,
-      input_spec=[(dataset.meta_data['input_shape'],
-                   dataset.meta_data.get('input_dtype', jnp.float32))],
-      config=config,
-      rngs=init_rng)
+  train_state, train_summary, eval_summary = train_fn(rng=rng, model_cls=model_cls, dataset=dataset,
+                                                      config=config,
+                                                      workdir=output_dir, writer=summary_writer)
 
-  # ----------------------
-  # Create optimizer
-  # ----------------------
-  """
-  # Load the optimizer from flax.
-  opt_name = config.get('optimizer')
-  write_note(f'Initializing {opt_name} optimizer...')
-  opt_def = getattr(flax.optim, opt_name)(**config.get('optimizer_configs', {}))
-
-  # We jit this, such that the arrays that are created are created on the same
-  # device as the input is, in this case the CPU. Else they'd be on device[0].
-  opt_cpu = jax.jit(opt_def.create)(params_cpu)
-  """
-  optimizer = jax.jit(
-      optimizers.get_optimizer(config).create, backend='cpu')(
-          params)
-  rng, train_rng = jax.random.split(rng)
-  train_state = train_utils.TrainState(
-      global_step=0,
-      optimizer=optimizer,
-      model_state=model_state,
-      rng=train_rng,
-      accum_train_time=0)
-
-  start_step = train_state.global_step
-
-  if config.checkpoint:
-    train_state, start_step = train_utils.restore_checkpoint(
-        workdir, train_state)
-  # Replicate the optimzier, state, and rng.
-  train_state = jax_utils.replicate(train_state)
-  del params  # Do not keep a copy of the initial params.
-
-  # Calculate the total number of training steps.
-  total_steps, steps_per_epoch = train_utils.get_num_training_steps(
-      config, dataset.meta_data)
-  # Get learning rate scheduler.
-  learning_rate_fn = lr_schedules.get_learning_rate_fn(config)
-
-  # --- STOP ---
-  # TODO: debug train_step in scenic/train_lib/segmentation_trainer.py
-  # import pdb; pdb.set_trace()
-
-  train_step_pmapped = jax.pmap(
-      functools.partial(
-          train_step,
-          flax_model=model,#.flax_model,
-          learning_rate_fn=learning_rate_fn,
-          loss_fn=model.loss_function,
-          metrics_fn=model.get_metrics_fn('train'),
-          config=config,
-          debug=config.debug_train),
-      axis_name='batch',
-      # We can donate both buffers of train_state and train_batch.
-      donate_argnums=(0, 1),
-  )
-
-
-  #dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
-
-  #inputs = jnp.ones([num_examples, img_h, img_w, 3], jnp.float32)
-  #model = ub.models.segmenter_transformer(**config)
-  #key = jax.random.PRNGKey(0)
-  #variables = model.init(key, inputs, train=False)
-  #logits, outputs = model.apply(variables, inputs, train=False)
-  #variables = model.init(rng, inputs, train=False)
-  #logits, outputs = model.apply(variables, inputs, train=False)
-
+  print(train_summary)
   return
 
 

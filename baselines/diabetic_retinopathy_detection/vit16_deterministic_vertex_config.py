@@ -29,7 +29,8 @@ def get_config():
   config = config_dict.ConfigDict()
   config.user = getpass.getuser()
   config.priority = 'prod'
-  config.platform = 'tpu-v3'
+  config.platform = 'tpu-v2'
+  config.vm = 'n1-standard-64'
   config.tpu_topology = '2x2'
   config.experiment_name = (
       os.path.splitext(os.path.basename(__file__))[0] + '_' +

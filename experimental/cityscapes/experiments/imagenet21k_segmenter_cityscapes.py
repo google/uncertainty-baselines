@@ -22,6 +22,9 @@ r"""Segmenter + cityscapes.
 import ml_collections
 #import get_fewshot  # local file import
 
+_CITYSCAPES_TRAIN_SIZE = 2975
+DEBUG = True
+
 
 def get_config():
   """Config for training a patch-transformer on JFT."""
@@ -29,92 +32,75 @@ def get_config():
 
   config.experiment_name = 'cityscapes_segvit_ub'
 
-
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
-  config.dataset_configs.target_size = (1024, 2048)
+  config.dataset_configs.target_size = (512, 512)
 
+  # config following scenic
+  config.num_classes = 19
 
-  # model and data dtype
-  config.model_dtype_str = 'float32'
-  config.data_dtype_str = 'float32'
+  config.patches = ml_collections.ConfigDict()
+  config.patches.size = [4, 4]
 
-  config.args = {}
+  config.backbone_configs = ml_collections.ConfigDict()
+  config.backbone_configs.type = 'vit'
+  config.backbone_configs.attention_dropout_rate = 0.
+  config.backbone_configs.dropout_rate = 0.
+  config.backbone_configs.classifier = 'gap'
+
+  if DEBUG:
+    config.backbone_configs.mlp_dim = 2
+    config.backbone_configs.num_heads = 1
+    config.backbone_configs.num_layers = 1
+    config.backbone_configs.hidden_size = 1
+  else:
+    config.backbone_configs.mlp_dim = 3072
+    config.backbone_configs.num_heads = 12
+    config.backbone_configs.num_layers = 12
+    config.backbone_configs.hidden_size = 768
+
+  config.decoder_configs = ml_collections.ConfigDict()
+  config.decoder_configs.type = 'linear'
 
   # training
-  config.rng_seed = 0
+  config.optimizer = 'adam'
+  config.optimizer_configs = ml_collections.ConfigDict()
+  config.l2_decay_factor = 0.0
+  config.max_grad_norm = 1.0
+  config.label_smoothing = None
+  num_training_epochs = 1 # ml_collections.FieldReference(100)
+  config.num_training_epochs = num_training_epochs
   config.batch_size = 1
+  config.rng_seed = 0
+  config.focal_loss_gamma = 0.0
 
-  return config
-
-
-def get_config_deprecated():
-  """Config for training a patch-transformer on JFT."""
-  config = ml_collections.ConfigDict()
-
-  config.experiment_name = 'cityscapes_segvit_ub'
-
-
-  config.dataset_name = 'cityscapes'
-  config.dataset_configs = ml_collections.ConfigDict()
-  config.dataset_configs.target_size = (1024, 2048)
-
+  # learning rate
+  steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size
+  # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
+  config.lr_configs = ml_collections.ConfigDict()
+  config.lr_configs.learning_rate_schedule = 'compound'
+  config.lr_configs.factors = 'constant * cosine_decay * linear_warmup'
+  config.lr_configs.warmup_steps = 1 * steps_per_epoch
+  config.lr_configs.steps_per_cycle = num_training_epochs * steps_per_epoch
+  config.lr_configs.base_learning_rate = 1e-4
 
   # model and data dtype
   config.model_dtype_str = 'float32'
   config.data_dtype_str = 'float32'
-  #config.dataset_name = 'cityscapes'
-  #config.val_split = 'full[:102400]'
-  #config.train_split = 'full[102400:]'
-  #config.train_split = 'full[10:]'
-  #config.num_classes = 34
-  #config.init_head_bias = -10.0
 
-  config.trial = 0
-  config.batch_size = 1
-  config.num_epochs = 1
+  #logging
+  config.write_summary = True  # write TB and/or XM summary
+  config.write_xm_measurements = True  # write XM measurements
+  #config.xprof = False  # Profile using xprof
+  config.checkpoint = False  # do checkpointing
+  config.checkpoint_steps = 5 * steps_per_epoch
 
-  # what do these mean?
-  #pp_common = '|value_range(-1, 1)'
-  #config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
-  #config.pp_train += f'|onehot({config.num_classes}, on=0.9999, off=0.0001)'
-  #config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
-  #config.pp_eval += f'|onehot({config.num_classes})'
-  #config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
-  config.shuffle_buffer_size = 10
-  config.log_training_steps = 1 #000
-  config.log_eval_steps = 1 #0000
-  # NOTE: eval is very fast O(seconds) so it's fine to run it often.
-  config.checkpoint_steps = 1#7250
-  config.checkpoint_timeout = 10
 
-  # Model section
-  config.model = ml_collections.ConfigDict()
-  config.model.patches = ml_collections.ConfigDict()
-  config.model.patches.size = [16, 16]
-  config.model.hidden_size = 768
-  config.model.transformer = ml_collections.ConfigDict()
-  config.model.transformer.attention_dropout_rate = 0.
-  config.model.transformer.dropout_rate = 0.1
-  config.model.transformer.mlp_dim = 3072
-  config.model.transformer.num_heads = 12
-  config.model.transformer.num_layers = 12
-  config.model.classifier = 'token'  # Or 'gap'
-  config.model.representation_size = 768
-  # Optimizer section
-  config.optim_name = 'Adam'
-  config.optim = ml_collections.ConfigDict()
-  config.optim.weight_decay = 0.03
-
-  # TODO(lbeyer): make a mini-language like preprocessings.
-  config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.001  # LR has to be lower for larger models!
-  config.lr.warmup_steps = 10_000
-  config.lr.decay_type = 'linear'
-  config.lr.linear_end = 1e-5
-
+  # extra
   config.args = {}
+
   return config
+
 
 def get_sweep(hyper):
   return hyper.product([])

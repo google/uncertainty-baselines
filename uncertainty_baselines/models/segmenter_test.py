@@ -44,7 +44,8 @@ class SegVitTest(parameterized.TestCase):
     config.backbone_configs.mlp_dim = 2
     config.backbone_configs.num_heads = 1
     config.backbone_configs.num_layers = 1
-    config.backbone_configs.classifier = 'token'
+    # TODO(kellybuchanan): include 'token' test
+    config.backbone_configs.classifier = 'gap'
 
     config.decoder_configs = ml_collections.ConfigDict()
     config.decoder_configs.type = 'linear'

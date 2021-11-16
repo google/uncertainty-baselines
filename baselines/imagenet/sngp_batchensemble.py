@@ -402,7 +402,7 @@ def main(argv):
       probs = tf.reduce_mean(probs_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.ensemble_size, labels.shape[0]])
+          labels, [FLAGS.ensemble_size, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(

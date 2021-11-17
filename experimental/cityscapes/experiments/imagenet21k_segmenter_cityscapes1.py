@@ -24,7 +24,9 @@ import ml_collections
 
 _CITYSCAPES_TRAIN_SIZE = 2975
 DEBUG = 1
+STRIDE = 4
 
+target_size=(512, 512)
 # debug on mac
 if DEBUG == 1:
   batch_size = 1
@@ -61,6 +63,19 @@ elif DEBUG == 3:
   num_heads = 12
   num_layers = 12
   hidden_size = 768
+elif DEBUG == 4:
+  target_size =(128, 128)
+  STRIDE=16
+  batch_size=8
+  number_train_examples_debug = 16
+  number_eval_examples_debug = 16
+  num_training_epochs = 1  # ml_collections.FieldReference(100)
+  log_eval_steps = 1
+
+  mlp_dim = 3072
+  num_heads = 12
+  num_layers = 12
+  hidden_size = 768
 
 
 def get_config():
@@ -71,7 +86,7 @@ def get_config():
 
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
-  config.dataset_configs.target_size = (512, 512)
+  config.dataset_configs.target_size = target_size
   # flags to debug scenic on mac
   config.dataset_configs.number_train_examples_debug = number_train_examples_debug
   config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
@@ -80,7 +95,7 @@ def get_config():
   config.num_classes = 19
 
   config.patches = ml_collections.ConfigDict()
-  config.patches.size = [4, 4]
+  config.patches.size = (STRIDE, STRIDE)
 
   config.backbone_configs = ml_collections.ConfigDict()
   config.backbone_configs.type = 'vit'

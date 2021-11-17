@@ -252,6 +252,16 @@ def train(
   if config.checkpoint:
     train_state, start_step = train_utils.restore_checkpoint(
         workdir, train_state)
+
+  #import pdb; pdb.set_trace()
+  # Load pretrained model
+  if (start_step == 0  # Which means "no" checkpoint is restored!
+      and config.get('init_from') is not None):
+    raise NotImplementedError("")
+  elif start_step == 0:
+    logging.info('Training completely from scratch.'
+                 'Not restoring from any checkpoint.')
+
   # Replicate the optimzier, state, and rng.
   train_state = jax_utils.replicate(train_state)
   del params  # Do not keep a copy of the initial params.

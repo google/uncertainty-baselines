@@ -25,10 +25,13 @@ import uncertainty_baselines as ub
 class SegVitTest(parameterized.TestCase):
 
   @parameterized.parameters(
-      (2, 16, 224, 224),
+    (2, 2, 1, 12, 1, 'gap'),
+    (2, 2, 1, 12, 1, 'token'),
   )
-  def test_segmenter_transformer(self, num_classes, hidden_size, img_h, img_w):
+  def test_segmenter_transformer(self, num_classes, mlp_dim, num_heads, num_layers, hidden_size, classifier):
     # VisionTransformer.
+    img_h = 224
+    img_w = 224
     config = ml_collections.ConfigDict()
 
     config.num_classes = num_classes
@@ -41,11 +44,10 @@ class SegVitTest(parameterized.TestCase):
     config.backbone_configs.hidden_size = hidden_size
     config.backbone_configs.attention_dropout_rate = 0.
     config.backbone_configs.dropout_rate = 0.
-    config.backbone_configs.mlp_dim = 2
-    config.backbone_configs.num_heads = 1
-    config.backbone_configs.num_layers = 1
-    # TODO(kellybuchanan): include 'token' test
-    config.backbone_configs.classifier = 'gap'
+    config.backbone_configs.mlp_dim = mlp_dim
+    config.backbone_configs.num_heads = num_heads
+    config.backbone_configs.num_layers = num_layers
+    config.backbone_configs.classifier = classifier
 
     config.decoder_configs = ml_collections.ConfigDict()
     config.decoder_configs.type = 'linear'

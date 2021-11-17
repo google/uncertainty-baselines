@@ -336,7 +336,7 @@ class SegVit(nn.Module):
           hidden_size=self.backbone_configs.hidden_size,
           dropout_rate=self.backbone_configs.dropout_rate,
           attention_dropout_rate=self.backbone_configs.attention_dropout_rate,
-          classifier=self.backbone_configs.classifier,
+          classifier='gap',
           name='backbone')(
               x, train=train)
     else:

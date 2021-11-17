@@ -16,7 +16,11 @@
 # pylint: disable=line-too-long
 r"""Segmenter + cityscapes.
 
-init from checkpoints
+include flag to init from checkpoints.
+
+command to run locally:
+python deterministic.py --output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs1" --num_cores=0 --use_gpu=False --tpu=None --config="experiments/imagenet21k_segmenter_cityscapes11.py"
+
 """
 # pylint: enable=line-too-long
 
@@ -124,7 +128,15 @@ def get_config():
   config.focal_loss_gamma = 0.0
 
   # init
-  #config.init_from = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
+  #config.init_from = ml_collections.ConfigDict()
+  #config.init_from.checkpoint_path = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
+  #config.init_from.checkpoint_format = 'ub'
+  #config.init_from.restore_backbone_embedding = True
+
+  # pretrained backbone
+  #config.load_pretrained_backbone = True
+  #config.pretrained_backbone_configs = ml_collections.ConfigDict()
+  #config.pretrained_backbone_configs.checkpoint_path = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
 
   # learning rate
   #steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size

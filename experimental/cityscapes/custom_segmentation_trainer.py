@@ -35,6 +35,9 @@ LossFn = Callable[[jnp.ndarray, Batch, Optional[jnp.ndarray]], float]
 
 from scenic.train_lib.segmentation_trainer import _draw_side_by_side, get_confusion_matrix
 
+#import custom_pretrain_utils
+from flax.training.checkpoints import restore_checkpoint as flax_restore_checkpoint
+
 def train_step(
     *,
     flax_model: nn.Module,
@@ -254,10 +257,20 @@ def train(
         workdir, train_state)
 
   #import pdb; pdb.set_trace()
-  # Load pretrained model
-  if (start_step == 0  # Which means "no" checkpoint is restored!
-      and config.get('init_from') is not None):
-    raise NotImplementedError("")
+  # Load pretrained backbone
+  if start_step == 0 and config.get('load_pretrained_backbone', False):
+    #raise NotImplementedError("")
+    bb_checkpoint_path = config.pretrained_backbone_configs.get(
+        'checkpoint_path')
+    bb_train_state = flax_restore_checkpoint(bb_checkpoint_path, target=None)
+
+    #init_checkpoint_path = config.init_from.get('checkpoint_path')
+    #checkpoint_format = config.init_from.get('checkpoint_format', 'ub')
+
+    #if checkpoint_format == 'ub':
+    #  restored_train_state = custom_pretrain_utils.convert_ub_to_scenic_checkpoint(
+    #      init_checkpoint_path, train_state)
+
   elif start_step == 0:
     logging.info('Training completely from scratch.'
                  'Not restoring from any checkpoint.')

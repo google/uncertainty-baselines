@@ -353,7 +353,7 @@ def main(argv):
       # Negative log marginal likelihood computed in a numerically-stable way.
       labels_broadcasted = tf.broadcast_to(
           labels,
-          [FLAGS.num_eval_samples, FLAGS.ensemble_size, labels.shape[0]])
+          [FLAGS.num_eval_samples, FLAGS.ensemble_size, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(

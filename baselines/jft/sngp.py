@@ -316,6 +316,7 @@ def main(config, output_dir):
           config.ood_datasets,
           config.ood_split,
           config.pp_eval,
+          config.pp_eval_ood,
           config.ood_methods,
           config.train_split,
           config.get('data_dir'),
@@ -402,8 +403,13 @@ def main(config, output_dir):
         train=False,
         mean_field_factor=gp_config.get('mean_field_factor', -1.))
 
+    # Note that logits and labels are usually of the shape [batch,num_classes].
+    # But for OOD data, when num_classes_ood > num_classes_ind, we need to
+    # adjust labels to labels[:, :config.num_classes] to match the shape of
+    # logits. That is just to avoid shape mismatch. The output losses does not
+    # have any meaning for OOD data, because OOD not belong to any IND class.
     losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
-        logits=logits, labels=labels, reduction=False)
+        logits=logits, labels=labels[:, :config.num_classes], reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
     top1_idx = jnp.argmax(logits, axis=1)

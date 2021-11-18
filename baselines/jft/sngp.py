@@ -185,7 +185,7 @@ def main(config, output_dir):
   pool = multiprocessing.pool.ThreadPool()
 
   def write_note(note):
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
   write_note('Initializing...')
 
@@ -203,12 +203,13 @@ def main(config, output_dir):
     raise ValueError(f'Batch sizes ({batch_size} and {batch_size_eval}) must '
                      f'be divisible by device number ({jax.device_count()})')
 
-  local_batch_size = batch_size // jax.host_count()
-  local_batch_size_eval = batch_size_eval // jax.host_count()
+  local_batch_size = batch_size // jax.process_count()
+  local_batch_size_eval = batch_size_eval // jax.process_count()
   logging.info(
       'Global batch size %d on %d hosts results in %d local batch size. '
       'With %d dev per host (%d dev total), that is a %d per-device batch size.',
-      batch_size, jax.host_count(), local_batch_size, jax.local_device_count(),
+      batch_size,
+      jax.process_count(), local_batch_size, jax.local_device_count(),
       jax.device_count(), local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
@@ -385,7 +386,7 @@ def main(config, output_dir):
   rng, rng_init = jax.random.split(rng)
   params_cpu, states_cpu = init(rng_init)
 
-  if jax.host_id() == 0:
+  if jax.process_index() == 0:
     num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
@@ -588,13 +589,13 @@ def main(config, output_dir):
     loaded = pretrained_sngp_load(params_cpu, config.model_init,
                                   config.get('model'), reinit_params)
     opt_cpu = opt_cpu.replace(target=loaded)
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info('Restored parameter overview:')
       parameter_overview.log_parameter_overview(loaded)
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
-  if first_step == 0 and jax.host_id() == 0:
+  if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
   chrono = train_utils.Chrono(first_step, total_steps, batch_size,
                               checkpoint_extra['accum_train_time'])
@@ -667,7 +668,7 @@ def main(config, output_dir):
       range(first_step + 1, total_steps + 1), train_iter, lr_iter,
       reset_covmat_iter):
 
-    with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
+    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
       # TODO(jereliu): Expand to allow precision matrix resetting.
       (opt_repl, states_repl, loss_value, rngs_loop,
        extra_measurements) = update_fn(
@@ -679,7 +680,7 @@ def main(config, output_dir):
            train_batch['labels'],
            rng=rngs_loop)
 
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       profiler(step)
 
     # Checkpoint saving

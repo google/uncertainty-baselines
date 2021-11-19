@@ -21,7 +21,6 @@ https://github.com/google-research/vision_transformer.
 
 import collections
 import dataclasses
-import datetime
 import io
 from typing import Any, Iterable, MutableMapping, Optional
 
@@ -44,7 +43,7 @@ class CheckpointData:
   """Container class for data stored and loaded into checkpoints."""
   train_loop_rngs: jnp.ndarray
   optimizer: flax.optim.Optimizer
-  accumulated_train_time: datetime.timedelta
+  accumulated_train_time: float
   fixed_model_states: Optional[Params] = None
 
 
@@ -201,7 +200,7 @@ def checkpoint_trained_model(
   # TODO(zmariet, dusenberrymw): Remove intermediate `checkpoint_extra` dict.
   tree = dict(
       opt=checkpoint_data.optimizer,
-      checkpoint_extra=dict(
+      extra=dict(
           rngs_loop=checkpoint_data.train_loop_rngs,
           accum_train_time=checkpoint_data.accumulated_train_time),
       )

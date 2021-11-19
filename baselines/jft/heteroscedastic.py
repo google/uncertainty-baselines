@@ -436,56 +436,41 @@ def main(config, output_dir):
 
     return opt, l, rng, measurements
 
-  # Other things besides optimizer state to be stored.
-  rng, rng_loop = jax.random.split(rng, 2)
-  rngs_loop = flax_utils.replicate(rng_loop)
-  checkpoint_extra = dict(accum_train_time=0.0, rngs_loop=rngs_loop)
+  default_reinit_params = [
+      'head/scale_layer_homoscedastic/kernel',
+      'head/scale_layer_homoscedastic/bias',
+      'head/scale_layer_heteroscedastic/kernel',
+      'head/scale_layer_heteroscedastic/bias', 'head/loc_layer/kernel',
+      'head/diag_layer/kernel', 'head/loc_layer/bias', 'head/diag_layer/bias'
+  ]
 
-  # Decide how to initialize training. The order is important.
-  # 1. Always resumes from the existing checkpoint, e.g. resumes a finetune job.
-  # 2. Resume from a previous checkpoint, e.g. start a cooldown training job.
-  # 3. Initialize model from something, e,g, start a fine-tuning job.
-  # 4. Train from scratch.
-  resume_checkpoint_path = None
-  if save_checkpoint_path and gfile.exists(save_checkpoint_path):
-    resume_checkpoint_path = save_checkpoint_path
-  elif config.get('resume'):
-    resume_checkpoint_path = config.resume
-  if resume_checkpoint_path:
-    write_note('Resume training from checkpoint...')
-    checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}
-    checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
-                                                  resume_checkpoint_path)
-    opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
-    rngs_loop = checkpoint_extra['rngs_loop']
-  elif config.get('model_init'):
-    write_note(f'Initialize model from {config.model_init}...')
-    reinit_params = config.get('model_reinit_params', [
-        'head/scale_layer_homoscedastic/kernel',
-        'head/scale_layer_homoscedastic/bias',
-        'head/scale_layer_heteroscedastic/kernel',
-        'head/scale_layer_heteroscedastic/bias', 'head/loc_layer/kernel',
-        'head/diag_layer/kernel', 'head/loc_layer/bias', 'head/diag_layer/bias'
-    ])
-    for param in reinit_params:
-      if param in params_cpu:
-        del params_cpu[param]
+  rng, train_loop_rngs = jax.random.split(rng)
 
-    logging.info('Reinitializing these parameters: %s', reinit_params)
-    loaded = checkpoint_utils.load_from_pretrained_checkpoint(
-        params_cpu, config.model_init, config.model.representation_size,
-        config.model.classifier, reinit_params)
-    opt_cpu = opt_cpu.replace(target=loaded)
-    if jax.process_index() == 0:
-      logging.info('Restored parameter overview:')
-      parameter_overview.log_parameter_overview(loaded)
+  checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
+      train_loop_rngs=train_loop_rngs,
+      save_checkpoint_path=save_checkpoint_path,
+      init_optimizer=opt_cpu,
+      init_params=params_cpu,
+      init_fixed_model_states=None,
+      default_reinit_params=default_reinit_params,
+      config=config,
+  )
+  train_loop_rngs = checkpoint_data.train_loop_rngs
+  opt_cpu = checkpoint_data.optimizer
+  accumulated_train_time = checkpoint_data.accumulated_train_time
+
+  write_note('Adapting the checkpoint model...')
+  adapted_params = checkpoint_utils.adapt_upstream_architecture(
+      init_params=params_cpu,
+      loaded_params=opt_cpu.target)
+  opt_cpu = opt_cpu.replace(target=adapted_params)
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
   chrono = train_utils.Chrono(first_step, total_steps, batch_size,
-                              checkpoint_extra['accum_train_time'])
+                              accumulated_train_time)
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -543,12 +528,12 @@ def main(config, output_dir):
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
 
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
-      opt_repl, loss_value, rngs_loop, extra_measurements = update_fn(
+      opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
           opt_repl,
           lr_repl,
           train_batch['image'],
           train_batch['labels'],
-          rng=rngs_loop)
+          rng=train_loop_rngs)
 
     if jax.process_index() == 0:
       profiler(step)
@@ -560,8 +545,7 @@ def main(config, output_dir):
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
-      checkpoint_extra['accum_train_time'] = chrono.accum_train_time
-      checkpoint_extra['rngs_loop'] = rngs_loop
+      accumulated_train_time = chrono.accum_train_time
       # We need to transfer the weights over now or else we risk keeping them
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
@@ -576,10 +560,13 @@ def main(config, output_dir):
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
       # `flax.struct`. Both can be present in a checkpoint.
-      checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
+      checkpoint_data = checkpoint_utils.CheckpointData(
+          optimizer=opt_cpu,
+          train_loop_rngs=train_loop_rngs,
+          accumulated_train_time=accumulated_train_time)
       checkpoint_writer = pool.apply_async(
-          checkpoint_utils.save_checkpoint,
-          (checkpoint, save_checkpoint_path, copy_step))
+          checkpoint_utils.checkpoint_trained_model,
+          (checkpoint_data, save_checkpoint_path, copy_step))
       chrono.resume()
 
     # Report training progress

@@ -381,9 +381,9 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
                           save_checkpoint_path: str,
                           init_optimizer: flax.optim.Optimizer,
                           init_params: Params,
-                          init_fixed_model_states: Params,
+                          init_fixed_model_states: Optional[Params],
                           default_reinit_params: Iterable[str],
-                          config: ml_collections.ConfigDict):
+                          config: ml_collections.ConfigDict) -> CheckpointData:
   """Loads a model from an existing checkpoint if so indicated by the config.
 
   Whether to resume training, initialize from a previous checkpoint, or do
@@ -419,9 +419,9 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
       fields `model_init`, `representation_size` and `classifier` must be set.
 
   Returns:
-    A new rng key, the new optimizer state, the new untrainable parameters (if
-    resuming from a checkpoint), and a dictionary of information about the
-    reloaded state.
+    A CheckpointData instance containing a new rng key, the new optimizer state,
+    the new untrainable parameters (if resuming from a checkpoint), and a
+    dictionary of information about the reloaded state.
   """
   optimizer = init_optimizer
   fixed_model_states = init_fixed_model_states

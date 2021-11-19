@@ -57,20 +57,6 @@ def _make_deterministic_model(num_classes=21843, representation_size=2):
   return model, config
 
 
-def _make_sngp_model(num_classes=21843, representation_size=2):
-  config = _get_config(num_classes=num_classes,
-                       representation_size=representation_size)
-  vit_kwargs = config.get("model")
-  gp_layer_kwargs = {"covmat_kwargs": {"momentum": 0.999}}
-
-  model = ub.models.vision_transformer_gp(
-      num_classes=config.num_classes,
-      use_gp_layer=True,
-      vit_kwargs=vit_kwargs,
-      gp_layer_kwargs=gp_layer_kwargs)
-  return model, config
-
-
 def _init_model(key, model, input_shape=(2, 224, 224, 3)):
   dummy_input = jnp.zeros(input_shape, jnp.float32)
   params = model.init(key, dummy_input, train=False)["params"]
@@ -351,18 +337,125 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
         init_params, loaded_params)
     self.assertDictEqual(expected_params, actual_params)
 
-  def test_adapt_upstream_architecture_sgnp(self):
-    key = jax.random.PRNGKey(42)
 
-    upstream_model, _ = _make_deterministic_model()
-    key, init_key = jax.random.split(key)
-    upstream_params = _init_model(init_key, upstream_model)
+def _get_deterministic_params():
+  key = jax.random.PRNGKey(42)
+  model, _ = _make_deterministic_model()
+  return _init_model(key, model)
+
+
+def _get_sngp_params():
+  key = jax.random.PRNGKey(42)
+  config = _get_config()
+  vit_kwargs = config.get("model")
+  gp_layer_kwargs = {"covmat_kwargs": {"momentum": 0.999}}
+
+  model = ub.models.vision_transformer_gp(
+      num_classes=config.num_classes,
+      use_gp_layer=True,
+      vit_kwargs=vit_kwargs,
+      gp_layer_kwargs=gp_layer_kwargs)
+
+  return _init_model(key, model)
+
+
+def _get_heteroscedastic_params():
+  key = jax.random.PRNGKey(42)
+
+  config = _get_config()
+  config.model.multiclass = False
+  config.model.temperature = 0.4
+  config.model.mc_samples = 1000
+  config.model.num_factors = 50
+  config.model.param_efficient = True
+  model = ub.models.het_vision_transformer(
+      num_classes=config.num_classes, **config.get("model", {}))
+
+  key, diag_key, noise_key = jax.random.split(key, 3)
+  rng = {"params": key,
+         "diag_noise_samples": diag_key,
+         "standard_norm_noise_samples": noise_key}
+  return _init_model(rng, model)
+
+
+def _get_hetsngp_params():
+  key = jax.random.PRNGKey(42)
+  config = _get_config()
+  config.het = ml_collections.ConfigDict()
+  config.het.multiclass = False
+  config.het.temperature = 1.5
+  config.het.mc_samples = 1000
+  config.het.num_factors = 50
+  config.het.param_efficient = True
+
+  gp_layer_kwargs = dict(covmat_kwargs={"momentum": .999})
+  vit_kwargs = config.get("model")
+  het_kwargs = config.get("het")
+
+  model = ub.models.vision_transformer_hetgp(
+      num_classes=config.num_classes,
+      use_gp_layer=True,
+      vit_kwargs=vit_kwargs,
+      gp_layer_kwargs=gp_layer_kwargs,
+      multiclass=het_kwargs.multiclass,
+      temperature=het_kwargs.temperature,
+      mc_samples=het_kwargs.mc_samples,
+      num_factors=het_kwargs.num_factors,
+      param_efficient=het_kwargs.param_efficient)
+
+  key, diag_key, noise_key = jax.random.split(key, 3)
+  rng = {"params": key,
+         "diag_noise_samples": diag_key,
+         "standard_norm_noise_samples": noise_key}
+  return _init_model(rng, model)
+
+
+_MODEL_TO_PARAMS_AND_KEYS = {
+    "deterministic": dict(
+        params_fn=_get_deterministic_params,
+        extra_keys=["head/kernel", "head/bias"]),
+    "sngp": dict(
+        params_fn=_get_sngp_params,
+        extra_keys=["head/output_layer/kernel", "head/output_layer/bias"]),
+    "heteroscedastic": dict(
+        params_fn=_get_heteroscedastic_params,
+        extra_keys=["head/diag_layer/kernel",
+                    "head/diag_layer/bias",
+                    "head/loc_layer/kernel",
+                    "head/loc_layer/bias",
+                    "head/scale_layer_homoscedastic/kernel",
+                    "head/scale_layer_homoscedastic/bias",
+                    "head/scale_layer_heteroscedastic/kernel",
+                    "head/scale_layer_heteroscedastic/bias",]),
+    "hetsngp": dict(
+        params_fn=_get_hetsngp_params,
+        extra_keys=["head/loc_layer/output_layer/kernel",
+                    "head/loc_layer/output_layer/bias",
+                    "head/scale_layer_homoscedastic/kernel",
+                    "head/scale_layer_homoscedastic/bias",
+                    "head/scale_layer_heteroscedastic/bias",
+                    "head/scale_layer_heteroscedastic/kernel",
+                    "head/diag_layer/kernel",
+                    "head/diag_layer/bias",]),
+}
+
+
+class AdaptUpstreamModelTest(parameterized.TestCase, tf.test.TestCase):
+
+  @parameterized.product(
+      upstream_model=["deterministic", "sngp", "heteroscedastic", "hetsngp"],
+      downstream_model=["deterministic", "sngp", "heteroscedastic", "hetsngp"],
+  )
+  def test_adapt_upstream_architecture(self, upstream_model, downstream_model):
+
+    upstream_keys = _MODEL_TO_PARAMS_AND_KEYS[upstream_model]["extra_keys"]
+    upstream_params = _MODEL_TO_PARAMS_AND_KEYS[upstream_model]["params_fn"]()
     flattened_upstream_params = checkpoint_utils._flatten_jax_params_dict(
         upstream_params)
 
-    downstream_model, _ = _make_sngp_model()
-    key, init_key = jax.random.split(key)
-    downstream_params = _init_model(init_key, downstream_model)
+    downstream_keys = _MODEL_TO_PARAMS_AND_KEYS[downstream_model]["extra_keys"]
+    downstream_params = _MODEL_TO_PARAMS_AND_KEYS[downstream_model][
+        "params_fn"]()
     flattened_downstream_params = checkpoint_utils._flatten_jax_params_dict(
         downstream_params)
 
@@ -373,14 +466,14 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
     shared_keys = set(flattened_upstream_params.keys()).intersection(
         set(flattened_downstream_params.keys()))
-
-    expected_new_keys = {"head/output_layer/kernel", "head/output_layer/bias"}
-    expected_missing_keys = {"head/kernel", "head/bias"}
     actual_keys = set(flattened_adapted_params.keys())
+
+    expected_new_keys = set(downstream_keys) - set(upstream_keys)
+    expected_removed_keys = set(upstream_keys) - set(downstream_keys)
 
     self.assertSetEqual(actual_keys, shared_keys.union(expected_new_keys))
 
-    for key in expected_missing_keys:
+    for key in expected_removed_keys:
       self.assertNotIn(key, actual_keys)
 
     for key in shared_keys:

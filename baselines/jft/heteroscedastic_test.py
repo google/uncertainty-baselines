@@ -129,10 +129,10 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
       config.val_split = 'train[:9]'
       config.train_split = 'train[30:60]'
       config.num_classes = 10
-      config.ood_dataset = ['cifar100', 'svhn_cropped']
+      config.ood_datasets = ['cifar100']
       config.ood_split = 'test[10:20]'
       config.ood_methods = ['maha', 'entropy', 'rmaha', 'msp']
-      config.ood_num_classes = [100, 10]
+      config.ood_num_classes = [100]
       config.eval_on_cifar_10h = True
       config.cifar_10h_split = 'test[:9]'
       config.pp_eval_cifar_10h = (

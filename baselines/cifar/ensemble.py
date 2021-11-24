@@ -94,6 +94,8 @@ def main(argv):
         batch_size,
         drop_remainder=FLAGS.drop_remainder_for_eval)
     test_datasets.update(ood_datasets)
+  if FLAGS.dataset == 'cifar100':
+    data_dir = FLAGS.cifar100_c_path
   corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
   for corruption_type in corruption_types:
     for severity in range(1, 6):
@@ -101,6 +103,7 @@ def main(argv):
           f'{FLAGS.dataset}_corrupted',
           corruption_type=corruption_type,
           download_data=FLAGS.download_data,
+          data_dir=data_dir,
           severity=severity,
           split=tfds.Split.TEST,
           drop_remainder=FLAGS.drop_remainder_for_eval).load(

@@ -37,9 +37,8 @@ from typing import Any, Dict, Mapping, Optional
 
 import edward2 as ed
 import tensorflow as tf
-
+from official.legacy.nlp.bert import configs as bert_configs
 from official.modeling import tf_utils
-from official.nlp.bert import configs as bert_configs
 from official.nlp.modeling import layers as bert_layers
 from official.nlp.modeling import networks as bert_encoder
 

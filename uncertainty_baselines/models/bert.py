@@ -23,12 +23,12 @@
      https://www.aclweb.org/anthology/N19-1423
 """
 import json
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, List, Tuple
 
 import tensorflow as tf
+from official.legacy.nlp.bert import bert_models
+from official.legacy.nlp.bert import configs
 from official.nlp import optimization
-from official.nlp.bert import bert_models
-from official.nlp.bert import configs
 
 
 

@@ -20,7 +20,7 @@ import tensorflow as tf
 import uncertainty_baselines as ub
 
 from uncertainty_baselines.models import bert_dropout
-from official.nlp.bert import configs as bert_configs
+from official.legacy.nlp.bert import configs as bert_configs
 
 
 class DropoutModelBertTest(tf.test.TestCase, parameterized.TestCase):

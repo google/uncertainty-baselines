@@ -21,7 +21,7 @@ import tensorflow as tf
 import uncertainty_baselines as ub
 
 from uncertainty_baselines.models import bert_sngp
-from official.nlp.bert import configs as bert_configs
+from official.legacy.nlp.bert import configs as bert_configs
 
 SNFeedforward = bert_sngp.SpectralNormalizedFeedforwardLayer
 SNAttention = bert_sngp.SpectralNormalizedMultiHeadAttention

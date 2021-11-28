@@ -26,8 +26,8 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow.core.protobuf import trackable_object_graph_pb2  # pylint: disable=g-direct-tensorflow-import
+from official.legacy.nlp.bert import configs
 from official.nlp import optimization
-from official.nlp.bert import configs
 
 
 # Number of positive examples for each datasets.

@@ -26,7 +26,6 @@ class SegVitTest(parameterized.TestCase):
 
   @parameterized.parameters(
     (2, 2, 1, 12, 1, 'gap'),
-    (2, 2, 1, 12, 1, 'token'),
   )
   def test_segmenter_transformer(self, num_classes, mlp_dim, num_heads, num_layers, hidden_size, classifier):
     # VisionTransformer.

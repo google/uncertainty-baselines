@@ -29,9 +29,10 @@ import ml_collections
 
 _CITYSCAPES_TRAIN_SIZE = 2975
 DEBUG = 1
-STRIDE = 4
+STRIDE = 16
 
-target_size=(512, 512)
+target_size = (128, 128)
+
 # debug on mac
 if DEBUG == 1:
   batch_size = 1
@@ -44,37 +45,11 @@ if DEBUG == 1:
   num_heads = 1
   num_layers = 1
   hidden_size = 1
-# debug on v3-8: 1 epoch/16 samples/small vit
-elif DEBUG == 2:
-  batch_size=8
-  number_train_examples_debug = 16
-  number_eval_examples_debug = 16
+elif DEBUG == 5:
+  batch_size = 1
+  number_train_examples_debug = 10
+  number_eval_examples_debug = 10
   num_training_epochs = 1 # ml_collections.FieldReference(100)
-  log_eval_steps = 1
-
-  mlp_dim = 2
-  num_heads = 1
-  num_layers = 1
-  hidden_size = 1
-# debug on v3-8: 1 epoch/16 samples/regular vit
-elif DEBUG == 3:
-  batch_size=8
-  number_train_examples_debug = 16
-  number_eval_examples_debug = 16
-  num_training_epochs = 1  # ml_collections.FieldReference(100)
-  log_eval_steps = 1
-
-  mlp_dim = 3072
-  num_heads = 12
-  num_layers = 12
-  hidden_size = 768
-elif DEBUG == 4:
-  target_size =(128, 128)
-  STRIDE=16
-  batch_size=8
-  number_train_examples_debug = 16
-  number_eval_examples_debug = 16
-  num_training_epochs = 1  # ml_collections.FieldReference(100)
   log_eval_steps = 1
 
   mlp_dim = 3072
@@ -89,6 +64,7 @@ def get_config():
 
   config.experiment_name = 'cityscapes_segvit_ub'
 
+  #dataset
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
@@ -106,7 +82,7 @@ def get_config():
   config.backbone_configs.type = 'vit'
   config.backbone_configs.attention_dropout_rate = 0.
   config.backbone_configs.dropout_rate = 0.
-  config.backbone_configs.classifier = 'gap'
+  config.backbone_configs.classifier = 'token'
 
   config.backbone_configs.mlp_dim = mlp_dim
   config.backbone_configs.num_heads = num_heads
@@ -134,9 +110,14 @@ def get_config():
   #config.init_from.restore_backbone_embedding = True
 
   # pretrained backbone
-  #config.load_pretrained_backbone = True
-  #config.pretrained_backbone_configs = ml_collections.ConfigDict()
-  #config.pretrained_backbone_configs.checkpoint_path = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
+  config.load_pretrained_backbone = True
+  config.pretrained_backbone_configs = ml_collections.ConfigDict()
+  config.pretrained_backbone_configs.checkpoint_path = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
+  config.pretrained_backbone_configs.checkpoint_format = "ub"
+  config.pretrained_backbone_configs.checkpoint_path =
+
+  # doesn't work?
+  #config.pretrained_backbone_configs.checkpoint_path = "gs://ub-checkpoints/ImageNet21k_ViT-B16/ImagetNet21k_ViT-B:16_28592399.npz"
 
   # learning rate
   #steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size

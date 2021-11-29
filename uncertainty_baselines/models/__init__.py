@@ -88,7 +88,8 @@ try:
 except ImportError:
   logging.warning('Skipped Segmenter models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:
-  logging.warning('Skipped Segmenter models due to NotFoundError.', exc_info=True)
+  logging.warning('Skipped Segmenter models due to NotFoundError.',
+                  exc_info=True)
 
 try:
   # Try to import models depending on tensorflow_models.official.nlp.

@@ -14,7 +14,8 @@
 # limitations under the License.
 
 """Segmenter Vision Transformer (ViT) model.
-   Based on scenic library implementation.
+
+Based on scenic library implementation.
 """
 from typing import Any, Callable, Optional, Tuple
 
@@ -43,7 +44,8 @@ class AddPositionEmbs(nn.Module):
   Attributes:
     posemb_init: positional embedding initializer.
   """
-  #TODO(kellybuchanan): check initialization nn.initializers.normal(stddev=0.02) from BERT
+  # TODO(kellybuchanan): check initialization,
+  # nn.initializers.normal(stddev=0.02) from BERT.
   posemb_init: Callable[[PRNGKey, Shape, Dtype], Array]
 
   @nn.compact
@@ -219,7 +221,7 @@ class Encoder(nn.Module):
   dtype: Any = jnp.float32
 
   @nn.compact
-  def __call__(self, inputs: jnp.ndarray, *, train: bool=False):
+  def __call__(self, inputs: jnp.ndarray, *, train: bool = False):
     """Applies Transformer model on the inputs.
 
     Args:
@@ -230,8 +232,6 @@ class Encoder(nn.Module):
       output of a transformer encoder.
     """
     assert inputs.ndim == 3  # (batch, len, emb)
-    dtype = jax.dtypes.canonicalize_dtype(self.dtype)
-
     x = AddPositionEmbs(
         posemb_init=nn.initializers.normal(stddev=0.02),  # from BERT.
         name='posembed_input')(
@@ -245,7 +245,7 @@ class Encoder(nn.Module):
           dropout_rate=self.dropout_rate,
           attention_dropout_rate=self.attention_dropout_rate,
           stochastic_depth=(lyr / max(self.num_layers - 1, 1)) *
-                           self.stochastic_depth,
+          self.stochastic_depth,
           name=f'encoderblock_{lyr}',
           num_heads=self.num_heads)(
               x, deterministic=not train)
@@ -253,8 +253,10 @@ class Encoder(nn.Module):
 
     return encoded
 
+
 class ViTBackbone(nn.Module):
   """Vision Transformer model backbone (everything except the head).
+
   Edited from VisionTransformer.
   """
 
@@ -273,7 +275,6 @@ class ViTBackbone(nn.Module):
 
     x = inputs
     n, h, w, c = x.shape
-    fh, fw = self.patches.size
 
     # We can merge s2d+emb into a single conv; it's the same.
     x = nn.Conv(
@@ -367,10 +368,10 @@ class SegVit(nn.Module):
 
 
 def segmenter_transformer(num_classes: int,
-                       patches: Any,
-                       backbone_configs: Any,
-                       decoder_configs: Any
-                       ):
+                          patches: Any,
+                          backbone_configs: Any,
+                          decoder_configs: Any
+                          ):
   """Builds a Vision Transformer (ViT) model."""
   # TODO(dusenberrymw): Add API docs once config dict in VisionTransformer is
   # cleaned up.

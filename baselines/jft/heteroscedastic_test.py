@@ -129,9 +129,10 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
       config.val_split = 'train[:9]'
       config.train_split = 'train[30:60]'
       config.num_classes = 10
-      config.ood_dataset = 'cifar100'
+      config.ood_datasets = ['cifar100']
       config.ood_split = 'test[10:20]'
-      config.ood_methods = ['maha', 'rmaha', 'msp']
+      config.ood_methods = ['maha', 'entropy', 'rmaha', 'msp']
+      config.ood_num_classes = [100]
       config.eval_on_cifar_10h = True
       config.cifar_10h_split = 'test[:9]'
       config.pp_eval_cifar_10h = (
@@ -152,6 +153,13 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     config.pp_eval = 'decode|resize(384)' + pp_common
     config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)|drop("segmentation_mask")'
     config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)|drop("segmentation_mask")'
+    if config.get('ood_num_classes'):
+      pp_eval_ood = []
+      for num_classes in config.ood_num_classes:
+        pp_eval_ood.append(
+            config.pp_eval.replace(f'onehot({config.num_classes}',
+                                   f'onehot({num_classes}'))
+      config.pp_eval_ood = pp_eval_ood
 
     with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
       train_loss, val_loss, fewshot_results = heteroscedastic.main(

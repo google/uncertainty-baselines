@@ -358,8 +358,8 @@ class _DialogStateTrackingDataset(base.BaseDataset):
       parsed_example = {
           SYS_UTT_NAME: sys_utt,
           USR_UTT_NAME: usr_utt,
-          USR_UTT_RAW_NAME: sys_utt_raw,
-          SYS_UTT_RAW_NAME: usr_utt_raw,
+          USR_UTT_RAW_NAME: usr_utt_raw,
+          SYS_UTT_RAW_NAME: sys_utt_raw,
           STATE_LABEL_NAME: state_label,
           DIAL_LEN_NAME: dialog_len,
       }

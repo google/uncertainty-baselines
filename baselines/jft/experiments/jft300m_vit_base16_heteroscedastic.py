@@ -21,7 +21,7 @@ r"""ViT-B/16.
 
 import ml_collections
 # TODO(dusenberrymw): Open-source remaining imports.
-import get_fewshot  # local file import
+import common_fewshot  # local file import
 
 
 def get_config():
@@ -91,7 +91,7 @@ def get_config():
   config.lr.linear_end = 1e-5
 
   # Few-shot eval section
-  config.fewshot = get_fewshot()
+  config.fewshot = common_fewshot.get_fewshot()
   config.fewshot.log_steps = 25_000
 
   config.args = {}

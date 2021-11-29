@@ -58,7 +58,7 @@ class SegVitTest(parameterized.TestCase):
     variables = model.init(key, inputs, train=False)
 
     logits, outputs = model.apply(variables, inputs, train=False)
-    
+
     self.assertEqual(logits.shape, (num_examples, img_h, img_w, num_classes))
     self.assertEqual(
         set(outputs.keys()),

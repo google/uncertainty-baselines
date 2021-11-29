@@ -146,6 +146,48 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss['val'], correct_val_loss)
 
+  @parameterized.parameters(
+      ('token', 2),
+      ('token', None),
+      ('gap', 2),
+      ('gap', None),
+  )
+  @flagsaver.flagsaver
+  def test_load_model(self, classifier, representation_size):
+    FLAGS.xm_runlocal = True
+    FLAGS.config = get_config(
+        classifier=classifier, representation_size=representation_size)
+    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    FLAGS.config.dataset_dir = self.data_dir
+    FLAGS.config.total_steps = 2
+
+    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+      _, val_loss, _ = batchensemble.main(None)
+      checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
+      self.assertTrue(os.path.exists(checkpoint_path))
+
+      # Set different output directory so that the logic doesn't think we are
+      # resuming from a previous checkpoint.
+      FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+      FLAGS.config.model_init = checkpoint_path
+      # Reload model from checkpoint.
+      # Currently, we don't have a standalone evaluation function, so we check
+      # that the loaded model has the same performance as the saved model by
+      # running training with a learning rate of 0 to obtain the train and eval
+      # metrics.
+      # TODO(zmariet, dusenberrymw): write standalone eval function.
+      FLAGS.config.lr.base = 0.0
+      FLAGS.config.lr.linear_end = 0.0
+      FLAGS.config.lr.warmup_steps = 0
+      FLAGS.config.model_reinit_params = []
+
+      _, loaded_val_loss, _ = batchensemble.main(None)
+
+    # We can't compare training losses, since `batchensemble.main()` reports the
+    # loss *before* applying the last SGD update: the reported training loss is
+    # different from the loss of the checkpointed model.
+    self.assertEqual(val_loss['val'], loaded_val_loss['val'])
+
 
 if __name__ == '__main__':
   tf.test.main()

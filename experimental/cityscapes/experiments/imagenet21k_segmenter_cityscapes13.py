@@ -38,6 +38,9 @@ num_heads = 12
 num_layers = 12
 hidden_size = 768
 
+if DEBUG ==5:
+  number_train_examples_debug = 16
+
 def get_config():
   """Config for cityscapes segmentation."""
   config = ml_collections.ConfigDict()
@@ -55,7 +58,7 @@ def get_config():
 
   # config following scenic
   # model
-  config.model_name = 'segmenter_mini'
+  config.model_name = 'segmenter_pretrained_mini'
   config.model = ml_collections.ConfigDict()
 
   config.patches = ml_collections.ConfigDict()

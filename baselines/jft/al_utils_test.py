@@ -1,0 +1,59 @@
+"""Tests for al_utils."""
+
+import tensorflow as tf
+import tensorflow_datasets as tfds
+from clu import deterministic_data
+
+import al_utils  # pylint: disable=unused-import # to register Cifar10Subset as dataset
+
+
+class AlUtilsTest(tf.test.TestCase):
+
+  def test_cifar10_subset_has_ids(self):
+    dataset_builder = tfds.builder("cifar10_subset",
+                                   subset_ids={"train": None, "test": None})
+
+    split = deterministic_data.get_read_instruction_for_host(
+        "train",
+        dataset_info=dataset_builder.info
+      )
+
+    dataset = dataset_builder.as_dataset(split).batch(500)
+
+    all_ids = []
+    n = 0
+    for example in dataset.as_numpy_iterator():
+      n += example["image"].shape[0]
+      all_ids.extend(example["id"])
+
+    all_ids.sort()
+
+    self.assertEqual(n, 50000)
+    self.assertEqual(all_ids, list(range(50000)))
+
+
+  def test_cifar10_subset_filtering(self):
+    train_ids = [0,1,2]
+    test_ids = [3,4,5]
+
+    dataset_builder = tfds.builder("cifar10_subset",
+                                   subset_ids={"train": train_ids, "test": test_ids})
+
+    for split, ids in zip(["train", "test"], [train_ids, test_ids]):
+      host_split = deterministic_data.get_read_instruction_for_host(
+          split,
+          dataset_info=dataset_builder.info
+        )
+
+      dataset = dataset_builder.as_dataset(host_split).batch(1)
+
+      ds_ids = []
+      for example in dataset.as_numpy_iterator():
+        ds_ids.extend(example["id"])
+
+      ds_ids.sort()
+
+      self.assertEqual(ds_ids, ids)
+
+if __name__ == "__main__":
+  tf.test.main()

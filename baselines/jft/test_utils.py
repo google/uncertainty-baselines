@@ -34,7 +34,12 @@ def get_config(
   # config.val_split = 'test[:49511]'  # aka tiny_test/test[:5%] in task_adapt
   # config.train_split = 'train'  # task_adapt used train+validation so +64167
   # config.num_classes = 18291
-  if dataset_name == 'imagenet2012':
+  if dataset_name == 'cifar10':
+    config.dataset = 'cifar10'
+    config.val_split = 'train[:9]'
+    config.train_split = 'train[30:60]'
+    config.num_classes = 10
+  elif dataset_name == 'imagenet2012':
     config.dataset = 'imagenet2012'
     config.val_split = 'train[:9]'
     config.train_split = 'train[30:60]'
@@ -57,7 +62,10 @@ def get_config(
   config.keep_checkpoint_steps = config.total_steps
 
   pp_common = '|value_range(-1, 1)'
-  label_key = '"label"' if dataset_name == 'imagenet2012' else '"labels"'
+  if dataset_name in ['cifar10', 'imagenet2012']:
+    label_key = '"label"'
+  else:
+    label_key = '"labels"'
   pp_common += (
       f'|onehot({config.num_classes}, key={label_key}, key_result="labels")')
   pp_common += '|keep(["image", "labels"])'
@@ -119,5 +127,3 @@ def get_config(
   config.fewshot.walk_first = ('imagenet', config.fewshot.shots[0])
 
   return config
-
-

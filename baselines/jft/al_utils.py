@@ -1,0 +1,67 @@
+"""
+Custom CIFAR-10 dataset that returns a subset for training
+Alternative version that writes out TFRecords here:
+https://colab.research.google.com/drive/1McRC0es1ehwUL_jQQcBdC05wsPGgNWE3
+"""
+
+from typing import Dict, List
+
+import tensorflow as tf
+from tensorflow_datasets.image_classification import cifar
+
+
+def _subset_generator(dataset, subset_ids):
+  """Create a subset based on ids"""
+  def inner():
+    for record in dataset:
+      # HACK: the last 5 characters of "id" are generally the ids.
+      # However, the dataset info only specifies that the type of id
+      # is BYTES, so we also support that.
+      try:
+        int_id = int(record["id"].numpy()[-5:])
+      except ValueError:
+        # ID is encoded differently, then just interpret as bytes
+        int_id = int.from_bytes(record["id"].numpy()[-5:], "big")
+
+      # NOTE: should we even allow subset_ids to be None?
+      if subset_ids is not None:
+        # Hard fail on type errors
+        assert all(map(lambda id: isinstance(id, int), subset_ids))
+
+      if subset_ids is None or int_id in subset_ids:
+        record["id"] = tf.constant(int_id)
+        yield record
+
+  return inner
+
+
+class Cifar10Subset(cifar.Cifar10):
+  """CIFAR-10 Subset
+
+    Implement CIFAR-10 with the added functionality taking a subst by id.
+
+    Args:
+      subset_ids: a dictionary of split: list of ids.
+
+    Returns:
+      A Cifar10Subset object.
+  """
+  def __init__(self, *, subset_ids: Dict[str, List[int]], **kwargs):
+    super().__init__(**kwargs)
+    self.subset_ids = subset_ids
+
+  def _as_dataset(self, *args, split, **kwargs):
+    dataset = super()._as_dataset(*args, split=split, **kwargs)
+
+    # HACK: Fix id to be an int. Assuming "label" is an int, too.
+    element_spec = dataset.element_spec.copy()
+    element_spec["id"] = element_spec["label"]
+
+    # NOTE: if this line errors out, make sure to update your
+    # tensorflow-datasets package to the right version.
+    splitname = split.split_name
+
+    return tf.data.Dataset.from_generator(
+      _subset_generator(dataset, self.subset_ids[splitname]),
+      output_signature=element_spec,
+    ).cache()

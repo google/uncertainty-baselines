@@ -16,35 +16,35 @@
 # pylint: disable=line-too-long
 r"""Segmenter + cityscapes.
 
-include flag to init from checkpoints.
-
 command to run locally:
-python deterministic.py --output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs1" --num_cores=0 --use_gpu=False --tpu=None --config="experiments/imagenet21k_segmenter_cityscapes11.py"
+python deterministic.py --output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs1" --num_cores=0 --use_gpu=False --tpu=None --config="experiments/imagenet21k_segmenter_cityscapes12.py"
+
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
-#import get_fewshot  # local file import
-
 _CITYSCAPES_TRAIN_SIZE = 2975
-DEBUG = 1
+DEBUG = 5
 STRIDE = 16
-
 target_size = (128, 128)
+
+LOAD_PRETRAINED_BACKBONE = True
+PRETRAIN_BACKBONE_TYPE = 'base'
 
 # debug on mac
 if DEBUG == 1:
   batch_size = 1
   number_train_examples_debug = 10
   number_eval_examples_debug = 10
-  num_training_epochs = 1 # ml_collections.FieldReference(100)
+  num_training_epochs = 1
   log_eval_steps = 1
 
   mlp_dim = 2
   num_heads = 1
   num_layers = 1
   hidden_size = 1
+
 elif DEBUG == 5:
   batch_size = 1
   number_train_examples_debug = 10
@@ -59,7 +59,7 @@ elif DEBUG == 5:
 
 
 def get_config():
-  """Config for training a patch-transformer on JFT."""
+  """Config for cityscapes segmentation."""
   config = ml_collections.ConfigDict()
 
   config.experiment_name = 'cityscapes_segvit_ub'
@@ -68,31 +68,39 @@ def get_config():
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
+
   # flags to debug scenic on mac
   config.dataset_configs.number_train_examples_debug = number_train_examples_debug
   config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
 
   # config following scenic
-  config.num_classes = 19
+  # model
+  config.model_name = 'segmenter_mini'
+  config.model = ml_collections.ConfigDict()
 
   config.patches = ml_collections.ConfigDict()
   config.patches.size = (STRIDE, STRIDE)
 
   config.backbone_configs = ml_collections.ConfigDict()
   config.backbone_configs.type = 'vit'
+  config.backbone_configs.classifier = 'gap'
+  #config.backbone_configs.grid_size
+  config.backbone_configs.hidden_size = hidden_size
+  #config.backbone_configs.patches
+  #config.backbone_configs.representation_size = None
+
   config.backbone_configs.attention_dropout_rate = 0.
   config.backbone_configs.dropout_rate = 0.
-  config.backbone_configs.classifier = 'token'
-
   config.backbone_configs.mlp_dim = mlp_dim
   config.backbone_configs.num_heads = num_heads
   config.backbone_configs.num_layers = num_layers
-  config.backbone_configs.hidden_size = hidden_size
 
+  #decoder
   config.decoder_configs = ml_collections.ConfigDict()
   config.decoder_configs.type = 'linear'
 
   # training
+  config.trainer_name = 'segvit_trainer'
   config.optimizer = 'adam'
   config.optimizer_configs = ml_collections.ConfigDict()
   config.l2_decay_factor = 0.0
@@ -103,21 +111,6 @@ def get_config():
   config.rng_seed = 0
   config.focal_loss_gamma = 0.0
 
-  # init
-  #config.init_from = ml_collections.ConfigDict()
-  #config.init_from.checkpoint_path = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
-  #config.init_from.checkpoint_format = 'ub'
-  #config.init_from.restore_backbone_embedding = True
-
-  # pretrained backbone
-  config.load_pretrained_backbone = True
-  config.pretrained_backbone_configs = ml_collections.ConfigDict()
-  config.pretrained_backbone_configs.checkpoint_path = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
-  config.pretrained_backbone_configs.checkpoint_format = "ub"
-
-  # doesn't work?
-  #config.pretrained_backbone_configs.checkpoint_path = "gs://ub-checkpoints/ImageNet21k_ViT-B16/ImagetNet21k_ViT-B:16_28592399.npz"
-
   # learning rate
   #steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size
   steps_per_epoch = number_train_examples_debug // config.batch_size
@@ -125,7 +118,7 @@ def get_config():
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
   config.lr_configs = ml_collections.ConfigDict()
   config.lr_configs.learning_rate_schedule = 'compound'
-  config.lr_configs.factors = 'constant' #* cosine_decay * linear_warmup'
+  config.lr_configs.factors = 'constant'  # * cosine_decay * linear_warmup'
   config.lr_configs.warmup_steps = 1 * steps_per_epoch
   config.lr_configs.steps_per_cycle = num_training_epochs * steps_per_epoch
   config.lr_configs.base_learning_rate = 1e-4
@@ -133,6 +126,10 @@ def get_config():
   # model and data dtype
   config.model_dtype_str = 'float32'
   config.data_dtype_str = 'float32'
+
+  # load pretrained backbone
+  config.load_pretrained_backbone = LOAD_PRETRAINED_BACKBONE
+  config.pretrained_backbone_configs = get_pretrained_backbone_config(config)
 
   #logging
   config.write_summary = True  # write TB and/or XM summary
@@ -143,12 +140,31 @@ def get_config():
 
   config.debug_train = True  # debug mode during training
   config.debug_eval = True  # debug mode during eval
-  config.log_eval_steps = log_eval_steps #200
+  config.log_eval_steps = log_eval_steps  # 200
 
   # extra
   config.args = {}
 
   return config
+
+
+def get_pretrained_backbone_config(config):
+  if not config.load_pretrained_backbone:
+    return None
+  pretrained_backbone_configs = ml_collections.ConfigDict()
+  pretrained_backbone_configs.checkpoint_format = "ub"
+  pretrained_backbone_configs.type = PRETRAIN_BACKBONE_TYPE
+
+  if PRETRAIN_BACKBONE_TYPE == 'base':
+    pretrained_backbone_configs.checkpoint_path = "gs://ub-checkpoints/ImageNet21k_ViT-B16/ImagetNet21k_ViT-B:16_28592399.npz"
+    pretrained_backbone_configs.checkpoint_cfg = "https://github.com/google/uncertainty-baselines/blob/main/baselines/jft/experiments/imagenet21k_vit_base16.py"
+  elif PRETRAIN_BACKBONE_TYPE == 'gp':
+    pretrained_backbone_configs.checkpoint_path = "gs://ub-checkpoints/ImageNet21k_ViT-B16-GP/ImageNet21k_ViT-B:16-GP_29240948.npz"
+    pretrained_backbone_configs.checkpoint_cfg = "https://github.com/google/uncertainty-baselines/blob/main/baselines/jft/experiments/imagenet21k_vit_base16_sngp.py"
+  else:
+    raise NotImplementedError("")
+
+  return pretrained_backbone_configs
 
 
 def get_sweep(hyper):

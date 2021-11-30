@@ -39,6 +39,7 @@ from scenic.train_lib import pretrain_utils
 
 from pretrainer_utils import load_bb_config
 
+
 def train_step(
     *,
     flax_model: nn.Module,
@@ -253,50 +254,57 @@ def train(
       rng=train_rng,
       accum_train_time=0)
   start_step = train_state.global_step
-  if config.checkpoint:
-    train_state, start_step = train_utils.restore_checkpoint(
-        workdir, train_state)
 
   # Load pretrained backbone
   if start_step == 0 and config.get('load_pretrained_backbone', False):
-
-    #TODO(kellybuchanan): check out partial loader in
+    # TODO(kellybuchanan): check out partial loader in
     # https://github.com/google/uncertainty-baselines/commit/083b1dcc52bb1964f8917d15552ece8848d582ae#
-
-    # Loader from scenic
-    # cannot restore using flax
-    # bb_checkpoint_path = config.pretrained_backbone_configs.get('checkpoint_path')
-    # bb_train_state = flax_restore_checkpoint(bb_checkpoint_path, target=None)
 
     bb_checkpoint_path = config.pretrained_backbone_configs.get('checkpoint_path')
     checkpoint_format = config.pretrained_backbone_configs.get('checkpoint_format', 'ub')
-    bb_model_cfg_file = config.pretrained_backbone_configs.get('checkpoint_cfg')
+    # bb_model_cfg_file = config.pretrained_backbone_configs.get('checkpoint_cfg')
 
-    #TODO(kellybuchanan): read config file directly from bb_model_cfg_file
+    # Loader from scenic
+    # cannot restore using flax
+    # Mathias suggested to try flax_restore_checkpoint
+    # bb_train_state = flax_restore_checkpoint(bb_checkpoint_path, target=None)
+    # but we get an error *** msgpack.exceptions.ExtraData: unpack(b) received extra data.
+
+    # TODO(kellybuchanan): read config file directly from bb_model_cfg_file
     restored_model_cfg = load_bb_config(config)
 
     if checkpoint_format == 'ub':
+        # import pdb; pdb.set_trace()
         # load params from checkpoint
         bb_train_state = pretrain_utils.convert_bigvision_to_scenic_checkpoint(
-          checkpoint_path=bb_checkpoint_path)
-        # cannot control the params loaded
+          checkpoint_path=bb_checkpoint_path,
+          convert_to_linen=False)
+
+        # option 1: failed as variables are a frozen dictionary
+        # could be used with flax.core.unfreeze, flax.core.freeze
+        train_state = model.init_backbone_from_train_state(train_state,
+                                             bb_train_state,
+                                             restored_model_cfg,
+                                             model_prefix_path=['backbone'])
+
+        # option2: it fails for embeddings as this mode
+        # doesn't allow to specify loaded params .
         # model_prefix_path = ['backbone']
         # train_state = pretrain_utils.init_from_pretrain_state(
         #    train_state, bb_train_state, model_prefix_path=model_prefix_path)
-        # can control the params loaded
-        import pdb; pdb.set_trace()
-        train_state = model.init_backbone_from_train_state(train_state,
-                                             bb_train_state,
-                                             restored_model_cfg)
-
 
 
     else:
       raise NotImplementedError("")
 
   elif start_step == 0:
-    logging.info('Training completely from scratch.'
-                 'Not restoring from any checkpoint.')
+    logging.info('Not restoring from any pretrained_backbone.')
+
+  if config.checkpoint:
+    train_state, start_step = train_utils.restore_checkpoint(
+        workdir, train_state)
+  else:
+    logging.info('Not restoring from any checkpoints.')
 
   # Replicate the optimzier, state, and rng.
   train_state = jax_utils.replicate(train_state)

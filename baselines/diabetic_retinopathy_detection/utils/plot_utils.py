@@ -473,7 +473,8 @@ DATA_RESULT_DICT = Dict[str, MODEL_RESULT_DICT]
 def grid_plot_wrapper(
     fn, n_plots, ncols, nrows=None,
     get_args: Union[List[List], Callable[[int], List]] = None,
-    get_kwargs: Union[List[Dict], Callable[[int], Dict]] = None
+    get_kwargs: Union[List[Dict], Callable[[int], Dict]] = None,
+    axes: List[plt.axes] = None,
 ):
   if not get_args:
     get_args = lambda i: []
@@ -485,11 +486,15 @@ def grid_plot_wrapper(
     get_kwargs = lambda i: get_kwargs[i]
   if not nrows:
     nrows = int(np.ceil(n_plots / ncols))
-  fig, axes = plt.subplots(nrows=nrows, ncols=ncols)
+  if axes is None:
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols)
   flatten_axes = [a for axs in axes for a in axs]
   for i, ax in enumerate(flatten_axes):
     fn(*get_args(i), ax=ax, **get_kwargs(i))
-  return fig
+    if i + 1 == n_plots:
+      break
+  plt.tight_layout()
+  return axes
 
 
 def parse_model_key(model_key: Tuple):

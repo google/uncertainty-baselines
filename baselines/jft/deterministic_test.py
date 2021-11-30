@@ -42,23 +42,25 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 591.11743, 548.896417, 0.19, False),
-      ('imagenet2012', 'token', None, 493.69116, 727.917535, 0.15, False),
-      ('imagenet2012', 'gap', 2, 625.7829, 584.25198, 0.21, False),
-      ('imagenet2012', 'gap', None, 587.89453, 599.550985, 0.31, False),
-      ('imagenet2012', 'gap', None, 587.89453, 599.550985, 0.31, True),
+      ('imagenet2012', 'token', 2, .1, 591.9755, 550.748956, 0.17, False),
+      ('imagenet2012', 'token', 2, None, 591.11743, 548.896417, 0.19, False),
+      ('imagenet2012', 'token', None, None, 493.69116, 727.917535, 0.15, False),
+      ('imagenet2012', 'gap', 2, None, 625.7829, 584.25198, 0.21, False),
+      ('imagenet2012', 'gap', None, None, 587.89453, 599.550985, 0.31, False),
+      ('imagenet2012', 'gap', None, None, 587.89453, 599.550985, 0.31, True),
   )
   @flagsaver.flagsaver
   def test_deterministic_script(self, dataset_name, classifier,
-                                representation_size, correct_train_loss,
-                                correct_val_loss, correct_fewshot_acc_sum,
-                                simulate_failure):
+                                representation_size, weight_decay,
+                                correct_train_loss, correct_val_loss,
+                                correct_fewshot_acc_sum, simulate_failure):
     data_dir = self.data_dir
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config = test_utils.get_config(
         dataset_name=dataset_name,
         classifier=classifier,
         representation_size=representation_size)
+    config.weight_decay = weight_decay
     config.dataset_dir = data_dir
 
     if not simulate_failure:

@@ -32,8 +32,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import ood_utils  # local file import
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')

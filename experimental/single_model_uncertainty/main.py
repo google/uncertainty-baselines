@@ -29,9 +29,9 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import eval as eval_lib  # local file import
-import flags as flags_lib  # local file import
-import train as train_lib  # local file import
+import eval as eval_lib  # local file import from experimental.single_model_uncertainty
+import flags as flags_lib  # local file import from experimental.single_model_uncertainty
+import train as train_lib  # local file import from experimental.single_model_uncertainty
 import uncertainty_baselines.experimental.single_model_uncertainty.models.models as ub_smu_models
 
 FLAGS = flags.FLAGS

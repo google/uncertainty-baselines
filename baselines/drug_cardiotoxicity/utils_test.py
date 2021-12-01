@@ -22,7 +22,7 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import utils  # local file import
+import utils  # local file import from baselines.drug_cardiotoxicity
 
 
 class UtilsTest(tf.test.TestCase, parameterized.TestCase):

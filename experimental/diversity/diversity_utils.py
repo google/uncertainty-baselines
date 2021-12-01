@@ -17,8 +17,8 @@
 
 import functools
 import tensorflow.compat.v2 as tf
-import be_utils  # local file import
-import diversity_metrics  # local file import
+import be_utils  # local file import from experimental.diversity
+import diversity_metrics  # local file import from experimental.diversity
 
 
 def fast_weights_similarity(trainable_variables, similarity_metric, dpp_kernel):

@@ -25,7 +25,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.compat.v1 as tf1
 import tensorflow_probability as tfp
-import utils  # local file import
+import utils  # local file import from baselines.uci
 
 flags.DEFINE_enum('dataset', 'boston_housing',
                   enum_values=['boston_housing',

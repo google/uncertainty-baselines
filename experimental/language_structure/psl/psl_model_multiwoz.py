@@ -23,7 +23,7 @@ File consists of:
 from typing import List
 
 import tensorflow as tf
-import psl_model  # local file import
+import psl_model  # local file import from experimental.language_structure.psl
 
 
 class PSLModelMultiWoZ(psl_model.PSLModel):

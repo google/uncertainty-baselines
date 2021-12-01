@@ -28,7 +28,7 @@ import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.drug_cardiotoxicity
 
 FLAGS = flags.FLAGS
 

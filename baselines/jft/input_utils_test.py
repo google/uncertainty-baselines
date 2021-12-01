@@ -24,7 +24,7 @@ from absl.testing import parameterized
 import jax
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import input_utils  # local file import
+import input_utils  # local file import from baselines.jft
 
 
 class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):

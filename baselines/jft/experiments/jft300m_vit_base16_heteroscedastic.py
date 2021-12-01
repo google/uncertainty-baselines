@@ -21,7 +21,7 @@ r"""ViT-B/16.
 
 import ml_collections
 # TODO(dusenberrymw): Open-source remaining imports.
-import common_fewshot  # local file import
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():

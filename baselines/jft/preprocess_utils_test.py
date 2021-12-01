@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
-import preprocess_utils  # local file import
+import preprocess_utils  # local file import from baselines.jft
 
 
 class PreprocessUtilsTest(tf.test.TestCase):

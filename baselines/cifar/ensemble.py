@@ -78,9 +78,11 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
+  data_dir = FLAGS.data_dir
   dataset_builder = ub.datasets.get(
       FLAGS.dataset,
       download_data=FLAGS.download_data,
+      data_dir=data_dir,
       split=tfds.Split.TEST,
       drop_remainder=FLAGS.drop_remainder_for_eval)
   dataset = dataset_builder.load(batch_size=batch_size)

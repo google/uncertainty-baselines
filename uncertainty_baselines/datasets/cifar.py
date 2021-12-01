@@ -49,24 +49,23 @@ def _tuple_dict_fn_converter(fn, *args):
 class _CifarDataset(base.BaseDataset):
   """CIFAR dataset builder abstract class."""
 
-  def __init__(
-      self,
-      name: str,
-      fingerprint_key: str,
-      split: str,
-      seed: Optional[Union[int, tf.Tensor]] = None,
-      validation_percent: float = 0.0,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      drop_remainder: bool = False,
-      normalize: bool = True,
-      try_gcs: bool = False,
-      download_data: bool = False,
-      use_bfloat16: bool = False,
-      aug_params: Optional[Dict[str, Any]] = None,
-      data_dir: Optional[str] = None,
-      is_training: Optional[bool] = None,
-      is_cifar10h: Optional[bool] = False):
+  def __init__(self,
+               name: str,
+               fingerprint_key: str,
+               split: str,
+               seed: Optional[Union[int, tf.Tensor]] = None,
+               validation_percent: float = 0.0,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               drop_remainder: bool = False,
+               normalize: bool = True,
+               try_gcs: bool = False,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               use_bfloat16: bool = False,
+               aug_params: Optional[Dict[str, Any]] = None,
+               is_training: Optional[bool] = None,
+               is_cifar10h: Optional[bool] = False):
     """Create a CIFAR10 or CIFAR100 tf.data.Dataset builder.
 
     Args:
@@ -93,10 +92,10 @@ class _CifarDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
-      use_bfloat16: Whether or not to load the data in bfloat16 or float32.
-      aug_params: hyperparameters for the data augmentation pre-processing.
       data_dir: Directory to read/write data, that is passed to the
         tfds dataset_builder as a data_dir parameter.
+      use_bfloat16: Whether or not to load the data in bfloat16 or float32.
+      aug_params: hyperparameters for the data augmentation pre-processing.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].

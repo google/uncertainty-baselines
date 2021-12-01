@@ -117,19 +117,18 @@ class _RandomDatasetBuilder(tfds.core.DatasetBuilder):
 class _RandomNoiseDataset(base.BaseDataset):
   """Random Image dataset builder abstract class."""
 
-  def __init__(
-      self,
-      name: str,
-      split: str,
-      image_shape: Iterable[int] = (32, 32, 3),
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      eval_filter_class_id: int = -1,
-      data_mode: str = 'ind',
-      data_dir: Optional[str] = None,
-      try_gcs: bool = False,
-      download_data: bool = False,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               name: str,
+               split: str,
+               image_shape: Iterable[int] = (32, 32, 3),
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               eval_filter_class_id: int = -1,
+               data_mode: str = 'ind',
+               try_gcs: bool = False,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None):
     """Create a Random Image tf.data.Dataset builder.
 
     Args:
@@ -147,12 +146,12 @@ class _RandomNoiseDataset(base.BaseDataset):
       eval_filter_class_id: evalulate inputs from a particular class only.
       data_mode: either 'ind' or 'ood' to decide whether to read in-distribution
         data or out-of-domain data.
-      data_dir: path to a directory containing the Genomics OOD dataset, with
-        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files. Currently unsupported.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      data_dir: Path to a directory containing the Genomics OOD dataset, with
+        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].

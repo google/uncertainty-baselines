@@ -123,7 +123,8 @@ def main(argv):
 
   test_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16)
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=FLAGS.data_dir)
   clean_test_dataset = test_builder.load(batch_size=batch_size)
   test_datasets = {'clean': clean_test_dataset}
   corruption_types, max_intensity = utils.load_corrupted_test_info()

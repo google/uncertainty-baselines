@@ -90,6 +90,7 @@ def main(argv):
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -111,10 +112,10 @@ def main(argv):
       split=tfds.Split.TRAIN,
       one_hot=(FLAGS.mixup_alpha > 0),
       use_bfloat16=FLAGS.use_bfloat16,
-      mixup_params=mixup_params)
+      mixup_params=mixup_params,
+      data_dir=data_dir)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16)
+      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
@@ -125,7 +126,8 @@ def main(argv):
     imagenet_confidence_dataset = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
         run_mixup=True,
-        use_bfloat16=FLAGS.use_bfloat16).load(
+        use_bfloat16=FLAGS.use_bfloat16,
+        data_dir=data_dir).load(
             batch_size=batch_size, strategy=strategy)
   if FLAGS.corruptions_interval > 0:
     corruption_types, max_intensity = utils.load_corrupted_test_info()
@@ -367,7 +369,8 @@ def main(argv):
           split=tfds.Split.TRAIN,
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
-          mixup_params=mixup_params)
+          mixup_params=mixup_params,
+          data_dir=data_dir)
       train_dataset = builder.load(batch_size=batch_size, strategy=strategy)
       train_iterator = iter(train_dataset)
 

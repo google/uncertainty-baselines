@@ -234,15 +234,14 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
 class DrugCardiotoxicityDataset(base.BaseDataset):
   """Drug Cardiotoxicity dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
-      download_data: bool = False,
-      is_training: Optional[bool] = None,
-      drop_remainder: bool = False):
+  def __init__(self,
+               split: str,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None,
+               drop_remainder: bool = False):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -253,10 +252,10 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: path to a directory containing the tfrecord datasets, with
-        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      data_dir: Path to a directory containing the tfrecord datasets, with
+        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].

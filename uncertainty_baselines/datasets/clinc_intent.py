@@ -259,15 +259,14 @@ class _ClincIntentionDatasetBuilder(tfds.core.DatasetBuilder):
 class ClincIntentDetectionDataset(base.BaseDataset):
   """Clinc Intent Detection dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      data_mode: str = 'ind',
-      data_dir: Optional[str] = None,
-      download_data: bool = False,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               split: str,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               data_mode: str = 'ind',
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None):
     """Create a CLINC tf.data.Dataset builder.
 
     Args:
@@ -280,10 +279,10 @@ class ClincIntentDetectionDataset(base.BaseDataset):
         preprocessing in tf.data.Dataset.map().
       data_mode: One of ['ind', 'ood', 'all'] to decide whether to read only
         in-domain data, or read only out-of-domain data, or read both.
-      data_dir: path to a directory containing the CLINC datasets, with
-        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      data_dir: Path to a directory containing the CLINC datasets, with
+        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].

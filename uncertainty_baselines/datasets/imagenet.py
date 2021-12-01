@@ -57,6 +57,7 @@ class ImageNetDataset(base.BaseDataset):
                num_parallel_parser_calls: int = 64,
                try_gcs: bool = False,
                download_data: bool = False,
+               data_dir: Optional[str] = None,
                is_training: Optional[bool] = None,
                preprocessing_type: str = 'resnet',
                use_bfloat16: bool = False,
@@ -84,6 +85,8 @@ class ImageNetDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
+      data_dir: Directory to read/write data, that is passed to the
+        tfds dataset_builder as a data_dir parameter.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -106,7 +109,7 @@ class ImageNetDataset(base.BaseDataset):
         TPUs.
     """
     name = 'imagenet2012'
-    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(

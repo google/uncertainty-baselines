@@ -25,14 +25,13 @@ from uncertainty_baselines.datasets import base
 class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
   """Kaggle diabetic retinopathy detection dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
-      download_data: bool = False,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               split: str,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
     Args:
@@ -43,9 +42,9 @@ class DiabeticRetinopathyDetectionDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      download_data: Whether or not to download data before loading.
       data_dir: optional dir to save TFDS data to. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
-      download_data: Whether or not to download data before loading.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].

@@ -15,12 +15,13 @@
 
 """Data loader for the Drug Cardiotoxicity dataset.
 
-Drug Cardiotoxicity dataset [1] is a molecule classification task to detect
+Drug Cardiotoxicity dataset [1-2] is a molecule classification task to detect
 cardiotoxicity caused by binding hERG target, a protein associated with heart
 beat rhythm. The data covers over 9000 molecules with hERG activity
 (active/inactive).
 
 Note:
+
 1. The data is split into train-validation-test ratio of roughly 8:2:1.
 
 2. The dataset is stored in TFRecord format. Each molecule is represented as
@@ -33,20 +34,24 @@ Note:
 [1]: Vishal B. S. et al. Critical Assessment of Artificial Intelligence Methods
 for Prediction of hERG Channel Inhibition in the Big Data Era.
      JCIM, 2020. https://pubs.acs.org/doi/10.1021/acs.jcim.0c00884
+
+[2]: K. Han et al. Reliable Graph Neural Networks for Drug Discovery Under
+Distributional Shift.
+    NeurIPS DistShift Workshop 2021. https://arxiv.org/abs/2111.12951
 """
 import os.path
+from typing import Dict, Optional, Tuple
 
-from typing import Dict, Tuple, Optional
-
+from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 # filenames for datasets
-_FILENAME_TRAIN = 'vishal_herg_train_*.tfrecords*'
-_FILENAME_VAL = 'vishal_herg_val.tfrecords'
-_FILENAME_TEST = 'test1_herg.tfrecords'
-_FILENAME_TEST2 = 'test2a_herg.tfrecords'
+_FILENAME_TRAIN = 'cardiotox-train.tfrecord*'
+_FILENAME_VAL = 'cardiotox-validation.tfrecord*'
+_FILENAME_TEST = 'cardiotox-test.tfrecord*'
+_FILENAME_TEST2 = 'cardiotox-test2.tfrecord*'
 
 _NUM_TRAIN = 6523
 _NUM_VAL = 1631
@@ -110,12 +115,19 @@ def _get_num_examples_and_filenames() -> Tuple[Dict[str, int], Dict[str, str]]:
 
 
 _CITATION = """
-Vishal B. S. et al. Critical Assessment of Artificial Intelligence Methods
-for Prediction of hERG Channel Inhibition in the Big Data Era.
-     JCIM, 2020. https://pubs.acs.org/doi/10.1021/acs.jcim.0c00884
+@ARTICLE{Han2021-tu,
+  title         = "Reliable Graph Neural Networks for Drug Discovery Under
+                   Distributional Shift",
+  author        = "Han, Kehang and Lakshminarayanan, Balaji and Liu, Jeremiah",
+  month         =  nov,
+  year          =  2021,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG",
+  eprint        = "2111.12951"
+}
 """
 _DESCRIPTION = (
-    'Drug Cardiotoxicity dataset [1] is a molecule classification task to '
+    'Drug Cardiotoxicity dataset [1-2] is a molecule classification task to '
     'detect cardiotoxicity caused by binding hERG target, a protein associated '
     'with heart beat rhythm.')
 
@@ -263,6 +275,10 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
         number of points is not exactly equal to the batch size. This option
         needs to be True for running on TPUs.
     """
+    if data_dir is None:
+      builder = tfds.builder('cardiotox')
+      data_dir = builder.data_dir
+    logging.info('CardioTox data dir: %s', data_dir)
 
     super().__init__(
         name='drug_cardiotoxicity',

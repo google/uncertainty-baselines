@@ -20,12 +20,12 @@ import functools
 import itertools
 import multiprocessing
 import os
-import time
 
 from absl import app
 from absl import flags
 from absl import logging
 from clu import metric_writers
+from clu import periodic_actions
 from clu import preprocess_spec
 import flax
 import flax.jax_utils
@@ -323,7 +323,18 @@ def main(_):
   opt = flax.jax_utils.replicate(opt)
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  start_time = time.time()
+  write_note('Kicking off misc stuff...')
+  if first_step == 0 and jax.process_index() == 0:
+    writer.write_hparams(dict(config))
+  chrono = train_utils.Chrono(
+      first_step, total_steps, config.batch_size, accumulated_train_time)
+
+  # Note: switch to ProfileAllHosts() if you need to profile all hosts.
+  # (Xprof data become much larger and take longer to load for analysis)
+  profiler = periodic_actions.Profile(
+      # Create profile after every restart to analyze pre-emption related
+      # problems and assure we get similar performance in every run.
+      logdir=output_dir, first_profile=first_step + 10)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
@@ -332,6 +343,10 @@ def main(_):
       map(lr_fn, range(first_step, total_steps)),
       config.get('prefetch_to_device', 1))
 
+  write_note(f'First step compilations...\n{chrono.note}')
+  logging.info('first_step = %s', first_step)
+  # Advance the iterators if we are restarting from an earlier checkpoint.
+  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
@@ -346,123 +361,135 @@ def main(_):
       val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
       val_iter_splits[val_name] = (val_iter, val_steps)
 
-  log_training_first_n_steps = config.get('log_training_first_n_steps', -1)
-  with metric_writers.ensure_flushes(writer):
-    for step, train_batch, lr_repl in zip(
-        range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-      opt, train_loop_rngs, loss_value, _ = pmap_update_fn(
+  for step, train_batch, lr_repl in zip(
+      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
+
+    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+      opt, train_loop_rngs, loss_value, extra_measurements = pmap_update_fn(
           opt,
           train_loop_rngs,
           lr_repl,
           train_batch['image'],
           train_batch['labels'])
 
-      # Checkpoint saving.
-      if train_utils.itstime(
-          step=step,
-          every_n_steps=config.get('checkpoint_steps'),
-          total_steps=total_steps, host=0, first=False):
-        write_note('Checkpointing...')
-        train_utils.checkpointing_timeout(checkpoint_writer,
-                                          config.get('checkpoint_timeout', 1))
-        time_since_last_start = float(time.time() - start_time)
-        accumulated_train_time = accumulated_train_time + time_since_last_start
-        opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt)
+    if jax.process_index() == 0:
+      profiler(step)
 
-        copy_step = None
-        if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
-                               total_steps):
-          write_note('Keeping a checkpoint copy...')
-          copy_step = step
+    # Checkpoint saving.
+    if train_utils.itstime(
+        step=step,
+        every_n_steps=config.get('checkpoint_steps'),
+        total_steps=total_steps, host=0):
+      write_note('Checkpointing...')
+      chrono.pause()
+      train_utils.checkpointing_timeout(checkpoint_writer,
+                                        config.get('checkpoint_timeout', 1))
+      accumulated_train_time = chrono.accum_train_time
+      opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt)
 
-        checkpoint_data = checkpoint_utils.CheckpointData(
-            train_loop_rngs=train_loop_rngs,
-            optimizer=opt_cpu,
-            accumulated_train_time=accumulated_train_time)
-        checkpoint_writer = pool.apply_async(
-            checkpoint_utils.checkpoint_trained_model,
-            (checkpoint_data, save_checkpoint_path, copy_step))
+      # Check whether we want to keep a copy of the current checkpoint.
+      copy_step = None
+      if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
+                             total_steps):
+        write_note('Keeping a checkpoint copy...')
+        copy_step = step
 
-      # Report training progress
-      if (jax.process_index() == 0 and config.log_training_every_n_steps > 0 and
-          (step % config.log_training_every_n_steps == 0 or
-           step == total_steps or step < log_training_first_n_steps)):
-        write_note('Reporting training progress...')
-        train_loss = loss_value[0]
-        time_elapsed = time.time() - start_time + accumulated_train_time
-        img_sec_core = (
-            config.batch_size * step / time_elapsed / jax.device_count())
-        writer.write_scalars(step, {'learning_rate': lr_repl[0],
-                                    'training_loss': np.mean(loss_value),
-                                    'img/sec/core': img_sec_core,
-                                    'epoch': step / steps_per_epoch})
+      checkpoint_data = checkpoint_utils.CheckpointData(
+          train_loop_rngs=train_loop_rngs,
+          optimizer=opt_cpu,
+          accumulated_train_time=accumulated_train_time)
+      checkpoint_writer = pool.apply_async(
+          checkpoint_utils.checkpoint_trained_model,
+          (checkpoint_data, save_checkpoint_path, copy_step))
+      chrono.resume()
 
-      # Evaluate the model.
-      if train_utils.itstime(step, config.log_eval_steps, total_steps):
-        for val_name, (val_iter, val_steps) in val_iter_splits.items():
-          # Sets up evaluation metrics.
-          ece_num_bins = config.get('ece_num_bins', 15)
-          auc_num_bins = config.get('auc_num_bins', 1000)
-          ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
-          calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
-          oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
-                                                         num_bins=auc_num_bins)
-          oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
+    # Report training progress
+    if train_utils.itstime(
+        step, config.log_training_steps, total_steps, host=0):
+      write_note('Reporting training progress...')
+      train_loss = loss_value[0]
+      timing_measurements, note = chrono.tick(step)
+      write_note(note)
+      train_measurements = {}
+      train_measurements.update({
+          'learning_rate': lr_repl[0],
+          'training_loss': train_loss,
+      })
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(timing_measurements)
+      writer.write_scalars(step, train_measurements)
+
+    # Evaluate the model.
+    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+      write_note('Evaluating on the validation set...')
+      chrono.pause()
+      for val_name, (val_iter, val_steps) in val_iter_splits.items():
+        # Sets up evaluation metrics.
+        ece_num_bins = config.get('ece_num_bins', 15)
+        auc_num_bins = config.get('auc_num_bins', 1000)
+        ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+        calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
                                                        num_bins=auc_num_bins)
-          oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
-                                                       num_bins=auc_num_bins)
-          oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
-                                                       num_bins=auc_num_bins)
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
+                                                     num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
+                                                     num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
+                                                     num_bins=auc_num_bins)
 
-          # Runs evaluation loop.
-          ncorrect, loss, nseen = 0, 0, 0
-          for _, batch in zip(range(val_steps), val_iter):
-            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                evaluation_fn(opt.target, batch['image'],
-                              batch['labels'], batch['mask']))
-            # All results are a replicated array shaped as follows:
-            # (local_devices, per_device_batch_size, elem_shape...)
-            # with each local device's entry being identical as they got psum'd.
-            # So let's just take the first one to the host as numpy.
-            ncorrect += np.sum(np.array(batch_ncorrect[0]))
-            loss += np.sum(np.array(batch_losses[0]))
-            nseen += np.sum(np.array(batch_n[0]))
-            # Here we parse batch_metric_args to compute uncertainty metrics.
-            # (e.g., ECE or Calibration AUC).
-            logits, labels, masks = batch_metric_args
-            masks = np.array(masks[0], dtype=np.bool)
-            logits = np.array(logits[0])
-            probs = jax.nn.softmax(logits)
-            # From one-hot to integer labels, as required by ECE.
-            int_labels = np.argmax(np.array(labels[0]), axis=-1)
-            int_preds = np.argmax(logits, axis=-1)
-            confidence = np.max(probs, axis=-1)
-            for p, c, l, d, m in zip(probs, confidence, int_labels,
-                                     int_preds, masks):
-              ece.add_batch(p[m, :], label=l[m])
-              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-              # TODO(jereliu): Extend to support soft multi-class probabilities.
-              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+        # Runs evaluation loop.
+        ncorrect, loss, nseen = 0, 0, 0
+        for _, batch in zip(range(val_steps), val_iter):
+          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+              evaluation_fn(opt.target, batch['image'],
+                            batch['labels'], batch['mask']))
+          # All results are a replicated array shaped as follows:
+          # (local_devices, per_device_batch_size, elem_shape...)
+          # with each local device's entry being identical as they got psum'd.
+          # So let's just take the first one to the host as numpy.
+          ncorrect += np.sum(np.array(batch_ncorrect[0]))
+          loss += np.sum(np.array(batch_losses[0]))
+          nseen += np.sum(np.array(batch_n[0]))
+          # Here we parse batch_metric_args to compute uncertainty metrics.
+          # (e.g., ECE or Calibration AUC).
+          logits, labels, masks = batch_metric_args
+          masks = np.array(masks[0], dtype=np.bool)
+          logits = np.array(logits[0])
+          probs = jax.nn.softmax(logits)
+          # From one-hot to integer labels, as required by ECE.
+          int_labels = np.argmax(np.array(labels[0]), axis=-1)
+          int_preds = np.argmax(logits, axis=-1)
+          confidence = np.max(probs, axis=-1)
+          for p, c, l, d, m in zip(probs, confidence, int_labels,
+                                   int_preds, masks):
+            ece.add_batch(p[m, :], label=l[m])
+            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            # TODO(jereliu): Extend to support soft multi-class probabilities.
+            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-          val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
-          val_measurements = {
-              f'{val_name}_prec@1': ncorrect / nseen,
-              f'{val_name}_loss': val_loss[val_name],
-              f'{val_name}_ece': ece.result()['ece'],
-              f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-              f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
-                  'collaborative_auc'],
-              f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-              f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-              f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
-          }
-          writer.write_scalars(step, val_measurements)
+        val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
+        val_measurements = {
+            f'{val_name}_prec@1': ncorrect / nseen,
+            f'{val_name}_loss': val_loss[val_name],
+            f'{val_name}_ece': ece.result()['ece'],
+            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
+            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
+                'collaborative_auc'],
+            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
+            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
+            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
+        }
+        writer.write_scalars(step, val_measurements)
+      chrono.resume()
 
+  write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
+  writer.close()
 
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.

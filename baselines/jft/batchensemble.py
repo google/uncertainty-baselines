@@ -218,12 +218,15 @@ def main(_):
   # TODO(zmariet): Add fewshot evaluation.
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
-  opt_def = train.get_optimizer_from_config(config, f'{BIG_VISION_DIR}.optims')
+  opt_name = config.get('optim_name')
+  opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
+
   eval_config = copy.deepcopy(config)
   if config.get('eval_overrides'):
     with eval_config.unlocked():
       eval_config.update(config.eval_overrides)
   model = getattr(ub.models, config.model_name)
+
   model_train = model(
       num_classes=config.num_classes, train=True, **config.model)
   model_eval = model(
@@ -231,22 +234,39 @@ def main(_):
 
   image_size = tuple(train_ds.element_spec['image'].shape[2:])
   logging.info('Model initialization: Starting.')
-  opt_init, rngs = train.model_and_optim_init(
-      model_train.init, opt_def, (batch_size_per_core,) + image_size,
-      config.get('init_head_bias'), config.get('seed', 0),
-      config.get('extra_rngs', []))
-  logging.info('Model initialization: Done.')
-  # TODO(jpuigcerver): Support logging parameter count with new sharding.
+
+  @functools.partial(jax.jit, backend='cpu')
+  def init(rng_init):
+    dummy_input = jnp.zeros((batch_size_per_core,) + image_size, jnp.float32)
+    params = model_eval.init(rng_init, dummy_input)['params']
+    params = flax.core.unfreeze(params)
+
+    # Set bias in the head to a low value, such that loss is small initially.
+    params['head']['bias'] = jnp.full_like(
+        params['head']['bias'], config.get('init_head_bias', 0))
+
+    # init head kernel to all zeros for fine-tuning
+    if config.get('model_init'):
+      params['head']['kernel'] = jnp.full_like(params['head']['kernel'], 0)
+
+    return params
+
+  rng_init = {'params': jax.random.split(jax.random.PRNGKey(0), 1)[0]}
+  params_init = init(rng_init)
+  rngs = {}
+  opt_init = opt_def.create(flax.core.freeze(params_init))
 
   weight_decay_rules = config.get('weight_decay', []) or []
   rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
-  batch_loss_fn = ensemble.wrap_ensemble_module_with_auxiliary_loss_fn(
-      module=model_train,
-      loss_fn=loss_to_apply,
-      auxiliary_loss_weight=config.get('auxiliary_loss_weight', 0.0),
-      ens_size=ens_size)
+
+  def batch_loss_fn(params, inputs, labels, *args, **kwargs):
+    logits, _ = model_train.apply(
+        {'params': params}, inputs, *args, **kwargs)
+    labels = jnp.tile(labels, (ens_size, 1))
+    loss = jnp.mean(loss_to_apply(logits, labels))
+    return loss, dict()
 
   update_fn = functools.partial(
       batchensemble_utils.update_fn_be,
@@ -291,13 +311,14 @@ def main(_):
 
   opt = checkpoint_data.optimizer
   opt = opt.replace(target=flax.core.freeze(opt.target))
+  first_step = int(opt.state.step)
+
   opt = flax.jax_utils.replicate(opt)
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
   train_loop_rngs = jax.tree_map(
       train.rng_jax_fold_host_if_needed_and_shard, rngs)
 
-  first_step = int(opt.state.step)
   start_time = time.time()
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.

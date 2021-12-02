@@ -18,6 +18,10 @@
 A set of model wrappers and evaluation utilities to determine the robustness
 and quality of uncertainty estimates of the given model.
 
+Note that the model produces a single scalar "prediction" for each example
+corresponding to p(class = 1), for computational efficiency (e.g., we can
+compute predictive variance for binary classification using only this).
+
 TODO @nband: better use TensorArrays in TF methods for faster TPU execution.
 """
 
@@ -72,18 +76,20 @@ def binary_entropy_jax(array):
 
 """
 Model Wrappers:
-Decompose uncertainty into aleatoric and epistemic portions using 
-the mutual information between the parameters and the predicted output r.v. 
+Using a set of MC samples, produce the prediction and uncertainty estimates: 
+predictive entropy, predictive variance, epistemic uncertainty (MI),
+and aleatoric uncertainty (expected entropy).
 """
 
 
 def predict_and_decompose_uncertainty_tf(mc_samples: tf.Tensor):
-  """Given a set of MC samples, decomposes uncertainty into
-    aleatoric and epistemic parts.
+  """Using a set of MC samples, produce the prediction and uncertainty
+    estimates: predictive entropy, predictive variance, epistemic uncertainty
+    (MI), and aleatoric uncertainty (expected entropy).
 
   Args:
     mc_samples: `tf.Tensor`, Monte Carlo samples from a sigmoid predictive
-      distribution, shape [T, B] where T is the number of samples and B
+      distribution, shape [S, B] where S is the number of samples and B
       is the batch size.
 
   Returns:
@@ -119,13 +125,14 @@ def predict_and_decompose_uncertainty_tf(mc_samples: tf.Tensor):
   }
 
 
-def predict_and_decompose_uncertainty(mc_samples: np.ndarray):
-  """Given a set of MC samples, decomposes uncertainty into
-    aleatoric and epistemic parts.
+def predict_and_decompose_uncertainty_np(mc_samples: np.ndarray):
+  """Using a set of MC samples, produce the prediction and uncertainty
+    estimates: predictive entropy, predictive variance, epistemic uncertainty
+    (MI), and aleatoric uncertainty (expected entropy).
 
   Args:
     mc_samples: `np.ndarray`, Monte Carlo samples from a sigmoid predictive
-      distribution, shape [T, B] where T is the number of samples and B
+      distribution, shape [S, B] where S is the number of samples and B
       is the batch size.
 
   Returns:
@@ -161,14 +168,13 @@ def predict_and_decompose_uncertainty(mc_samples: np.ndarray):
   }
 
 
-def variational_predict_and_decompose_uncertainty(
+def variational_predict_and_decompose_uncertainty_np(
   x,
   model,
   training_setting,
   num_samples
 ):
-  """Monte Carlo uncertainty estimator for a variational model,
-    decomposes uncertainty into aleatoric and epistemic parts.
+  """Monte Carlo uncertainty estimator for a variational model.
 
   Should work for all variational methods which sample from model posterior
   in each forward pass -- e.g., MC Dropout, MFVI, Radial BNNs.
@@ -205,7 +211,7 @@ def variational_predict_and_decompose_uncertainty(
     model(x, training=training_setting) for _ in range(num_samples)
   ]).reshape(-1, b)
 
-  return predict_and_decompose_uncertainty(mc_samples=mc_samples)
+  return predict_and_decompose_uncertainty_np(mc_samples=mc_samples)
 
 
 def variational_predict_and_decompose_uncertainty_tf(
@@ -214,8 +220,7 @@ def variational_predict_and_decompose_uncertainty_tf(
   training_setting,
   num_samples
 ):
-  """Monte Carlo uncertainty estimator for a variational model,
-    decomposes uncertainty into aleatoric and epistemic parts.
+  """Monte Carlo uncertainty estimator for a variational model.
 
   Should work for all variational methods which sample from model posterior
   in each forward pass -- e.g., MC Dropout, MFVI, Radial BNNs.
@@ -259,14 +264,13 @@ def variational_predict_and_decompose_uncertainty_tf(
   return predict_and_decompose_uncertainty_tf(mc_samples=mc_samples)
 
 
-def variational_ensemble_predict_and_decompose_uncertainty(
+def variational_ensemble_predict_and_decompose_uncertainty_np(
   x,
   models,
   training_setting,
   num_samples
 ):
   """Monte Carlo uncertainty estimator for ensembles of variational models.
-    Decomposes uncertainty into aleatoric and epistemic parts.
 
   Should work for all variational methods which sample from model posterior
   in each forward pass -- MC Dropout, MFVI, Radial BNNs.
@@ -309,7 +313,7 @@ def variational_ensemble_predict_and_decompose_uncertainty(
   ]).reshape(-1, b)
   # pylint: enable=g-complex-comprehension
 
-  return predict_and_decompose_uncertainty(mc_samples=mc_samples)
+  return predict_and_decompose_uncertainty_np(mc_samples=mc_samples)
 
 
 def variational_ensemble_predict_and_decompose_uncertainty_tf(
@@ -319,7 +323,6 @@ def variational_ensemble_predict_and_decompose_uncertainty_tf(
   num_samples
 ):
   """Monte Carlo uncertainty estimator for ensembles of variational models.
-    Decomposes uncertainty into aleatoric and epistemic parts.
 
   Should work for all variational methods which sample from model posterior
   in each forward pass -- MC Dropout, MFVI, Radial BNNs.
@@ -366,7 +369,7 @@ def variational_ensemble_predict_and_decompose_uncertainty_tf(
   return predict_and_decompose_uncertainty_tf(mc_samples=mc_samples)
 
 
-def deterministic_predict_and_decompose_uncertainty(
+def deterministic_predict_and_decompose_uncertainty_np(
   x,
   model,
   training_setting
@@ -396,7 +399,7 @@ def deterministic_predict_and_decompose_uncertainty(
       aleatoric_uncertainty: None
     }
   """
-  prediction, predictive_entropy = deterministic_predict(
+  prediction, predictive_entropy = deterministic_predict_np(
     x=x, model=model, training_setting=training_setting)
 
   return {
@@ -450,13 +453,12 @@ def deterministic_predict_and_decompose_uncertainty_tf(
   }
 
 
-def deep_ensemble_predict_and_decompose_uncertainty(
+def deep_ensemble_predict_and_decompose_uncertainty_np(
   x,
   models,
   training_setting
 ):
-  """Monte Carlo uncertainty estimator for ensembles of deterministic models,
-    decomposes uncertainty into aleatoric and epistemic parts.
+  """Monte Carlo uncertainty estimator for ensembles of deterministic models.
 
   For example, this method should be used with Deep Ensembles (ensembles of
     deterministic neural networks, with different data/model seeds).
@@ -489,7 +491,7 @@ def deep_ensemble_predict_and_decompose_uncertainty(
   mc_samples = np.asarray(
       [model(x, training=training_setting) for model in models]).reshape(-1, b)
 
-  return predict_and_decompose_uncertainty(mc_samples=mc_samples)
+  return predict_and_decompose_uncertainty_np(mc_samples=mc_samples)
 
 
 def deep_ensemble_predict_and_decompose_uncertainty_tf(
@@ -497,8 +499,7 @@ def deep_ensemble_predict_and_decompose_uncertainty_tf(
   models,
   training_setting
 ):
-  """Monte Carlo uncertainty estimator for ensembles of deterministic models,
-    decomposes uncertainty into aleatoric and epistemic parts.
+  """Monte Carlo uncertainty estimator for ensembles of deterministic models.
 
   For example, this method should be used with Deep Ensembles (ensembles of
     deterministic neural networks, with different data/model seeds).
@@ -540,7 +541,7 @@ along with the predictive mean.
 """
 
 
-def deterministic_predict(x,
+def deterministic_predict_np(x,
                           model,
                           training_setting):
   """Simple sigmoid uncertainty estimator.
@@ -595,7 +596,7 @@ def deterministic_predict_tf(x, model, training_setting):
   return prediction, predictive_entropy
 
 
-def fsvi_predict_and_decompose_uncertainty(
+def fsvi_predict_and_decompose_uncertainty_jax(
         x,
         model,
         rng_key,
@@ -630,7 +631,7 @@ def fsvi_predict_and_decompose_uncertainty(
       aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
     }
   """
-  # mc_samples has shape [T, B]
+  # mc_samples has shape [S, B]
   preds_y_samples, _, _ = model.predict_y_multisample_jitted(
     params=params,
     state=state,
@@ -644,7 +645,7 @@ def fsvi_predict_and_decompose_uncertainty(
   return predict_and_decompose_uncertainty_jax(mc_samples=mc_samples)
 
 
-def fsvi_ensemble_predict_and_decompose_uncertainty(
+def fsvi_ensemble_predict_and_decompose_uncertainty_jax(
       x,
       model,
       rng_key,
@@ -676,7 +677,7 @@ def fsvi_ensemble_predict_and_decompose_uncertainty(
       aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
     }
   """
-  # mc_samples has shape [T, B]
+  # mc_samples has shape [S, B]
   list_mc_samples = []
   for i, m in enumerate(model):
     preds_y_samples, _, _ = m.predict_y_multisample_jitted(
@@ -695,12 +696,13 @@ def fsvi_ensemble_predict_and_decompose_uncertainty(
 
 
 def predict_and_decompose_uncertainty_jax(mc_samples):
-  """Given a set of MC samples, decomposes uncertainty into
-    aleatoric and epistemic parts.
+  """Using a set of MC samples, produce the prediction and uncertainty
+    estimates: predictive entropy, predictive variance, epistemic uncertainty
+    (MI), and aleatoric uncertainty (expected entropy).
 
   Args:
     mc_samples: `np.ndarray`, Monte Carlo samples from a sigmoid predictive
-      distribution, shape [T, B] where T is the number of samples and B
+      distribution, shape [S, B] where S is the number of samples and B
       is the batch size.
 
   Returns:
@@ -730,22 +732,22 @@ def predict_and_decompose_uncertainty_jax(mc_samples):
 # Format:
 # (model_type, use_ensemble): predict_and_decompose_uncertainty_fn
 RETINOPATHY_MODEL_TO_DECOMPOSED_UNCERTAINTY_ESTIMATOR = {
-  ('deterministic', False): deterministic_predict_and_decompose_uncertainty,
-  ('deterministic', True): deep_ensemble_predict_and_decompose_uncertainty,
-  ('dropout', False): variational_predict_and_decompose_uncertainty,
-  ('dropout', True): variational_ensemble_predict_and_decompose_uncertainty,
-  ('radial', False): variational_predict_and_decompose_uncertainty,
-  ('radial', True): variational_ensemble_predict_and_decompose_uncertainty,
+  ('deterministic', False): deterministic_predict_and_decompose_uncertainty_np,
+  ('deterministic', True): deep_ensemble_predict_and_decompose_uncertainty_np,
+  ('dropout', False): variational_predict_and_decompose_uncertainty_np,
+  ('dropout', True): variational_ensemble_predict_and_decompose_uncertainty_np,
+  ('radial', False): variational_predict_and_decompose_uncertainty_np,
+  ('radial', True): variational_ensemble_predict_and_decompose_uncertainty_np,
   ('variational_inference', False): (
-    variational_predict_and_decompose_uncertainty),
+    variational_predict_and_decompose_uncertainty_np),
   ('variational_inference', True): (
-    variational_ensemble_predict_and_decompose_uncertainty),
-  ('rank1', False): variational_predict_and_decompose_uncertainty,
-  ('rank1', True): variational_ensemble_predict_and_decompose_uncertainty,
+    variational_ensemble_predict_and_decompose_uncertainty_np),
+  ('rank1', False): variational_predict_and_decompose_uncertainty_np,
+  ('rank1', True): variational_ensemble_predict_and_decompose_uncertainty_np,
   ('swag', False): None,  # SWAG requires sampling outside the dataset loop
   ('swag', True): None,
-  ('fsvi', False): fsvi_predict_and_decompose_uncertainty,
-  ('fsvi', True): fsvi_ensemble_predict_and_decompose_uncertainty,
+  ('fsvi', False): fsvi_predict_and_decompose_uncertainty_jax,
+  ('fsvi', True): fsvi_ensemble_predict_and_decompose_uncertainty_jax,
 }
 
 # (model_type, use_ensemble): predict_and_decompose_uncertainty_fn

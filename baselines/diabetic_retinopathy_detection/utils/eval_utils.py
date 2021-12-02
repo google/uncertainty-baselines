@@ -101,25 +101,34 @@ def eval_step_tf(
         y_aleatoric_uncert_ = y_aleatoric_uncert_.values
         y_epistemic_uncert_ = y_epistemic_uncert_.values
 
-    # Iterate through per-batch results
-    # This is written in a very un-Pythonic manner to have updates only
-    # rely on arguments successfully passed to TPU scope
-    for replica_id in tf.range(strategy.num_replicas_in_sync):
-      index = (strategy.num_replicas_in_sync * i) + replica_id
-      for batch_result in y_true_:
-        y_true = y_true.write(index, batch_result)
-      for batch_result in y_pred_:
-        y_pred = y_pred.write(index, batch_result)
-      for batch_result in y_pred_entropy_:
-        y_pred_entropy = y_pred_entropy.write(index, batch_result)
+      # Iterate through per-batch results
+      # This is written in a very un-Pythonic manner to have updates only
+      # rely on arguments successfully passed to TPU scope
+      for replica_id in tf.range(strategy.num_replicas_in_sync):
+        index = (strategy.num_replicas_in_sync * i) + replica_id
+        for batch_result in y_true_:
+          y_true = y_true.write(index, batch_result)
+        for batch_result in y_pred_:
+          y_pred = y_pred.write(index, batch_result)
+        for batch_result in y_pred_entropy_:
+          y_pred_entropy = y_pred_entropy.write(index, batch_result)
+
+        if not is_deterministic:
+          for batch_result in y_pred_variance_:
+            y_pred_variance = y_pred_variance.write(index, batch_result)
+          for batch_result in y_aleatoric_uncert_:
+            y_aleatoric_uncert = y_aleatoric_uncert.write(index, batch_result)
+          for batch_result in y_epistemic_uncert_:
+            y_epistemic_uncert = y_epistemic_uncert.write(index, batch_result)
+    else:
+      y_true = y_true.write(i, y_true_)
+      y_pred = y_pred.write(i, y_pred_)
+      y_pred_entropy = y_pred_entropy.write(i, y_pred_entropy_)
 
       if not is_deterministic:
-        for batch_result in y_pred_variance_:
-          y_pred_variance = y_pred_variance.write(index, batch_result)
-        for batch_result in y_aleatoric_uncert_:
-          y_aleatoric_uncert = y_aleatoric_uncert.write(index, batch_result)
-        for batch_result in y_epistemic_uncert_:
-          y_epistemic_uncert = y_epistemic_uncert.write(index, batch_result)
+        y_pred_variance = y_pred_variance.write(i, y_pred_variance_)
+        y_aleatoric_uncert = y_aleatoric_uncert.write(i, y_aleatoric_uncert_)
+        y_epistemic_uncert = y_epistemic_uncert.write(i, y_epistemic_uncert_)
 
   results_arrs = {
     'y_true': y_true.stack(),
@@ -207,7 +216,12 @@ def evaluate_model_on_datasets(
     # Use vectorized NumPy containers
     for eval_key, eval_arr in eval_epoch_arrs.items():
       _eval_arr = eval_arr if backend == "jax" else eval_arr.numpy()
-      dataset_split_dict[eval_key] = np.concatenate(_eval_arr).flatten()
+
+      if _eval_arr.ndim > 1:
+        _eval_arr = np.concatenate(_eval_arr).flatten()
+
+      print(f'dims for {eval_key}', _eval_arr.shape)
+      dataset_split_dict[eval_key] = _eval_arr
       if verbose:
         print(
           f'Concatenated {eval_key} into shape '

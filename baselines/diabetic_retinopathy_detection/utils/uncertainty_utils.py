@@ -18,8 +18,7 @@
 A set of model wrappers and evaluation utilities to determine the robustness
 and quality of uncertainty estimates of the given model.
 
-TODO @nband: convert TF methods to better use TensorArrays for faster
-  TPU execution.
+TODO @nband: better use TensorArrays in TF methods for faster TPU execution.
 """
 
 import functools
@@ -28,9 +27,47 @@ from typing import Dict
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-from scipy.stats import bernoulli
 
 tfd = tfp.distributions
+
+
+"""
+Binary classification utilities.
+"""
+# Retrieves all parts of (1 - p, p, Log[1 - p], Log[p])
+# given either probs or logits
+_probs_and_log_probs_tf = tfd.bernoulli._probs_and_log_probs
+
+
+def _probs_and_log_probs_np(probs):
+  """NumPy equivalent based on tfd.bernoulli._probs_and_log_probs."""
+  to_return = ()
+  p = np.array(probs)
+  to_return += (1 - p, p)
+  to_return += (np.log1p(-p), np.log(p))
+  return to_return
+
+
+def binary_entropy_tf(probs):
+  """Compute binary entropy, from tfp.distributions.Bernoulli.entropy."""
+  probs0, probs1, log_probs0, log_probs1 = _probs_and_log_probs_tf(
+    probs=probs, logits=None, return_log_probs=True)
+  return -1. * (
+      tf.math.multiply_no_nan(log_probs0, probs0) +
+      tf.math.multiply_no_nan(log_probs1, probs1))
+
+
+def binary_entropy_np(probs):
+  """Compute binary entropy in NumPy."""
+  probs0, probs1, log_probs0, log_probs1 = _probs_and_log_probs_np(probs)
+  return -1. * (
+      np.where(probs0 == 0, 0, np.multiply(log_probs0, probs0)) +
+      np.where(probs1 == 0, 0, np.multiply(log_probs1, probs1)))
+
+
+def binary_entropy_jax(array):
+  import jax
+  return jax.scipy.special.entr(array) + jax.scipy.special.entr(1 - array)
 
 
 """
@@ -51,25 +88,30 @@ def predict_and_decompose_uncertainty_tf(mc_samples: tf.Tensor):
 
   Returns:
     Dict: {
-      mean: `tf.Tensor`, predictive mean, with shape [B].
+      prediction: `tf.Tensor`, prediction, with shape [B].
       predictive_entropy: `tf.Tensor`, predictive entropy, with shape [B].
       predictive_variance: `tf.Tensor`, predictive variance, with shape [B].
       epistemic_uncertainty: `tf.Tensor`, mutual info, with shape [B].
       aleatoric_uncertainty: `tf.Tensor`, expected entropy, with shape [B].
     }
   """
-  per_sample_entropies = tfd.Bernoulli(probs=mc_samples).entropy()
+  # Prediction: mean of sigmoid probabilities over MC samples
+  prediction = tf.reduce_mean(mc_samples, axis=0)
+
+  # Compute predictive entropy H[p(y|x)], with predictive mean p(y|x)
+  predictive_entropy = binary_entropy_tf(probs=prediction)
+
+  # Compute per-sample entropies (for use in expected entropy)
+  per_sample_entropies = binary_entropy_tf(probs=mc_samples)
   expected_entropy = tf.reduce_mean(per_sample_entropies, axis=0)
 
-  # Bernoulli output distribution
-  predictive_dist = tfd.Bernoulli(probs=tf.reduce_mean(mc_samples, axis=0))
-
-  predictive_entropy = predictive_dist.entropy()
-  predictive_variance = predictive_dist.variance()
-  predictive_mean = predictive_dist.mean()
+  # Take variance over MC samples
+  # In binary classification, we can simply do this over the positive class
+  # because 0.5 * (Var(X) + Var(1 - X)) = Var(X)
+  predictive_variance = tf.math.reduce_variance(mc_samples, axis=0)
 
   return {
-    'prediction': predictive_mean,
+    'prediction': prediction,
     'predictive_entropy': predictive_entropy,
     'predictive_variance': predictive_variance,
     'epistemic_uncertainty': predictive_entropy - expected_entropy,  # MI
@@ -88,27 +130,30 @@ def predict_and_decompose_uncertainty(mc_samples: np.ndarray):
 
   Returns:
     Dict: {
-      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
       aleatoric_uncertainty: `numpy.ndarray`, expected entropy, with shape [B].
     }
   """
-  num_samples = mc_samples.shape[0]
-  per_sample_entropies = np.array([
-    bernoulli(mc_samples[i, :]).entropy() for i in range(num_samples)])
+  # Prediction: mean of sigmoid probabilities over MC samples
+  prediction = mc_samples.mean(axis=0)
+
+  # Compute predictive entropy H[p(y|x)], with predictive mean p(y|x)
+  predictive_entropy = binary_entropy_np(probs=prediction)
+
+  # Compute per-sample entropies (for use in expected entropy)
+  per_sample_entropies = binary_entropy_np(probs=mc_samples)
   expected_entropy = per_sample_entropies.mean(axis=0)
 
-  # Bernoulli output distribution
-  predictive_dist = bernoulli(mc_samples.mean(axis=0))
-
-  predictive_entropy = predictive_dist.entropy()
-  predictive_variance = predictive_dist.std() ** 2
-  predictive_mean = predictive_dist.mean()
+  # Take variance over MC samples
+  # In binary classification, we can simply do this over the positive class
+  # because 0.5 * (Var(X) + Var(1 - X)) = Var(X)
+  predictive_variance = mc_samples.var(axis=0)
 
   return {
-    'prediction': predictive_mean,
+    'prediction': prediction,
     'predictive_entropy': predictive_entropy,
     'predictive_variance': predictive_variance,
     'epistemic_uncertainty': predictive_entropy - expected_entropy,  # MI
@@ -143,7 +188,7 @@ def variational_predict_and_decompose_uncertainty(
 
   Returns:
     Dict: {
-      prediction: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
@@ -190,7 +235,7 @@ def variational_predict_and_decompose_uncertainty_tf(
 
   Returns:
     Dict: {
-      prediction: `tf.Tensor`, predictive mean, with shape [B].
+      prediction: `tf.Tensor`, prediction, with shape [B].
       predictive_entropy: `tf.Tensor`, predictive entropy, with shape [B].
       predictive_variance: `tf.Tensor`, predictive variance, with shape [B].
       epistemic_uncertainty: `tf.Tensor`, mutual info, with shape [B].
@@ -242,7 +287,7 @@ def variational_ensemble_predict_and_decompose_uncertainty(
 
   Returns:
     Dict: {
-      prediction: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
@@ -295,7 +340,7 @@ def variational_ensemble_predict_and_decompose_uncertainty_tf(
 
   Returns:
     Dict: {
-      prediction: `tf.Tensor`, predictive mean, with shape [B].
+      prediction: `tf.Tensor`, prediction, with shape [B].
       predictive_entropy: `tf.Tensor`, predictive entropy, with shape [B].
       predictive_variance: `tf.Tensor`, predictive variance, with shape [B].
       epistemic_uncertainty: `tf.Tensor`, mutual info, with shape [B].
@@ -328,7 +373,8 @@ def deterministic_predict_and_decompose_uncertainty(
 ):
   """
   Wrapper for simple sigmoid uncertainty estimator -- returns None for
-    aleatoric and epistemic uncertainty, as we cannot obtain these.
+    predictive variance, aleatoric, and epistemic uncertainty, as we cannot
+    obtain these.
 
   Args:
     x: `numpy.ndarray`, datapoints from input space, with shape [B, H, W, 3],
@@ -343,20 +389,20 @@ def deterministic_predict_and_decompose_uncertainty(
 
   Returns:
     Dict: {
-      prediction: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
-      predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
+      predictive_variance: None
       epistemic_uncertainty: None
       aleatoric_uncertainty: None
     }
   """
-  mean, predictive_entropy, predictive_variance = deterministic_predict(
+  prediction, predictive_entropy = deterministic_predict(
     x=x, model=model, training_setting=training_setting)
 
   return {
-    'prediction': mean,
+    'prediction': prediction,
     'predictive_entropy': predictive_entropy,
-    'predictive_variance': predictive_variance,
+    'predictive_variance': None,
     'epistemic_uncertainty': None,
     'aleatoric_uncertainty': None
   }
@@ -369,7 +415,8 @@ def deterministic_predict_and_decompose_uncertainty_tf(
 ):
   """
   Wrapper for simple sigmoid uncertainty estimator -- returns None for
-    aleatoric and epistemic uncertainty, as we cannot obtain these.
+    predictive variance, aleatoric, and epistemic uncertainty, as we cannot
+    obtain these.
 
   Args:
     x: `tf.Tensor`, datapoints from input space, with shape [B, H, W, 3],
@@ -384,20 +431,20 @@ def deterministic_predict_and_decompose_uncertainty_tf(
 
   Returns:
     Dict: {
-      prediction: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
-      predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
+      predictive_variance: None
       epistemic_uncertainty: None
       aleatoric_uncertainty: None
     }
   """
-  mean, predictive_entropy, predictive_variance = deterministic_predict_tf(
+  prediction, predictive_entropy = deterministic_predict_tf(
     x=x, model=model, training_setting=training_setting)
 
   return {
-    'prediction': mean,
+    'prediction': prediction,
     'predictive_entropy': predictive_entropy,
-    'predictive_variance': predictive_variance,
+    'predictive_variance': None,
     'epistemic_uncertainty': None,
     'aleatoric_uncertainty': None
   }
@@ -427,7 +474,7 @@ def deep_ensemble_predict_and_decompose_uncertainty(
 
   Returns:
     Dict: {
-      prediction: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
@@ -469,7 +516,7 @@ def deep_ensemble_predict_and_decompose_uncertainty_tf(
 
   Returns:
     Dict: {
-      prediction: `tf.Tensor`, predictive mean, with shape [B].
+      prediction: `tf.Tensor`, prediction, with shape [B].
       predictive_entropy: `tf.Tensor`, predictive entropy, with shape [B].
       predictive_variance: `tf.Tensor`, predictive variance, with shape [B].
       epistemic_uncertainty: `tf.Tensor`, mutual info, with shape [B].
@@ -510,17 +557,16 @@ def deterministic_predict(x,
       note in docstring at top of file.
 
   Returns:
-    mean: `numpy.ndarray`, predictive mean, with shape [B].
-    uncertainty: `numpy.ndarray`, uncertainty in prediction,
-      with shape [B].
+    prediction: `numpy.ndarray`, prediction, with shape [B].
+    predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
   """
   # Single forward pass from the deterministic model
-  p = model(x, training=training_setting)
+  prediction = model(x, training=training_setting)
 
-  # Bernoulli output distribution
-  dist = bernoulli(p)
+  # Compute predictive entropy H[p(y|x)], with predictive mean p(y|x)
+  predictive_entropy = binary_entropy_np(probs=prediction)
 
-  return get_dist_mean_and_uncertainty(dist=dist)
+  return prediction, predictive_entropy
 
 
 def deterministic_predict_tf(x, model, training_setting):
@@ -537,22 +583,16 @@ def deterministic_predict_tf(x, model, training_setting):
     training_setting: bool, if True, run model prediction in training mode. See
       note in docstring at top of file.
   Returns:
-    mean: `tf.Tensor`, predictive mean, with shape [B].
-    uncertainty: `tf.Tensor`, uncertainty in prediction,
-      with shape [B].
+    prediction: `tf.Tensor`, prediction, with shape [B].
+    predictive_entropy: `tf.Tensor`, predictive entropy, with shape [B].
   """
   # Single forward pass from the deterministic model
-  p = model(x, training=training_setting)
+  prediction = model(x, training=training_setting)
 
-  # Bernoulli output distribution
-  dist = tfd.Bernoulli(probs=p)
+  # Compute predictive entropy H[p(y|x)], with predictive mean p(y|x)
+  predictive_entropy = binary_entropy_tf(probs=prediction)
 
-  return get_dist_mean_and_uncertainty_tf(dist=dist)
-
-
-def binary_entropy_jax(array):
-  import jax
-  return jax.scipy.special.entr(array) + jax.scipy.special.entr(1 - array)
+  return prediction, predictive_entropy
 
 
 def fsvi_predict_and_decompose_uncertainty(
@@ -583,7 +623,7 @@ def fsvi_predict_and_decompose_uncertainty(
 
   Returns:
     Dict: {
-      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
@@ -629,7 +669,7 @@ def fsvi_ensemble_predict_and_decompose_uncertainty(
 
   Returns:
     Dict: {
-      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
@@ -665,7 +705,7 @@ def predict_and_decompose_uncertainty_jax(mc_samples):
 
   Returns:
     Dict: {
-      mean: `numpy.ndarray`, predictive mean, with shape [B].
+      prediction: `numpy.ndarray`, prediction, with shape [B].
       predictive_entropy: `numpy.ndarray`, predictive entropy, with shape [B].
       predictive_variance: `numpy.ndarray`, predictive variance, with shape [B].
       epistemic_uncertainty: `numpy.ndarray`, mutual info, with shape [B].
@@ -674,64 +714,17 @@ def predict_and_decompose_uncertainty_jax(mc_samples):
   """
   expected_entropy = binary_entropy_jax(mc_samples).mean(axis=0)
 
-  # Bernoulli output distribution
-  predictive_mean = mc_samples.mean(axis=0)
-  predictive_entropy = binary_entropy_jax(predictive_mean)
-  predictive_variance = predictive_mean * (1 - predictive_mean)
+  prediction = mc_samples.mean(axis=0)
+  predictive_entropy = binary_entropy_jax(prediction)
+  predictive_variance = mc_samples.var(axis=0)
 
   return {
-    'prediction': predictive_mean,
+    'prediction': prediction,
     'predictive_entropy': predictive_entropy,
     'predictive_variance': predictive_variance,
     'epistemic_uncertainty': predictive_entropy - expected_entropy,  # MI
     'aleatoric_uncertainty': expected_entropy
   }
-
-
-def get_dist_mean_and_uncertainty(dist: bernoulli):
-  """Compute the mean and uncertainty.
-
-  From a scipy.stats.bernoulli predictive distribution, compute the predictive
-  mean and uncertainty (entropy and variance).
-
-  Args:
-    dist: `scipy.stats.bernoulli`, predictive distribution constructed from
-      probabilistic model samples for some input batch.
-
-  Returns:
-    mean: `np.ndarray`, predictive mean, with shape [B].
-    predictive_entropy: `numpy.ndarray`, total uncertainty by predictive
-      entropy, with shape [B].
-    predictive_variance: `numpy.ndarray`, total uncertainty by predictive
-      variance, with shape [B].
-  """
-  mean = dist.mean()
-  predictive_entropy = dist.entropy()
-  predictive_variance = dist.std() ** 2
-  return mean, predictive_entropy, predictive_variance
-
-
-def get_dist_mean_and_uncertainty_tf(dist: tfd.Bernoulli):
-  """Compute the mean and uncertainty.
-
-  From a tensorflow_probability.distributions.Bernoulli predictive distribution,
-   compute the predictive mean and uncertainty (entropy and variance).
-
-  Args:
-    dist: `tfd.Bernoulli`, predictive distribution constructed from
-      probabilistic model samples for some input batch.
-
-  Returns:
-    mean: `tf.Tensor`, predictive mean, with shape [B].
-    predictive_entropy: `tf.Tensor`, total uncertainty by predictive
-      entropy, with shape [B].
-    predictive_variance: `tf.Tensor`, total uncertainty by predictive
-      variance, with shape [B].
-  """
-  mean = dist.mean()
-  predictive_entropy = dist.entropy()
-  predictive_variance = dist.variance()
-  return mean, predictive_entropy, predictive_variance
 
 
 # Format:

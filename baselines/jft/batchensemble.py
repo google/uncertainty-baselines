@@ -49,7 +49,6 @@ import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
 ensemble = None
-train = None
 xprof = None
 core = None
 xm = None
@@ -251,9 +250,8 @@ def main(_):
 
     return params
 
-  rng_init = {'params': jax.random.split(jax.random.PRNGKey(0), 1)[0]}
+  rng, rng_init = jax.random.split(rng)
   params_init = init(rng_init)
-  rngs = {}
   opt_init = opt_def.create(flax.core.freeze(params_init))
 
   weight_decay_rules = config.get('weight_decay', []) or []
@@ -310,14 +308,12 @@ def main(_):
       config=config)
 
   opt = checkpoint_data.optimizer
+  train_loop_rngs = {'params': checkpoint_data.train_loop_rngs}
   opt = opt.replace(target=flax.core.freeze(opt.target))
   first_step = int(opt.state.step)
 
   opt = flax.jax_utils.replicate(opt)
   accumulated_train_time = checkpoint_data.accumulated_train_time
-
-  train_loop_rngs = jax.tree_map(
-      train.rng_jax_fold_host_if_needed_and_shard, rngs)
 
   start_time = time.time()
 
@@ -368,8 +364,6 @@ def main(_):
           total_steps=total_steps, host=0, first=False):
         train_utils.checkpointing_timeout(checkpoint_writer,
                                           config.get('checkpoint_timeout', 1))
-        train.sync_all_hosts()
-
         time_since_last_start = float(time.time() - start_time)
         accumulated_train_time = accumulated_train_time + time_since_last_start
         opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt)

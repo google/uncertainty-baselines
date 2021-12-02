@@ -48,12 +48,8 @@ import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
-ensemble = None
-xprof = None
-core = None
 xm = None
 xm_api = None
-BIG_VISION_DIR = None
 
 ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
@@ -67,6 +63,14 @@ flags.DEFINE_string('tpu', None,
 
 # Adds jax flags to the program.
 jax.config.parse_flags_with_absl()
+
+
+def _log_average_probs(logits: jnp.ndarray) -> jnp.ndarray:
+  # TODO(zmariet): dedicated eval loss function.
+  ens_size, _, _ = logits.shape
+  log_p = jax.nn.log_softmax(logits)  # (ensemble_size, batch_size, num_classes)
+  log_p = jax.nn.logsumexp(log_p, axis=0) - jnp.log(ens_size)
+  return log_p
 
 
 def main(_):
@@ -89,7 +93,8 @@ def main(_):
   checkpoint_writer = None
 
   # Loss to apply.
-  loss_to_apply = getattr(core, config.get('loss_to_apply', 'softmax_xent'))
+  loss_to_apply = getattr(
+      train_utils, config.get('loss_to_apply', 'softmax_xent'))
   compute_ece = config.get('compute_ece', False)
   is_sigmoid = config.get('loss_to_apply', 'softmax_xent') == 'sigmoid_xent'
   if compute_ece and is_sigmoid:
@@ -263,20 +268,20 @@ def main(_):
     logits, _ = model_train.apply(
         {'params': params}, inputs, *args, **kwargs)
     labels = jnp.tile(labels, (ens_size, 1))
-    loss = jnp.mean(loss_to_apply(logits, labels))
+    loss = jnp.mean(loss_to_apply(logits=logits, labels=labels))
     return loss, dict()
 
-  update_fn = functools.partial(
-      batchensemble_utils.update_fn_be,
-      weight_decay_fn=weight_decay_fn,
-      plot_grad_norm_name_fn=None,
-      plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
-      max_grad_norm_global=config.get('clip_grad_norm', None),
-      frozen_vars_patterns=config.get('frozen_var_patterns', None),
-      fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
-  pmap_update_fn = core.pmap_sorted(
-      update_fn, axis_name='batch', donate_argnums=(0, 1),
-      static_broadcasted_argnums=(5,))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
+  def pmap_update_fn(opt, rngs, lr, images, labels):
+    return batchensemble_utils.update_fn_be(
+        opt=opt, rngs=rngs, lr=lr, images=images, labels=labels,
+        batch_loss_fn=batch_loss_fn,
+        weight_decay_fn=weight_decay_fn,
+        plot_grad_norm_name_fn=None,
+        plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
+        max_grad_norm_global=config.get('clip_grad_norm', None),
+        frozen_vars_patterns=config.get('frozen_var_patterns', None),
+        fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
   @functools.partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
@@ -284,17 +289,20 @@ def main(_):
     mask *= labels.max(axis=1)
     tiled_logits, _ = model_eval.apply({'params': flax.core.freeze(params)},
                                        images)
-    ens_logits = jnp.asarray(jnp.split(tiled_logits, ens_size))
+    ens_logits = _log_average_probs(
+        jnp.asarray(jnp.split(tiled_logits, ens_size)))
 
-    losses = ensemble.ensemble_softmax_xent(
-        logits=ens_logits, labels=labels)
+    losses = train_utils.softmax_xent(logits=ens_logits,
+                                      labels=labels[:, :config.num_classes],
+                                      reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
-    ncorrect = ensemble.ensemble_softmax_correct_multilabel(
-        ens_logits, labels, mask, psum_axis_name='batch')
+    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
+    ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
-    logits = jnp.log(jnp.mean(jax.nn.softmax(ens_logits), axis=0))
-    metric_args = jax.lax.all_gather([logits, labels, mask],
+
+    metric_args = jax.lax.all_gather([ens_logits, labels, mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
@@ -340,28 +348,21 @@ def main(_):
 
   log_training_first_n_steps = config.get('log_training_first_n_steps', -1)
   with metric_writers.ensure_flushes(writer):
-    callback_fn = lambda x: x  # Do nothing.
-    xprof_session = xprof.MultiStepXprofSession(
-        profile_steps=20,    # For how many steps to profile after warmup.
-        warmup_steps=170,    # For how many steps to wait before profiling.
-        stop_callback_fn=callback_fn)
     for step, train_batch, lr_repl in zip(
         range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-      with xprof_session:
-        with jax.profiler.StepTraceAnnotation(name='train', step_num=step):
-          opt, train_loop_rngs, loss_value, _ = pmap_update_fn(
-              opt,
-              train_loop_rngs,
-              lr_repl,
-              train_batch['image'],
-              train_batch['labels'],
-              batch_loss_fn)
+      opt, train_loop_rngs, loss_value, _ = pmap_update_fn(
+          opt,
+          train_loop_rngs,
+          lr_repl,
+          train_batch['image'],
+          train_batch['labels'])
 
       # Checkpoint saving.
       if train_utils.itstime(
           step=step,
           every_n_steps=config.get('checkpoint_steps'),
           total_steps=total_steps, host=0, first=False):
+        write_note('Checkpointing...')
         train_utils.checkpointing_timeout(checkpoint_writer,
                                           config.get('checkpoint_timeout', 1))
         time_since_last_start = float(time.time() - start_time)
@@ -386,6 +387,7 @@ def main(_):
       if (jax.process_index() == 0 and config.log_training_every_n_steps > 0 and
           (step % config.log_training_every_n_steps == 0 or
            step == total_steps or step < log_training_first_n_steps)):
+        write_note('Reporting training progress...')
         train_loss = loss_value[0]
         time_elapsed = time.time() - start_time + accumulated_train_time
         img_sec_core = (

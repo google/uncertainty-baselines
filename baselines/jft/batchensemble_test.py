@@ -22,7 +22,10 @@ from absl import flags
 from absl import logging
 from absl.testing import flagsaver
 from absl.testing import parameterized
+import jax
+import jax.numpy as jnp
 import ml_collections
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import batchensemble  # local file import from baselines.jft
@@ -119,6 +122,19 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     data_dir = str(ub_root_dir) + '/.tfds/metadata'
     logging.info('data_dir contents: %s', os.listdir(data_dir))
     self.data_dir = data_dir
+
+  @parameterized.parameters(1, 3, 5)
+  def test_log_average_probs(self, ensemble_size):
+    batch_size, num_classes = 16, 3
+    logits_shape = (ensemble_size, batch_size, num_classes)
+
+    np.random.seed(42)
+    ensemble_logits = jnp.asarray(np.random.normal(size=logits_shape))
+    actual_logits = batchensemble._log_average_probs(ensemble_logits)
+    self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
+
+    expected_probs = jnp.mean(jax.nn.softmax(ensemble_logits), axis=0)
+    self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
 
   @parameterized.parameters(
       ('token', 2, 346.3745, 221.2787),

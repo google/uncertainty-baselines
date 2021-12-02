@@ -20,14 +20,22 @@ https://github.com/google-research/vision_transformer.
 """
 
 import multiprocessing
+import numbers
 import re
 import time
+
+from typing import Callable, List, Tuple, Union
 
 from absl import logging
 import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+import checkpoint_utils  # local file import from baselines.jft
+
+# TODO(zmariet, dusenberrymw): create separate typing module.
+Params = checkpoint_utils.Params
 
 
 def sigmoid_xent(*, logits, labels, reduction=True):
@@ -110,6 +118,36 @@ def create_learning_rate_schedule(total_steps,
     return jnp.asarray(lr, dtype=jnp.float32)
 
   return step_fn
+
+
+def get_weight_decay_fn(
+    weight_decay_rules: Union[float, List[Tuple[str, float]]],
+    rescale_value: float) -> Callable[[Params, float], Params]:
+  """Returns a custom weight-decay function for the learning rate.
+
+  Args:
+    weight_decay_rules: either a scalar indicating the strength of the weight
+      decay, or a list of tuples of the form (parameter_regex, weight_decay)
+      mapping specific variables to the respective weight decay strength. For
+      example, `[('.*kernel.*', 0.5), ('.*fast_weight.*', 0.1)]` will decay the
+      BatchEnsemble slow and fast weights at different rates.
+    rescale_value: scalar indicating by how much the initial learning rate needs
+      to be scaled before applying the weight decay.
+
+  Returns:
+    A function mapping a pytree of parameters and a learning rate to an updated
+      pytree of the same structure with weight decayed values.
+  """
+  if isinstance(weight_decay_rules, numbers.Number):
+    # Append weight decay factor to variable name patterns it applies to.
+    weight_decay_rules = [(".*kernel.*", weight_decay_rules)]
+
+  def weight_decay_fn(params, lr):
+    return tree_map_with_regex(
+        lambda params, wd: (1.0 - lr / rescale_value * wd) * params,
+        params, weight_decay_rules)
+
+  return weight_decay_fn
 
 
 def tree_map_with_regex(f, tree, regex_rules):

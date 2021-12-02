@@ -18,7 +18,6 @@
 from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
 import multiprocessing
-import numbers
 import os
 
 from absl import app
@@ -349,6 +348,11 @@ def main(config, output_dir):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
+  weight_decay_rules = config.get('weight_decay', []) or []
+  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  weight_decay_fn = train_utils.get_weight_decay_fn(
+      weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
+
   @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, lr, images, labels, rng):
     """Update step."""
@@ -387,16 +391,7 @@ def main(config, output_dir):
       g = jax.tree_util.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
 
-    decay_rules = config.get('weight_decay', []) or []
-    if isinstance(decay_rules, numbers.Number):
-      decay_rules = [('.*kernel.*', decay_rules)]
-    sched_m = lr/config.lr.base if config.get('weight_decay_decouple') else lr
-    def decay_fn(v, wd):
-      return (1.0 - sched_m * wd) * v
-
-    opt = opt.replace(
-        target=train_utils.tree_map_with_regex(decay_fn, opt.target,
-                                               decay_rules))
+    opt = opt.replace(target=weight_decay_fn(opt.target, lr))
 
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))

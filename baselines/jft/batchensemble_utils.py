@@ -142,5 +142,6 @@ def update_fn_be(
   opt = opt.apply_gradient(grads, learning_rate=lr)
 
   if weight_decay_fn:
-    opt = opt.replace(target=weight_decay_fn(opt.target, lr))
+    params = weight_decay_fn(flax.core.unfreeze(opt.target), lr)
+    opt = opt.replace(target=flax.core.freeze(params))
   return opt, next_rngs, loss, aux

@@ -238,7 +238,10 @@ def main(_):
   logging.info('Model initialization: Done.')
   # TODO(jpuigcerver): Support logging parameter count with new sharding.
 
-  weight_decay_fn = train.get_weight_decay_function_from_config(config)
+  weight_decay_rules = config.get('weight_decay', []) or []
+  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  weight_decay_fn = train_utils.get_weight_decay_fn(
+      weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
   batch_loss_fn = ensemble.wrap_ensemble_module_with_auxiliary_loss_fn(
       module=model_train,
       loss_fn=loss_to_apply,

@@ -99,8 +99,7 @@ def get_config(classifier, representation_size):
   config.optim.weight_decay = 0.1
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
-  config.weight_decay = [.1]
-  config.weight_decay_pattern = ['.*/kernel']
+  config.weight_decay = .1
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 0.1

@@ -74,11 +74,22 @@ try:
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp
+  from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
   from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:
   logging.warning('Skipped ViT models due to NotFoundError.', exc_info=True)
+
+# pylint: disable=g-import-not-at-top
+try:
+  # Try to import Segmenter models.
+  from uncertainty_baselines.models.segmenter import segmenter_transformer
+except ImportError:
+  logging.warning('Skipped Segmenter models due to ImportError.', exc_info=True)
+except tf.errors.NotFoundError:
+  logging.warning('Skipped Segmenter models due to NotFoundError.',
+                  exc_info=True)
 
 try:
   # Try to import models depending on tensorflow_models.official.nlp.

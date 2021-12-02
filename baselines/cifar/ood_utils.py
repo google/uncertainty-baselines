@@ -44,7 +44,7 @@ def DempsterShaferUncertainty(logits):
   return num_classes / (belief_mass + num_classes)
 
 
-def create_ood_metrics(ood_dataset_names):
+def create_ood_metrics(ood_dataset_names, tpr_list=None):
   """Create OOD metrics."""
   ood_metrics = {}
   for dataset_name in ood_dataset_names:
@@ -54,10 +54,15 @@ def create_ood_metrics(ood_dataset_names):
             tf.keras.metrics.AUC(curve='ROC', num_thresholds=100000),
         f'{ood_dataset_name}_auprc':
             tf.keras.metrics.AUC(curve='PR', num_thresholds=100000),
-        f'{ood_dataset_name}_(1-fpr)@95tpr':
-            tf.keras.metrics.SpecificityAtSensitivity(
-                0.95, num_thresholds=100000)
     })
+    if tpr_list:
+      for tpr in tpr_list:
+        tpr_percent = int(tpr * 100)
+        ood_metrics.update({
+            f'{ood_dataset_name}_(1-fpr)@{tpr_percent}tpr':
+                tf.keras.metrics.SpecificityAtSensitivity(
+                    tpr, num_thresholds=100000)
+        })
   return ood_metrics
 
 

@@ -25,7 +25,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('ensemble_size', 2, 'Size of ensemble.')
@@ -97,6 +97,7 @@ def main(argv):
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // train_batch_size
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // test_batch_size
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -110,12 +111,12 @@ def main(argv):
 
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
-      use_bfloat16=FLAGS.use_bfloat16)
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=data_dir)
   train_dataset = train_builder.load(
       batch_size=train_batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16)
+      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
   test_dataset = test_builder.load(
       batch_size=test_batch_size, strategy=strategy)
 

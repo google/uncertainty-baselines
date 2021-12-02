@@ -16,11 +16,10 @@
 """RandAugment policies for enhanced image preprocessing."""
 
 import math
+
+from keras.layers.preprocessing import image_preprocessing as image_ops
 import tensorflow as tf
 
-# pylint:disable=g-direct-tensorflow-import
-from tensorflow.python.keras.layers.preprocessing import image_preprocessing as image_ops
-# pylint:enable=g-direct-tensorflow-import
 
 # This signifies the max integer that the controller RNN could predict for the
 # augmentation scheme.

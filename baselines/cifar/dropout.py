@@ -24,8 +24,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import ood_utils  # local file import
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
@@ -272,7 +272,7 @@ def main(argv):
       probs = tf.reduce_mean(probs_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.num_dropout_samples, labels.shape[0]])
+          labels, [FLAGS.num_dropout_samples, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(

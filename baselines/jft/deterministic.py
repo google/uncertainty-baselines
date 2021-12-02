@@ -32,25 +32,25 @@ import flax
 import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
-import ml_collections
+from ml_collections.config_flags import config_flags
 import numpy as np
 import robustness_metrics as rm
 
 import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
-import checkpoint_utils  # local file import
-import cifar10h_utils  # local file import
-import input_utils  # local file import
-import ood_utils  # local file import
-import preprocess_utils  # local file import
-import train_utils  # local file import
+import checkpoint_utils  # local file import from baselines.jft
+import cifar10h_utils  # local file import from baselines.jft
+import input_utils  # local file import from baselines.jft
+import ood_utils  # local file import from baselines.jft
+import preprocess_utils  # local file import from baselines.jft
+import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
 
 
-ml_collections.config_flags.DEFINE_config_file(
+config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
@@ -63,11 +63,7 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 
-def main(argv):
-  del argv
-
-  config = FLAGS.config
-  output_dir = FLAGS.output_dir
+def main(config, output_dir):
 
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
@@ -90,7 +86,7 @@ def main(argv):
   pool = multiprocessing.pool.ThreadPool()
 
   def write_note(note):
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
   write_note('Initializing...')
 
@@ -108,13 +104,12 @@ def main(argv):
     raise ValueError(f'Batch sizes ({batch_size} and {batch_size_eval}) must '
                      f'be divisible by device number ({jax.device_count()})')
 
-  local_batch_size = batch_size // jax.host_count()
-  local_batch_size_eval = batch_size_eval // jax.host_count()
+  local_batch_size = batch_size // jax.process_count()
+  local_batch_size_eval = batch_size_eval // jax.process_count()
   logging.info(
       'Global batch size %d on %d hosts results in %d local batch size. '
       'With %d devices per host (%d devices total), that\'s a %d per-device '
-      'batch size.',
-      batch_size, jax.host_count(), local_batch_size,
+      'batch size.', batch_size, jax.process_count(), local_batch_size,
       jax.local_device_count(), jax.device_count(),
       local_batch_size // jax.local_device_count())
 
@@ -224,6 +219,7 @@ def main(argv):
           config.ood_datasets,
           config.ood_split,
           config.pp_eval,
+          config.pp_eval_ood,
           config.ood_methods,
           config.train_split,
           config.get('data_dir'),
@@ -235,7 +231,7 @@ def main(argv):
       split=config.train_split,
       host_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
-  steps_per_epoch = ntrain_img / batch_size
+  steps_per_epoch = int(ntrain_img / batch_size)
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -243,8 +239,9 @@ def main(argv):
   else:
     total_steps = config.total_steps
 
+  logging.info('Total train data points: %d', ntrain_img)
   logging.info(
-      'Running for %d steps, that means %f epochs and %f steps per epoch',
+      'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')
@@ -276,7 +273,7 @@ def main(argv):
   rng, rng_init = jax.random.split(rng)
   params_cpu = init(rng_init)
 
-  if jax.host_id() == 0:
+  if jax.process_index() == 0:
     num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
@@ -289,8 +286,13 @@ def main(argv):
                               images,
                               train=False)
 
+    # Note that logits and labels are usually of the shape [batch,num_classes].
+    # But for OOD data, when num_classes_ood > num_classes_ind, we need to
+    # adjust labels to labels[:, :config.num_classes] to match the shape of
+    # logits. That is just to avoid shape mismatch. The output losses does not
+    # have any meaning for OOD data, because OOD not belong to any IND class.
     losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
-        logits=logits, labels=labels, reduction=False)
+        logits=logits, labels=labels[:, :config.num_classes], reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
     top1_idx = jnp.argmax(logits, axis=1)
@@ -401,47 +403,32 @@ def main(argv):
 
     return opt, l, rng, measurements
 
-  # Other things besides optimizer state to be stored.
-  rng, rng_loop = jax.random.split(rng, 2)
-  rngs_loop = flax_utils.replicate(rng_loop)
-  checkpoint_extra = dict(accum_train_time=0.0, rngs_loop=rngs_loop)
+  rng, train_loop_rngs = jax.random.split(rng)
+  checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
+      train_loop_rngs=train_loop_rngs,
+      save_checkpoint_path=save_checkpoint_path,
+      init_optimizer=opt_cpu,
+      init_params=params_cpu,
+      init_fixed_model_states=None,
+      default_reinit_params=('head/kernel', 'head/bias'),
+      config=config,
+  )
+  train_loop_rngs = checkpoint_data.train_loop_rngs
+  opt_cpu = checkpoint_data.optimizer
+  accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  # Decide how to initialize training. The order is important.
-  # 1. Always resumes from the existing checkpoint, e.g. resumes a finetune job.
-  # 2. Resume from a previous checkpoint, e.g. start a cooldown training job.
-  # 3. Initialize model from something, e,g, start a fine-tuning job.
-  # 4. Train from scratch.
-  resume_checkpoint_path = None
-  if save_checkpoint_path and gfile.exists(save_checkpoint_path):
-    resume_checkpoint_path = save_checkpoint_path
-  elif config.get('resume'):
-    resume_checkpoint_path = config.resume
-  if resume_checkpoint_path:
-    write_note('Resume training from checkpoint...')
-    checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}
-    checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
-                                                  resume_checkpoint_path)
-    opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
-    rngs_loop = checkpoint_extra['rngs_loop']
-  elif config.get('model_init'):
-    write_note(f'Initialize model from {config.model_init}...')
-    reinit_params = config.get('model_reinit_params',
-                               ('head/kernel', 'head/bias'))
-    logging.info('Reinitializing these parameters: %s', reinit_params)
-    loaded = checkpoint_utils.load_from_pretrained_checkpoint(
-        params_cpu, config.model_init, config.model.representation_size,
-        config.model.classifier, reinit_params)
-    opt_cpu = opt_cpu.replace(target=loaded)
-    if jax.host_id() == 0:
-      logging.info('Restored parameter overview:')
-      parameter_overview.log_parameter_overview(loaded)
+  write_note('Adapting the checkpoint model...')
+  adapted_params = checkpoint_utils.adapt_upstream_architecture(
+      init_params=params_cpu,
+      loaded_params=opt_cpu.target)
+  opt_cpu = opt_cpu.replace(target=adapted_params)
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
-  if first_step == 0 and jax.host_id() == 0:
+  if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
-  chrono = train_utils.Chrono(first_step, total_steps, batch_size,
-                              checkpoint_extra['accum_train_time'])
+  chrono = train_utils.Chrono(
+      first_step, total_steps, batch_size, accumulated_train_time)
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -461,7 +448,8 @@ def main(argv):
   opt_repl = flax_utils.replicate(opt_cpu)
 
   write_note(f'Initializing few-shotters...\n{chrono.note}')
-  if 'fewshot' in config:
+  fewshotter = None
+  if 'fewshot' in config and fewshot is not None:
     fewshotter = fewshot.FewShotEvaluator(
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
@@ -497,15 +485,15 @@ def main(argv):
   for step, train_batch, lr_repl in zip(
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
 
-    with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
-      opt_repl, loss_value, rngs_loop, extra_measurements = update_fn(
+    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+      opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
           opt_repl,
           lr_repl,
           train_batch['image'],
           train_batch['labels'],
-          rng=rngs_loop)
+          rng=train_loop_rngs)
 
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       profiler(step)
 
     # Checkpoint saving
@@ -515,8 +503,7 @@ def main(argv):
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
-      checkpoint_extra['accum_train_time'] = chrono.accum_train_time
-      checkpoint_extra['rngs_loop'] = rngs_loop
+      accumulated_train_time = chrono.accum_train_time
       # We need to transfer the weights over now or else we risk keeping them
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
@@ -531,10 +518,14 @@ def main(argv):
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
       # `flax.struct`. Both can be present in a checkpoint.
-      checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
+      checkpoint_data = checkpoint_utils.CheckpointData(
+          train_loop_rngs=train_loop_rngs,
+          optimizer=opt_cpu,
+          accumulated_train_time=accumulated_train_time)
+
       checkpoint_writer = pool.apply_async(
-          checkpoint_utils.save_checkpoint,
-          (checkpoint, save_checkpoint_path, copy_step))
+          checkpoint_utils.checkpoint_trained_model,
+          (checkpoint_data, save_checkpoint_path, copy_step))
       chrono.resume()
 
     # Report training progress
@@ -593,44 +584,52 @@ def main(argv):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute uncertainty metrics.
-          # (e.g., ECE or Calibration AUC).
-          logits, labels, _, masks = batch_metric_args
-          masks = np.array(masks[0], dtype=np.bool)
-          logits = np.array(logits[0])
-          probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          int_preds = np.argmax(logits, axis=-1)
-          confidence = np.max(probs, axis=-1)
-          for p, c, l, d, m, label in zip(probs, confidence, int_labels,
-                                          int_preds, masks, labels[0]):
-            ece.add_batch(p[m, :], label=l[m])
-            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-            # TODO(jereliu): Extend to support soft multi-class probabilities.
-            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+          if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+            # Here we parse batch_metric_args to compute uncertainty metrics.
+            # (e.g., ECE or Calibration AUC).
+            logits, labels, _, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits = np.array(logits[0])
+            probs = jax.nn.softmax(logits)
+            # From one-hot to integer labels, as required by ECE.
+            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+            int_preds = np.argmax(logits, axis=-1)
+            confidence = np.max(probs, axis=-1)
+            for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                            int_preds, masks, labels[0]):
+              ece.add_batch(p[m, :], label=l[m])
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              # TODO(jereliu): Extend to support soft multi-class probabilities.
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-            if val_name == 'cifar_10h':
-              batch_label_diversity, batch_sample_diversity, batch_ged = cifar10h_utils.generalized_energy_distance(
-                  label[m], p[m, :], 10)
-              label_diversity.update_state(batch_label_diversity)
-              sample_diversity.update_state(batch_sample_diversity)
-              ged.update_state(batch_ged)
+              if val_name == 'cifar_10h':
+                (batch_label_diversity, batch_sample_diversity,
+                 batch_ged) = cifar10h_utils.generalized_energy_distance(
+                     label[m], p[m, :], 10)
+                label_diversity.update_state(batch_label_diversity)
+                sample_diversity.update_state(batch_sample_diversity)
+                ged.update_state(batch_ged)
 
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
             f'{val_name}_loss': val_loss[val_name],
-            f'{val_name}_ece': ece.result()['ece'],
-            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
         }
+        if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+          val_measurements[f'{val_name}_ece'] = ece.result()['ece']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[
+              'calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[
+              'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h':
@@ -654,7 +653,7 @@ def main(argv):
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
 
-    if 'fewshot' in config:
+    if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.
       if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
         chrono.pause()
@@ -700,6 +699,9 @@ if __name__ == '__main__':
   # and then have `main` return None.
 
   def _main(argv):
-    main(argv)
+    del argv
+    config = FLAGS.config
+    output_dir = FLAGS.output_dir
+    main(config, output_dir)
 
   app.run(_main)  # Ignore the returned values from `main`.

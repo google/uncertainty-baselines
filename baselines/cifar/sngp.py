@@ -79,8 +79,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import ood_utils  # local file import
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer(
@@ -180,6 +180,9 @@ flags.DEFINE_string('saved_model_dir', None,
                     'Directory containing the saved model checkpoints.')
 flags.DEFINE_bool('dempster_shafer_ood', False,
                   'Wheter to use DempsterShafer Uncertainty score.')
+flags.DEFINE_list(
+    'ood_tpr_threshold', ['0.8', '0.95'],
+    'Threshold for true positive rate where False positive rate evaluated.')
 
 
 # Redefining default values
@@ -292,7 +295,9 @@ def main(argv):
             corruption_type=corruption_type,
             severity=severity,
             split=tfds.Split.TEST,
-            data_dir=data_dir).load(batch_size=batch_size)
+            data_dir=data_dir,
+            drop_remainder=FLAGS.drop_remainder_for_eval).load(
+                batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -370,7 +375,8 @@ def main(argv):
           'val/stddev': tf.keras.metrics.Mean(),
       })
     if FLAGS.eval_on_ood:
-      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+      ood_metrics = ood_utils.create_ood_metrics(
+          ood_dataset_names, tpr_list=FLAGS.ood_tpr_threshold)
       metrics.update(ood_metrics)
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
@@ -482,12 +488,14 @@ def main(argv):
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract both
           logits, covmat = logits
+          if FLAGS.use_bfloat16:
+            logits = tf.cast(logits, tf.float32)
+          logits = ed.layers.utils.mean_field_logits(
+              logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
         else:
           covmat = tf.eye(logits.shape[0])
-        if FLAGS.use_bfloat16:
-          logits = tf.cast(logits, tf.float32)
-        logits = ed.layers.utils.mean_field_logits(
-            logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
+          if FLAGS.use_bfloat16:
+            logits = tf.cast(logits, tf.float32)
         stddev = tf.sqrt(tf.linalg.diag_part(covmat))
 
         stddev_list.append(stddev)

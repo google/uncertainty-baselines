@@ -32,11 +32,17 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
 flags.mark_flag_as_required('checkpoint_dir')
+
+flags.DEFINE_integer(
+    'total_batch_size', 256,
+    'The total train (and test) batch size, split across all devices.')
+
 # SNGP ensemble flags
 flags.DEFINE_float(
     'gp_mean_field_factor_ensemble', 0.0005,
@@ -64,10 +70,10 @@ flags.DEFINE_float('spec_norm_bound', 6.,
 # Gaussian process flags.
 flags.DEFINE_float('gp_bias', 0., 'The bias term for GP layer.')
 flags.DEFINE_float(
-    'gp_scale', 2.,
+    'gp_scale', 1.,
     'The length-scale parameter for the RBF kernel of the GP layer.')
 flags.DEFINE_integer(
-    'gp_input_dim', 128,
+    'gp_input_dim', -1,
     'The dimension to reduce the neural network input for the GP layer '
     '(via random Gaussian projection which preserves distance by the '
     ' Johnson-Lindenstrauss lemma). If -1, no dimension reduction.')
@@ -76,7 +82,7 @@ flags.DEFINE_integer(
     'The hidden dimension of the GP layer, which corresponds to the number of '
     'random features used for the approximation.')
 flags.DEFINE_bool(
-    'gp_input_normalization', True,
+    'gp_input_normalization', False,
     'Whether to normalize the input using LayerNorm for GP layer.'
     'This is similar to automatic relevance determination (ARD) in the classic '
     'GP learning.')
@@ -91,6 +97,15 @@ flags.DEFINE_float(
     'The discount factor to compute the moving average of precision matrix'
     'across epochs. If -1 then compute the exact precision matrix within the '
     'latest epoch.')
+
+# OOD flags.
+flags.DEFINE_bool('eval_on_ood', False,
+                  'Whether to run OOD evaluation on specified OOD datasets.')
+flags.DEFINE_list('ood_dataset', 'cifar100,svhn_cropped',
+                  'list of OOD datasets to evaluate on.')
+flags.DEFINE_bool('dempster_shafer_ood', False,
+                  'Wheter to use DempsterShafer Uncertainty score.')
+
 FLAGS = flags.FLAGS
 
 
@@ -109,12 +124,23 @@ def main(argv):
   num_classes = ds_info.features['label'].num_classes
 
   data_dir = FLAGS.data_dir
-  dataset = ub.datasets.get(
+  dataset_builder = ub.datasets.get(
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST).load(batch_size=batch_size)
+      split=tfds.Split.TEST,
+      drop_remainder=FLAGS.drop_remainder_for_eval)
+  dataset = dataset_builder.load(batch_size=batch_size)
   test_datasets = {'clean': dataset}
+  if FLAGS.eval_on_ood:
+    ood_dataset_names = FLAGS.ood_dataset
+    ood_datasets, steps_per_ood = ood_utils.load_ood_datasets(
+        ood_dataset_names,
+        dataset_builder,
+        1. - FLAGS.train_proportion,
+        batch_size,
+        drop_remainder=FLAGS.drop_remainder_for_eval)
+    test_datasets.update(ood_datasets)
   extra_kwargs = {}
   if FLAGS.dataset == 'cifar100':
     data_dir = FLAGS.cifar100_c_path
@@ -127,6 +153,7 @@ def main(argv):
           data_dir=data_dir,
           severity=severity,
           split=tfds.Split.TEST,
+          drop_remainder=FLAGS.drop_remainder_for_eval,
           **extra_kwargs).load(batch_size=batch_size)
       test_datasets[f'{corruption_type}_{severity}'] = dataset
 
@@ -162,6 +189,7 @@ def main(argv):
   ensemble_filenames = [filename[:-6] for filename in ensemble_filenames]
   ensemble_size = len(ensemble_filenames)
   logging.info('Ensemble size: %s', ensemble_size)
+  logging.info('Ensemble filenames: %s', ensemble_filenames)
   logging.info('Ensemble number of weights: %s',
                ensemble_size * model.count_params())
   logging.info('Ensemble filenames: %s', str(ensemble_filenames))
@@ -172,21 +200,22 @@ def main(argv):
   for m, ensemble_filename in enumerate(ensemble_filenames):
     checkpoint.restore(ensemble_filename)
     for n, (name, test_dataset) in enumerate(test_datasets.items()):
-      filename = '{dataset}_{member}.npy'.format(dataset=name, member=m)
+      filename = '{dataset}_{member}.npy'.format(
+          dataset=name.replace('/', '_'), member=m)  # ood dataset name has '/'
       filename = os.path.join(FLAGS.output_dir, filename)
       if not tf.io.gfile.exists(filename):
         logits = []
         test_iterator = iter(test_dataset)
-        for _ in range(steps_per_eval):
+        steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]
+        for _ in range(steps):
           features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
           logits_member = model(features, training=False)
           if isinstance(logits_member, (list, tuple)):
             # If model returns a tuple of (logits, covmat), extract both
             logits_member, covmat_member = logits_member
-          else:
-            covmat_member = tf.eye(logits_member.shape[0])
-          logits_member = ed.layers.utils.mean_field_logits(
-              logits_member, covmat_member, FLAGS.gp_mean_field_factor_ensemble)
+            logits_member = ed.layers.utils.mean_field_logits(
+                logits_member, covmat_member,
+                FLAGS.gp_mean_field_factor_ensemble)
           logits.append(logits_member)
 
         logits = tf.concat(logits, axis=0)
@@ -208,6 +237,9 @@ def main(argv):
       'test/ece': rm.metrics.ExpectedCalibrationError(
           num_bins=FLAGS.num_bins),
   }
+  if FLAGS.eval_on_ood:
+    ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+    metrics.update(ood_metrics)
   corrupt_metrics = {}
   for name in test_datasets:
     corrupt_metrics['test/nll_{}'.format(name)] = tf.keras.metrics.Mean()
@@ -220,15 +252,18 @@ def main(argv):
   for n, (name, test_dataset) in enumerate(test_datasets.items()):
     logits_dataset = []
     for m in range(ensemble_size):
-      filename = '{dataset}_{member}.npy'.format(dataset=name, member=m)
+      filename = '{dataset}_{member}.npy'.format(
+          dataset=name.replace('/', '_'), member=m)  # ood dataset name has '/'
       filename = os.path.join(FLAGS.output_dir, filename)
       with tf.io.gfile.GFile(filename, 'rb') as f:
         logits_dataset.append(np.load(f))
 
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
-    for step in range(steps_per_eval):
-      labels = next(test_iterator)['labels']  # pytype: disable=unsupported-operands
+    steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]
+    for step in range(steps):
+      inputs = next(test_iterator)
+      labels = inputs['labels']  # pytype: disable=unsupported-operands
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
       negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()
@@ -237,6 +272,7 @@ def main(argv):
           negative_log_likelihood_metric.result().values())[0]
       per_probs = tf.nn.softmax(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
+      logits_mean = tf.reduce_mean(logits, axis=0)
       if name == 'clean':
         gibbs_ce_metric = rm.metrics.GibbsCrossEntropy()
         gibbs_ce_metric.add_batch(logits, labels=labels)
@@ -246,6 +282,16 @@ def main(argv):
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
+      elif name.startswith('ood/'):
+        ood_labels = 1 - inputs['is_in_distribution']  # pytype: disable=unsupported-operands
+        if FLAGS.dempster_shafer_ood:
+          ood_scores = ood_utils.DempsterShaferUncertainty(logits_mean)
+        else:
+          ood_scores = 1 - tf.reduce_max(probs, axis=-1)
+
+        for metric_name, metric in metrics.items():
+          if name in metric_name:
+            metric.update_state(ood_labels, ood_scores)
       else:
         corrupt_metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)

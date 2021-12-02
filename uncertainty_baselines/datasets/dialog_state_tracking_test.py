@@ -56,13 +56,19 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
 
     features_usr = element['usr_utt']
     features_sys = element['sys_utt']
+    features_usr_raw = element['usr_utt_raw']
+    features_sys_raw = element['sys_utt_raw']
 
     labels = element['label']
     dialog_len = element['dialog_len']
     dialog_turn_id = element['dialog_turn_id']
 
+    # Compute shapes.
     features_usr_shape = features_usr.shape
     features_sys_shape = features_sys.shape
+    features_usr_raw_shape = features_usr_raw.shape
+    features_sys_raw_shape = features_sys_raw.shape
+
     labels_shape = labels.shape
     dialog_len_shape = dialog_len.shape
     dialog_turn_id_shape = dialog_turn_id.shape
@@ -74,6 +80,9 @@ class SimDialDatasetTest(tf.test.TestCase, parameterized.TestCase):
                      (batch_size, max_dial_len, max_utt_len))
     self.assertEqual(features_sys_shape,
                      (batch_size, max_dial_len, max_utt_len))
+    self.assertEqual(features_usr_raw_shape, (batch_size, max_dial_len))
+    self.assertEqual(features_sys_raw_shape, (batch_size, max_dial_len))
+
     self.assertEqual(labels_shape, (batch_size, max_dial_len))
     self.assertEqual(dialog_len_shape, (batch_size,))
     self.assertEqual(dialog_turn_id_shape, (batch_size, max_dial_len))

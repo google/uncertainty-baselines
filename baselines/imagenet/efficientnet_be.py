@@ -86,6 +86,7 @@ def main(argv):
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -104,14 +105,16 @@ def main(argv):
       use_bfloat16=FLAGS.use_bfloat16,
       image_size=input_image_size,
       normalize_input=True,
-      one_hot=True)
+      one_hot=True,
+      data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TEST,
       use_bfloat16=FLAGS.use_bfloat16,
       image_size=input_image_size,
       normalize_input=True,
-      one_hot=True)
+      one_hot=True,
+      data_dir=data_dir)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {

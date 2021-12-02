@@ -131,6 +131,7 @@ def main(argv):
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
   steps_per_eval = imagenet_validation_images // batch_size
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -154,18 +155,21 @@ def main(argv):
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
-      validation_percent=1.-FLAGS.train_proportion,
+      validation_percent=1. - FLAGS.train_proportion,
       one_hot=True,
-      mixup_params=mixup_params)
+      mixup_params=mixup_params,
+      data_dir=data_dir)
   if FLAGS.train_proportion != 1.:
     test_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
         use_bfloat16=FLAGS.use_bfloat16,
-        validation_percent=1.-FLAGS.train_proportion)
+        validation_percent=1. - FLAGS.train_proportion,
+        data_dir=data_dir)
   else:
     test_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.TEST,
-        use_bfloat16=FLAGS.use_bfloat16)
+        use_bfloat16=FLAGS.use_bfloat16,
+        data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_dataset = test_builder.load(batch_size=batch_size, strategy=strategy)
 
@@ -177,7 +181,8 @@ def main(argv):
     imagenet_train_no_mixup = ub.datasets.ImageNetDataset(
         split=tfds.Split.TRAIN,
         use_bfloat16=FLAGS.use_bfloat16,
-        one_hot=True)
+        one_hot=True,
+        data_dir=data_dir)
     tr_data_no_mixup = imagenet_train_no_mixup.load(
         batch_size=batch_size, strategy=strategy)
 

@@ -27,7 +27,7 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.cifar
 from uncertainty_baselines.models import hyperbatchensemble_e_factory as e_factory
 from uncertainty_baselines.models import HyperBatchEnsembleLambdaConfig as LambdaConfig
 from uncertainty_baselines.models import wide_resnet_hyperbatchensemble

@@ -25,7 +25,7 @@ from absl.testing import parameterized
 import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import batchensemble  # local file import
+import batchensemble  # local file import from baselines.jft
 
 flags.adopt_module_key_flags(batchensemble)
 FLAGS = flags.FLAGS
@@ -99,7 +99,8 @@ def get_config(classifier, representation_size):
   config.optim.weight_decay = 0.1
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
-  config.weight_decay = None  # No explicit weight decay
+  config.weight_decay = [.1]
+  config.weight_decay_pattern = ['.*/kernel']
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 0.1
@@ -121,10 +122,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('token', 2, 356.41245, 221.3542),
-      ('token', None, 356.5111, 212.98819),
-      ('gap', 2, 356.4212, 219.71638),
-      ('gap', None, 356.43393, 219.95271),
+      ('token', 2, 346.3583, 222.2924),
+      # ('token', None, 346.4346, 219.5707),  # TODO(zmariet): fix flaky test.
+      ('gap', 2, 346.4235, 219.5721),
+      ('gap', None, 346.5755, 220.4709),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,
@@ -145,6 +146,48 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
                  train_loss, val_loss['val'])
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss['val'], correct_val_loss)
+
+  @parameterized.parameters(
+      ('token', 2),
+      ('token', None),
+      ('gap', 2),
+      ('gap', None),
+  )
+  @flagsaver.flagsaver
+  def test_load_model(self, classifier, representation_size):
+    FLAGS.xm_runlocal = True
+    FLAGS.config = get_config(
+        classifier=classifier, representation_size=representation_size)
+    FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    FLAGS.config.dataset_dir = self.data_dir
+    FLAGS.config.total_steps = 2
+
+    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+      _, val_loss, _ = batchensemble.main(None)
+      checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
+      self.assertTrue(os.path.exists(checkpoint_path))
+
+      # Set different output directory so that the logic doesn't think we are
+      # resuming from a previous checkpoint.
+      FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+      FLAGS.config.model_init = checkpoint_path
+      # Reload model from checkpoint.
+      # Currently, we don't have a standalone evaluation function, so we check
+      # that the loaded model has the same performance as the saved model by
+      # running training with a learning rate of 0 to obtain the train and eval
+      # metrics.
+      # TODO(zmariet, dusenberrymw): write standalone eval function.
+      FLAGS.config.lr.base = 0.0
+      FLAGS.config.lr.linear_end = 0.0
+      FLAGS.config.lr.warmup_steps = 0
+      FLAGS.config.model_reinit_params = []
+
+      _, loaded_val_loss, _ = batchensemble.main(None)
+
+    # We can't compare training losses, since `batchensemble.main()` reports the
+    # loss *before* applying the last SGD update: the reported training loss is
+    # different from the loss of the checkpointed model.
+    self.assertEqual(val_loss['val'], loaded_val_loss['val'])
 
 
 if __name__ == '__main__':

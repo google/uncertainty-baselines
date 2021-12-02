@@ -18,7 +18,7 @@ from absl.testing import parameterized
 
 import numpy as np
 import tensorflow as tf
-import metrics  # local file import
+import metrics  # local file import from baselines.toxic_comments
 
 
 class OracleCollaborativeAUCTest(tf.test.TestCase):

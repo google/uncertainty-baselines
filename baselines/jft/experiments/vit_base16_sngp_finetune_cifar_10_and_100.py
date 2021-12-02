@@ -33,12 +33,6 @@ def get_config():
   config.train_split = 'train[:98%]'
   config.num_classes = 10
 
-  # OOD eval
-  # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_dataset = 'cifar100'
-  config.ood_split = 'test'
-  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
-
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
 
@@ -53,14 +47,22 @@ def get_config():
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 
+  # OOD eval
+  # ood_split is the data split for both the ood_dataset and the dataset.
+  config.ood_datasets = ['cifar100', 'svhn_cropped']
+  config.ood_num_classes = [100, 10]
+  config.ood_split = 'test'
+  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
+  config.pp_eval_ood = []
+
   # CIFAR-10H eval
   config.eval_on_cifar_10h = False
   config.pp_eval_cifar_10h = ''
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 10
-  config.log_eval_steps = 100
+  config.log_training_steps = 1
+
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
   config.checkpoint_steps = 1000
   config.checkpoint_timeout = 1
@@ -119,16 +121,14 @@ def get_sweep(hyper):
       hyper,
       'cifar100',
       'train[:98%]',
-      'train[98%:]',
-      'cifar10',
+      'train[98%:]', ['cifar10', 'svhn_cropped'], [10, 10],
       n_cls=100,
       **kw)
   c10 = lambda **kw: task(
       hyper,
       'cifar10',
       'train[:98%]',
-      'train[98%:]',
-      'cifar100',
+      'train[98%:]', ['cifar100', 'svhn_cropped'], [100, 10],
       n_cls=10,
       **kw)
   # pylint: enable=g-long-lambda
@@ -145,7 +145,7 @@ def get_sweep(hyper):
                 MODEL_INIT_I21K_VIT_GP, MODEL_INIT_JFT_VIT_GP]
   lr_grid = [1e-4, 3e-4, 5e-4, 1e-3, 3e-3, 5e-3, 1e-2]
   clip_grid = [-1.]
-  mf_grid = [20.]
+  mf_grid = [-1., 0.1, 0.15, 0.2, 0.25, 0.3, 0.5]
   return hyper.product([
       hyper.sweep('config.model_init', model_init),
       tasks,
@@ -165,6 +165,7 @@ def task(hyper,
          train,
          val,
          ood_name,
+         ood_num_classes,
          n_cls,
          steps,
          warmup,
@@ -181,13 +182,27 @@ def task(hyper,
   else:
     pp_train = f'decode|resize({size})' + common
 
+  pp_eval_ood = []
+  for num_classes in ood_num_classes:
+    if num_classes > n_cls:
+      # Note that evaluation_fn ignores the entries with all zero labels for
+      # evaluation. When num_classes > n_cls, we should use onehot{num_classes},
+      # otherwise the labels that are greater than n_cls will be encoded with
+      # all zeros and then be ignored.
+      pp_eval_ood.append(
+          pp_eval.replace(f'onehot({n_cls}', f'onehot({num_classes}'))
+    else:
+      pp_eval_ood.append(pp_eval)
+
   task_hyper = {
       'dataset': name,
       'train_split': train,
       'pp_train': pp_train,
       'val_split': val,
-      'ood_dataset': ood_name,
+      'ood_datasets': ood_name,
+      'ood_num_classes': ood_num_classes,
       'pp_eval': pp_eval,
+      'pp_eval_ood': pp_eval_ood,
       'num_classes': n_cls,
       'lr.warmup_steps': warmup,
       'total_steps': steps,

@@ -33,12 +33,6 @@ def get_config():
   config.train_split = 'train[:98%]'
   config.num_classes = 10
 
-  # OOD eval
-  # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_datasets = ['cifar100', 'svhn_cropped']
-  config.ood_split = 'test'
-  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
-
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
 
@@ -52,6 +46,14 @@ def get_config():
   pp_common += '|keep(["image", "labels"])'
   config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
+
+  # OOD eval
+  # ood_split is the data split for both the ood_dataset and the dataset.
+  config.ood_datasets = ['cifar100', 'svhn_cropped']
+  config.ood_num_classes = [100, 10]
+  config.ood_split = 'test'
+  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
+  config.pp_eval_ood = []
 
   # CIFAR-10H eval
   config.eval_on_cifar_10h = False
@@ -112,14 +114,14 @@ def get_sweep(hyper):
       hyper,
       'cifar100',
       'train[:98%]',
-      'train[98%:]', ['cifar10', 'svhn_cropped'],
+      'train[98%:]', ['cifar10', 'svhn_cropped'], [10, 10],
       n_cls=100,
       **kw)
   c10 = lambda **kw: task(
       hyper,
       'cifar10',
       'train[:98%]',
-      'train[98%:]', ['cifar100', 'svhn_cropped'],
+      'train[98%:]', ['cifar100', 'svhn_cropped'], [100, 10],
       n_cls=10,
       **kw)
   # pylint: enable=g-long-lambda
@@ -136,6 +138,7 @@ def get_sweep(hyper):
       hyper.sweep('config.model_init', [MODEL_INIT_I21K, MODEL_INIT_JFT]),
       tasks,
       hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      hyper.sweep('config.model.transformer.dropout_rate', [0.0, 0.1]),
   ])
 
 
@@ -149,6 +152,7 @@ def task(hyper,
          train,
          val,
          ood_name,
+         ood_num_classes,
          n_cls,
          steps,
          warmup,
@@ -165,13 +169,27 @@ def task(hyper,
   else:
     pp_train = f'decode|resize({size})' + common
 
+  pp_eval_ood = []
+  for num_classes in ood_num_classes:
+    if num_classes > n_cls:
+      # Note that evaluation_fn ignores the entries with all zero labels for
+      # evaluation. When num_classes > n_cls, we should use onehot{num_classes},
+      # otherwise the labels that are greater than n_cls will be encoded with
+      # all zeros and then be ignored.
+      pp_eval_ood.append(
+          pp_eval.replace(f'onehot({n_cls}', f'onehot({num_classes}'))
+    else:
+      pp_eval_ood.append(pp_eval)
+
   task_hyper = {
       'dataset': name,
       'train_split': train,
       'pp_train': pp_train,
       'val_split': val,
       'ood_datasets': ood_name,
+      'ood_num_classes': ood_num_classes,
       'pp_eval': pp_eval,
+      'pp_eval_ood': pp_eval_ood,
       'num_classes': n_cls,
       'lr.warmup_steps': warmup,
       'total_steps': steps,

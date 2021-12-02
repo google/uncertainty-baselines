@@ -16,7 +16,7 @@
 """ResNet50 model."""
 
 import string
-from edward2.experimental.mimo import layers
+import edward2 as ed
 import tensorflow as tf
 
 # Use batch normalization defaults from Pytorch.
@@ -164,10 +164,11 @@ def resnet50_mimo(input_shape, num_classes, ensemble_size, width_multiplier=1):
                 width_multiplier * 512,
                 width_multiplier * 2048], stage=5, num_blocks=3, strides=2)
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
-  x = layers.DenseMultihead(
+  x = ed.layers.DenseMultihead(
       num_classes,
       activation=None,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
       ensemble_size=ensemble_size,
-      name='fc1000')(x)
+      name='fc1000')(
+          x)
   return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')

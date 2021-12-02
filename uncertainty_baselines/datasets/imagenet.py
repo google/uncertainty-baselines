@@ -49,25 +49,26 @@ def _tuple_dict_fn_converter(fn, *args):
 class ImageNetDataset(base.BaseDataset):
   """ImageNet dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      seed: Optional[Union[int, tf.Tensor]] = None,
-      validation_percent: float = 0.0,
-      shuffle_buffer_size: Optional[int] = 16384,
-      num_parallel_parser_calls: int = 64,
-      try_gcs: bool = False,
-      download_data: bool = False,
-      is_training: Optional[bool] = None,
-      preprocessing_type: str = 'resnet',
-      use_bfloat16: bool = False,
-      normalize_input: bool = False,
-      image_size: int = 224,
-      resnet_preprocessing_resize_method: Optional[str] = None,
-      ensemble_size: int = 1,
-      one_hot: bool = False,
-      mixup_params: Optional[Dict[str, Any]] = None,
-      run_mixup: bool = False):
+  def __init__(self,
+               split: str,
+               seed: Optional[Union[int, tf.Tensor]] = None,
+               validation_percent: float = 0.0,
+               shuffle_buffer_size: Optional[int] = 16384,
+               num_parallel_parser_calls: int = 64,
+               try_gcs: bool = False,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None,
+               preprocessing_type: str = 'resnet',
+               use_bfloat16: bool = False,
+               normalize_input: bool = False,
+               image_size: int = 224,
+               resnet_preprocessing_resize_method: Optional[str] = None,
+               ensemble_size: int = 1,
+               one_hot: bool = False,
+               mixup_params: Optional[Dict[str, Any]] = None,
+               run_mixup: bool = False,
+               include_file_name: bool = False):
     """Create an ImageNet tf.data.Dataset builder.
 
     Args:
@@ -84,6 +85,8 @@ class ImageNetDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
+      data_dir: Directory to read/write data, that is passed to the
+        tfds dataset_builder as a data_dir parameter.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -101,10 +104,12 @@ class ImageNetDataset(base.BaseDataset):
       run_mixup: An explicit flag of whether or not to run mixup if
         `mixup_params['mixup_alpha'] > 0`. By default, mixup will only be run in
         training mode if `mixup_params['mixup_alpha'] > 0`.
-      **unused_kwargs: Ignored.
+      include_file_name: Whether or not to include a string file_name field in
+        each example. Since this field is a string, it is not compatible with
+        TPUs.
     """
     name = 'imagenet2012'
-    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(
@@ -140,6 +145,7 @@ class ImageNetDataset(base.BaseDataset):
     if mixup_params is None:
       mixup_params = {}
     self._mixup_params = mixup_params
+    self._include_file_name = include_file_name
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return images in [0, 1]."""
@@ -186,7 +192,7 @@ class ImageNetDataset(base.BaseDataset):
           'features': image,
           'labels': label,
       }
-      if 'file_name' in example:
+      if self._include_file_name and 'file_name' in example:
         parsed_example['file_name'] = example['file_name']
       return parsed_example
 

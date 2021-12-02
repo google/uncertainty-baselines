@@ -20,7 +20,7 @@ r"""ViT-B/16.
 # pylint: enable=line-too-long
 
 import ml_collections
-import get_fewshot  # local file import
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -35,7 +35,7 @@ def get_config():
   config.init_head_bias = -10.0
 
   config.trial = 0
-  config.batch_size = 4096
+  config.batch_size = 1024
   config.num_epochs = 90
 
   pp_common = '|value_range(-1, 1)'
@@ -45,10 +45,11 @@ def get_config():
   config.pp_eval += f'|onehot({config.num_classes})'
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 50
-  config.log_eval_steps = 1000
+  config.log_training_steps = 1000
+  config.log_eval_steps = 10000
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
-  config.checkpoint_steps = 1000
+  config.checkpoint_steps = 17250
+  config.checkpoint_timeout = 10
 
   # Model section
   config.model = ml_collections.ConfigDict()
@@ -76,7 +77,7 @@ def get_config():
   config.lr.linear_end = 1e-5
 
   # Few-shot eval section
-  config.fewshot = get_fewshot()
+  config.fewshot = common_fewshot.get_fewshot()
   config.fewshot.log_steps = 10_000
 
   config.args = {}

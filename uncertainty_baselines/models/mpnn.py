@@ -25,22 +25,43 @@ from uncertainty_baselines.models import classifier_utils
 class MpnnLayer(tf.keras.layers.Layer):
   """Message passing layer."""
 
-  def __init__(self, num_node_features: int, message_layer_size: int):
+  def __init__(
+      self,
+      num_node_features: int,
+      message_layer_size: int,
+      kernel_regularizer: Optional[tf.keras.regularizers.Regularizer] = None,
+      use_spec_norm=False,
+      spec_norm_multiplier=2.0):
     """Initializes the instance.
 
     Args:
       num_node_features: Number of node input features.
       message_layer_size: Number of hidden nodes in the message function.
+      kernel_regularizer: Regularization function for inner layers of MpnnLayer.
+      use_spec_norm: Whether to use Spectral normalization for the MP layer.
+      spec_norm_multiplier: Multiplier used to control the magnitude of
+        eigenvalue of the MP layer weight matrix.
     """
     super().__init__()
     self.num_node_features = num_node_features
     self.message_layer_size = message_layer_size
+    self.use_spec_norm = use_spec_norm
+    self.spec_norm_multiplier = spec_norm_multiplier
     # Follow the section of Gated Graph Neural Networks (GG-NN),
     # Li et al. (2016) to define message function: a simple
     # linear transformation of h_v, h_w and e_{vw}.
-    self.message_function = tf.keras.layers.Dense(self.message_layer_size)
+    self.message_function_dense = tf.keras.layers.Dense(
+        self.message_layer_size,
+        kernel_regularizer=kernel_regularizer)
+    if self.use_spec_norm:
+      self.message_function = ed.layers.SpectralNormalization(
+          self.message_function_dense, inhere_layer_name=True,
+          norm_multiplier=spec_norm_multiplier)
+    else:
+      self.message_function = self.message_function_dense
     self.update_function = tf.keras.layers.GRU(
-        self.num_node_features, return_state=True)
+        self.num_node_features, return_state=True,
+        kernel_regularizer=kernel_regularizer)
 
   def prepare_message_input(self, nodes: tf.Tensor,
                             edges: tf.Tensor) -> tf.Tensor:
@@ -132,7 +153,11 @@ class MpnnLayer(tf.keras.layers.Layer):
     _, updated_nodes = self.update_function(
         update_input_messages, initial_state=update_input_nodes)
 
-    return tf.reshape(updated_nodes, tf.shape(nodes))
+    updated_nodes = tf.reshape(updated_nodes, tf.shape(nodes))
+    if self.use_spec_norm:
+      updated_nodes = updated_nodes + nodes
+
+    return updated_nodes
 
 
 def get_adjacency_matrix(pairs: tf.Tensor) -> tf.Tensor:
@@ -154,12 +179,21 @@ def get_adjacency_matrix(pairs: tf.Tensor) -> tf.Tensor:
 class MpnnModel(tf.keras.Model):
   """Classifier model based on a MPNN encoder."""
 
-  def __init__(self,
-               nodes_shape: Tuple[int, int], edges_shape: Tuple[int, int, int],
-               num_heads: int, num_layers: int, message_layer_size: int,
-               readout_layer_size: int,
-               gp_layer_kwargs: Optional[Dict[str, Any]] = None,
-               use_gp_layer: bool = False):
+  def __init__(
+      self,
+      nodes_shape: Tuple[int, int],
+      edges_shape: Tuple[int, int, int],
+      num_heads: int,
+      num_layers: int,
+      message_layer_size: int,
+      readout_layer_size: int,
+      gp_layer_kwargs: Optional[Dict[str, Any]] = None,
+      use_gp_layer: bool = False,
+      kernel_regularizer: Optional[tf.keras.regularizers.Regularizer] = None,
+      use_spec_norm: bool = False,
+      spec_norm_multiplier: float = 2.0,
+      use_spec_norm_mp: bool = False,
+      spec_norm_multiplier_mp: float = 2.0):
     """Constructor.
 
     Notes:
@@ -174,24 +208,49 @@ class MpnnModel(tf.keras.Model):
       readout_layer_size: Number of hidden units in the readout function.
       gp_layer_kwargs: Dict of parameters used in Gaussian Process layer.
       use_gp_layer: Bool, if set True, GP layer is used to build classifier.
+      kernel_regularizer: Regularization function for Dense layer.
+      use_spec_norm: Whether to use Spectral normalization for the dense layer.
+      spec_norm_multiplier: Multiplier used to control the magnitude of
+        eigenvalue of the dense layer weight matrix.
+      use_spec_norm_mp: Whether to use Spectral normalization for the MP layer.
+      spec_norm_multiplier_mp: Multiplier used to control the magnitude of
+        eigenvalue of the MP layer weight matrix.
 
     """
     super().__init__()
     self.use_gp_layer = use_gp_layer
 
-    self.mpnn_layers = [
-        MpnnLayer(
-            num_node_features=nodes_shape[-1],
-            message_layer_size=message_layer_size) for _ in range(num_layers)
-    ]
+    self.mpnn_layers = []
+    for _ in range(num_layers):
+      self.mpnn_layers.append(
+          MpnnLayer(
+              nodes_shape[-1], message_layer_size, kernel_regularizer,
+              use_spec_norm=use_spec_norm_mp,
+              spec_norm_multiplier=spec_norm_multiplier_mp))
+
     self.i_layer = tf.keras.layers.Dense(
-        readout_layer_size, activation='sigmoid')
-    self.j_layer = tf.keras.layers.Dense(readout_layer_size)
+        readout_layer_size, activation='sigmoid',
+        kernel_regularizer=kernel_regularizer)
+
+    self.j_layer = tf.keras.layers.Dense(
+        readout_layer_size, kernel_regularizer=kernel_regularizer)
+
+    if use_spec_norm:
+      self.i_layer_final = ed.layers.SpectralNormalization(
+          self.i_layer, inhere_layer_name=True,
+          norm_multiplier=spec_norm_multiplier)
+      self.j_layer_final = ed.layers.SpectralNormalization(
+          self.j_layer, inhere_layer_name=True,
+          norm_multiplier=spec_norm_multiplier)
+    else:
+      self.i_layer_final = self.i_layer
+      self.j_layer_final = self.j_layer
 
     self.classifier = classifier_utils.build_classifier(
         num_classes=num_heads,
         gp_layer_kwargs=gp_layer_kwargs,
-        use_gp_layer=use_gp_layer)
+        use_gp_layer=use_gp_layer,
+        kernel_regularizer=kernel_regularizer)
 
     self.softmax = tf.keras.layers.Softmax()
 
@@ -204,9 +263,9 @@ class MpnnModel(tf.keras.Model):
 
     readout = tf.reduce_sum(
         tf.multiply(
-            self.i_layer(
+            self.i_layer_final(
                 tf.keras.layers.Concatenate()([nodes_under_iter, nodes])),
-            self.j_layer(nodes_under_iter)),
+            self.j_layer_final(nodes_under_iter)),
         axis=1)
 
     logits = self.classifier(readout, training=training)
@@ -220,14 +279,21 @@ class MpnnModel(tf.keras.Model):
     return self.softmax(logits)
 
 
-def mpnn(nodes_shape: Tuple[int, int],
-         edges_shape: Tuple[int, int, int],
-         num_heads: int,
-         num_layers: int,
-         message_layer_size: int,
-         readout_layer_size: int,
-         gp_layer_kwargs: Optional[Dict[str, Any]] = None,
-         use_gp_layer: bool = False) -> tf.keras.Model:
+def mpnn(
+    nodes_shape: Tuple[int, int],
+    edges_shape: Tuple[int, int, int],
+    num_heads: int,
+    num_layers: int,
+    message_layer_size: int,
+    readout_layer_size: int,
+    gp_layer_kwargs: Optional[Dict[str, Any]] = None,
+    use_gp_layer: bool = False,
+    kernel_regularizer: Optional[tf.keras.regularizers.Regularizer] = None,
+    use_spec_norm: bool = False,
+    spec_norm_multiplier: float = 2.0,
+    use_spec_norm_mp: bool = False,
+    spec_norm_multiplier_mp: float = 2.0
+) -> tf.keras.Model:
   """Builds a MPNN model.
 
   Notes:
@@ -242,6 +308,13 @@ def mpnn(nodes_shape: Tuple[int, int],
     readout_layer_size: Number of hidden units in the readout function.
     gp_layer_kwargs: Dict of parameters used in Gaussian Process layer.
     use_gp_layer: Bool, if set True, GP layer is used to build classifier.
+    kernel_regularizer: Regularization function for Dense layer.
+    use_spec_norm: Whether to use Spectral normalization for the dense layer.
+    spec_norm_multiplier: Multiplier used to control the magnitude of
+        eigenvalue of the dense layer weight matrix.
+    use_spec_norm_mp: Whether to use Spectral normalization for the MP layer.
+    spec_norm_multiplier_mp: Multiplier used to control the magnitude of
+        eigenvalue of the MP layer weight matrix.
 
   Returns:
     A Keras Model (not compiled).
@@ -253,4 +326,9 @@ def mpnn(nodes_shape: Tuple[int, int],
                    message_layer_size=message_layer_size,
                    readout_layer_size=readout_layer_size,
                    gp_layer_kwargs=gp_layer_kwargs,
-                   use_gp_layer=use_gp_layer)
+                   use_gp_layer=use_gp_layer,
+                   kernel_regularizer=kernel_regularizer,
+                   use_spec_norm=use_spec_norm,
+                   spec_norm_multiplier=spec_norm_multiplier,
+                   use_spec_norm_mp=use_spec_norm_mp,
+                   spec_norm_multiplier_mp=spec_norm_multiplier_mp)

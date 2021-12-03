@@ -28,7 +28,7 @@ LOAD_PRETRAINED_BACKBONE = False
 PRETRAIN_BACKBONE_TYPE = 'base'
 
 STRIDE=16
-batch_size=8
+batch_size=32
 num_training_epochs = 100  # ml_collections.FieldReference(100)
 log_eval_steps = 200
 

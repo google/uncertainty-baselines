@@ -220,7 +220,6 @@ def evaluate_model_on_datasets(
       if _eval_arr.ndim > 1:
         _eval_arr = np.concatenate(_eval_arr).flatten()
 
-      print(f'dims for {eval_key}', _eval_arr.shape)
       dataset_split_dict[eval_key] = _eval_arr
       if verbose:
         print(

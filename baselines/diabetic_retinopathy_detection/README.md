@@ -29,8 +29,7 @@ Set up and activate the Python environment by executing
 ```
 conda create -n ub python=3.8
 conda activate ub
-python3 -m pip install -e .[models,jax,tensorflow,torch,wandb,seaborn]  # In uncertainty-baselines root directory
-python3 -m pip install tensorflow
+python3 -m pip install -e .[models,jax,tensorflow,torch,retinopathy]  # In uncertainty-baselines root directory
 pip install "git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics"
 pip install 'git+https://github.com/google/edward2.git'
 ```

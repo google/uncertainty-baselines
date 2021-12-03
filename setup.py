@@ -42,6 +42,7 @@ setup(
         'tfds-nightly==4.4.0.dev202111160106',
         'urllib3',
         'zipp',
+        'dm-haiku'
     ],
     extras_require={
         'experimental': [],
@@ -84,8 +85,7 @@ setup(
         ],
         'retinopathy': [
             'wandb',
-            'seaborn',
-            'dm-haiku'
+            'seaborn'
         ],
     },
     classifiers=[

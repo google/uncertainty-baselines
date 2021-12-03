@@ -1,0 +1,62 @@
+"""
+FSVI baseline for Diabetic Retinopathy Detection,
+evaluated on the Country Shift with moderate decision threshold.
+"""
+name: aptos-fsvi-moderate-aug23-test
+program: baselines/diabetic_retinopathy_detection/fsvi.py
+method: random
+project: aptos-fsvi-moderate-aug22-test
+entity: nband
+parameters:
+  # Fixed
+  epochs:
+    value: 90
+  num_cores:
+    value: 4
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'aptos'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-fsvi-aptos-results'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+  layer_to_linearize:
+    value: 1
+  per_core_batch_size:
+    value: 64
+  # Random Search intervals
+  prior_cov:
+    distribution: uniform
+    max: 20
+    min: 1
+  n_inducing_inputs:
+    distribution: categorical
+    values:
+    - 10
+    - 20
+    - 30
+  base_learning_rate:
+    distribution: uniform
+    min: 0.020824
+    max: 0.031448
+  one_minus_momentum:
+    distribution: log_uniform
+    min: -5.851088595717692
+    max: -2.558832048688907
+  l2:
+    distribution: log_uniform
+    min: -14.5075572295652
+    max: -8.988996656592324
+  loss_type:
+    distribution: categorical
+    values:
+    - 3
+    - 5
+  stochastic_linearization:
+    distribution: categorical
+    values:
+    - True
+    - False

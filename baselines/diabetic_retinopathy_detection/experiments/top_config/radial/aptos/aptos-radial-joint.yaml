@@ -1,0 +1,55 @@
+"""
+Top hyperparameter configuration of the
+Radial baseline for Diabetic Retinopathy Detection,
+tuning on area under the balanced joint R-Accuracy curve,
+evaluated on the OOD APTOS Indian retinopathy dataset
+with moderate decision threshold.
+"""
+name: aptos-radial-joint
+program: baselines/diabetic_retinopathy_detection/radial.py
+method: grid
+project: aptos-radial-joint
+entity: uncertainty-baselines
+
+parameters:
+  # Fixed
+  tpu:
+    value: 'read-from-file'
+  batch_size:
+    value: 16 # v2-8, with 1 train sample
+  num_mc_samples_train:
+    value: 1
+  num_mc_samples_eval:
+    value: 5
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'aptos'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-radial-aptos-finetune/joint'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+
+  use_wandb:
+    value: True
+
+  base_learning_rate:
+    value: 0.15606291288576823
+  stddev_stddev_init:
+    value: 0.06782455683568875
+  stddev_mean_init:
+    value: 2.140984173642608e-05
+  l2:
+    value: 0.00014935598488986335
+  one_minus_momentum:
+    value: 0.03291582226615088
+  seed:
+    values: [42, 43, 44, 45, 46, 47]

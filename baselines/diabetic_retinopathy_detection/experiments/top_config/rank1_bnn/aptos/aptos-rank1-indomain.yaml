@@ -1,0 +1,52 @@
+"""
+Top hyperparameter configuration of the
+Rank-1 BNN baseline for Diabetic Retinopathy Detection,
+tuning on in-domain validation AUC,
+evaluated on the OOD APTOS Indian retinopathy dataset
+with moderate decision threshold.
+"""
+name: aptos-rank1-indomain
+program: baselines/diabetic_retinopathy_detection/rank1_bnn.py
+method: grid
+project: aptos-rank1-indomain
+entity: uncertainty-baselines
+
+parameters:
+  # Fixed
+  tpu:
+    value: 'read-from-file'
+  per_core_batch_size:
+    value: 16 # v2-8, with 1 train sample
+  num_mc_samples_train:
+    value: 1
+  num_mc_samples_eval:
+    value: 5
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'aptos'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-rank1-aptos-finetune/indomain'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+  use_wandb:
+    value: True
+
+  base_learning_rate:
+    value: 0.032299
+  fast_weight_lr_multiplier:
+    value: 1.2390
+  l2:
+    value: 0.000022417
+  one_minus_momentum:
+    value: 0.066501
+  seed:
+    values: [42, 43, 44, 45, 46, 47]

@@ -121,6 +121,7 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
           shuffle_buffer_size=shuffle_buffer_size,
           prefetch_size=2,
           data_dir=self.data_dir)
+
       train_ds_1_epoch = input_utils.get_data(
           dataset,
           split=train_split,
@@ -132,6 +133,7 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
           shuffle_buffer_size=shuffle_buffer_size,
           prefetch_size=2,
           data_dir=self.data_dir)
+
       val_ds = input_utils.get_data(
           dataset,
           split=val_split,
@@ -178,13 +180,14 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
       labels_sum = tf.math.reduce_sum(batch["labels"])
       return (image_sum + prev_image_sum, labels_sum + prev_labels_sum)
 
+    # NOTE: These numbers are simply being used to test for determinism.
     image_sum, labels_sum = train_ds.take(10).reduce((0., 0.), reduction_fn)
     self.assertAllClose(image_sum, 575047232.0)
     self.assertAllClose(labels_sum, 804.)
 
-    image_sum, labels_sum = train_ds.take(10).reduce((0., 0.), reduction_fn)
-    self.assertAllClose(image_sum, 575047232.0)
-    self.assertAllClose(labels_sum, 804.)
+    image_sum, labels_sum = val_ds.take(10).reduce((0., 0.), reduction_fn)
+    self.assertAllClose(image_sum, 191682400.)
+    self.assertAllClose(labels_sum, 268.)
 
 
 if __name__ == "__main__":

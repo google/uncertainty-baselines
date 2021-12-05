@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""SNGP for WideResNet CIFAR-10.
+r"""SNGP for WideResNet CIFAR-100.
 
 """
 
@@ -22,6 +22,8 @@ import getpass
 import os.path
 
 from ml_collections import config_dict
+
+CIFAR100_C_PATH = '/cns/ym-d/home/ghassen/rs=6.3/CIFAR100-C/'
 
 
 def get_config():
@@ -38,8 +40,10 @@ def get_config():
   output_dir = 'gs://launcher-beta-test-bucket/{}'.format(
       config.experiment_name)
   config.args = {
-      'base_learning_rate': 0.08,
-      'gp_mean_field_factor': 20,  # 25,
+      'dataset': 'cifar100',
+      'cifar100_c_path': CIFAR100_C_PATH,
+      'base_learning_rate': 0.04,
+      'gp_mean_field_factor': 7.5,  # 12.5,
       'train_epochs': 250,
       'per_core_batch_size': 64,
       'data_dir': output_dir,
@@ -47,7 +51,7 @@ def get_config():
       'download_data': True,
       'train_proportion': 0.9,
       'eval_on_ood': True,
-      'ood_dataset': 'cifar100,svhn_cropped',
+      'ood_dataset': 'cifar10,svhn_cropped',
       # If drop_remainder=false, it will cause the issue of
       # `TPU has inputs with dynamic shapes`
       'drop_remainder_for_eval': True,

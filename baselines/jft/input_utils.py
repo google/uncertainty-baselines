@@ -122,14 +122,9 @@ def _add_mask(batch, num_batch_dims):
   return batch
 
 
-def _pad_reshape_mask_batch(batch, flat_batch_size, num_devices,
-                            num_batch_dims):
-  """Adds a mask, pads, and reshapes the tensors in the batch."""
-  batch = _add_mask(batch, num_batch_dims)
-
+def _pad_reshape_batch(batch, flat_batch_size, num_devices):
+  """Pads and reshapes the tensors in a flattened batch."""
   def f(x):
-    if num_batch_dims > 1:
-      x = tf.reshape(x, tf.concat([[-1], x.shape[num_batch_dims:]], axis=0))
     actual_batch_size = tf.shape(x)[0]
     needed = flat_batch_size - actual_batch_size
     zeros = tf.zeros(tf.concat([[needed], x.shape[1:]], axis=0), dtype=x.dtype)
@@ -235,22 +230,31 @@ def get_data(
 
   num_devices = jax.local_device_count()
   if drop_remainder:
-    batch_dims = [num_devices, host_batch_size // num_devices]
+    # If we're dropping the remainder, we can take the fast path of double
+    # batching to [num_devices, batch_size_per_device] and then adding a mask of
+    # ones for the two batch dimensions.
+    batch_size_per_device = host_batch_size // num_devices
+    batch_dims = [num_devices, batch_size_per_device]
     for batch_size in reversed(batch_dims):
       dataset = dataset.batch(batch_size, drop_remainder=True)
-    flat_batch_size = batch_dims[0] * batch_dims[1]
-    num_batch_dims = len(batch_dims)
+
+    dataset = dataset.map(
+        lambda xs: _add_mask(xs, 2), num_parallel_calls=tf.data.AUTOTUNE)
   else:
+    # If we're not dropping the remainder, then we define a flattened batch size
+    # that would divide evenly across devices, and then batch to that size with
+    # drop_remainder=False. Then we add a mask of ones for the examples given,
+    # pad each flattened batch with zeros (including the mask) to ensure all
+    # batches have the same number of examples, and then reshape to
+    # [num_devices, batch_size_per_device].
     batch_size_per_device = math.ceil(host_batch_size / num_devices)
     flat_batch_size = batch_size_per_device * num_devices
-    dataset = dataset.batch(flat_batch_size, drop_remainder=False)
-    num_batch_dims = 1
+    dataset = dataset.batch(flat_batch_size, drop_remainder=drop_remainder)
 
-  def f(xs):
-    return _pad_reshape_mask_batch(xs, flat_batch_size, num_devices,
-                                   num_batch_dims)
+    def f(xs):
+      return _pad_reshape_batch(_add_mask(xs, 1), flat_batch_size, num_devices)
 
-  dataset = dataset.map(f, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.map(f, num_parallel_calls=tf.data.AUTOTUNE)
 
   if cache == "batched":
     dataset = dataset.cache()

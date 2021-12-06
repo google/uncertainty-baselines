@@ -158,6 +158,8 @@ def get_data(
     prefetch_size: int = 4,
     drop_remainder: bool = True,
     data_dir: Optional[str] = None,
+    process_index: Optional[int] = None,
+    process_count: Optional[int] = None,
 ) -> tf.data.Dataset:
   """Creates standard input pipeline (shuffle, preprocess, batch).
 
@@ -186,11 +188,23 @@ def get_data(
     drop_remainder: Whether to drop remainders when batching and splitting
       across hosts.
     data_dir: Directory for the dataset files.
+    process_index: Integer id in the range [0, process_count) of the current
+      process in a multi-process setup. If None, then the index will be obtained
+      from `jax.process_index()`.
+    process_count: Number of global processes (over all "hosts") across
+      which the dataset will be sharded. If None, then the number of global
+      processes will be obtained from `jax.process_count()`.
 
   Returns:
     The dataset with preprocessed, masked, padded, and batched examples.
   """
   assert cache in ("loaded", "batched", False, None)
+
+  if process_index is None:
+    process_index = jax.process_index()
+
+  if process_count is None:
+    process_count = jax.process_count()
 
   dataset_builder = _get_dataset_builder(dataset, data_dir)
 
@@ -205,7 +219,9 @@ def get_data(
   host_split = deterministic_data.get_read_instruction_for_host(
       split,
       dataset_info=dataset_builder.info,
-      remainder_options=remainder_options)
+      remainder_options=remainder_options,
+      host_id=process_index,
+      host_count=process_count)
 
   dataset = deterministic_data.create_dataset(
       dataset_builder,

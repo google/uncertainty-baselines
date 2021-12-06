@@ -80,7 +80,17 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
         data_dir=self.data_dir)
     self.assertEqual(num_examples_no_drop, 14)
 
-  def test_get_data(self):
+  # TODO(dusenberrymw): tfds.testing.mock_data ignores sub-splits. File a bug so
+  # that sub-splits can be fully tested with mocked data.
+  # NOTE: These numbers are simply being used to test for determinism.
+  @parameterized.parameters(
+      (0, 1, 575047232.0, 804.0, 191682400.0, 268.0),
+      (0, 3, 191682400.0, 268.0, 191682416.0, 268.0),
+      (1, 3, 191682400.0, 268.0, 191682416.0, 268.0),
+  )
+  def test_get_data(self, process_index, process_count, correct_train_image_sum,
+                    correct_train_labels_sum, correct_val_image_sum,
+                    correct_val_labels_sum):
     rng = jax.random.PRNGKey(42)
 
     dataset = "imagenet21k"
@@ -110,35 +120,40 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
       return {"image": image, "labels": labels}
 
     rng, train_rng = jax.random.split(rng)
+    host_batch_size = batch_size // process_count
     with tfds.testing.mock_data(num_examples=10, data_dir=self.data_dir):
       train_ds = input_utils.get_data(
           dataset,
           split=train_split,
           rng=train_rng,
-          host_batch_size=batch_size,
+          host_batch_size=host_batch_size,
           preprocess_fn=preprocess_fn,
           cache="loaded",
           shuffle_buffer_size=shuffle_buffer_size,
           prefetch_size=2,
-          data_dir=self.data_dir)
+          data_dir=self.data_dir,
+          process_index=process_index,
+          process_count=process_count)
 
       train_ds_1_epoch = input_utils.get_data(
           dataset,
           split=train_split,
           rng=train_rng,
-          host_batch_size=batch_size,
+          host_batch_size=host_batch_size,
           preprocess_fn=preprocess_fn,
           cache="loaded",
           num_epochs=1,
           shuffle_buffer_size=shuffle_buffer_size,
           prefetch_size=2,
-          data_dir=self.data_dir)
+          data_dir=self.data_dir,
+          process_index=process_index,
+          process_count=process_count)
 
       val_ds = input_utils.get_data(
           dataset,
           split=val_split,
           rng=None,
-          host_batch_size=batch_size,
+          host_batch_size=host_batch_size,
           preprocess_fn=preprocess_fn,
           cache="loaded",
           num_epochs=1,
@@ -147,11 +162,12 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
           shuffle_buffer_size=shuffle_buffer_size,
           prefetch_size=2,
           drop_remainder=False,
-          data_dir=self.data_dir)
+          data_dir=self.data_dir,
+          process_index=process_index,
+          process_count=process_count)
 
-    local_batch_size = batch_size // jax.process_count()
     batch_dims = (jax.local_device_count(),
-                  local_batch_size // jax.local_device_count())
+                  host_batch_size // jax.local_device_count())
     train_batch = next(iter(train_ds))
     self.assertEqual(train_batch["image"].shape, batch_dims + (224, 224, 3))
     self.assertEqual(train_batch["labels"].shape, batch_dims + (num_classes,))
@@ -162,14 +178,14 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
         input_utils.get_num_examples(
             dataset,
             split=train_split,
-            host_batch_size=local_batch_size,
+            host_batch_size=host_batch_size,
             data_dir=self.data_dir))
     self.assertEqual(
         _get_num_examples(val_ds),
         input_utils.get_num_examples(
             dataset,
             split=val_split,
-            host_batch_size=local_batch_size,
+            host_batch_size=host_batch_size,
             drop_remainder=False,
             data_dir=self.data_dir))
 
@@ -180,14 +196,19 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
       labels_sum = tf.math.reduce_sum(batch["labels"])
       return (image_sum + prev_image_sum, labels_sum + prev_labels_sum)
 
-    # NOTE: These numbers are simply being used to test for determinism.
-    image_sum, labels_sum = train_ds.take(10).reduce((0., 0.), reduction_fn)
-    self.assertAllClose(image_sum, 575047232.0)
-    self.assertAllClose(labels_sum, 804.)
+    train_image_sum, train_labels_sum = train_ds.take(10).reduce((0., 0.),
+                                                                 reduction_fn)
+    val_image_sum, val_labels_sum = val_ds.take(10).reduce((0., 0.),
+                                                           reduction_fn)
+    logging.info(
+        "(train_image_sum, train_labels_sum, val_image_sum, "
+        "val_labels_sum) = %s, %s, %s, %s", float(train_image_sum),
+        float(train_labels_sum), float(val_image_sum), float(val_labels_sum))
 
-    image_sum, labels_sum = val_ds.take(10).reduce((0., 0.), reduction_fn)
-    self.assertAllClose(image_sum, 191682400.)
-    self.assertAllClose(labels_sum, 268.)
+    self.assertAllClose(train_image_sum, correct_train_image_sum)
+    self.assertAllClose(train_labels_sum, correct_train_labels_sum)
+    self.assertAllClose(val_image_sum, correct_val_image_sum)
+    self.assertAllClose(val_labels_sum, correct_val_labels_sum)
 
 
 if __name__ == "__main__":

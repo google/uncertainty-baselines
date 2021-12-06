@@ -49,9 +49,9 @@ def _get_process_split(split, process_index, process_count, drop_remainder):
   return process_split
 
 
-def _get_host_num_examples(builder, split, host_batch_size, process_index,
-                           process_count, drop_remainder):
-  """Returns the number of examples in a given host's split."""
+def _get_process_num_examples(builder, split, process_batch_size, process_index,
+                              process_count, drop_remainder):
+  """Returns the number of examples in a given process's split."""
   process_split = _get_process_split(
       split,
       process_index=process_index,
@@ -60,7 +60,7 @@ def _get_host_num_examples(builder, split, host_batch_size, process_index,
   num_examples = builder.info.splits[process_split].num_examples
 
   if drop_remainder:
-    device_batch_size = host_batch_size // jax.local_device_count()
+    device_batch_size = process_batch_size // jax.local_device_count()
     num_examples = (
         math.floor(num_examples / device_batch_size) * device_batch_size)
 
@@ -69,39 +69,39 @@ def _get_host_num_examples(builder, split, host_batch_size, process_index,
 
 def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder],
                      split: str,
-                     host_batch_size: int,
+                     process_batch_size: int,
                      drop_remainder: bool = True,
-                     num_hosts: Optional[int] = None,
+                     process_count: Optional[int] = None,
                      data_dir: Optional[str] = None) -> int:
   """Returns the total number of examples in a (sharded) dataset split.
 
   Args:
     dataset: Either a dataset name or a dataset builder object.
     split: Specifies which split of the data to load.
-    host_batch_size: Per host batch size.
-    drop_remainder: Whether to drop remainders when sharding across hosts and
-      batching.
-    num_hosts: Number of hosts across which the dataset will be sharded. If
-      None, then the number of hosts will be obtained from
-      `jax.process_count()`.
+    process_batch_size: Per process batch size.
+    drop_remainder: Whether to drop remainders when sharding across processes
+      and batching.
+    process_count: Number of global processes (over all "hosts") across
+      which the dataset will be sharded. If None, then the number of global
+      processes will be obtained from `jax.process_count()`.
     data_dir: Directory for the dataset files.
 
   Returns:
     The number of examples in the dataset split that will be read when sharded
-    across avaiable hosts.
+    across available processes.
   """
   dataset_builder = _get_dataset_builder(dataset, data_dir)
-  if num_hosts is None:
-    num_hosts = jax.process_count()
+  if process_count is None:
+    process_count = jax.process_count()
 
   num_examples = 0
-  for i in range(num_hosts):
-    num_examples += _get_host_num_examples(
+  for i in range(process_count):
+    num_examples += _get_process_num_examples(
         dataset_builder,
         split=split,
-        host_batch_size=host_batch_size,
+        process_batch_size=process_batch_size,
         process_index=i,
-        process_count=num_hosts,
+        process_count=process_count,
         drop_remainder=drop_remainder)
 
   remainder = dataset_builder.info.splits[split].num_examples - num_examples
@@ -141,7 +141,7 @@ def get_data(
     dataset: Union[str, tfds.core.DatasetBuilder],
     split: str,
     rng: Union[None, jnp.ndarray, tf.Tensor],
-    host_batch_size: int,
+    process_batch_size: int,
     preprocess_fn: Optional[Callable[[deterministic_data.Features],
                                      deterministic_data.Features]],
     cache: bool = False,
@@ -155,16 +155,17 @@ def get_data(
     process_index: Optional[int] = None,
     process_count: Optional[int] = None,
 ) -> tf.data.Dataset:
-  """Creates standard input pipeline (shuffle, preprocess, batch).
+  """Creates a standard input pipeline (shuffle, preprocess, batch).
 
   Args:
     dataset: Either a dataset name or a dataset builder object.
-    split: Specifies which split of the data to load. Passed to the function
-      `get_read_instruction_for_host()`.
+    split: Specifies which split of the data to load. Will be sharded across all
+      available processes (globally over all "hosts"), and the unique sharded
+      subsplit corresponding to the current process will be returned.
     rng: A jax.random.PRNG key or a tf.Tensor for TF stateless seeds to use for
       seeding shuffle operations and preprocessing ops. Must be set if
       shuffling.
-    host_batch_size: Per host batch size.
+    process_batch_size: Per process batch size.
     preprocess_fn: Function for preprocessing individual examples (which should
       be Python dictionary of tensors).
     cache: Whether to cache the unprocessed dataset in memory before
@@ -180,17 +181,19 @@ def get_data(
       the background. This should be a small (say <10) positive integer or
       tf.data.AUTOTUNE.
     drop_remainder: Whether to drop remainders when batching and splitting
-      across hosts.
+      across processes.
     data_dir: Directory for the dataset files.
     process_index: Integer id in the range [0, process_count) of the current
       process in a multi-process setup. If None, then the index will be obtained
       from `jax.process_index()`.
-    process_count: Number of global processes (over all "hosts") across
-      which the dataset will be sharded. If None, then the number of global
-      processes will be obtained from `jax.process_count()`.
+    process_count: Number of global processes (over all "hosts") across which
+      the dataset will be sharded. If None, then the number of global processes
+      will be obtained from `jax.process_count()`.
 
   Returns:
-    The dataset with preprocessed, masked, padded, and batched examples.
+    The dataset with preprocessed, masked, padded, and batched examples for the
+    unique sharded subset of `split` corresponding to the current process in a
+    multi-process setup.
   """
   assert cache in ("loaded", "batched", False, None)
 
@@ -205,7 +208,7 @@ def get_data(
   if rng is not None:
     rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.
 
-  host_split = _get_process_split(
+  process_split = _get_process_split(
       split,
       process_index=process_index,
       process_count=process_count,
@@ -213,7 +216,7 @@ def get_data(
 
   dataset = deterministic_data.create_dataset(
       dataset_builder,
-      split=host_split,
+      split=process_split,
       batch_dims=(),
       rng=rng,
       filter_fn=None,
@@ -233,7 +236,7 @@ def get_data(
     # If we're dropping the remainder, we can take the fast path of double
     # batching to [num_devices, batch_size_per_device] and then adding a mask of
     # ones for the two batch dimensions.
-    batch_size_per_device = host_batch_size // num_devices
+    batch_size_per_device = process_batch_size // num_devices
     batch_dims = [num_devices, batch_size_per_device]
     for batch_size in reversed(batch_dims):
       dataset = dataset.batch(batch_size, drop_remainder=True)
@@ -247,7 +250,7 @@ def get_data(
     # pad each flattened batch with zeros (including the mask) to ensure all
     # batches have the same number of examples, and then reshape to
     # [num_devices, batch_size_per_device].
-    batch_size_per_device = math.ceil(host_batch_size / num_devices)
+    batch_size_per_device = math.ceil(process_batch_size / num_devices)
     flat_batch_size = batch_size_per_device * num_devices
     dataset = dataset.batch(flat_batch_size, drop_remainder=drop_remainder)
 

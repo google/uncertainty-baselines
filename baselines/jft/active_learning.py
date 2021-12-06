@@ -410,7 +410,7 @@ def main(config, output_dir):
       dataset=config.dataset,
       split="test",
       rng=None,
-      host_batch_size=local_batch_size_eval,
+      process_batch_size=local_batch_size_eval,
       preprocess_fn=preprocess_spec.parse(
           spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
       shuffle=False,
@@ -480,7 +480,7 @@ def main(config, output_dir):
       dataset=pool_subset_data_builder,
       split=config.train_split,
       rng=pool_ds_rng,
-      host_batch_size=local_batch_size,
+      process_batch_size=local_batch_size,
       preprocess_fn=preprocess_spec.parse(
           spec=id_pp_eval, available_ops=preprocess_utils.all_ops()),
       shuffle=False,
@@ -512,7 +512,7 @@ def main(config, output_dir):
           dataset=train_subset_data_builder,
           split=config.train_split,
           rng=train_ds_rng,
-          host_batch_size=local_batch_size,
+          process_batch_size=local_batch_size,
           preprocess_fn=preprocess_spec.parse(
               spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
           shuffle_buffer_size=config.shuffle_buffer_size,

@@ -201,13 +201,18 @@ def checkpointing_timeout(writer, timeout):
           "bottleneck, you can configure `checkpoint_timeout` parameter")
 
 
-def itstime(step, every_n_steps, total_steps, host=None, last=True, first=True):
+def itstime(step,
+            every_n_steps,
+            total_steps,
+            process=None,
+            last=True,
+            first=True):
   """Determines whether or not it is time to trigger an action."""
-  is_host = host is None or jax.process_index() == host
+  is_process = process is None or jax.process_index() == process
   is_step = every_n_steps and (step % every_n_steps == 0)
   is_last = every_n_steps and step == total_steps
   is_first = every_n_steps and step == 1
-  return is_host and (is_step or (last and is_last) or (first and is_first))
+  return is_process and (is_step or (last and is_last) or (first and is_first))
 
 
 class Chrono:

@@ -117,7 +117,7 @@ def main(_):
   logging.info('Config:\n%s', str(config))
 
   def write_note(note):
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
 
   write_note('Initializing...')
@@ -146,7 +146,7 @@ def main(_):
       dataset=config.dataset,
       split=config.train_split,
       rng=train_ds_rng,
-      host_batch_size=batch_size_per_host,
+      process_batch_size=batch_size_per_host,
       preprocess_fn=preprocess_spec.parse(
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
@@ -158,7 +158,7 @@ def main(_):
   ntrain_img = input_utils.get_num_examples(
       config.dataset,
       split=config.train_split,
-      host_batch_size=batch_size_per_host,
+      process_batch_size=batch_size_per_host,
       data_dir=config.get('dataset_dir'))
   steps_per_epoch = ntrain_img / config.batch_size
 
@@ -178,7 +178,7 @@ def main(_):
     nval_img = input_utils.get_num_examples(
         dataset,
         split=split,
-        host_batch_size=batch_size_per_host_eval,
+        process_batch_size=batch_size_per_host_eval,
         drop_remainder=False,
         data_dir=data_dir)
     val_steps = int(np.ceil(nval_img / config.batch_size_eval))
@@ -193,7 +193,7 @@ def main(_):
         dataset=dataset,
         split=split,
         rng=None,
-        host_batch_size=batch_size_per_host_eval,
+        process_batch_size=batch_size_per_host_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
@@ -379,7 +379,8 @@ def main(_):
     if train_utils.itstime(
         step=step,
         every_n_steps=config.get('checkpoint_steps'),
-        total_steps=total_steps, host=0):
+        total_steps=total_steps,
+        process=0):
       write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
@@ -405,7 +406,7 @@ def main(_):
 
     # Report training progress
     if train_utils.itstime(
-        step, config.log_training_steps, total_steps, host=0):
+        step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
       train_loss = loss_value[0]
       timing_measurements, note = chrono.tick(step)

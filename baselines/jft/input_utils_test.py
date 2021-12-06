@@ -41,42 +41,42 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
     dataset_name = "imagenet21k"
     split = "full[:10]+full[20:24]"
 
-    num_hosts = 3
-    host_batch_size = 1
+    process_count = 3
+    process_batch_size = 1
     num_examples_drop = input_utils.get_num_examples(
         dataset_name,
         split=split,
-        host_batch_size=host_batch_size,
+        process_batch_size=process_batch_size,
         drop_remainder=True,
-        num_hosts=num_hosts,
+        process_count=process_count,
         data_dir=self.data_dir)
     self.assertEqual(num_examples_drop, 12)
 
     num_examples_no_drop = input_utils.get_num_examples(
         dataset_name,
         split=split,
-        host_batch_size=host_batch_size,
+        process_batch_size=process_batch_size,
         drop_remainder=False,
-        num_hosts=num_hosts,
+        process_count=process_count,
         data_dir=self.data_dir)
     self.assertEqual(num_examples_no_drop, 14)
 
-    host_batch_size = 3
+    process_batch_size = 3
     num_examples_drop = input_utils.get_num_examples(
         dataset_name,
         split=split,
-        host_batch_size=host_batch_size,
+        process_batch_size=process_batch_size,
         drop_remainder=True,
-        num_hosts=num_hosts,
+        process_count=process_count,
         data_dir=self.data_dir)
     self.assertEqual(num_examples_drop, 9)
 
     num_examples_no_drop = input_utils.get_num_examples(
         dataset_name,
         split=split,
-        host_batch_size=host_batch_size,
+        process_batch_size=process_batch_size,
         drop_remainder=False,
-        num_hosts=num_hosts,
+        process_count=process_count,
         data_dir=self.data_dir)
     self.assertEqual(num_examples_no_drop, 14)
 
@@ -120,13 +120,13 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
       return {"image": image, "labels": labels}
 
     rng, train_rng = jax.random.split(rng)
-    host_batch_size = batch_size // process_count
+    process_batch_size = batch_size // process_count
     with tfds.testing.mock_data(num_examples=10, data_dir=self.data_dir):
       train_ds = input_utils.get_data(
           dataset,
           split=train_split,
           rng=train_rng,
-          host_batch_size=host_batch_size,
+          process_batch_size=process_batch_size,
           preprocess_fn=preprocess_fn,
           cache="loaded",
           shuffle_buffer_size=shuffle_buffer_size,
@@ -139,7 +139,7 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
           dataset,
           split=train_split,
           rng=train_rng,
-          host_batch_size=host_batch_size,
+          process_batch_size=process_batch_size,
           preprocess_fn=preprocess_fn,
           cache="loaded",
           num_epochs=1,
@@ -153,7 +153,7 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
           dataset,
           split=val_split,
           rng=None,
-          host_batch_size=host_batch_size,
+          process_batch_size=process_batch_size,
           preprocess_fn=preprocess_fn,
           cache="loaded",
           num_epochs=1,
@@ -167,7 +167,7 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
           process_count=process_count)
 
     batch_dims = (jax.local_device_count(),
-                  host_batch_size // jax.local_device_count())
+                  process_batch_size // jax.local_device_count())
     train_batch = next(iter(train_ds))
     self.assertEqual(train_batch["image"].shape, batch_dims + (224, 224, 3))
     self.assertEqual(train_batch["labels"].shape, batch_dims + (num_classes,))
@@ -178,14 +178,14 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
         input_utils.get_num_examples(
             dataset,
             split=train_split,
-            host_batch_size=host_batch_size,
+            process_batch_size=process_batch_size,
             data_dir=self.data_dir))
     self.assertEqual(
         _get_num_examples(val_ds),
         input_utils.get_num_examples(
             dataset,
             split=val_split,
-            host_batch_size=host_batch_size,
+            process_batch_size=process_batch_size,
             drop_remainder=False,
             data_dir=self.data_dir))
 

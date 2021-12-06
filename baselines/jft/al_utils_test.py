@@ -15,7 +15,6 @@
 
 """Tests for al_utils."""
 
-from clu import deterministic_data
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import al_utils  # pylint: disable=unused-import # to register Cifar10Subset as dataset  # local file import from baselines.jft
@@ -30,9 +29,7 @@ class AlUtilsTest(tf.test.TestCase):
             "test": None
         })
 
-    split = deterministic_data.get_read_instruction_for_host(
-        "train", dataset_info=dataset_builder.info)
-
+    split = "train"
     dataset = dataset_builder.as_dataset(split).batch(500)
 
     all_ids = []
@@ -57,10 +54,7 @@ class AlUtilsTest(tf.test.TestCase):
         })
 
     for split, ids in zip(["train", "test"], [train_ids, test_ids]):
-      host_split = deterministic_data.get_read_instruction_for_host(
-          split, dataset_info=dataset_builder.info)
-
-      dataset = dataset_builder.as_dataset(host_split).batch(1)
+      dataset = dataset_builder.as_dataset(split).batch(1)
 
       ds_ids = []
       for example in dataset.as_numpy_iterator():

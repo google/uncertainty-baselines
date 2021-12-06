@@ -41,29 +41,29 @@ def _get_dataset_builder(
   return dataset_builder
 
 
-def _get_host_num_examples(builder, split, batch_size, process_index,
+def _get_process_split(split, process_index, process_count, drop_remainder):
+  """Returns the split for the given process given a multi-process setup."""
+  splits = tfds.even_splits(
+      split, n=process_count, drop_remainder=drop_remainder)
+  process_split = splits[process_index]
+  return process_split
+
+
+def _get_host_num_examples(builder, split, host_batch_size, process_index,
                            process_count, drop_remainder):
   """Returns the number of examples in a given host's split."""
-  # NOTE: Multiple read instructions could be generated if `split` consists of
-  # multiple parts.
-  ris = deterministic_data.get_read_instruction_for_host(
+  process_split = _get_process_split(
       split,
-      dataset_info=builder.info,
-      host_id=process_index,
-      host_count=process_count,
+      process_index=process_index,
+      process_count=process_count,
       drop_remainder=drop_remainder)
-  abs_ris = ris.to_absolute(builder.info.splits)
-
-  num_examples = 0
-  for abs_ri in abs_ris:
-    start = abs_ri.from_ or 0
-    end = abs_ri.to or builder.info.splits[abs_ri.splitname].num_examples
-    num_examples += end - start
+  num_examples = builder.info.splits[process_split].num_examples
 
   if drop_remainder:
-    device_batch_size = batch_size // jax.local_device_count()
+    device_batch_size = host_batch_size // jax.local_device_count()
     num_examples = (
         math.floor(num_examples / device_batch_size) * device_batch_size)
+
   return num_examples
 
 
@@ -77,8 +77,7 @@ def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder],
 
   Args:
     dataset: Either a dataset name or a dataset builder object.
-    split: Specifies which split of the data to load. Passed to the function
-      `get_read_instruction_for_host()`.
+    split: Specifies which split of the data to load.
     host_batch_size: Per host batch size.
     drop_remainder: Whether to drop remainders when sharding across hosts and
       batching.
@@ -100,7 +99,7 @@ def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder],
     num_examples += _get_host_num_examples(
         dataset_builder,
         split=split,
-        batch_size=host_batch_size,
+        host_batch_size=host_batch_size,
         process_index=i,
         process_count=num_hosts,
         drop_remainder=drop_remainder)
@@ -209,19 +208,13 @@ def get_data(
   dataset_builder = _get_dataset_builder(dataset, data_dir)
 
   if rng is not None:
-    rng = jax.random.fold_in(rng,
-                             jax.process_index())  # Derive RNG for this host.
+    rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.
 
-  if drop_remainder:
-    remainder_options = deterministic_data.RemainderOptions.DROP
-  else:
-    remainder_options = deterministic_data.RemainderOptions.BALANCE_ON_PROCESSES
-  host_split = deterministic_data.get_read_instruction_for_host(
+  host_split = _get_process_split(
       split,
-      dataset_info=dataset_builder.info,
-      remainder_options=remainder_options,
-      host_id=process_index,
-      host_count=process_count)
+      process_index=process_index,
+      process_count=process_count,
+      drop_remainder=drop_remainder)
 
   dataset = deterministic_data.create_dataset(
       dataset_builder,

@@ -23,10 +23,10 @@ import ml_collections
 _CITYSCAPES_TRAIN_SIZE = 2975
 DEBUG = 0
 
-TRAIN_PROP=10
+TRAIN_PROP=25
 
 # we will have 4 version of train split
-if TRAIN_PROP == 10:
+if TRAIN_PROP == 100:
   _CITYSCAPES_TRAIN_SIZE_SPLIT = _CITYSCAPES_TRAIN_SIZE
   train_split = 'train'
 elif TRAIN_PROP == 75:
@@ -43,7 +43,7 @@ elif TRAIN_PROP == 10:
   train_split = 'train[:10%]'
 
 target_size = (512, 512)
-LOAD_PRETRAINED_BACKBONE = True
+LOAD_PRETRAINED_BACKBONE = False
 PRETRAIN_BACKBONE_TYPE = 'base'
 
 STRIDE=16

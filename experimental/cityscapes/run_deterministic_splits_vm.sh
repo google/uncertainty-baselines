@@ -18,7 +18,7 @@ use_gpu=False
 
 for rng_seed in 0
 do
-for train_mode in "deterministic" "gp"
+for train_mode in "scratch" "deterministic" "gp"
 do
 for train_split in 10 100 75 50 25
 do

@@ -26,7 +26,8 @@ _CITYSCAPES_TRAIN_SIZE = 2975
 DEBUG = 1
 STRIDE = 4
 
-target_size=(512, 512)
+target_size=(128, 128)
+
 # debug on mac
 if DEBUG == 1:
   batch_size = 1
@@ -87,6 +88,7 @@ def get_config():
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
+  config.dataset_configs.train_split='train'
   # flags to debug scenic on mac
   config.dataset_configs.number_train_examples_debug = number_train_examples_debug
   config.dataset_configs.number_eval_examples_debug = number_train_examples_debug

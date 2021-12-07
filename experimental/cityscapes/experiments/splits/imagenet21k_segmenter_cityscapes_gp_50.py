@@ -23,9 +23,28 @@ import ml_collections
 _CITYSCAPES_TRAIN_SIZE = 2975
 DEBUG = 0
 
-target_size = (256, 256)
+TRAIN_PROP=50
+
+# we will have 4 version of train split
+if TRAIN_PROP == 100:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = _CITYSCAPES_TRAIN_SIZE
+  train_split = 'train'
+elif TRAIN_PROP == 75:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 2231
+  train_split = 'train[:75%]'
+elif TRAIN_PROP == 50:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 1488
+  train_split = 'train[:50%]'
+elif TRAIN_PROP == 25:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 744
+  train_split = 'train[:25%]'
+elif TRAIN_PROP == 10:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 298
+  train_split = 'train[:10%]'
+
+target_size = (512, 512)
 LOAD_PRETRAINED_BACKBONE = True
-PRETRAIN_BACKBONE_TYPE = 'base'
+PRETRAIN_BACKBONE_TYPE = 'gp'
 
 STRIDE=16
 batch_size=8
@@ -50,6 +69,7 @@ def get_config():
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
+  config.dataset_configs.train_split = train_split
 
   # flags to debug scenic on mac
   #config.dataset_configs.number_train_examples_debug = number_train_examples_debug
@@ -94,7 +114,7 @@ def get_config():
   config.focal_loss_gamma = 0.0
 
   # learning rate
-  steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size
+  steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.batch_size
   #steps_per_epoch = number_train_examples_debug // config.batch_size
 
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
@@ -122,7 +142,7 @@ def get_config():
 
   config.debug_train = True  # debug mode during training
   config.debug_eval = True  # debug mode during eval
-  config.log_eval_steps = log_eval_steps  # 200
+  config.log_eval_steps = 1 * steps_per_epoch  #log_eval_steps  # 200
 
   # extra
   config.args = {}

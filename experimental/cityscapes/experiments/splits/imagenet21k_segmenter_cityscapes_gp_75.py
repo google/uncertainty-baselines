@@ -16,66 +16,68 @@
 # pylint: disable=line-too-long
 r"""Segmenter + cityscapes.
 
-command to run locally:
-python deterministic.py --output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs1" --num_cores=0 --use_gpu=False --tpu=None --config="experiments/imagenet21k_segmenter_cityscapes12.py"
-
-
 """
 # pylint: enable=line-too-long
 
 import ml_collections
 _CITYSCAPES_TRAIN_SIZE = 2975
-DEBUG = 5
-STRIDE = 16
-target_size = (128, 128)
+DEBUG = 0
 
+TRAIN_PROP=75
+
+# we will have 4 version of train split
+if TRAIN_PROP == 100:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = _CITYSCAPES_TRAIN_SIZE
+  train_split = 'train'
+elif TRAIN_PROP == 75:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 2231
+  train_split = 'train[:75%]'
+elif TRAIN_PROP == 50:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 1488
+  train_split = 'train[:50%]'
+elif TRAIN_PROP == 25:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 744
+  train_split = 'train[:25%]'
+elif TRAIN_PROP == 10:
+  _CITYSCAPES_TRAIN_SIZE_SPLIT = 298
+  train_split = 'train[:10%]'
+
+target_size = (512, 512)
 LOAD_PRETRAINED_BACKBONE = True
-PRETRAIN_BACKBONE_TYPE = 'base'
+PRETRAIN_BACKBONE_TYPE = 'gp'
 
-# debug on mac
-if DEBUG == 1:
-  batch_size = 1
-  number_train_examples_debug = 10
-  number_eval_examples_debug = 10
-  num_training_epochs = 1
-  log_eval_steps = 1
+STRIDE=16
+batch_size=8
+num_training_epochs = 100  # ml_collections.FieldReference(100)
+log_eval_steps = 200
 
-  mlp_dim = 2
-  num_heads = 1
-  num_layers = 1
-  hidden_size = 1
+mlp_dim = 3072
+num_heads = 12
+num_layers = 12
+hidden_size = 768
 
-elif DEBUG == 5:
-  batch_size = 1
-  number_train_examples_debug = 10
-  number_eval_examples_debug = 10
-  num_training_epochs = 1 # ml_collections.FieldReference(100)
-  log_eval_steps = 1
-
-  mlp_dim = 3072
-  num_heads = 12
-  num_layers = 12
-  hidden_size = 768
-
+if DEBUG ==5:
+  number_train_examples_debug = 16
 
 def get_config():
   """Config for cityscapes segmentation."""
   config = ml_collections.ConfigDict()
 
-  config.experiment_name = 'cityscapes_segvit_ub'
+  config.experiment_name = 'cityscapes_segvit_ub_init'
 
   #dataset
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
+  config.dataset_configs.train_split = train_split
 
   # flags to debug scenic on mac
-  config.dataset_configs.number_train_examples_debug = number_train_examples_debug
-  config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
+  #config.dataset_configs.number_train_examples_debug = number_train_examples_debug
+  #config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
 
   # config following scenic
   # model
-  config.model_name = 'segmenter_mini'
+  config.model_name = 'segmenter_pretrained_mini'
   config.model = ml_collections.ConfigDict()
 
   config.patches = ml_collections.ConfigDict()
@@ -112,13 +114,13 @@ def get_config():
   config.focal_loss_gamma = 0.0
 
   # learning rate
-  #steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.batch_size
-  steps_per_epoch = number_train_examples_debug // config.batch_size
+  steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.batch_size
+  #steps_per_epoch = number_train_examples_debug // config.batch_size
 
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
   config.lr_configs = ml_collections.ConfigDict()
   config.lr_configs.learning_rate_schedule = 'compound'
-  config.lr_configs.factors = 'constant'  # * cosine_decay * linear_warmup'
+  config.lr_configs.factors = 'constant * cosine_decay * linear_warmup'
   config.lr_configs.warmup_steps = 1 * steps_per_epoch
   config.lr_configs.steps_per_cycle = num_training_epochs * steps_per_epoch
   config.lr_configs.base_learning_rate = 1e-4
@@ -140,7 +142,7 @@ def get_config():
 
   config.debug_train = True  # debug mode during training
   config.debug_eval = True  # debug mode during eval
-  config.log_eval_steps = log_eval_steps  # 200
+  config.log_eval_steps = 1 * steps_per_epoch  #log_eval_steps  # 200
 
   # extra
   config.args = {}

@@ -1,22 +1,24 @@
-#!/bin/sh
+#!/bin/bash
 
-config='experiments/imagenet21k_segmenter_cityscapes.py'
-use_gpu=False
-
+echo
 if [ "$(uname)" == "Darwin" ]; then
+  echo "Debug On mac"
   # Do something under Mac OS X platform
   output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs"
+  config_file="experiments/splits/imagenet21k_segmenter_cityscapes.py"
   num_cores=0
   tpu='None'
-python deterministic.py -- --output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs" --num_cores=0 --use_gpu=False --tpu=False --config='experiments/imagenet21k_segmenter_cityscapes.py'
+  use_gpu=False
+  rng_seed=2
+  python3 deterministic.py --output_dir=${output_dir} \
+  --num_cores=$num_cores \
+  --use_gpu=$use_gpu \
+	--config=${config_file} \
+	--config.rng_seed=${rng_seed} \
 
-elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
-    # Do something under GNU/Linux platform
-  output_dir="/home/ekellbuch/ub_ekb/experimental/cityscapes/outputs"
-  tpu='local'
-  num_cores=8
-  python3 deterministic.py  -- --output_dir="/home/ekellbuch/ub_ekb/experimental/cityscapes/outputs" --num_cores=8 --tpu='local' --config='experiments/imagenet21k_segmenter_cityscapes.py'
 
+elif [ "$(uname)" == "Linux" ]; then
+  echo "run run_pretrained_vm.sh instead"
 fi
 
 #python deterministic.py  "--output_dir=$output_dir --num_cores=$num_cores --use_gpu=$use_gpu --tpu=$tpu --config=$config"

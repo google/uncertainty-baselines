@@ -3,4 +3,5 @@
 
 [x] include loading cityscapes dataset
 [x] include deterministic training for segmenter 
-[ ] include init from pretrained backbone
+[x] include init from pretrained backbone
+[ ] include loading train split

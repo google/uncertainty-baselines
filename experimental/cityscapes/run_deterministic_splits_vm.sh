@@ -20,7 +20,7 @@ for rng_seed in 0
 do
 for train_mode in "deterministic" "gp"
 do
-for train_split in 75 50 25
+for train_split in 10 100 75 50 25
 do
 config_file=$(get_config $train_mode $train_split)   # or result=`myfunc`
 run_name="${train_mode}_split${train_split}_seed${rng_seed}"

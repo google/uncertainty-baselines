@@ -1,9 +1,6 @@
 #!/bin/bash
 
-# train cityscapes using segmenter with pretrained backbone
-# deterministic splits
-
-#declare -A configfiles=( [75]="experiments/splits/imagenet21k_segmenter_cityscapes75.py" ["sngp"]="experiments/imagenet21k_segmenter_cityscapes_sngp.py" ["scratch"]="experiments/segmenter_cityscapes.py")
+# train segmenter model on cityscapes using different pretrained backbones for different splits
 
 function get_config()
 {
@@ -16,17 +13,17 @@ tpu='local'
 use_gpu=False
 
 
-for rng_seed in 0
+for rng_seed in 0 1 2 3
 do
-for train_mode in "scratch" "deterministic" "gp"
+for train_mode in "deterministic" "gp" "scratch"
 do
-for train_split in 10 100 75 50 25
+for train_split in 100 75 50 25 10
 do
-config_file=$(get_config $train_mode $train_split)   # or result=`myfunc`
+config_file=$(get_config $train_mode $train_split)
 run_name="${train_mode}_split${train_split}_seed${rng_seed}"
-output_dir="gs://ub-ekb/segmenter/cityscapes/run_splits/${run_name}"
-echo "${output_dir} ${config_file}"
-python3 deterministic.py --output_dir=${output_dir} \
+output_dir_ckpt="gs://ub-ekb/segmenter/cityscapes/run_splits1/checkpoints/${run_name}"
+echo "Running experiment ${output_dir_ckpt}"
+python3 deterministic.py --output_dir=${output_dir_ckpt} \
 	--num_cores=$num_cores \
 	--use_gpu=$use_gpu \
 	--config=${config_file} \
@@ -35,4 +32,3 @@ python3 deterministic.py --output_dir=${output_dir} \
 done
 done
 done
-exit

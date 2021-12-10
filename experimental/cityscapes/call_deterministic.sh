@@ -5,7 +5,7 @@ if [ "$(uname)" == "Darwin" ]; then
   echo "Debug On mac"
   # Do something under Mac OS X platform
   output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs"
-  config_file="experiments/splits/imagenet21k_segmenter_cityscapes.py"
+  config_file="experiments/toy/segmenter_cityscapes.py"
   num_cores=0
   tpu='None'
   use_gpu=False

@@ -26,7 +26,7 @@ DEBUG = 0
 TRAIN_PROP=10
 
 # we will have 4 version of train split
-if TRAIN_PROP == 10:
+if TRAIN_PROP == 100:
   _CITYSCAPES_TRAIN_SIZE_SPLIT = _CITYSCAPES_TRAIN_SIZE
   train_split = 'train'
 elif TRAIN_PROP == 75:

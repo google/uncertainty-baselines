@@ -27,10 +27,12 @@ import jax.numpy as jnp
 import numpy as np
 import scipy
 
+from uncertainty_baselines.models import vit
+
 # TODO(dusenberrymw): Open-source remaining imports.
-patch_transformer_lib = None
 identity = None
 checkpoints_model = None
+
 
 DType = type(jnp.float32)
 InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
@@ -88,6 +90,43 @@ class BatchEnsembleMlpBlock(nn.Module):
     return output
 
 
+class Encoder1DBlock(nn.Module):
+  """Transformer encoder layer.
+
+  If mlp_class returns a tuple (e.g. TokenMoeBlock) with auxiliary information,
+  this also returns the auxiliary information.
+  """
+  mlp_class: Callable  # pylint: disable=g-bare-generic
+  num_heads: int
+  dtype: Optional[DType] = None
+  dropout_rate: float = 0.0
+  attention_dropout_rate: float = 0.0
+
+  @nn.compact
+  def __call__(self, inputs: jnp.ndarray, *,
+               deterministic: Optional[bool] = None):
+    """Applies Encoder1Dlock module."""
+    assert inputs.ndim == 3, f"Expected (batch, seq, hidden) got {inputs.shape}"
+
+    x = nn.LayerNorm(dtype=self.dtype)(inputs)
+    x = nn.MultiHeadDotProductAttention(
+        dtype=self.dtype,
+        kernel_init=nn.initializers.xavier_uniform(),
+        broadcast_dropout=False,
+        deterministic=deterministic,
+        name="self_attention",
+        num_heads=self.num_heads,
+        dropout_rate=self.attention_dropout_rate)(x, x)
+    x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
+    x = x + inputs
+
+    # MLP block.
+    y = nn.LayerNorm(dtype=self.dtype)(x)
+    y = self.mlp_class()(y, deterministic=deterministic)
+
+    return x + y
+
+
 class BatchEnsembleEncoder(nn.Module):
   """Transformer Model Encoder with BE MLP blocks every two layers.
 
@@ -139,27 +178,28 @@ class BatchEnsembleEncoder(nn.Module):
         return lyr == min(be_layers)
       return False
 
-    x = patch_transformer_lib.AddPositionEmbs(name="posembed_input")(
-        inputs, inputs_positions)
+    x = vit.AddPositionEmbs(
+        name="posembed_input",
+        posemb_init=nn.initializers.normal(stddev=0.02))(
+            inputs)
     x = nn.Dropout(rate=self.dropout_rate, deterministic=not self.train)(x)
 
     be_params = dict(ens_size=self.ens_size,
                      random_sign_init=self.random_sign_init)
-    mlp_params = dict(dtype=dtype, deterministic=not self.train, name="mlp")
+    mlp_params = dict(dtype=dtype, name="mlp")
     mlp_params_dense = dict(dropout_rate=self.dropout_rate,
                             mlp_dim=self.mlp_dim)
-    mlp_dense = functools.partial(patch_transformer_lib.MlpBlock, **mlp_params,
+    mlp_dense = functools.partial(vit.MlpBlock, **mlp_params,
                                   **mlp_params_dense)
     be_block = functools.partial(BatchEnsembleMlpBlock, **mlp_params,
                                  **mlp_params_dense, **be_params)
     extra_info = dict()
     for lyr in range(self.num_layers):
       encoder_block = functools.partial(
-          patch_transformer_lib.Encoder1DBlock,
+          Encoder1DBlock,
           num_heads=self.num_heads,
           dtype=dtype,
           dropout_rate=self.dropout_rate,
-          deterministic=not self.train,
           attention_dropout_rate=self.attention_dropout_rate,
           name=f"encoderblock_{lyr}")
       if lyr in be_layers:
@@ -167,9 +207,9 @@ class BatchEnsembleEncoder(nn.Module):
         if is_first_be_layer(lyr):
           x = jnp.tile(x, [self.ens_size] + [1] * (x.ndim - 1))
 
-        x = encoder_block(mlp_class=be_block)(x)
+        x = encoder_block(mlp_class=be_block)(x, deterministic=not train)
       else:
-        x = encoder_block(mlp_class=mlp_dense)(x)
+        x = encoder_block(mlp_class=mlp_dense)(x, deterministic=not train)
     encoded = nn.LayerNorm(name="encoder_norm")(x)
 
     return encoded, extra_info
@@ -320,10 +360,9 @@ class PatchTransformerBE(nn.Module):
           kernel_init=nn.initializers.xavier_uniform())
       x = attention(inputs_q=probe, inputs_kv=x)
       y = nn.LayerNorm()(x)
-      y = patch_transformer_lib.MlpBlock(
+      y = vit.MlpBlock(
           mlp_dim=transformer["mlp_dim"],
-          dropout_rate=0,
-          deterministic=not train)(y)
+          dropout_rate=0)(y, deterministic=not train)
       x = (x + y)[:, 0]
     else:
       raise ValueError(f"Unknown classifier: {self.classifier}")

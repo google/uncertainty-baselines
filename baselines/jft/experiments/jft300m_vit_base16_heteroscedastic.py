@@ -21,7 +21,6 @@ r"""ViT-B/16.
 
 import ml_collections
 # TODO(dusenberrymw): Open-source remaining imports.
-import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -48,10 +47,10 @@ def get_config():
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 50
-  config.log_eval_steps = 1000
+  config.log_training_steps = 1000
+  config.log_eval_steps = 10000
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
-  config.checkpoint_steps = 1000
+  config.checkpoint_steps = 17250
 
   # Model section
   config.model = ml_collections.ConfigDict()
@@ -91,7 +90,7 @@ def get_config():
   config.lr.linear_end = 1e-5
 
   # Few-shot eval section
-  config.fewshot = common_fewshot.get_fewshot()
+  config.fewshot = None
   config.fewshot.log_steps = 25_000
 
   config.args = {}

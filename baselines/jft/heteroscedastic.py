@@ -253,8 +253,9 @@ def main(config, output_dir):
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
 
-    init_rngs = {'params': rng, 'diag_noise_samples': (rng + 1) * 7,
-                 'standard_norm_noise_samples': (rng + 3) * 13}
+    rng, diag_noise_rng, standard_noise_rng = jax.random.split(rng, num=3)
+    init_rngs = {'params': rng, 'diag_noise_samples': diag_noise_rng,
+                 'standard_norm_noise_samples': standard_noise_rng}
 
     params = flax.core.unfreeze(model.init(init_rngs, dummy_input,
                                            train=False))['params']
@@ -285,7 +286,8 @@ def main(config, output_dir):
 
     return params
 
-  rng, rng_init = jax.random.split(rng)
+  (rng, rng_init, rng_dropout, diag_noise_rng,
+   standard_noise_rng) = jax.random.split(rng, num=5)
   params_cpu = init(rng_init)
 
   if jax.process_index() == 0:
@@ -297,14 +299,15 @@ def main(config, output_dir):
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False,
-                              rngs={
-                                  'dropout': rng,
-                                  'diag_noise_samples': (rng + 1) * 7,
-                                  'standard_norm_noise_samples': (rng + 3) * 13
-                              })
+    logits, out = model.apply(
+        {'params': flax.core.freeze(params)},
+        images,
+        train=False,
+        rngs={
+            'dropout': rng_dropout,
+            'diag_noise_samples': diag_noise_rng,
+            'standard_norm_noise_samples': standard_noise_rng
+        })
 
     # Note that logits and labels are usually of the shape [batch,num_classes].
     # But for OOD data, when num_classes_ood > num_classes_ind, we need to
@@ -327,14 +330,15 @@ def main(config, output_dir):
 
   @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, images, labels, mask):
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False,
-                              rngs={
-                                  'dropout': rng,
-                                  'diag_noise_samples': (rng + 1) * 7,
-                                  'standard_norm_noise_samples': (rng + 3) * 13
-                              })
+    logits, out = model.apply(
+        {'params': flax.core.freeze(params)},
+        images,
+        train=False,
+        rngs={
+            'dropout': rng_dropout,
+            'diag_noise_samples': diag_noise_rng,
+            'standard_norm_noise_samples': standard_noise_rng
+        })
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -356,13 +360,14 @@ def main(config, output_dir):
   # Setup function for computing representation.
   @partial(jax.pmap, axis_name='batch')
   def representation_fn(params, images, labels, mask):
-    _, outputs = model.apply({'params': flax.core.freeze(params)},
-                             images,
-                             train=False,
-                             rngs={
-                                 'dropout': rng,
-                                 'diag_noise_samples': (rng + 1) * 7,
-                                 'standard_norm_noise_samples': (rng + 3) * 13})
+    _, outputs = model.apply(
+        {'params': flax.core.freeze(params)},
+        images,
+        train=False,
+        rngs={
+            'dropout': rng_dropout,
+            'diag_noise_samples': diag_noise_rng,
+            'standard_norm_noise_samples': standard_noise_rng})
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -391,14 +396,16 @@ def main(config, output_dir):
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
     rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
+    rng_model_local, diag_noise_rng, standard_noise_rng = jax.random.split(
+        rng_model_local, num=3)
 
     def loss_fn(params, images, labels):
       logits, _ = model.apply(
           {'params': flax.core.freeze(params)}, images,
           train=True, rngs={
               'dropout': rng_model_local,
-              'diag_noise_samples': (rng_model_local + 1) * 7,
-              'standard_norm_noise_samples': (rng_model_local + 3) * 13})
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
       return getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
           logits=logits, labels=labels)
 

@@ -41,12 +41,12 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 670.56195, 592.604492, 0.18, False),
-      ('imagenet2012', 'token', 2, 670.56195, 592.604492, 0.18, True),
+      ('imagenet2012', 'token', 2, 788.8107, 714.514838, 0.18, False),
+      ('imagenet2012', 'token', 2, 788.8107, 714.514838, 0.18, True),
       # ('imagenet2012', 'token', None, 17691.684, 13866.16232638, 0.16, False),
-      ('imagenet2012', 'gap', 2, 681.64264, 660.940186, 0.17, False),
-      ('imagenet2012', 'gap', None, 689.7084, 643.398709, 0.25, False),
-      ('imagenet2012', 'gap', None, 689.7084, 643.398709, 0.25, True),
+      ('imagenet2012', 'gap', 2, 662.6862, 640.745605, 0.17, False),
+      ('imagenet2012', 'gap', None, 655.14105, 642.984863, 0.25, False),
+      ('imagenet2012', 'gap', None, 655.14105, 642.984863, 0.25, True),
   )
   @flagsaver.flagsaver
   def test_heteroscedastic_script(self, dataset_name, classifier,
@@ -98,7 +98,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(val_loss['val'], correct_val_loss)
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 548.9606, 517.419963, 0.10, 'imagenet'),
+      ('imagenet2012', 'token', 2, 513.6714, 400.700616, 0.10, 'imagenet'),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, dataset_name, classifier,

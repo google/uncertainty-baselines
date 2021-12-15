@@ -333,8 +333,9 @@ def main(argv):
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
 
-    init_rngs = {'params': rng, 'diag_noise_samples': (rng + 1) * 7,
-                 'standard_norm_noise_samples': (rng + 3) * 13}
+    rng, diag_noise_rng, standard_noise_rng = jax.random.split(rng, num=3)
+    init_rngs = {'params': rng, 'diag_noise_samples': diag_noise_rng,
+                 'standard_norm_noise_samples': standard_noise_rng}
     variables = model.init(init_rngs, dummy_input, train=False)
     # Split model parameters into trainable and untrainable collections.
     states, params = variables.pop('params')
@@ -354,7 +355,8 @@ def main(argv):
 
     return params, states
 
-  rng, rng_init = jax.random.split(rng)
+  (rng, rng_init, rng_dropout, diag_noise_rng,
+   standard_noise_rng) = jax.random.split(rng, num=5)
   params_cpu, states_cpu = init(rng_init)
 
   if jax.process_index() == 0:
@@ -371,9 +373,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
 
     # Note that logits and labels are usually of the shape [batch,num_classes].
     # But for OOD data, when num_classes_ood > num_classes_ind, we need to
@@ -401,9 +403,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -430,9 +432,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -461,6 +463,8 @@ def main(argv):
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
     rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
+    rng_model_local, diag_noise_rng, standard_noise_rng = jax.random.split(
+        rng_model_local, num=3)
 
     def loss_fn(params, states, images, labels):
       # Specify mutable collection to update untrainable GP parameters.
@@ -470,8 +474,8 @@ def main(argv):
           images,
           train=True,
           rngs={'dropout': rng_model_local,
-                'diag_noise_samples': (rng_model_local + 1) * 7,
-                'standard_norm_noise_samples': (rng_model_local + 3) * 13},
+                'diag_noise_samples': diag_noise_rng,
+                'standard_norm_noise_samples': standard_noise_rng},
           mutable=list(states.keys()))
 
       logits, _ = model_results

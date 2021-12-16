@@ -411,7 +411,7 @@ def main(config, output_dir):
 
   rng, train_loop_rngs = jax.random.split(rng)
   reint_params = ('head/kernel', 'head/bias')
-  if config.get('only_eval', False):
+  if config.get('only_eval', False) or not config.get('reint_head', True):
     reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,

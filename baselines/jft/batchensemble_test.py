@@ -137,10 +137,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
 
   @parameterized.parameters(
-      ('token', 2, 346.3745, 221.2787),
+      ('token', 2, 346.3723, 218.5163),
       # ('token', None, 346.4346, 219.5707),  # TODO(zmariet): fix flaky test.
-      ('gap', 2, 346.3674, 219.6713),
-      ('gap', None, 346.3616, 218.9474),
+      ('gap', 2, 346.3702, 219.3948),
+      ('gap', None, 346.373, 219.2920),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,
@@ -157,8 +157,7 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
       train_loss, val_loss, _ = batchensemble.main(None)
 
     # Check for reproducibility.
-    logging.info('(train_loss, val_loss) = %s, %s',
-                 train_loss, val_loss['val'])
+    logging.info('(train_loss, val_loss) = %s, %s', train_loss, val_loss['val'])
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss['val'], correct_val_loss)
 

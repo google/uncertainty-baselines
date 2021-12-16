@@ -71,7 +71,9 @@ class BatchEnsembleMlpBlock(nn.Module):
         gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         kernel_init=self.kernel_init,
         bias_init=self.bias_init,
-        dtype=dtype)(inputs)
+        name="Dense_0",
+        dtype=dtype)(
+            inputs)
     x = nn.gelu(x)
     x = nn.Dropout(rate=self.dropout_rate, deterministic=deterministic)(x)
     output = ed.nn.DenseBatchEnsemble(
@@ -83,7 +85,9 @@ class BatchEnsembleMlpBlock(nn.Module):
         gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         kernel_init=self.kernel_init,
         bias_init=self.bias_init,
-        dtype=dtype)(x)
+        name="Dense_1",
+        dtype=dtype)(
+            x)
     output = nn.Dropout(
         rate=self.dropout_rate, deterministic=deterministic)(
             output)
@@ -103,26 +107,28 @@ class Encoder1DBlock(nn.Module):
   attention_dropout_rate: float = 0.0
 
   @nn.compact
-  def __call__(self, inputs: jnp.ndarray, *,
+  def __call__(self,
+               inputs: jnp.ndarray,
+               *,
                deterministic: Optional[bool] = None):
     """Applies Encoder1Dlock module."""
     assert inputs.ndim == 3, f"Expected (batch, seq, hidden) got {inputs.shape}"
 
-    x = nn.LayerNorm(dtype=self.dtype)(inputs)
+    x = nn.LayerNorm(dtype=self.dtype, name="LayerNorm_0")(inputs)
     x = nn.MultiHeadDotProductAttention(
         dtype=self.dtype,
         kernel_init=nn.initializers.xavier_uniform(),
         broadcast_dropout=False,
         deterministic=deterministic,
-        name="self_attention",
+        name="MultiHeadDotProductAttention_1",
         num_heads=self.num_heads,
         dropout_rate=self.attention_dropout_rate)(x, x)
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
     x = x + inputs
 
     # MLP block.
-    y = nn.LayerNorm(dtype=self.dtype)(x)
-    y = self.mlp_class()(y, deterministic=deterministic)
+    y = nn.LayerNorm(dtype=self.dtype, name="LayerNorm_2")(x)
+    y = self.mlp_class(name="MlpBlock_3")(y, deterministic=deterministic)
 
     return x + y
 
@@ -142,7 +148,7 @@ class BatchEnsembleEncoder(nn.Module):
     attention_dropout_rate: dropout rate for the attention.
     train: True if the module is used for training.
     be_layers: Sequence of layers where BE MLPs are included. If None, use BE
-        MLP blocks in every other layer (1, 3, 5, ...). First layer is 0.
+      MLP blocks in every other layer (1, 3, 5, ...). First layer is 0.
   """
   num_layers: int
   mlp_dim: int
@@ -179,16 +185,15 @@ class BatchEnsembleEncoder(nn.Module):
       return False
 
     x = vit.AddPositionEmbs(
-        name="posembed_input",
-        posemb_init=nn.initializers.normal(stddev=0.02))(
+        name="posembed_input", posemb_init=nn.initializers.normal(stddev=0.02))(
             inputs)
     x = nn.Dropout(rate=self.dropout_rate, deterministic=not self.train)(x)
 
-    be_params = dict(ens_size=self.ens_size,
-                     random_sign_init=self.random_sign_init)
+    be_params = dict(
+        ens_size=self.ens_size, random_sign_init=self.random_sign_init)
     mlp_params = dict(dtype=dtype, name="mlp")
-    mlp_params_dense = dict(dropout_rate=self.dropout_rate,
-                            mlp_dim=self.mlp_dim)
+    mlp_params_dense = dict(
+        dropout_rate=self.dropout_rate, mlp_dim=self.mlp_dim)
     mlp_dense = functools.partial(vit.MlpBlock, **mlp_params,
                                   **mlp_params_dense)
     be_block = functools.partial(BatchEnsembleMlpBlock, **mlp_params,
@@ -273,21 +278,19 @@ class PatchTransformerBE(nn.Module):
         logging.info("Resformer: drop-head variant")
         del restored_params["pre_logits"]
     if not keep_head:
-      restored_params["head"]["kernel"] = np.stack(
-          [init_params["head"]["kernel"]] * len(local_devices))
-      restored_params["head"]["bias"] = np.stack(
-          [init_params["head"]["bias"]] * len(local_devices))
+      restored_params["batchensemble_head"]["kernel"] = np.stack(
+          [init_params["batchensemble_head"]["kernel"]] * len(local_devices))
+      restored_params["batchensemble_head"]["bias"] = np.stack(
+          [init_params["batchensemble_head"]["bias"]] * len(local_devices))
     # The following implements "high-res finetuning" for transformer models.
-    if "posembed_input" in restored_params.get("BatchEnsembleTransformer", {}):
+    if "posembed_input" in restored_params.get("Transformer", {}):
       # Rescale the grid of position embeddings. Param shape is (1,N,rep.size)
       posemb = (
-          restored_params["BatchEnsembleTransformer"]["posembed_input"]
-          ["pos_embedding"][0])
-      posemb_new = init_params["BatchEnsembleTransformer"]["posembed_input"][
-          "pos_embedding"]
+          restored_params["Transformer"]["posembed_input"]["pos_embedding"][0])
+      posemb_new = init_params["Transformer"]["posembed_input"]["pos_embedding"]
       if posemb.shape != posemb_new.shape:
-        logging.info("Resformer: resized variant: %s to %s",
-                     posemb.shape, posemb_new.shape)
+        logging.info("Resformer: resized variant: %s to %s", posemb.shape,
+                     posemb_new.shape)
         ntok_new = posemb_new.shape[1]
 
         if (model_params.get("cls_token", False) or
@@ -302,11 +305,11 @@ class PatchTransformerBE(nn.Module):
         logging.info("Resformer: grid-size from %s to %s", gs_old, gs_new)
         posemb_grid = posemb_grid.reshape(gs_old, gs_old, -1)
 
-        zoom = (gs_new/gs_old, gs_new/gs_old, 1)
+        zoom = (gs_new / gs_old, gs_new / gs_old, 1)
         posemb_grid = scipy.ndimage.zoom(posemb_grid, zoom, order=1)
-        posemb_grid = posemb_grid.reshape(1, gs_new*gs_new, -1)
+        posemb_grid = posemb_grid.reshape(1, gs_new * gs_new, -1)
         posemb = jnp.array(np.concatenate([posemb_tok, posemb_grid], axis=1))
-        restored_params["BatchEnsembleTransformer"]["posembed_input"][
+        restored_params["Transformer"]["posembed_input"][
             "pos_embedding"] = np.stack([posemb] * len(local_devices))
 
     return flax.core.freeze(restored_params)
@@ -323,8 +326,13 @@ class PatchTransformerBE(nn.Module):
           f"(patch_size = {patch_size}, patch_grid = {patch_grid})")
     elif patch_size is None:
       patch_size = (h // patch_grid[0], w // patch_grid[1])
-    x = nn.Conv(hidden_size, patch_size, strides=patch_size,
-                padding="VALID", name="embedding")(images)
+    x = nn.Conv(
+        hidden_size,
+        patch_size,
+        strides=patch_size,
+        padding="VALID",
+        name="embedding")(
+            images)
     return jnp.reshape(x, [n, -1, hidden_size])
 
   @nn.compact
@@ -341,7 +349,7 @@ class PatchTransformerBE(nn.Module):
       x = jnp.concatenate([cls, x], axis=1)
     # Encode tokens.
     x, extra_info = BatchEnsembleEncoder(
-        train=train, name="BatchEnsembleTransformer", **transformer)(
+        train=train, name="Transformer", **transformer)(
             x)
     # Reduce tokens to a single vector representation.
     if self.classifier == "token":
@@ -361,8 +369,8 @@ class PatchTransformerBE(nn.Module):
       x = attention(inputs_q=probe, inputs_kv=x)
       y = nn.LayerNorm()(x)
       y = vit.MlpBlock(
-          mlp_dim=transformer["mlp_dim"],
-          dropout_rate=0)(y, deterministic=not train)
+          mlp_dim=transformer["mlp_dim"], dropout_rate=0)(
+              y, deterministic=not train)
       x = (x + y)[:, 0]
     else:
       raise ValueError(f"Unknown classifier: {self.classifier}")
@@ -373,6 +381,8 @@ class PatchTransformerBE(nn.Module):
       x = nn.Dense(self.representation_size, name="pre_logits")(x)
       x = nn.tanh(x)
 
-    x = nn.Dense(self.num_classes, kernel_init=self.head_kernel_init,
-                 name="head")(x)
+    x = nn.Dense(
+        self.num_classes, kernel_init=self.head_kernel_init,
+        name="batchensemble_head")(
+            x)
     return x, extra_info

@@ -246,18 +246,19 @@ def main(_):
     params = flax.core.unfreeze(params)
 
     # Set bias in the head to a low value, such that loss is small initially.
-    params['head']['bias'] = jnp.full_like(
-        params['head']['bias'], config.get('init_head_bias', 0))
+    params['batchensemble_head']['bias'] = jnp.full_like(
+        params['batchensemble_head']['bias'], config.get('init_head_bias', 0))
 
     # init head kernel to all zeros for fine-tuning
     if config.get('model_init'):
-      params['head']['kernel'] = jnp.full_like(params['head']['kernel'], 0)
+      params['batchensemble_head']['kernel'] = jnp.full_like(
+          params['batchensemble_head']['kernel'], 0)
 
     return params
 
   rng, rng_init = jax.random.split(rng)
   params_init = init(rng_init)
-  opt_init = opt_def.create(flax.core.freeze(params_init))
+  opt_init = opt_def.create(params_init)
 
   weight_decay_rules = config.get('weight_decay', []) or []
   rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
@@ -312,16 +313,22 @@ def main(_):
       init_optimizer=opt_init,
       init_params=opt_init.target,
       init_fixed_model_states=None,
-      default_reinit_params=['head/bias', 'head/kernel'],
+      default_reinit_params=['batchensemble_head/bias',
+                             'batchensemble_head/kernel'],
       config=config)
 
   opt = checkpoint_data.optimizer
   train_loop_rngs = {'params': checkpoint_data.train_loop_rngs}
-  opt = opt.replace(target=flax.core.freeze(opt.target))
+  opt = opt.replace(target=opt.target)
   first_step = int(opt.state.step)
 
-  opt = flax.jax_utils.replicate(opt)
   accumulated_train_time = checkpoint_data.accumulated_train_time
+  write_note('Adapting the checkpoint model...')
+  adapted_params = checkpoint_utils.adapt_upstream_architecture(
+      init_params=params_init,
+      loaded_params=opt.target)
+  opt = opt.replace(target=adapted_params)
+  opt = flax.jax_utils.replicate(opt)
 
   write_note('Kicking off misc stuff...')
   if first_step == 0 and jax.process_index() == 0:

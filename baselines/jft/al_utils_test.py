@@ -29,8 +29,8 @@ class AlUtilsTest(tf.test.TestCase):
             "test": None
         })
 
-    split = "train"
-    dataset = dataset_builder.as_dataset(split).batch(500)
+    split = tfds.even_splits("train", 1)
+    dataset = dataset_builder.as_dataset(split)[0].batch(500)
 
     all_ids = []
     n = 0
@@ -54,7 +54,8 @@ class AlUtilsTest(tf.test.TestCase):
         })
 
     for split, ids in zip(["train", "test"], [train_ids, test_ids]):
-      dataset = dataset_builder.as_dataset(split).batch(1)
+      split = tfds.even_splits(split, 1)
+      dataset = dataset_builder.as_dataset(split)[0].batch(1)
 
       ds_ids = []
       for example in dataset.as_numpy_iterator():

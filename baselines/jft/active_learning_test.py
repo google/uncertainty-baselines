@@ -19,6 +19,7 @@ import pathlib
 import tempfile
 
 from absl import flags
+from absl.testing import parameterized
 import flax
 import jax
 import jax.numpy as jnp
@@ -33,7 +34,7 @@ flags.adopt_module_key_flags(active_learning)
 FLAGS = flags.FLAGS
 
 
-class ActiveLearningTest(tf.test.TestCase):
+class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -41,7 +42,14 @@ class ActiveLearningTest(tf.test.TestCase):
     baseline_root_dir = pathlib.Path(__file__).parents[1]
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
-  def test_active_learning_script(self):
+  @parameterized.parameters(
+      ('uniform', [840763837, 1167338319]),
+      # NOTE: ideally margin and entropy don't have matching ids for test
+      ('margin', [809552352, 758271112]),
+      ('entropy', [809552352, 758271112]),
+      ('density', [1546174544, 834394044]),
+  )
+  def test_active_learning_script(self, acquisition_method, gt_ids):
     data_dir = self.data_dir
 
     # Create a dummy checkpoint
@@ -68,16 +76,20 @@ class ActiveLearningTest(tf.test.TestCase):
     config.val_split = 'train[98%:]'
     config.train_split = 'train[:98%]'
     config.batch_size = 8
-    config.max_labels = 3
+    config.max_labels = 4
     config.acquisition_batch_size = 2
+    config.total_steps = 6
     config.dataset_dir = data_dir
     config.model_init = checkpoint_path
 
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      ids, test_accs = active_learning.main(config, output_dir)
+    with tfds.testing.mock_data(num_examples=50, data_dir=data_dir):
+      ids, _ = active_learning.main(config,
+                                    output_dir,
+                                    acquisition_method)
 
-    self.assertAllClose(test_accs, [0.125, 0.125])
-    self.assertAllEqual(ids, [1751673441, 543581031, 1701210465, 1701209956])
+    # Get the warmup batch
+    gt_ids = [934744266, 986104245] + gt_ids
+    self.assertEqual(ids, set(gt_ids))
 
 
 if __name__ == '__main__':

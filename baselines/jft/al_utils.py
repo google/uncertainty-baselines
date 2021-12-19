@@ -19,8 +19,9 @@ Alternative version that writes out TFRecords here:
 https://colab.research.google.com/drive/1McRC0es1ehwUL_jQQcBdC05wsPGgNWE3
 """
 
-from typing import Dict, List
+from typing import Dict, Set
 
+import numpy as np
 import tensorflow as tf
 from tensorflow_datasets.image_classification import cifar
 
@@ -34,12 +35,14 @@ def _subset_generator(dataset, subset_ids):
       # However, the dataset info only specifies that the type of id
       # is BYTES, so we also support that.
       try:
-        int_id = int(record["id"].numpy()[-5:])
+        int_id = np.int32(record["id"].numpy()[-5:])
       except ValueError:
         # ID is encoded differently, then just interpret as bytes
-        int_id = int.from_bytes(record["id"].numpy()[-5:], "big")
+        int_id = int.from_bytes(record["id"].numpy(), "big")
+        # jax prefers int32
+        # https://jax.readthedocs.io/en/latest/notebooks/Common_Gotchas_in_JAX.html#double-64bit-precision
+        int_id = np.int32(int_id % np.iinfo(np.int32).max)
 
-      # NOTE: should we even allow subset_ids to be None?
       if subset_ids is not None:
         # Hard fail on type errors
         assert all(map(lambda id: isinstance(id, int), subset_ids))
@@ -57,13 +60,13 @@ class Cifar10Subset(cifar.Cifar10):
     Implement CIFAR-10 with the added functionality taking a subst by id.
 
     Args:
-      subset_ids: a dictionary of split: list of ids.
+      subset_ids: a dictionary of split: set of ids.
 
     Returns:
       A Cifar10Subset object.
   """
 
-  def __init__(self, *, subset_ids: Dict[str, List[int]], **kwargs):
+  def __init__(self, *, subset_ids: Dict[str, Set[int]], **kwargs):
     super().__init__(**kwargs)
     self.subset_ids = subset_ids
 
@@ -76,9 +79,9 @@ class Cifar10Subset(cifar.Cifar10):
 
     # NOTE: if this line errors out, make sure to update your
     # tensorflow-datasets package to the right version.
-    splitname = split.split_name
+    split_name = split.split
 
     return tf.data.Dataset.from_generator(
-        _subset_generator(dataset, self.subset_ids[splitname]),
+        _subset_generator(dataset, self.subset_ids[split_name]),
         output_signature=element_spec,
     ).cache()

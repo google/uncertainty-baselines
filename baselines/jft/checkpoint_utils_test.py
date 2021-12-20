@@ -57,9 +57,19 @@ def _make_deterministic_model(num_classes=21843, representation_size=2):
   return model, config
 
 
-def _init_model(key, model, input_shape=(2, 224, 224, 3)):
+def _init_model(key, model, input_shape=(2, 224, 224, 3),
+                rand_normal_head_kernel=False):
   dummy_input = jnp.zeros(input_shape, jnp.float32)
   params = model.init(key, dummy_input, train=False)["params"]
+  if rand_normal_head_kernel:
+    # By default, ViT has its head initialized to zeroes.
+    # To test non-trivial predictions, we sometimes need to set the params of
+    # the head to non-zero values (here from a normal distribution).
+    _, rand_normal_key = jax.random.split(key, 2)
+    shape = params["head"]["kernel"].shape
+    params = flax.core.unfreeze(params)
+    params["head"]["kernel"] = jax.random.normal(rand_normal_key, shape)
+    params = flax.core.freeze(params)
   return params
 
 
@@ -85,6 +95,8 @@ def _reset_head_kernel(params, value):
   params = flax.core.unfreeze(params)
   params["head"]["kernel"] = value * jnp.ones_like(params["head"]["kernel"])
   return flax.core.freeze(params)
+
+
 
 
 class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):

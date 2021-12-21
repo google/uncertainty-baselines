@@ -82,6 +82,10 @@ setup(
             'torch',
             'torchvision',
         ],
+        'drd': [
+            'wandb',
+            'dm-haiku'
+        ],
     },
     classifiers=[
         'Development Status :: 3 - Alpha',

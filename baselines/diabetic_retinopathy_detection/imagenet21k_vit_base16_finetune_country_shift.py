@@ -44,7 +44,7 @@ def get_config():
   config.train_split = 'train'
   config.val_split = 'validation'
 
-  config.num_classes = 1
+  config.num_classes = 2
   # config.num_classes = 10
 
   # OOD eval
@@ -57,7 +57,8 @@ def get_config():
 
   config.total_steps = 10_000
 
-  config.pp_input_res = 64  # pylint: disable=invalid-name
+  # config.pp_input_res = 64  # pylint: disable=invalid-name
+  config.pp_input_res = 512  # pylint: disable=invalid-name
   # pp_common = '|value_range(-1, 1)'
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
@@ -65,13 +66,15 @@ def get_config():
   # pp_common += '|keep(["image", "labels"])'
   # config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
   # config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
-  config.pp_train = 'diabetic_retinopathy_preprocess'
-  config.pp_eval = 'diabetic_retinopathy_preprocess'
+
+  pp_common = f'|onehot({config.num_classes})'
+  config.pp_train = 'diabetic_retinopathy_preprocess' + pp_common
+  config.pp_eval = 'diabetic_retinopathy_preprocess' + pp_common
 
   config.shuffle_buffer_size = 15_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 10
-  config.log_eval_steps = 100
+  config.log_training_steps = 100
+  config.log_eval_steps = 1000
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
   config.checkpoint_steps = 1000
   config.checkpoint_timeout = 1
@@ -106,10 +109,12 @@ def get_config():
   config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
   # config.loss = 'softmax_xent'  # or 'sigmoid_xent'
-  config.loss = 'sigmoid_xent'
+  # config.loss = 'sigmoid_xent'
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.003
+  # config.lr.base = 0.003
+  config.lr.base = 0.5
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
 

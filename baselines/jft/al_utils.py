@@ -19,11 +19,11 @@ Alternative version that writes out TFRecords here:
 https://colab.research.google.com/drive/1McRC0es1ehwUL_jQQcBdC05wsPGgNWE3
 """
 
-from typing import Dict, Set
+from typing import Any, Dict, Optional, Set
 
 import numpy as np
 import tensorflow as tf
-from tensorflow_datasets.image_classification import cifar
+import tensorflow_datasets as tfds
 
 
 def _subset_generator(dataset, subset_ids):
@@ -54,7 +54,7 @@ def _subset_generator(dataset, subset_ids):
   return inner
 
 
-class Cifar10Subset(cifar.Cifar10):
+class Cifar10Subset(tfds.core.GeneratorBasedBuilder):
   """CIFAR-10 Subset.
 
     Implement CIFAR-10 with the added functionality taking a subst by id.
@@ -66,12 +66,30 @@ class Cifar10Subset(cifar.Cifar10):
       A Cifar10Subset object.
   """
 
+  VERSION = tfds.core.Version('1.0.0')
+
   def __init__(self, *, subset_ids: Dict[str, Set[int]], **kwargs):
     super().__init__(**kwargs)
     self.subset_ids = subset_ids
+    #self.builder = tfds.builder("cifar10")
 
-  def _as_dataset(self, *args, split, **kwargs):
-    dataset = super()._as_dataset(*args, split=split, **kwargs)
+  def as_dataset(
+      self,
+      split: tfds.Split,
+      *,
+      batch_size: tfds.typing.Dim = None,
+      shuffle_files: bool = False,
+      decoders: Optional[tfds.typing.TreeDict[tfds.decode.partial_decode.DecoderArg]] = None,
+      read_config: Optional[tfds.ReadConfig] = None,
+      as_supervised: bool = False):
+    """Constructs a dataset."""
+    builder = tfds.builder("cifar10")
+    dataset = builder.as_dataset(split=split,
+                                 batch_size=batch_size,
+                                 shuffle_files=shuffle_files,
+                                 decoders=decoders,
+                                 read_config=read_config,
+                                 as_supervised=as_supervised)
 
     # HACK: Fix id to be an int. Assuming "label" is an int, too.
     element_spec = dataset.element_spec.copy()
@@ -85,3 +103,20 @@ class Cifar10Subset(cifar.Cifar10):
         _subset_generator(dataset, self.subset_ids[split_name]),
         output_signature=element_spec,
     ).cache()
+
+  def download_and_prepare(self, *, download_dir=None, download_config=None):
+    """Downloads and prepares the raw data."""
+    builder = tfds.builder("cifar10")
+    builder.download_and_prepare(download_dir=download_dir,
+                                 download_config=download_config)
+
+  def _info(self):
+    """Returns the `tfds.core.DatasetInfo` object."""
+    builder = tfds.builder("cifar10")
+    return builder.info
+
+  def _generate_examples(self, *args, **kwargs):
+    raise NotImplementedError
+
+  def _split_generators(self, *args, **kwargs):
+    raise NotImplementedError

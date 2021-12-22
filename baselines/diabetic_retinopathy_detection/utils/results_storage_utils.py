@@ -116,12 +116,11 @@ def add_joint_dicts(
       assert ood_len == len(ood_dict['y_true'])
 
       # Concatenate and add all list results
-      entries_to_concat = [
-        # 'names',
-      'y_true', 'y_pred', 'y_pred_entropy', 'y_pred_variance']
+      entries_to_concat = ['y_true', 'y_pred', 'y_pred_entropy']
 
       if not is_deterministic:
-        entries_to_concat += ['y_aleatoric_uncert', 'y_epistemic_uncert']
+        entries_to_concat += [
+          'y_pred_variance', 'y_aleatoric_uncert', 'y_epistemic_uncert']
 
       for entry in entries_to_concat:
         joint_split_dict[entry] = np.concatenate(

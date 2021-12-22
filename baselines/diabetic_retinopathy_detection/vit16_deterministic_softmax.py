@@ -823,6 +823,7 @@ def main(argv):
           # oc_auc_5.add_batch(preds, label=labels,
           #                    custom_binning_score=confidences)
 
+
         val_loss = loss / nseen  # Keep to return for reproducibility tests.
         val_measurements = {
           f'{val_name}_prec@1': ncorrect / nseen,

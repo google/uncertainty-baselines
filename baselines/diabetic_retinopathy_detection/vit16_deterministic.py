@@ -46,11 +46,11 @@ DEFAULT_NUM_EPOCHS = 90
 
 # Data load / output flags.
 flags.DEFINE_string(
-    'output_dir', '/tmp/diabetic_retinopathy_detection/vit-16-i21k',
-    'The directory where the model weights and training/evaluation summaries '
-    'are stored. If you aim to use these as trained models for ensemble.py, '
-    'you should specify an output_dir name that includes the random seed to '
-    'avoid overwriting.')
+  'output_dir', '/tmp/diabetic_retinopathy_detection/vit-16-i21k',
+  'The directory where the model weights and training/evaluation summaries '
+  'are stored. If you aim to use these as trained models for ensemble.py, '
+  'you should specify an output_dir name that includes the random seed to '
+  'avoid overwriting.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
 flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
@@ -90,9 +90,9 @@ flags.DEFINE_float('final_decay_factor', 1e-3, 'How much to decay the LR by.')
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_string('lr_schedule', 'step', 'Type of LR schedule.')
 flags.DEFINE_integer(
-    'lr_warmup_epochs', 1,
-    'Number of epochs for a linear warmup to the initial '
-    'learning rate. Use 0 to do no warmup.')
+  'lr_warmup_epochs', 1,
+  'Number of epochs for a linear warmup to the initial '
+  'learning rate. Use 0 to do no warmup.')
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
                   'Epochs to decay learning rate by.')
@@ -100,12 +100,12 @@ flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
 # General model flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_string(
-    'class_reweight_mode', None,
-    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, '
-    'val, test respectively). `None` (default) will not perform any loss '
-    'reweighting. `constant` will use the train proportions to reweight the '
-    'binary cross entropy loss. `minibatch` will use the proportions of each '
-    'minibatch to reweight the loss.')
+  'class_reweight_mode', None,
+  'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, '
+  'val, test respectively). `None` (default) will not perform any loss '
+  'reweighting. `constant` will use the train proportions to reweight the '
+  'binary cross entropy loss. `minibatch` will use the proportions of each '
+  'minibatch to reweight the loss.')
 flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
@@ -113,8 +113,8 @@ flags.DEFINE_integer('per_core_batch_size', 32,
                      'The per-core batch size for both training '
                      'and evaluation.')
 flags.DEFINE_integer(
-    'checkpoint_interval', 25, 'Number of epochs between saving checkpoints. '
-    'Use -1 to never save checkpoints.')
+  'checkpoint_interval', 25, 'Number of epochs between saving checkpoints. '
+                             'Use -1 to never save checkpoints.')
 
 # Metric flags.
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
@@ -125,10 +125,11 @@ flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string(
-    'tpu', None,
-    'Name of the TPU. Only used if force_use_cpu and use_gpu are both False.')
+  'tpu', None,
+  'Name of the TPU. Only used if force_use_cpu and use_gpu are both False.')
 
 FLAGS = flags.FLAGS
+
 
 # Utility functions.
 def accumulate_gradient_with_states(
@@ -143,7 +144,7 @@ def accumulate_gradient_with_states(
   # argument and returns ((losses, states), grads).
   if accum_steps and accum_steps > 1:
     assert images.shape[0] % accum_steps == 0, (
-        f'Bad accum_steps {accum_steps} for batch size {images.shape[0]}')
+      f'Bad accum_steps {accum_steps} for batch size {images.shape[0]}')
     step_size = images.shape[0] // accum_steps
 
     # Run the first step.
@@ -225,7 +226,7 @@ def main(argv):
 
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
-      output_dir, just_logging=jax.process_index() > 0)
+    output_dir, just_logging=jax.process_index() > 0)
 
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
@@ -233,6 +234,7 @@ def main(argv):
   def write_note(note):
     if jax.host_id() == 0:
       logging.info('NOTE: %s', note)
+
   write_note('Initializing...')
 
   fillin = lambda *_: None
@@ -240,25 +242,26 @@ def main(argv):
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
     assert config.keep_checkpoint_steps % config.checkpoint_steps == 0, (
-        f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
-        f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
+      f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
+      f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
 
   batch_size = config.batch_size
   batch_size_eval = config.get('batch_size_eval', batch_size)
   if (batch_size % jax.device_count() != 0 or
       batch_size_eval % jax.device_count() != 0):
-    raise ValueError(f'Batch sizes ({batch_size} and {batch_size_eval}) must '
-                     f'be divisible by device number ({jax.device_count()})')
+    raise ValueError(
+      f'Batch sizes ({batch_size} and {batch_size_eval}) must '
+      f'be divisible by device number ({jax.device_count()})')
 
   local_batch_size = batch_size // jax.host_count()
   local_batch_size_eval = batch_size_eval // jax.host_count()
   logging.info(
-      'Global batch size %d on %d hosts results in %d local batch size. '
-      'With %d devices per host (%d devices total), that\'s a %d per-device '
-      'batch size.',
-      batch_size, jax.host_count(), local_batch_size,
-      jax.local_device_count(), jax.device_count(),
-      local_batch_size // jax.local_device_count())
+    'Global batch size %d on %d hosts results in %d local batch size. '
+    'With %d devices per host (%d devices total), that\'s a %d per-device '
+    'batch size.',
+    batch_size, jax.host_count(), local_batch_size,
+    jax.local_device_count(), jax.device_count(),
+    local_batch_size // jax.local_device_count())
 
   write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
@@ -386,27 +389,28 @@ def main(argv):
   # val_preproc_fn = train_base_dataset._create_process_example_fn()
   val_iter_splits = {
     'val': _get_val_split(
-        # config.in_domain_dataset,
-        val_dataset_builder,
-        config.val_split,
-        pp_eval=config.pp_eval,
-        data_dir=config.get('data_dir'))
+      # config.in_domain_dataset,
+      val_dataset_builder,
+      config.val_split,
+      pp_eval=config.pp_eval,
+      data_dir=config.get('data_dir'))
   }
 
   ood_ds = {}
 
   ntrain_img = input_utils.get_num_examples(
-      # config.dataset,
-      # config.in_domain_dataset,
-      train_dataset_builder,
-      split=config.train_split,
-      host_batch_size=local_batch_size,
-      # data_dir=fillin(config.get('data_dir')))
-      data_dir=config.get('data_dir'))
+    # config.dataset,
+    # config.in_domain_dataset,
+    train_dataset_builder,
+    split=config.train_split,
+    host_batch_size=local_batch_size,
+    # data_dir=fillin(config.get('data_dir')))
+    data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
-    assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
+    assert not config.get(
+      'total_steps'), 'Set either num_epochs or total_steps'
   else:
     total_steps = config.total_steps
 
@@ -425,9 +429,9 @@ def main(argv):
   @partial(jax.jit, backend='cpu')
   def init(rng):
     # print(train_ds.element_spec['image'].shape)
-    # image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    image_size = tuple(train_ds.element_spec['image'].shape[2:])
     # image_size = tuple(train_ds.element_spec['image'])
-    image_size = (config.pp_input_res, config.pp_input_res, 3)
+    # image_size = (config.pp_input_res, config.pp_input_res, 3)
     # print(image_size)
     # image_size = tuple(train_ds.element_spec['features'].shape[2:])
     logging.info('image_size = %s', image_size)
@@ -505,7 +509,8 @@ def main(argv):
 
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
-    rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
+    rng_model_local = jax.random.fold_in(rng_model,
+                                         jax.lax.axis_index('batch'))
 
     def loss_fn(params, images, labels):
       logits, _ = model.apply(
@@ -708,15 +713,20 @@ def main(argv):
         ece_num_bins = config.get('ece_num_bins', 15)
         auc_num_bins = config.get('auc_num_bins', 1000)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
-        calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
-        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
-                                                       num_bins=auc_num_bins)
-        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
-                                                     num_bins=auc_num_bins)
-        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
-                                                     num_bins=auc_num_bins)
-        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
-                                                     num_bins=auc_num_bins)
+        calib_auc = rm.metrics.CalibrationAUC(
+          correct_pred_as_pos_label=False)
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(
+          oracle_fraction=0.005,
+          num_bins=auc_num_bins)
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(
+          oracle_fraction=0.01,
+          num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(
+          oracle_fraction=0.02,
+          num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(
+          oracle_fraction=0.05,
+          num_bins=auc_num_bins)
         label_diversity = tf.keras.metrics.Mean()
         sample_diversity = tf.keras.metrics.Mean()
         ged = tf.keras.metrics.Mean()
@@ -767,11 +777,16 @@ def main(argv):
           f'{val_name}_prec@1': ncorrect / nseen,
           f'{val_name}_loss': val_loss,
           f'{val_name}_ece': ece.result()['ece'],
-          f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-          f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()['collaborative_auc'],
-          f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-          f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-          f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
+          f'{val_name}_calib_auc': calib_auc.result()[
+            'calibration_auc'],
+          f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
+            'collaborative_auc'],
+          f'{val_name}_oc_auc_1%': oc_auc_1.result()[
+            'collaborative_auc'],
+          f'{val_name}_oc_auc_2%': oc_auc_2.result()[
+            'collaborative_auc'],
+          f'{val_name}_oc_auc_5%': oc_auc_5.result()[
+            'collaborative_auc'],
         }
         writer.write_scalars(step, val_measurements)
 
@@ -787,7 +802,6 @@ def main(argv):
   pool.close()
   pool.join()
   writer.close()
-
 
   # dataset = 'cifar10'
   # batch_size = 512

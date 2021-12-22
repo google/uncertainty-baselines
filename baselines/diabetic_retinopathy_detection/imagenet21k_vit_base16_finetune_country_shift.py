@@ -58,7 +58,7 @@ def get_config():
   config.total_steps = 10_000
 
   # config.pp_input_res = 64  # pylint: disable=invalid-name
-  # config.pp_input_res = 512  # pylint: disable=invalid-name
+  config.pp_input_res = 64  # pylint: disable=invalid-name
   # pp_common = '|value_range(-1, 1)'
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
@@ -68,8 +68,11 @@ def get_config():
   # config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
 
   pp_common = f'|onehot({config.num_classes})'
-  config.pp_train = 'diabetic_retinopathy_preprocess' + pp_common
-  config.pp_eval = 'diabetic_retinopathy_preprocess' + pp_common
+  # pp_common = ''
+  config.pp_train = (
+      f'diabetic_retinopathy_preprocess({config.pp_input_res})' + pp_common)
+  config.pp_eval = (
+      f'diabetic_retinopathy_preprocess({config.pp_input_res})' + pp_common)
 
   config.shuffle_buffer_size = 15_000  # Per host, so small-ish is ok.
 
@@ -106,11 +109,10 @@ def get_config():
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.grad_clip_norm = 1.0
+  config.grad_clip_norm = 20.0
   config.weight_decay = None  # No explicit weight decay
-  # config.loss = 'softmax_xent'  # or 'sigmoid_xent'
+  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
   # config.loss = 'sigmoid_xent'
-  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
   # config.lr.base = 0.003

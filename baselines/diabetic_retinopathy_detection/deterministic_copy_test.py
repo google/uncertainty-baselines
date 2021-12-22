@@ -15,6 +15,21 @@
 
 """Deterministic ViT on JFT-300M."""
 
+import tensorflow as tf
+
+tf.config.experimental.set_visible_devices([], 'GPU')
+tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
+tf.config.experimental.set_visible_devices([], 'TPU')
+
+print(tf.config.experimental.get_visible_devices())
+
+import uncertainty_baselines as ub
+
+import wandb
+import pathlib
+from datetime import datetime
+
+import flax.jax_utils as flax_utils
 from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
 import multiprocessing
@@ -32,38 +47,139 @@ import flax
 import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
-from ml_collections.config_flags import config_flags
 import numpy as np
 import robustness_metrics as rm
 
 import tensorflow as tf
 from tensorflow.io import gfile
-import uncertainty_baselines as ub
 import checkpoint_utils  # local file import
-import cifar10h_utils  # local file import
 import input_utils  # local file import
-import ood_utils  # local file import
-import preprocess_utils  # local file import
 import train_utils  # local file import
+import preprocess_utils  # local file import
+# local file import
+from imagenet21k_vit_base16_finetune_country_shift import get_config
 
-# TODO(dusenberrymw): Open-source remaining imports.
-fewshot = None
+DEFAULT_NUM_EPOCHS = 90
 
+# Data load / output flags.
+flags.DEFINE_string(
+  'output_dir', '/tmp/diabetic_retinopathy_detection/vit-16-i21k',
+  'The directory where the model weights and training/evaluation summaries '
+  'are stored. If you aim to use these as trained models for ensemble.py, '
+  'you should specify an output_dir name that includes the random seed to '
+  'avoid overwriting.')
+flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
+flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
+flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
+flags.DEFINE_string(
+  'dr_decision_threshold', 'moderate',
+  ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
+   "binary classification task. Only affects the APTOS dataset partitioning. "
+   "'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?"
+   "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
+flags.DEFINE_bool(
+  'load_from_checkpoint', False, "Attempt to load from checkpoint")
+flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
-config_flags.DEFINE_config_file(
-    'config', None, 'Training configuration.', lock_config=True)
-flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
+# Logging and hyperparameter tuning.
+flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
+flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
+flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
+flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
+flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
+
+# OOD flags.
+flags.DEFINE_string(
+  'distribution_shift', None,
+  ("Specifies distribution shift to use, if any."
+   "aptos: loads APTOS (India) OOD validation and test datasets. "
+   "  Kaggle/EyePACS in-domain datasets are unchanged."
+   "severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision "
+   "  of the Kaggle/EyePACS dataset to hold out clinical severity labels "
+   "  as OOD."))
+flags.DEFINE_bool(
+  'load_train_split', True,
+  "Should always be enabled - required to load train split of the dataset.")
+
+# Learning rate / SGD flags.
+flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
+flags.DEFINE_float('final_decay_factor', 1e-3, 'How much to decay the LR by.')
+flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_string('lr_schedule', 'step', 'Type of LR schedule.')
 flags.DEFINE_integer(
-    'num_cores', default=None, help='Unused. How many devices being used.')
-flags.DEFINE_boolean(
-    'use_gpu', default=None, help='Unused. Whether or not running on GPU.')
-flags.DEFINE_string('tpu', None,
-                    'Unused. Name of the TPU. Only used if use_gpu is False.')
+  'lr_warmup_epochs', 1,
+  'Number of epochs for a linear warmup to the initial '
+  'learning rate. Use 0 to do no warmup.')
+flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
+flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
+                  'Epochs to decay learning rate by.')
+
+# General model flags.
+flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_string(
+  'class_reweight_mode', None,
+  'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, '
+  'val, test respectively). `None` (default) will not perform any loss '
+  'reweighting. `constant` will use the train proportions to reweight the '
+  'binary cross entropy loss. `minibatch` will use the proportions of each '
+  'minibatch to reweight the loss.')
+flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
+flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
+                     'Number of training epochs.')
+flags.DEFINE_integer('per_core_batch_size', 32,
+                     'The per-core batch size for both training '
+                     'and evaluation.')
+flags.DEFINE_integer(
+  'checkpoint_interval', 25, 'Number of epochs between saving checkpoints. '
+                             'Use -1 to never save checkpoints.')
+
+# Metric flags.
+flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
+
+# Accelerator flags.
+flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+flags.DEFINE_string(
+  'tpu', None,
+  'Name of the TPU. Only used if force_use_cpu and use_gpu are both False.')
 
 FLAGS = flags.FLAGS
 
+def main(argv):
+  del argv  # unused arg
 
-def main(config, output_dir):
+  # Wandb Setup
+  if FLAGS.use_wandb:
+    pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
+    wandb_args = dict(
+      project=FLAGS.project,
+      entity="uncertainty-baselines",
+      dir=FLAGS.wandb_dir,
+      reinit=True,
+      name=FLAGS.exp_name,
+      group=FLAGS.exp_group)
+    wandb_run = wandb.init(**wandb_args)
+    wandb.config.update(FLAGS, allow_val_change=True)
+    output_dir = str(os.path.join(
+      FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S")))
+  else:
+    wandb_run = None
+    output_dir = FLAGS.output_dir
+
+  tf.io.gfile.makedirs(output_dir)
+  logging.info('Saving checkpoints at %s', output_dir)
+
+  # Shows the number of available devices.
+  # In a CPU/GPU runtime this will be a single device.
+  # In a TPU runtime this will be 8 cores.
+  print('Number of Jax local devices:', jax.local_devices())
+
+  config = get_config()
+
+  # config = FLAGS.config
+  output_dir = FLAGS.output_dir
 
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
@@ -117,16 +233,34 @@ def main(config, output_dir):
   write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
+  # train_ds = input_utils.get_data(
+  #     dataset=config.dataset,
+  #     split=config.train_split,
+  #     rng=train_ds_rng,
+  #     host_batch_size=local_batch_size,
+  #     preprocess_fn=preprocess_spec.parse(
+  #         spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
+  #     shuffle_buffer_size=config.shuffle_buffer_size,
+  #     prefetch_size=config.get('prefetch_to_host', 2),
+  #     data_dir=config.get('data_dir'))
+  train_base_dataset = ub.datasets.get(
+    config.in_domain_dataset, split=config.train_split,
+    data_dir=config.get('data_dir'))
+  train_dataset_builder = train_base_dataset._dataset_builder
+
+  # Same for training and evaluation
+  preproc_fn = preprocess_spec.parse(
+    spec=config.pp_train, available_ops=preprocess_utils.all_ops())
+
   train_ds = input_utils.get_data(
-      dataset=config.dataset,
-      split=config.train_split,
-      rng=train_ds_rng,
-      host_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
-          spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
-      shuffle_buffer_size=config.shuffle_buffer_size,
-      prefetch_size=config.get('prefetch_to_host', 2),
-      data_dir=config.get('data_dir'))
+    dataset=train_dataset_builder,
+    split=config.train_split,
+    rng=train_ds_rng,
+    host_batch_size=local_batch_size,
+    preprocess_fn=preproc_fn,
+    shuffle_buffer_size=config.shuffle_buffer_size,
+    prefetch_size=config.get('prefetch_to_host', 2),
+    data_dir=config.get('data_dir'))
 
   # Start prefetching already.
   train_iter = input_utils.start_input_pipeline(
@@ -135,6 +269,8 @@ def main(config, output_dir):
   write_note('Initializing val dataset(s)...')
 
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
+    del pp_eval  # Same as pp_train for Diabetic Retinopathy.
+
     # We do ceil rounding such that we include the last incomplete batch.
     nval_img = input_utils.get_num_examples(
         dataset,
@@ -146,17 +282,18 @@ def main(config, output_dir):
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
-    if isinstance(pp_eval, str):
-      pp_eval = preprocess_spec.parse(
-          spec=pp_eval, available_ops=preprocess_utils.all_ops())
+    # if isinstance(pp_eval, str):
+    #   pp_eval = preprocess_spec.parse(
+    #       spec=pp_eval, available_ops=preprocess_utils.all_ops())
 
     val_ds = input_utils.get_data(
         dataset=dataset,
         split=split,
         rng=None,
         host_batch_size=local_batch_size_eval,
-        preprocess_fn=pp_eval,
-        cache=config.get('val_cache', 'batched'),
+        preprocess_fn=preproc_fn,
+        # cache=config.get('val_cache', 'batched'),
+        cache=False,
         repeat_after_batching=True,
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
@@ -167,67 +304,37 @@ def main(config, output_dir):
 
     return (val_iter, val_steps)
 
+  val_base_dataset = ub.datasets.get(
+    config.in_domain_dataset, split=config.val_split,
+    data_dir=config.get('data_dir'))
+  val_dataset_builder = val_base_dataset._dataset_builder
   val_iter_splits = {
       'val':
           _get_val_split(
-              config.dataset,
+              val_dataset_builder,
+              # config.dataset,
               split=config.val_split,
               pp_eval=config.pp_eval,
               data_dir=config.get('data_dir'))
   }
 
-  if config.get('eval_on_cifar_10h'):
-    cifar10_to_cifar10h_fn = cifar10h_utils.create_cifar10_to_cifar10h_fn(
-        config.get('data_dir', None))
-    preprocess_fn = preprocess_spec.parse(
-        spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(cifar10_to_cifar10h_fn(ex))
-    val_iter_splits['cifar_10h'] = _get_val_split(
-        'cifar10',
-        split=config.get('cifar_10h_split') or 'test',
-        pp_eval=pp_eval,
-        data_dir=config.get('data_dir'))
-  elif config.get('eval_on_imagenet_real'):
-
-    def avg_label(example):
-      real_label = example['real_label']
-      if tf.shape(real_label)[0] > 0:
-        one_hot = tf.one_hot(real_label, 1000)
-        example['labels'] = tf.reduce_mean(one_hot, axis=0)
-        example['mask'] = tf.identity(1.)
-      else:
-        example['labels'] = tf.zeros([1000])
-        example['mask'] = tf.identity(0.)
-      return example
-
-    preprocess_fn = preprocess_spec.parse(
-        spec=config.pp_eval_imagenet_real,
-        available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(avg_label(ex))
-    val_iter_imagenet_real, val_steps = _get_val_split(
-        'imagenet2012_real',
-        split=config.get('imagenet_real_split') or 'validation',
-        pp_eval=pp_eval,
-        data_dir=config.get('data_dir'))
-    val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
-
-  ood_ds = {}
-  if config.get('ood_datasets') and config.get('ood_methods'):
-    if config.get('ood_methods'):  #  config.ood_methods is not a empty list
-      logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
-      ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
-          config.dataset,
-          config.ood_datasets,
-          config.ood_split,
-          config.pp_eval,
-          config.ood_methods,
-          config.train_split,
-          config.get('data_dir'),
-          _get_val_split,
-      )
+  # if config.get('ood_datasets') and config.get('ood_methods'):
+  #   if config.get('ood_methods'):  #  config.ood_methods is not a empty list
+  #     logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+  #     ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
+  #         config.dataset,
+  #         config.ood_datasets,
+  #         config.ood_split,
+  #         config.pp_eval,
+  #         config.ood_methods,
+  #         config.train_split,
+  #         config.get('data_dir'),
+  #         _get_val_split,
+  #     )
 
   ntrain_img = input_utils.get_num_examples(
-      config.dataset,
+      train_dataset_builder,
+      # config.dataset,
       split=config.train_split,
       host_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
@@ -255,6 +362,7 @@ def main(config, output_dir):
   @partial(jax.jit, backend='cpu')
   def init(rng):
     image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    # image_size = (config.pp_input_res, config.pp_input_res, 3)
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
     params = flax.core.unfreeze(model.init(rng, dummy_input,
@@ -281,27 +389,7 @@ def main(config, output_dir):
   @partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False)
-
-    losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
-        logits=logits, labels=labels, reduction=False)
-    loss = jax.lax.psum(losses * mask, axis_name='batch')
-
-    top1_idx = jnp.argmax(logits, axis=1)
-    # Extracts the label at the highest logit index for each image.
-    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
-    ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
-    n = jax.lax.psum(mask, axis_name='batch')
-
-    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
-                                     axis_name='batch')
-    return ncorrect, loss, n, metric_args
-
-  @partial(jax.pmap, axis_name='batch')
-  def cifar_10h_evaluation_fn(params, images, labels, mask):
+    # mask *= labels.max(axis=1)
     logits, out = model.apply({'params': flax.core.freeze(params)},
                               images,
                               train=False)
@@ -312,28 +400,14 @@ def main(config, output_dir):
 
     top1_idx = jnp.argmax(logits, axis=1)
     # Extracts the label at the highest logit index for each image.
-    one_hot_labels = jnp.eye(10)[jnp.argmax(labels, axis=1)]
-
-    top1_correct = jnp.take_along_axis(
-        one_hot_labels, top1_idx[:, None], axis=1)[:, 0]
+    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
-    n = jax.lax.psum(one_hot_labels, axis_name='batch')
+    n = batch_size_eval
+    # n = jax.lax.psum(mask, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits']],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
-
-  # Setup function for computing representation.
-  @partial(jax.pmap, axis_name='batch')
-  def representation_fn(params, images, labels, mask):
-    _, outputs = model.apply({'params': flax.core.freeze(params)},
-                             images,
-                             train=False)
-    representation = outputs[config.fewshot.representation_layer]
-    representation = jax.lax.all_gather(representation, 'batch')
-    labels = jax.lax.all_gather(labels, 'batch')
-    mask = jax.lax.all_gather(mask, 'batch')
-    return representation, labels, mask
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
@@ -457,20 +531,21 @@ def main(config, output_dir):
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
 
-  write_note(f'Initializing few-shotters...\n{chrono.note}')
-  fewshotter = None
-  if 'fewshot' in config and fewshot is not None:
-    fewshotter = fewshot.FewShotEvaluator(
-        representation_fn, config.fewshot,
-        config.fewshot.get('batch_size') or batch_size_eval)
+  # write_note(f'Initializing few-shotters...\n{chrono.note}')
+  # fewshotter = None
+  # if 'fewshot' in config and fewshot is not None:
+  #   fewshotter = fewshot.FewShotEvaluator(
+  #       representation_fn, config.fewshot,
+  #       config.fewshot.get('batch_size') or batch_size_eval)
 
   checkpoint_writer = None
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
-  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
-  fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
+  # val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  val_loss = -jnp.inf
+  # fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
@@ -569,21 +644,21 @@ def main(config, output_dir):
                                                      num_bins=auc_num_bins)
         oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
                                                      num_bins=auc_num_bins)
-        label_diversity = tf.keras.metrics.Mean()
-        sample_diversity = tf.keras.metrics.Mean()
-        ged = tf.keras.metrics.Mean()
+        # label_diversity = tf.keras.metrics.Mean()
+        # sample_diversity = tf.keras.metrics.Mean()
+        # ged = tf.keras.metrics.Mean()
 
         # Runs evaluation loop.
         ncorrect, loss, nseen = 0, 0, 0
         for _, batch in zip(range(val_steps), val_iter):
-          if val_name == 'cifar_10h':
-            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                cifar_10h_evaluation_fn(opt_repl.target, batch['image'],
-                                        batch['labels'], batch['mask']))
-          else:
-            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                evaluation_fn(opt_repl.target, batch['image'],
-                              batch['labels'], batch['mask']))
+          # if val_name == 'cifar_10h':
+          #   batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+          #       cifar_10h_evaluation_fn(opt_repl.target, batch['image'],
+          #                               batch['labels'], batch['mask']))
+          # else:
+          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+              evaluation_fn(opt_repl.target, batch['image'],
+                            batch['labels'], batch['mask']))
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
           # with each local device's entry being identical as they got psum'd.
@@ -594,36 +669,40 @@ def main(config, output_dir):
           if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
             # Here we parse batch_metric_args to compute uncertainty metrics.
             # (e.g., ECE or Calibration AUC).
-            logits, labels, _, masks = batch_metric_args
-            masks = np.array(masks[0], dtype=np.bool)
+            logits, labels, _ = batch_metric_args
+            # masks = np.array(masks[0], dtype=np.bool)
             logits = np.array(logits[0])
             probs = jax.nn.softmax(logits)
             # From one-hot to integer labels, as required by ECE.
             int_labels = np.argmax(np.array(labels[0]), axis=-1)
             int_preds = np.argmax(logits, axis=-1)
             confidence = np.max(probs, axis=-1)
-            for p, c, l, d, m, label in zip(probs, confidence, int_labels,
-                                            int_preds, masks, labels[0]):
-              ece.add_batch(p[m, :], label=l[m])
-              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            for p, c, l, d, label in zip(probs, confidence, int_labels,
+                                            int_preds, labels[0]):
+              ece.add_batch(p, label=l)
+              calib_auc.add_batch(d, label=l, confidence=c)
               # TODO(jereliu): Extend to support soft multi-class probabilities.
-              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_0_5.add_batch(
+                d, label=l, custom_binning_score=c)
+              oc_auc_1.add_batch(
+                d, label=l, custom_binning_score=c)
+              oc_auc_2.add_batch(
+                d, label=l, custom_binning_score=c)
+              oc_auc_5.add_batch(
+                d, label=l, custom_binning_score=c)
 
-              if val_name == 'cifar_10h':
-                (batch_label_diversity, batch_sample_diversity,
-                 batch_ged) = cifar10h_utils.generalized_energy_distance(
-                     label[m], p[m, :], 10)
-                label_diversity.update_state(batch_label_diversity)
-                sample_diversity.update_state(batch_sample_diversity)
-                ged.update_state(batch_ged)
+              # if val_name == 'cifar_10h':
+              #   (batch_label_diversity, batch_sample_diversity,
+              #    batch_ged) = cifar10h_utils.generalized_energy_distance(
+              #        label[m], p[m, :], 10)
+              #   label_diversity.update_state(batch_label_diversity)
+              #   sample_diversity.update_state(batch_sample_diversity)
+              #   ged.update_state(batch_ged)
 
-        val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
+        val_loss = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
-            f'{val_name}_loss': val_loss[val_name],
+            f'{val_name}_loss': val_loss,
         }
         if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
           val_measurements[f'{val_name}_ece'] = ece.result()['ece']
@@ -639,13 +718,13 @@ def main(config, output_dir):
               'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
-        if val_name == 'cifar_10h':
-          cifar_10h_measurements = {
-              f'{val_name}_label_diversity': label_diversity.result(),
-              f'{val_name}_sample_diversity': sample_diversity.result(),
-              f'{val_name}_ged': ged.result(),
-          }
-          writer.write_scalars(step, cifar_10h_measurements)
+        # if val_name == 'cifar_10h':
+        #   cifar_10h_measurements = {
+        #       f'{val_name}_label_diversity': label_diversity.result(),
+        #       f'{val_name}_sample_diversity': sample_diversity.result(),
+        #       f'{val_name}_ged': ged.result(),
+        #   }
+        #   writer.write_scalars(step, cifar_10h_measurements)
 
       # OOD eval
       # Entries in the ood_ds dict include:
@@ -653,33 +732,33 @@ def main(config, output_dir):
       # OOD metrics are computed using ind_dataset paired with each of the
       # ood_dataset. When Mahalanobis distance method is applied, train_ind_ds
       # is also included in the ood_ds.
-      if ood_ds and config.ood_methods:
-        ood_measurements = ood_utils.eval_ood_metrics(ood_ds, ood_ds_names,
-                                                      config.ood_methods,
-                                                      evaluation_fn, opt_repl)
-        writer.write_scalars(step, ood_measurements)
+      # if ood_ds and config.ood_methods:
+      #   ood_measurements = ood_utils.eval_ood_metrics(ood_ds, ood_ds_names,
+      #                                                 config.ood_methods,
+      #                                                 evaluation_fn, opt_repl)
+      #   writer.write_scalars(step, ood_measurements)
       chrono.resume()
 
-    if 'fewshot' in config and fewshotter is not None:
-      # Compute few-shot on-the-fly evaluation.
-      if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
-        chrono.pause()
-        write_note(f'Few-shot evaluation...\n{chrono.note}')
-        # Keep `results` to return for reproducibility tests.
-        fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
-                                                      config.fewshot.datasets)
-
-        # TODO(dusenberrymw): Remove this once fewshot.py is updated.
-        def make_writer_measure_fn(step):
-
-          def writer_measure(name, value):
-            writer.write_scalars(step, {name: value})
-
-          return writer_measure
-
-        fewshotter.walk_results(
-            make_writer_measure_fn(step), fewshot_results, best_l2)
-        chrono.resume()
+    # if 'fewshot' in config and fewshotter is not None:
+    #   # Compute few-shot on-the-fly evaluation.
+    #   if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
+    #     chrono.pause()
+    #     write_note(f'Few-shot evaluation...\n{chrono.note}')
+    #     # Keep `results` to return for reproducibility tests.
+    #     fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
+    #                                                   config.fewshot.datasets)
+    #
+    #     # TODO(dusenberrymw): Remove this once fewshot.py is updated.
+    #     def make_writer_measure_fn(step):
+    #
+    #       def writer_measure(name, value):
+    #         writer.write_scalars(step, {name: value})
+    #
+    #       return writer_measure
+    #
+    #     fewshotter.walk_results(
+    #         make_writer_measure_fn(step), fewshot_results, best_l2)
+    #     chrono.resume()
 
     # End of step.
     if config.get('testing_failure_step'):
@@ -692,23 +771,26 @@ def main(config, output_dir):
   pool.join()
   writer.close()
 
+  if wandb_run is not None:
+    wandb_run.finish()
+
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.
-  return train_loss, val_loss, fewshot_results
+  return train_loss, val_loss
 
 
 if __name__ == '__main__':
-  # Adds jax flags to the program.
-  jax.config.config_with_absl()
+  # # Adds jax flags to the program.
+  # jax.config.config_with_absl()
+  #
+  # # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
+  # # function that returns values for tests and does not directly access flags,
+  # # and then have `main` return None.
+  #
+  # def _main(argv):
+  #   del argv
+  #   config = FLAGS.config
+  #   output_dir = FLAGS.output_dir
+  #   main(config, output_dir)
 
-  # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
-  # function that returns values for tests and does not directly access flags,
-  # and then have `main` return None.
-
-  def _main(argv):
-    del argv
-    config = FLAGS.config
-    output_dir = FLAGS.output_dir
-    main(config, output_dir)
-
-  app.run(_main)  # Ignore the returned values from `main`.
+  app.run(main)  # Ignore the returned values from `main`.

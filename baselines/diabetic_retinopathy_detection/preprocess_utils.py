@@ -50,7 +50,7 @@ class DiabeticRetinopathyPreprocess:
     key_result: Key under which to store the result (same as `key` if None).
   """
 
-  pp_input_res: int = 64
+  pp_input_res: int = 512
   channels: int = 3
   key: str = "image"
   decision_threshold: str = "moderate"

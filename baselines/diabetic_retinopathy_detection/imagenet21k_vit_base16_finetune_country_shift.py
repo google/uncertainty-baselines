@@ -58,7 +58,7 @@ def get_config():
   config.total_steps = 10_000
 
   # config.pp_input_res = 64  # pylint: disable=invalid-name
-  config.pp_input_res = 512  # pylint: disable=invalid-name
+  # config.pp_input_res = 512  # pylint: disable=invalid-name
   # pp_common = '|value_range(-1, 1)'
   # pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:
@@ -114,7 +114,7 @@ def get_config():
 
   config.lr = ml_collections.ConfigDict()
   # config.lr.base = 0.003
-  config.lr.base = 0.5
+  config.lr.base = 0.1
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
 

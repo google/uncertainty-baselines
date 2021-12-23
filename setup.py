@@ -85,7 +85,8 @@ setup(
         'drd': [
             'wandb',
             'dm-haiku',
-            'torch'
+            'torch',
+            'seaborn'
         ],
     },
     classifiers=[

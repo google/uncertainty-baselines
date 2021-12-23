@@ -6,20 +6,21 @@ tf.config.experimental.set_visible_devices([], 'TPU')
 
 print(tf.config.experimental.get_visible_devices())
 
-import uncertainty_baselines as ub
-
-import wandb
-import pathlib
-from datetime import datetime
-
-import flax.jax_utils as flax_utils
-from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
 import multiprocessing
 import numbers
 import os
+import pathlib
+from datetime import datetime
+from functools import partial  # pylint: disable=g-importing-member so standard
 from time import time
 
+import flax
+import flax.jax_utils as flax_utils
+import jax
+import jax.numpy as jnp
+import numpy as np
+import wandb
 from absl import app
 from absl import flags
 from absl import logging
@@ -27,24 +28,18 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
-import flax
-import flax.jax_utils as flax_utils
-import jax
-import jax.numpy as jnp
-import numpy as np
-import robustness_metrics as rm
-
-import tensorflow as tf
+from scipy.stats import entropy
 from tensorflow.io import gfile
+
 import checkpoint_utils  # local file import
 import input_utils  # local file import
-import train_utils  # local file import
 import preprocess_utils  # local file import
-# local file import
-from imagenet21k_vit_base16_finetune_country_shift import get_config
-from scipy.stats import entropy
+import train_utils  # local file import
+import uncertainty_baselines as ub
 from baselines.diabetic_retinopathy_detection.utils.vit_eval_utils import (
   evaluate_vit_predictions)
+# local file import
+from imagenet21k_vit_base16_finetune_country_shift import get_config
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -55,18 +50,6 @@ flags.DEFINE_string(
   'are stored. If you aim to use these as trained models for ensemble.py, '
   'you should specify an output_dir name that includes the random seed to '
   'avoid overwriting.')
-flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
-flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
-flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
-flags.DEFINE_string(
-  'dr_decision_threshold', 'moderate',
-  ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
-   "binary classification task. Only affects the APTOS dataset partitioning. "
-   "'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?"
-   "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
-flags.DEFINE_bool(
-  'load_from_checkpoint', False, "Attempt to load from checkpoint")
-flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
 # Logging and hyperparameter tuning.
 flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
@@ -75,34 +58,17 @@ flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
 flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
 flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 
-# OOD flags.
-flags.DEFINE_string(
-  'distribution_shift', None,
-  ("Specifies distribution shift to use, if any."
-   "aptos: loads APTOS (India) OOD validation and test datasets. "
-   "  Kaggle/EyePACS in-domain datasets are unchanged."
-   "severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision "
-   "  of the Kaggle/EyePACS dataset to hold out clinical severity labels "
-   "  as OOD."))
-flags.DEFINE_bool(
-  'load_train_split', True,
-  "Should always be enabled - required to load train split of the dataset.")
-
 # Learning rate / SGD flags.
-flags.DEFINE_float('base_learning_rate', 4e-4, 'Base learning rate.')
-flags.DEFINE_float('final_decay_factor', 1e-3, 'How much to decay the LR by.')
-flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
-flags.DEFINE_string('lr_schedule', 'step', 'Type of LR schedule.')
-flags.DEFINE_integer(
-  'lr_warmup_epochs', 1,
-  'Number of epochs for a linear warmup to the initial '
-  'learning rate. Use 0 to do no warmup.')
-flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
-flags.DEFINE_list('lr_decay_epochs', ['30', '60'],
-                  'Epochs to decay learning rate by.')
+flags.DEFINE_float('grad_clip_norm', 20.0, 'Gradient clipping threshold.')
+flags.DEFINE_float('weight_decay', None, 'Gradient clipping threshold.')
+flags.DEFINE_float('lr_base', 0.1, 'Base learning rate.')
+flags.DEFINE_integer('lr_warmup_steps', 500, 'Number of LR warmup steps.')
+flags.DEFINE_string('lr_decay_type', 'cosine',
+                    'Type of LR decay / schedule. Options: cosine, linear.')
 
 # General model flags.
-flags.DEFINE_integer('seed', 42, 'Random seed.')
+flags.DEFINE_integer('batch_size', 128, 'Batch size.')
+flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_string(
   'class_reweight_mode', None,
   'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, '
@@ -110,28 +76,6 @@ flags.DEFINE_string(
   'reweighting. `constant` will use the train proportions to reweight the '
   'binary cross entropy loss. `minibatch` will use the proportions of each '
   'minibatch to reweight the loss.')
-flags.DEFINE_float('l2', 5e-5, 'L2 regularization coefficient.')
-flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
-                     'Number of training epochs.')
-flags.DEFINE_integer('per_core_batch_size', 32,
-                     'The per-core batch size for both training '
-                     'and evaluation.')
-flags.DEFINE_integer(
-  'checkpoint_interval', 25, 'Number of epochs between saving checkpoints. '
-                             'Use -1 to never save checkpoints.')
-
-# Metric flags.
-flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
-
-# Accelerator flags.
-flags.DEFINE_bool('force_use_cpu', False, 'If True, force usage of CPU')
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string(
-  'tpu', None,
-  'Name of the TPU. Only used if force_use_cpu and use_gpu are both False.')
-
 FLAGS = flags.FLAGS
 
 
@@ -199,6 +143,23 @@ def main(argv):
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
 
+  # LR / Optimization Flags
+  batch_size = FLAGS.batch_size
+  grad_clip_norm = FLAGS.grad_clip_norm
+  weight_decay = FLAGS.weight_decay
+  lr_dict = {
+    'base': FLAGS.lr_base,
+    'warmup_steps': FLAGS.lr_warmup_steps,
+    'decay_type': FLAGS.lr_decay_type
+  }
+  print('wandb hyperparameters:')
+  print({
+    'batch_size': batch_size,
+    'grad_clip_norm': grad_clip_norm,
+    'weight_decay': weight_decay,
+    'lr': lr_dict
+  })
+
   # Reweighting loss for class imbalance
   # class_reweight_mode = FLAGS.class_reweight_mode
   # if class_reweight_mode == 'constant':
@@ -213,10 +174,13 @@ def main(argv):
 
   config = get_config()
 
+  # TODO(nband): fix sigmoid loss issues.
+  assert config.get('loss', None) == 'softmax_xent'
+
   # config = FLAGS.config
   output_dir = FLAGS.output_dir
 
-  seed = config.get('seed', 0)
+  seed = FLAGS.seed
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
@@ -250,7 +214,6 @@ def main(argv):
       f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
       f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
 
-  batch_size = config.batch_size
   batch_size_eval = config.get('batch_size_eval', batch_size)
   if (batch_size % jax.device_count() != 0 or
       batch_size_eval % jax.device_count() != 0):
@@ -454,23 +417,24 @@ def main(argv):
 
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
-    if config.get('grad_accum_steps', 1) == 1 or config.get(
-        'grad_clip_norm'):
+    if config.get('grad_accum_steps', 1) == 1 or grad_clip_norm is not None:
       grads, _ = jax.tree_flatten(g)
       l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
       measurements['l2_grads'] = l2_g
 
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
-    if config.get('grad_clip_norm'):
-      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
+    if grad_clip_norm is not None:
+      g_factor = jnp.minimum(1.0, grad_clip_norm / l2_g)
       g = jax.tree_util.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
 
-    decay_rules = config.get('weight_decay', []) or []
+    decay_rules = weight_decay or []
     if isinstance(decay_rules, numbers.Number):
       decay_rules = [('.*kernel.*', decay_rules)]
-    sched_m = lr / config.lr.base if config.get(
+    # sched_m = lr / config.lr.base if config.get(
+    #   'weight_decay_decouple') else lr
+    sched_m = lr / FLAGS.lr_base if config.get(
       'weight_decay_decouple') else lr
 
     def decay_fn(v, wd):
@@ -535,8 +499,10 @@ def main(argv):
     logdir=output_dir, first_profile=first_step + 10)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
+  # lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+  #                                                   **config.get('lr', {}))
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps, **lr_dict)
+
   # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
   # necessary for TPUs.
   lr_iter = train_utils.prefetch_scalar(
@@ -647,35 +613,11 @@ def main(argv):
       for val_name, (val_iter, val_steps) in val_iter_splits.items():
         start_time = time()
 
-        # Sets up evaluation metrics.
-        ece_num_bins = config.get('ece_num_bins', 15)
-        auc_num_bins = config.get('auc_num_bins', 1000)
-        ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
-        calib_auc = rm.metrics.CalibrationAUC(
-          correct_pred_as_pos_label=False)
-        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(
-          oracle_fraction=0.005,
-          num_bins=auc_num_bins)
-        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(
-          oracle_fraction=0.01,
-          num_bins=auc_num_bins)
-        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(
-          oracle_fraction=0.02,
-          num_bins=auc_num_bins)
-        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(
-          oracle_fraction=0.05,
-          num_bins=auc_num_bins)
-        # label_diversity = tf.keras.metrics.Mean()
-        # sample_diversity = tf.keras.metrics.Mean()
-        # ged = tf.keras.metrics.Mean()
-
         # Runs evaluation loop.
-        ncorrect, loss, nseen = 0, 0, 0
-
         results_arrs = {
           'y_true': [],
           'y_pred': [],
-          'y_pred_entropy': [],
+          'y_pred_entropy': []
         }
 
         for _, batch in zip(range(val_steps), val_iter):
@@ -689,88 +631,23 @@ def main(argv):
           # So let's just take the first one to the host as numpy.
 
           # from jft/deterministic.py
-          ncorrect += np.sum(np.array(batch_ncorrect[0]))
-          loss += np.sum(np.array(batch_losses[0]))
-          nseen += np.sum(np.array(batch_n[0]))
-
-          # if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
 
           # Here we parse batch_metric_args to compute uncertainty metrics.
-          # (e.g., ECE or Calibration AUC).
           logits, labels, _ = batch_metric_args
           logits = np.array(logits[0])
           probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
+
+          # From one-hot to integer labels.
           int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          # int_preds = np.argmax(logits, axis=-1)
-          # confidence = np.max(probs, axis=-1)
-          # print('logits', logits.shape)
-          # print('probs', probs.shape)
-          # print('labels', labels.shape)
-          # print('int_labels', int_labels.shape)
 
           probs = np.reshape(probs, (probs.shape[0] * probs.shape[1], -1))
           int_labels = int_labels.flatten()
           y_pred = probs[:, 1]
-
           results_arrs['y_true'].append(int_labels)
           results_arrs['y_pred'].append(y_pred)
+
+          # Entropy is computed at the per-epoch level (see below).
           results_arrs['y_pred_entropy'].append(probs)
-
-          # for p, c, l, d, label in zip(probs, confidence,
-          #                              int_labels,
-          #                              int_preds,
-          #                              labels[0]):
-          #   ece.add_batch(p, label=l)
-          #   calib_auc.add_batch(d, label=l, confidence=c)
-          #   # TODO(jereliu): Extend to support soft multi-class probabilities.
-          #   oc_auc_0_5.add_batch(
-          #     d, label=l, custom_binning_score=c)
-          #   oc_auc_1.add_batch(
-          #     d, label=l, custom_binning_score=c)
-          #   oc_auc_2.add_batch(
-          #     d, label=l, custom_binning_score=c)
-          #   oc_auc_5.add_batch(
-          #     d, label=l, custom_binning_score=c)
-
-
-
-
-
-          # TODO(nband): get working with sigmoid loss
-          # loss += np.sum(np.array(batch_losses[0]))
-          # nseen += np.sum(np.array(batch_n[0]))
-          #
-          # # Here we parse batch_metric_args to compute probs and uncertainty metrics.
-          # # (e.g., ECE or Calibration AUC).
-          # logits, labels, _ = batch_metric_args
-          # labels = np.ravel(np.array(labels[0]))
-          # logits = np.array(logits[0])
-          # logits = np.ravel(logits)  # Flatten to eval batch size
-          # probs = jax.nn.sigmoid(logits)
-          # print(probs)
-          # preds = probs > 0.5
-          # print(preds)
-          # ncorrect_ = np.sum(np.equal(labels, preds))
-          # ncorrect += ncorrect_
-          #
-          # # In binary classification, `labels` are already integers (np.int32)
-          # # `probs` are already probabilities
-          # # Confidence can be obtained as max(probs, 1 - probs)
-          # confidences = np.maximum(probs, 1 - probs)
-
-          # ece.add_batch(probs, label=labels)
-          # calib_auc.add_batch(preds, label=labels,
-          #                     confidence=confidences)
-          # # TODO(jereliu): Extend to support soft multi-class probabilities.
-          # oc_auc_0_5.add_batch(preds, label=labels,
-          #                      custom_binning_score=confidences)
-          # oc_auc_1.add_batch(preds, label=labels,
-          #                    custom_binning_score=confidences)
-          # oc_auc_2.add_batch(preds, label=labels,
-          #                    custom_binning_score=confidences)
-          # oc_auc_5.add_batch(preds, label=labels,
-          #                    custom_binning_score=confidences)
 
         results_arrs['y_true'] = np.concatenate(results_arrs['y_true'], axis=0)
         results_arrs['y_pred'] = np.concatenate(results_arrs['y_pred'], axis=0)
@@ -783,32 +660,16 @@ def main(argv):
 
         all_val_results[val_name] = results_arrs
 
-        # val_loss = loss / nseen  # Keep to return for reproducibility tests.
-        # val_measurements = {
-        #   f'{val_name}_prec@1': ncorrect / nseen,
-        #   f'{val_name}_loss': val_loss,
-        #   f'{val_name}_ece': ece.result()['ece'],
-        #   f'{val_name}_calib_auc': calib_auc.result()[
-        #     'calibration_auc'],
-        #   f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
-        #     'collaborative_auc'],
-        #   f'{val_name}_oc_auc_1%': oc_auc_1.result()[
-        #     'collaborative_auc'],
-        #   f'{val_name}_oc_auc_2%': oc_auc_2.result()[
-        #     'collaborative_auc'],
-        #   f'{val_name}_oc_auc_5%': oc_auc_5.result()[
-        #     'collaborative_auc'],
-        # }
-
-        # writer.write_scalars(step, val_measurements)
-
       per_pred_results, total_results = evaluate_vit_predictions(
         dataset_split_to_containers=all_val_results,
         is_deterministic=True,
         num_bins=15,
         return_per_pred_results=True
       )
-      print(total_results)
+
+      # Optionally log to wandb
+      if FLAGS.use_wandb:
+        wandb.log(total_results, step=step)
 
       chrono.resume()
 
@@ -823,156 +684,13 @@ def main(argv):
   pool.join()
   writer.close()
 
-  # dataset = 'cifar10'
-  # batch_size = 512
-  # config = common_config.with_dataset(common_config.get_config(), dataset)
-  # from baselines.jft.experiments import imagenet21k_vit_base16_finetune_cifar10
-  # config.update(imagenet21k_vit_base16_finetune_cifar10.get_config())
-
-  # num_classes = 10
-  # config.batch = batch_size
-  # config.pp.crop = 224
-  #
-  # print(config)
-  # seed = config.get('seed', 0)
-  # rng = jax.random.PRNGKey(seed)
-  # tf.random.set_seed(seed)
-  #
-  # # Create an asynchronous multi-metric writer.
-  # writer = metric_writers.create_default_writer(
-  #     output_dir, just_logging=jax.process_index() > 0)
-  #
-  # # The pool is used to perform misc operations such as logging in async way.
-  # pool = multiprocessing.pool.ThreadPool()
-  #
-  # def write_note(note):
-  #   if jax.host_id() == 0:
-  #     logging.info('NOTE: %s', note)
-  # write_note('Initializing...')
-  #
-  # batch_size_eval = config.get('batch_size_eval', batch_size)
-  # if (batch_size % jax.device_count() != 0 or
-  #     batch_size_eval % jax.device_count() != 0):
-  #   raise ValueError(f'Batch sizes ({batch_size} and {batch_size_eval}) must '
-  #                    f'be divisible by device number ({jax.device_count()})')
-  #
-  # local_batch_size = batch_size // jax.host_count()
-  # local_batch_size_eval = batch_size_eval // jax.host_count()
-  # logging.info(
-  #   'Global batch size %d on %d hosts results in %d local batch size. '
-  #   'With %d devices per host (%d devices total), that\'s a %d per-device '
-  #   'batch size.',
-  #   batch_size, jax.host_count(), local_batch_size,
-  #   jax.local_device_count(), jax.device_count(),
-  #   local_batch_size // jax.local_device_count())
-  #
-  # write_note('Initializing train dataset...')
-  # rng, train_ds_rng = jax.random.split(rng)
-  # train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
-  # train_ds = input_utils.get_data(
-  #   dataset=config.dataset,
-  #   split=config.train_split,
-  #   rng=train_ds_rng,
-  #   host_batch_size=local_batch_size,
-  #   preprocess_fn=pp_builder.get_preprocess_fn(config.pp_train),
-  #   shuffle_buffer_size=config.shuffle_buffer_size,
-  #   prefetch_size=config.get('prefetch_to_host', 2),
-  #   data_dir=fillin(config.get('data_dir')))
-  #
-  #
-  #
-  # import vit_dataloading
-  # # ds_train = input_pipeline.get_data_from_tfds(config=config, mode='train')
-  # # ds_test = input_pipeline.get_data_from_tfds(config=config, mode='test')
-  # ds_train = vit_dataloading.get_data_from_tfds(config=config, mode='train')
-  # ds_test = vit_dataloading.get_data_from_tfds(config=config, mode='test')
-  #
-  # del config  # Only needed to instantiate datasets.
-  #
-  # print('loaded train ds')
-  #
-  # # Fetch a batch of test images for illustration purposes.
-  # batch = next(iter(ds_train.as_numpy_iterator()))
-  # # Note the shape : [num_local_devices, local_batch_size, h, w, c]
-  # print(batch['image'].shape)
-  # #
-  # from baselines.jft.experiments import imagenet21k_vit_base16_finetune_cifar10
-  # from baselines.jft import checkpoint_utils
-  # import uncertainty_baselines as ub
-  #
-  # model_config = imagenet21k_vit_base16_finetune_cifar10.get_config()
-  # print(model_config)
-  #
-  # # Create a model using our config.
-  # model = ub.models.vision_transformer(
-  #       num_classes=model_config.num_classes, **model_config.get('model', {}))
-  # print(model)
-  #
-  # # Initialize random parameters.
-  # # This also compiles the model to XLA (takes some minutes the first time).
-  # variables = jax.jit(lambda: model.init(
-  #     jax.random.PRNGKey(0),
-  #     # Discard the "num_local_devices" dimension of the batch for initialization.
-  #     batch['image'][0, :1],
-  #     train=False,
-  # ), backend='cpu')()
-  #
-  # # Load and convert pretrained checkpoint.
-  # # This involves loading the actual pre-trained model results, but then also also
-  # # modifying the parameters a bit, e.g. changing the final layers, and resizing
-  # # the positional embeddings.
-  # # For details, refer to the code and to the methods of the paper.
-  # params = checkpoint_utils.load_from_pretrained_checkpoint(
-  #     variables['params'], checkpoint_path, model_config.model.representation_size,
-  #     model_config.model.classifier,
-  #     model_config.model.get('reinit_params', ('head/kernel', 'head/bias'))
-  # )
-  #
-  # # So far, all our data is in the host memory. Let's now replicate the arrays
-  # # into the devices.
-  # # This will make every array in the pytree params become a ShardedDeviceArray
-  # # that has the same data replicated across all local devices.
-  # # For TPU it replicates the params in every core.
-  # # For a single GPU this simply moves the data onto the device.
-  # # For CPU it simply creates a copy.
-  # params_repl = flax.jax_utils.replicate(params)
-  # print('params.cls:', type(params['head']['bias']).__name__,
-  #       params['head']['bias'].shape)
-  # print('params_repl.cls:', type(params_repl['head']['bias']).__name__,
-  #       params_repl['head']['bias'].shape)
-  #
-  # # Then map the call to our model's forward pass onto all available devices.
-  #
-  # # Andreas: changed to return [0]: (logits, out)[0]
-  # vit_apply_repl = jax.pmap(lambda params, inputs: model.apply(
-  #     dict(params=params), inputs, train=False)[0])
-  #
-  # # def get_accuracy(params_repl):
-  # #   """Returns accuracy evaluated on the test set."""
-  # #   good = total = 0
-  # #   # steps = input_pipeline.get_dataset_info(dataset, 'test')[
-  # #   #           'num_examples'] // batch_size
-  # #   steps = vit_dataloading.get_dataset_info(dataset, 'test')[
-  # #             'num_examples'] // batch_size
-  # #   for _, batch in zip(tqdm.trange(steps), ds_test.as_numpy_iterator()):
-  # #     predicted = vit_apply_repl(params_repl, batch['image'])
-  # #
-  # #     print(predicted)
-  # #     is_same = predicted.argmax(axis=-1) == batch['label'].argmax(axis=-1)
-  # #     good += is_same.sum()
-  # #     total += len(is_same.flatten())
-  # #   return good / total
-  # #
-  # # # Random performance without fine-tuning.
-  # # for _ in range(10000):
-  # #   print(get_accuracy(params_repl))
-
   if wandb_run is not None:
     wandb_run.finish()
 
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.
-  return train_loss, val_loss, results
+  # return train_loss, val_loss, results
+  # TODO(nband): fix result reporting for DR ViT-16 reproducibility unit tests
 
 
 if __name__ == '__main__':

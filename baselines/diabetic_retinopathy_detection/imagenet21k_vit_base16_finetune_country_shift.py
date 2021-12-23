@@ -44,7 +44,7 @@ def get_config():
   BATCH_SIZE = 64  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
 
-  config.total_steps = 10_000
+  # config.total_steps = 10_000
 
   # Input resolution of each retina image. (Default: 512)
   config.pp_input_res = 512  # pylint: disable=invalid-name

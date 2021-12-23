@@ -18,6 +18,8 @@ parameters:
   # deterministic ResNet-50 model.
   batch_size:
     values: [64, 128]
+  total_steps:
+    values: [10000, 20000, 50000]
   lr_base:
     distribution: log_uniform
     # Values fall in exp(min) and exp(max)
@@ -26,7 +28,7 @@ parameters:
     min: -3.5065578973
     max: -0.6931471806
   lr_warmup_steps:
-    values: [500, 1000, 5000, 10000]
+    values: [500, 1000, 5000]
   decay_type:
     values: ['cosine', 'linear']
   weight_decay:

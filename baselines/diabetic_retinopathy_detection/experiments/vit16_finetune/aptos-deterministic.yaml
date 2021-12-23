@@ -10,11 +10,14 @@ project: vit16-finetune-aptos-deterministic
 entity: uncertainty-baselines
 
 parameters:
+  output_dir:
+    value: 'gs://ub-vit-tuning/vit16-finetune-aptos-deterministic'
   use_wandb:
     value: True
-
   # Uses sweep configuration from focused tuning of
   # deterministic ResNet-50 model.
+  batch_size:
+    values: [64, 128]
   lr_base:
     distribution: log_uniform
     # Values fall in exp(min) and exp(max)

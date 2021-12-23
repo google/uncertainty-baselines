@@ -36,8 +36,8 @@ import input_utils  # local file import
 import preprocess_utils  # local file import
 import train_utils  # local file import
 import uncertainty_baselines as ub
-from baselines.diabetic_retinopathy_detection.utils.vit_eval_utils import (
-  evaluate_vit_predictions)
+from baselines.diabetic_retinopathy_detection.utils import (
+  save_per_prediction_results, evaluate_vit_predictions)
 # local file import
 from imagenet21k_vit_base16_finetune_country_shift import get_config
 
@@ -670,6 +670,10 @@ def main(argv):
       # Optionally log to wandb
       if FLAGS.use_wandb:
         wandb.log(total_results, step=step)
+
+      # Save per-prediction metrics
+      save_per_prediction_results(
+        output_dir, step, per_pred_results, verbose=False)
 
       chrono.resume()
 

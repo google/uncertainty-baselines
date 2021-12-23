@@ -7,3 +7,4 @@ from .uncertainty_utils import *
 from .results_storage_utils import *
 from .eval_utils import *
 from .plot_utils import *
+from .vit_eval_utils import *

@@ -180,7 +180,6 @@ def main(argv):
   assert config.get('loss', None) == 'softmax_xent'
 
   # config = FLAGS.config
-  output_dir = FLAGS.output_dir
 
   seed = FLAGS.seed
   rng = jax.random.PRNGKey(seed)

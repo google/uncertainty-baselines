@@ -32,43 +32,23 @@ def get_config():
   config = ml_collections.ConfigDict()
 
   # Fine-tuning dataset
-  # config.dataset = 'diabetic_retinopathy_detection'
   config.data_dir = 'gs://ub-data/retinopathy'
-
-  # config.val_split = 'train[98%:]'
-  # config.train_split = 'train[:98%]'
-
   config.in_domain_dataset = 'ub_diabetic_retinopathy_detection'
   config.ood_dataset = 'aptos'
-
   config.train_split = 'train'
   config.val_split = 'validation'
 
+  # TODO(nband): fix issue with sigmoid loss.
   config.num_classes = 2
-  # config.num_classes = 10
-
-  # OOD eval
-  # ood_split is the data split for both the ood_dataset and the dataset.
-  # config.ood_dataset = 'cifar100'
-  # config.ood_dataset = 'aptos'
 
   BATCH_SIZE = 64  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
 
   config.total_steps = 10_000
 
-  # config.pp_input_res = 64  # pylint: disable=invalid-name
-  config.pp_input_res = 64  # pylint: disable=invalid-name
-  # pp_common = '|value_range(-1, 1)'
-  # pp_common += f'|onehot({config.num_classes})'
-  # To use ancestor 'smearing', use this line instead:
-  # pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
-  # pp_common += '|keep(["image", "labels"])'
-  # config.pp_train = f'decode|inception_crop({INPUT_RES})|flip_lr' + pp_common
-  # config.pp_eval = f'decode|resize({INPUT_RES})' + pp_common
-
+  # Input resolution of each retina image. (Default: 512)
+  config.pp_input_res = 512  # pylint: disable=invalid-name
   pp_common = f'|onehot({config.num_classes})'
-  # pp_common = ''
   config.pp_train = (
       f'diabetic_retinopathy_preprocess({config.pp_input_res})' + pp_common)
   config.pp_eval = (
@@ -88,7 +68,8 @@ def get_config():
   # Model section
   # pre-trained model ckpt file
   # !!!  The below section should be modified per experiment
-  config.model_init = "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
+  config.model_init = (
+    "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz")
 
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
@@ -109,16 +90,18 @@ def get_config():
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.grad_clip_norm = 20.0
-  config.weight_decay = None  # No explicit weight decay
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
   # config.loss = 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  # config.lr.base = 0.003
-  config.lr.base = 0.1
-  config.lr.warmup_steps = 500
-  config.lr.decay_type = 'cosine'
+
+  # Set as command line arguments now, for wandb compatibility.
+  # config.grad_clip_norm = 20.0
+  # config.weight_decay = None  # No explicit weight decay
+  # # config.lr.base = 0.003
+  # config.lr.base = 0.1
+  # config.lr.warmup_steps = 500
+  # config.lr.decay_type = 'cosine'
 
   config.args = {}
   return config

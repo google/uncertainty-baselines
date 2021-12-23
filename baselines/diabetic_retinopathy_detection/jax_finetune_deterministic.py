@@ -67,6 +67,7 @@ flags.DEFINE_string('lr_decay_type', 'cosine',
                     'Type of LR decay / schedule. Options: cosine, linear.')
 
 # General model flags.
+flags.DEFINE_integer('total_steps', 10000, 'Total steps.')
 flags.DEFINE_integer('batch_size', 128, 'Batch size.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
 flags.DEFINE_string(
@@ -157,6 +158,7 @@ def main(argv):
     'batch_size': batch_size,
     'grad_clip_norm': grad_clip_norm,
     'weight_decay': weight_decay,
+    'total_steps': FLAGS.total_steps,
     'lr': lr_dict
   })
 
@@ -325,7 +327,7 @@ def main(argv):
     assert not config.get(
       'total_steps'), 'Set either num_epochs or total_steps'
   else:
-    total_steps = config.total_steps
+    total_steps = FLAGS.total_steps
 
   logging.info(
     'Running for %d steps, that means %f epochs and %f steps per epoch',
@@ -465,14 +467,14 @@ def main(argv):
     resume_checkpoint_path = save_checkpoint_path
   elif config.get('resume'):
     resume_checkpoint_path = config.resume
-  if resume_checkpoint_path:
-    write_note('Resume training from checkpoint...')
-    checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}
-    checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
-                                                  resume_checkpoint_path)
-    opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
-    rngs_loop = checkpoint_extra['rngs_loop']
-  elif config.get('model_init'):
+  # if resume_checkpoint_path:
+  #   write_note('Resume training from checkpoint...')
+  #   checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}
+  #   checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
+  #                                                 resume_checkpoint_path)
+  #   opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
+  #   rngs_loop = checkpoint_extra['rngs_loop']
+  if config.get('model_init'):
     write_note(f'Initialize model from {config.model_init}...')
     reinit_params = config.get('model_reinit_params',
                                ('head/kernel', 'head/bias'))

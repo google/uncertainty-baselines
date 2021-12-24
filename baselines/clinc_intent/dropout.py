@@ -23,7 +23,7 @@ from absl import logging
 import robustness_metrics as rm
 import tensorflow as tf
 import uncertainty_baselines as ub
-import bert_utils  # local file import
+import bert_utils  # local file import from baselines.clinc_intent
 from tensorboard.plugins.hparams import api as hp
 
 # Data flags
@@ -327,7 +327,7 @@ def main(argv):
       probs = tf.reduce_mean(probs_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.num_dropout_samples, labels.shape[0]])
+          labels, [FLAGS.num_dropout_samples, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(

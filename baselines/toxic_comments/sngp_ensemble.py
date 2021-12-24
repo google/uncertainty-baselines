@@ -39,10 +39,10 @@ import tensorflow as tf
 from tensorflow_addons import metrics as tfa_metrics
 
 import uncertainty_baselines as ub
-import metrics as tc_metrics  # local file import
+import metrics as tc_metrics  # local file import from baselines.toxic_comments
 # import toxic_comments.sngp to inherit its flags
-import sngp  # pylint:disable=unused-import  # local file import
-import utils  # local file import
+import sngp  # pylint:disable=unused-import  # local file import from baselines.toxic_comments
+import utils  # local file import from baselines.toxic_comments
 from uncertainty_baselines.datasets import toxic_comments as ds
 
 

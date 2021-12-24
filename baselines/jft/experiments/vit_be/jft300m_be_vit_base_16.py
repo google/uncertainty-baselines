@@ -95,8 +95,8 @@ def get_config():
   config.log_training_first_n_steps = 10
   config.log_eval_steps = 1000
 
-  config.write_checkpoint_every_n_steps = 5000
-  config.checkpoint_write_timeout_secs = 10
+  config.checkpoint_steps = 5000
+  config.checkpoint_timeout = 10
 
   config.prefetch_to_device = 2
   config.trial = 0

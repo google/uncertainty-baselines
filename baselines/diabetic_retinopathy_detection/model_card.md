@@ -1,6 +1,6 @@
 # Model Card: Diabetic Retinopathy Baseline
 
-Below we give a summary of the models trained on the Diabetic Retinopathy Deterministic dataset, following the guidance of [Model Cards for Model Reporting (Mitchell et al.)](https://arxiv.org/abs/1810.03993).
+Below we give a summary of the models trained on the Diabetic Retinopathy Detection dataset, following the guidance of [Model Cards for Model Reporting (Mitchell et al.)](https://arxiv.org/abs/1810.03993).
 
 ## Model Details
 
@@ -8,15 +8,11 @@ The models covered by this card were trained to classify whether or not images o
 
 ### Model Training Date
 
-March 2021
+August 2021
 
 ### Model Types
 
-All the models in this baseline use a backbone ResNet-50 v1.5 model, with slight modifications described below:
-
-- [Monte-Carlo Dropout](https://arxiv.org/abs/1506.02142): we run test images through the model `FLAGS.num_dropout_samples_eval` times, each with a different dropout mask, to do approximate Bayesian inference.
-- [Radial Bayesian Neural Net](https://arxiv.org/abs/1907.00865): we use a Radial Posterior as a variational approximate posterior.
-- Variational Inference: we perform variational inference on the model weights.
+All the models in this baseline use a backbone ResNet-50 v1.5 model, with implementation and modification details provided in Section 5 of the benchmark whitepaper located [here](https://openreview.net/forum?id=jyd4Lyjr2iB). 
 
 ## Model Use
 
@@ -30,17 +26,29 @@ These models are not intended to be used in any user-facing or production settin
 
 ## Data
 
-The data used for these models is from the [Kaggle Diabetic Retinopathy Detection challenge](https://www.kaggle.com/c/diabetic-retinopathy-detection/data), hosted on [Tensorflow Datasets](https://www.tensorflow.org/datasets/catalog/diabetic_retinopathy_detection).
+The data used for these models is from the [Kaggle Diabetic Retinopathy Detection](https://www.kaggle.com/c/diabetic-retinopathy-detection/data) and the [Kaggle APTOS 2019 Blindness Detection](https://www.kaggle.com/c/aptos2019-blindness-detection) challenges.
+ 
+See `uncertainty-baselines/uncertainty_baselines/datasets` for dataloading utilites.
+
+The images from either competition may be downloaded for free with a Kaggle account at the links above.
 
 ## Performance and Limitations
 
 ### Performance
 
-All models released were selected for their validation AUC, with final numbers on the combined train/validation and test sets released on [tensorboard.dev](tensorboard.dev). All models reach between 0.8-0.9 AUC on the test split.
+Models were selected on one of two possible validation metrics:
+* In-domain validation AUC. 
+* Area under the "balanced" accuracy referral curve, constructed on in-domain and distributionally shifted data.
+
+See Appendix B.3 [whitepaper](https://openreview.net/forum?id=jyd4Lyjr2iB) for more details on the latter metric.
 
 ### Limitations
 
-The models have only been trained and evaluated on the Kaggle Diabetic Retinopathy Detection challenge dataset, so they should not be used with any other data distributions. Additionally, while they reach competitive AUC performance on this dataset, they are not perfect.
+No single set of benchmarking tasks is a panacea.
+
+We hope that the tasks, evaluation methods, and uncertainty quantification methods presented in this benchmarking suite will significantly lower the barrier for assessing the reliability of Bayesian deep learning methods on safety-critical real-world prediction tasks.
+
+We further discuss limitations of these models (and this benchmark in general) in the [whitepaper](https://openreview.net/forum?id=jyd4Lyjr2iB). 
 
 ### Bias and Fairness
 
@@ -49,4 +57,3 @@ There are always ethical considerations to keep in mind for any medical dataset,
 ## Feedback
 
 Please open a [Pull Request](https://github.com/google/uncertainty-baselines/pulls) to contact the maintainers!
-

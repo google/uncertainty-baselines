@@ -24,6 +24,7 @@ Referneces:
 
 """
 
+from absl import logging
 import jax
 import numpy as np
 import scipy
@@ -226,6 +227,7 @@ def load_ood_datasets(
     ood_datasets,
     ood_split,
     pp_eval,
+    pp_eval_ood,
     ood_methods,
     train_split,
     data_dir,
@@ -241,7 +243,8 @@ def load_ood_datasets(
     dataset: The name of in-distribution dataset.
     ood_datasets: A list of OOD dataset names.
     ood_split: The split of the OOD dataset.
-    pp_eval: The pre-processing method applied to the input data.
+    pp_eval: The pre-processing method applied to the ind input datasets.
+    pp_eval_ood: The pre-processing methods applied to the ood input datasets.
     ood_methods: The OOD methods used for evaluation. Can be choose from 'msp',
       'maha', 'rmaha'.
     train_split: The split of the training in-distribution dataset.
@@ -260,10 +263,13 @@ def load_ood_datasets(
   if isinstance(ood_split, str):
     ood_ds.update({'ind': get_data_fn(dataset, ood_split, pp_eval, data_dir)})
     ood_ds_names.append('ind')
-    for ood_dataset in ood_datasets:
+    for ood_dataset, pp_ood in zip(ood_datasets, pp_eval_ood):
       ood_ds_name = 'ood_' + ood_dataset
+      logging.info(
+          'Load OOD ds, ood_dataset = %s, ood_split = %s, pp_ood = %s, data_dir = %s',
+          ood_dataset, ood_split, pp_ood, data_dir)
       ood_ds.update({
-          ood_ds_name: get_data_fn(ood_dataset, ood_split, pp_eval, data_dir),
+          ood_ds_name: get_data_fn(ood_dataset, ood_split, pp_ood, data_dir),
       })
       ood_ds_names.append(ood_ds_name)
   else:
@@ -368,7 +374,7 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
             ood_scores = metric.compute_ood_scores(batch_scores)
             ood_labels = np.ones_like(ood_scores)
             metric.update(ood_scores, ood_labels)
-
+    logging.info('ood_ds_name %s, nseen %s', ood_ds_name, nseen)
     if ood_ds_name == 'train_maha':
       # Estimate class conditional Gaussian distribution for Mahalanobis dist.
       pre_logits_train = np.vstack(np.vstack(pre_logits_list))

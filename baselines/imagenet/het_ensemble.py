@@ -31,7 +31,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.imagenet
 
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
@@ -80,8 +80,7 @@ def main(argv):
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
   builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=False)
+      split=tfds.Split.TEST, use_bfloat16=False, data_dir=FLAGS.data_dir)
   clean_test_dataset = builder.load(batch_size=batch_size)
   test_datasets = {'clean': clean_test_dataset}
   corruption_types, max_intensity = utils.load_corrupted_test_info()

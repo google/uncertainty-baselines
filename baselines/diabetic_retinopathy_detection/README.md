@@ -1,12 +1,16 @@
-# Diabetic Retinopathy Detection Benchmark
+# Diabetic Retinopathy Uncertainty Benchmark
 
 ## Overview
 
 Hi, good to see you here! 👋
 
-Thanks for checking out the code for the Diabetic Retinopathy Detection benchmark, part of the Uncertainty Baselines project.
+Thanks for checking out the code for the Diabetic Retinopathy Detection Benchmark, part of the Uncertainty Baselines project.
+
+See our 2021 NeurIPS Datasets and Benchmarks paper introducing this benchmark in detail [here](https://openreview.net/forum?id=jyd4Lyjr2iB).
 
 This codebase will allow you to reproduce experiments from the paper (see citation [here](#cite)) as well as use the benchmarking utilities for predictive performance, robustness, and uncertainty quantification (evaluation and plotting) for your own Bayesian deep learning methods.
+
+We would greatly appreciate a citation if you use this code in your own work.
 
 ## Prediction Task Overview
 
@@ -16,12 +20,7 @@ Models are trained with images of blood vessels in the eye, as seen in the [Tens
 
 ## Abstract
 
-Bayesian deep learning seeks to equip deep neural networks with the ability to precisely quantify their predictive uncertainty, and has promised to make deep learning more reliable for safety-critical real-world applications.
-Yet, existing Bayesian deep learning methods fall short of this promise; new methods continue to be evaluated on unrealistic test beds that do not reflect the complexities of the downstream real-world tasks that would benefit most from reliable uncertainty quantification.
-We propose a set of real-world tasks that accurately reflect such complexities and assess the reliability of predictive models in safety-critical scenarios.
-Specifically, we curate two publicly available datasets of high-resolution human retina images exhibiting varying degrees of diabetic retinopathy, a medical condition that can lead to blindness, and use them to design a suite of automated diagnosis tasks that require reliable predictive uncertainty quantification.
-We use these tasks to benchmark well-established and state-of-the-art Bayesian deep learning methods on task-specific evaluation metrics.
-We provide an easy-to-use codebase for fast and easy benchmarking following reproducibility and software design principles.
+Bayesian deep learning seeks to equip deep neural networks with the ability to precisely quantify their predictive uncertainty, and has promised to make deep learning more reliable for safety-critical real-world applications. Yet, existing Bayesian deep learning methods fall short of this promise; new methods continue to be evaluated on unrealistic test beds that do not reflect the complexities of downstream real-world tasks that would benefit most from reliable uncertainty quantification. We propose a set of real-world tasks that accurately reflect such complexities and are designed to assess the reliability of predictive models in safety-critical scenarios. Specifically, we curate two publicly available datasets of high-resolution human retina images exhibiting varying degrees of diabetic retinopathy, a medical condition that can lead to blindness, and use them to design a suite of automated diagnosis tasks that require reliable predictive uncertainty quantification. We use these tasks to benchmark well-established and state-of-the-art Bayesian deep learning methods on task-specific evaluation metrics. We provide an easy-to-use codebase for fast and easy benchmarking following reproducibility and software design principles. We provide implementations of all methods included in the benchmark as well as results computed over 100 TPU days, 20 GPU days, 400 hyperparameter configurations, and evaluation on at least 6 random seeds each.
 
 ## Installation
 
@@ -30,7 +29,7 @@ Set up and activate the Python environment by executing
 ```
 conda create -n ub python=3.8
 conda activate ub
-python setup.py install  # In uncertainty-baselines root directory
+python3 -m pip install -e .[models,jax,tensorflow,torch,retinopathy]  # In uncertainty-baselines root directory
 pip install "git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics"
 pip install 'git+https://github.com/google/edward2.git'
 ```
@@ -41,7 +40,7 @@ All hyperparameter tuning and fine-tuning (i.e., retraining with 6 different tra
 
 ## Train a Model
 
-Tuning scripts accept hyperparameters as simple Python arguments. We also implement logging using TensorBoard and Weights and Biases across all methods for the convenience of the user.
+Tuning scripts accept hyperparameters as simple Python arguments. We also implement logging using TensorBoard and Weights and Biases across all uncertainty quantification methods for the convenience of the user.
 
 Execute a tuning script as follows (all tuning scripts are located in [baselines/diabetic_retinopathy_detection](baselines/diabetic_retinopathy_detection), and have by default had their arguments fixed to the configuration achieving the highest AUC on the in-domain validation set for the Country Shift task).
 
@@ -66,7 +65,13 @@ dr_tuning/
   ...
 ```
 
-Following the steps in [parse_tensorboards.py](baselines/diabetic_retinopathy_detection/model_selection/parse_tensorboards.py) produces a file `results.tsv`. We can parse this file to obtain a ranking of the models based on our two tuning criteria: in-domain validation AUC, and area under the balanced accuracy referral curve (see paper), by executing `python analyze_tensorboards.py` in the directory containing the `results.tsv` file. This ranking allows the user to select top performing checkpoints.
+Following the steps in [parse_tensorboards.py](baselines/diabetic_retinopathy_detection/model_selection/parse_tensorboards.py) produces a file `results.tsv`. We can parse this file to obtain a ranking of the models based on our two tuning criteria: in-domain validation AUC, and area under the balanced accuracy referral curve (see [paper](https://openreview.net/pdf?id=jyd4Lyjr2iB)), by executing `python analyze_tensorboards.py` in the directory containing the `results.tsv` file. This ranking allows the user to select top performing checkpoints.
+
+## Accessing Model Checkpoints
+
+For each method, task (Country or Severity Shifts), and tuning method (see model selection details above) we release the six best-performing checkpoints [here](https://console.cloud.google.com/storage/browser/gresearch/reliable-deep-learning/checkpoints/baselines/diabetic_retinopathy_shifts).
+
+For more details on the models, see the accompanying [Model Card](./model_card.md) along with method implementation and modification details provided in Section 5 of the benchmark whitepaper located [here](https://openreview.net/pdf?id=jyd4Lyjr2iB). 
 
 ## Evaluate a Model
 
@@ -74,11 +79,15 @@ Following the steps in [parse_tensorboards.py](baselines/diabetic_retinopathy_de
 
 Scripts for the evaluation sweeps used for the paper are located in [baselines/diabetic_retinopathy_detection/experiments/eval](baselines/diabetic_retinopathy_detection/experiments/eval).
 
+`.py` sweep files are used with [XManager](https://github.com/deepmind/xmanager), a framework for launching experiments on Google Cloud Platform. 
+
+`.yaml` sweep files are tuning scripts used with [Weights & Biases](https://docs.wandb.ai/guides/sweeps).
+
 ### Selective Prediction and Referral Curves
 
 In Selective Prediction, a model's predictive uncertainty is used to choose a subset of the test set for which predictions will be evaluated. In particular, the uncertainty per test input forms a ranking. The X% of test inputs with the highest uncertainty are referred to a specialist, and the model performance is evaluated on the (100 - X)% remaining inputs. Standard evaluation therefore uses a _referral fraction_ = 0, i.e., the full test set is retained.
 
-We may wish to use a predictive model of diabetic retinopathy to ease the burden on clinical practitioners. Under Selective Prediction, the model refers the examples on which it is least confident to specialists. We can tune the _referral fraction_ parameter based on practitioner availability, and a model with well-calibrated uncertainty will have high performance on metrics such as AUC/accuracy on the retained (non-referred) evaluation data, because its uncertainty and predictive performance are correlated.
+We may wish to use a predictive model of diabetic retinopathy to ease the burden on clinical practitioners. Under Selective Prediction, the model refers the examples on which it is least confident to specialists. We can tune the _referral fraction_ parameter based on practitioner availability, and a model with well-calibrated uncertainty will have high performance on metrics such as AUC/accuracy on the retained (non-referred) evaluation data, because its uncertainty and predictive performance are (negatively) correlated.
 
 ### Using Evaluation Utilities
 
@@ -106,7 +115,7 @@ python baselines/diabetic_retinopathy_detection/plot_results.py --results_dir='g
 
 ## Previous Tuning Details
 
-The below tuning was done for the initial Uncertainty Baselines release. See [baselines/diabetic_retinopathy_detection/experiments/initial_tuning](baselines/diabetic_retinopathy_detection/experiments/initial_tuning) for the corresponding tuning scripts.
+The below tuning was done for the initial Uncertainty Baselines release. See [baselines/diabetic_retinopathy_detection/experiments/initial_tuning](baselines/diabetic_retinopathy_detection/experiments/initial_tuning) for the corresponding tuning scripts and the trained model checkpoints [here](https://console.cloud.google.com/storage/browser/gresearch/reliable-deep-learning/checkpoints/baselines/diabetic_retinopathy_shifts).
 
 ### Model Checkpoints
 For each method we release the best-performing checkpoints. These checkpoints were trained on the combined training and validation set, using hyperparameters selected from the best validation performance. Each checkpoint was selected to be from the step during training with the best test AUC (averaged across the 10 random seeds). This was epoch 63 for the deterministic model, epoch 72 for the MC-Dropout method, epoch 31 for the Variational Inference method, and epoch 61 for the Radial BNNs method. For more details on the models, see the accompanying [Model Card](./model_card.md), which covers all the models below, as the dataset is exactly the same across them all, and the only model differences are minor calibration improvements. The checkpoints can be browsed [here](https://console.cloud.google.com/storage/browser/gresearch/reliable-deep-learning/checkpoints/baselines/diabetic_retinopathy_detection).
@@ -171,11 +180,13 @@ Search space for the initial and final rounds of tuning on the Variational Infer
 Please cite our paper if you use this code in your own work:
 
 ```
-@article{filos2019systematic,
-  title={A Systematic Comparison of Bayesian Deep Learning Robustness in Diabetic Retinopathy Tasks},
-  author={Filos, Angelos and Farquhar, Sebastian and Gomez, Aidan N and Rudner, Tim GJ and Kenton, Zachary and Smith, Lewis and Alizadeh, Milad and de Kroon, Arnoud and Gal, Yarin},
-  journal={arXiv preprint arXiv:1912.10481},
-  year={2019}
+@inproceedings{
+    band2021benchmarking,
+    title={Benchmarking Bayesian Deep Learning on Diabetic Retinopathy Detection Tasks},
+    author={Neil Band and Tim G. J. Rudner and Qixuan Feng and Angelos Filos and Zachary Nado and Michael W Dusenberry and Ghassen Jerfel and Dustin Tran and Yarin Gal},
+    booktitle={Thirty-fifth Conference on Neural Information Processing Systems Datasets and Benchmarks Track},
+    year={2021},
+    url={https://openreview.net/forum?id=jyd4Lyjr2iB}
 }
 ```
 

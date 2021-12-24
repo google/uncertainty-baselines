@@ -9,7 +9,7 @@ from uncertainty_baselines.models.resnet50_fsvi import zero_padding_2D
 class ResNet50FSVITest(tf.test.TestCase):
 
     def testCreateModel(self):
-        batch_size = 2
+        batch_size = 31
         def forward(inputs, rng_key, stochastic, is_training):
             model = ub.models.ResNet50FSVI(
                 output_dim=10,

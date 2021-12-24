@@ -276,8 +276,8 @@ class _DialogStateTrackingDataset(base.BaseDataset):
                add_dialog_turn_id: Optional[bool] = False,
                shuffle_buffer_size: Optional[int] = None,
                num_parallel_parser_calls: int = 64,
-               data_dir: Optional[str] = None,
                download_data: bool = False,
+               data_dir: Optional[str] = None,
                is_training: Optional[bool] = None,
                **kwargs: Any):
     """Create a dialog state tracking tf.data.Dataset builder.
@@ -294,9 +294,9 @@ class _DialogStateTrackingDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: path to a directory containing the tfrecord datasets.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      data_dir: Path to a directory containing the tfrecord datasets.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -358,8 +358,8 @@ class _DialogStateTrackingDataset(base.BaseDataset):
       parsed_example = {
           SYS_UTT_NAME: sys_utt,
           USR_UTT_NAME: usr_utt,
-          USR_UTT_RAW_NAME: sys_utt_raw,
-          SYS_UTT_RAW_NAME: usr_utt_raw,
+          USR_UTT_RAW_NAME: usr_utt_raw,
+          SYS_UTT_RAW_NAME: sys_utt_raw,
           STATE_LABEL_NAME: state_label,
           DIAL_LEN_NAME: dialog_len,
       }

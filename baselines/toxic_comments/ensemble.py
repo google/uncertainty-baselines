@@ -34,9 +34,9 @@ from tensorflow_addons import metrics as tfa_metrics
 
 import uncertainty_baselines as ub
 # import toxic_comments.deterministic to inherit its flags
-import deterministic  # pylint:disable=unused-import  # local file import
-import metrics as tc_metrics  # local file import
-import utils  # local file import
+import deterministic  # pylint:disable=unused-import  # local file import from baselines.toxic_comments
+import metrics as tc_metrics  # local file import from baselines.toxic_comments
+import utils  # local file import from baselines.toxic_comments
 from uncertainty_baselines.datasets import toxic_comments as ds
 
 

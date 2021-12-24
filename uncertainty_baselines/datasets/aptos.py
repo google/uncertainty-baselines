@@ -148,17 +148,6 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
       homepage="https://www.kaggle.com/c/aptos2019-blindness-detection/data",
       citation=_CITATION)
 
-    # split_infos = [
-    #   tfds.core.SplitInfo(
-    #     name=tfds.Split.TEST,
-    #     shard_lengths=[_NUM_EXAMPLES],
-    #     num_bytes=0)
-    # ]
-    #
-    # split_dict = tfds.core.SplitDict(split_infos, dataset_name=self.name)
-    # info.set_splits(split_dict)
-    # return info
-
   def _split_generators(self, dl_manager):
     """We only have labels for the train images.
     We use these for evaluation (e.g., one could train with the
@@ -212,8 +201,6 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
         data = id_code_and_diagnosis[:2929]
 
       data = [(id_code, int(diagnosis)) for id_code, diagnosis in data]
-      #   reader = csv.DictReader(csv_f)
-      #   data = [(row["id_code"], int(row["diagnosis"])) for row in reader]
     else:
       data = [(fname[:-4], -1)
               for fname in tf.io.gfile.listdir(images_dir_path)
@@ -309,7 +296,8 @@ class APTOSDataset(base.BaseDataset):
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """
-      Resize images, binarize task based on provided decision threshold,
+      Preprocess images to range [0, 1],
+      binarize task based on provided decision threshold,
       produce example `Dict`.
       """
       image = example['image']

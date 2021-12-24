@@ -53,12 +53,12 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_float('base_learning_rate', 0.1,
+flags.DEFINE_float('base_learning_rate', 0.07,
                    'Base learning rate when train batch size is 256.')
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
@@ -66,8 +66,8 @@ flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 90, 'Number of training epochs.')
-flags.DEFINE_integer('corruptions_interval', 90,
+flags.DEFINE_integer('train_epochs', 270, 'Number of training epochs.')
+flags.DEFINE_integer('corruptions_interval', 270,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
 flags.DEFINE_integer(
@@ -138,9 +138,9 @@ flags.DEFINE_bool(
 # heteroscedastic flags
 flags.DEFINE_integer('num_factors', 15,
                      'Num factors to approximate full rank covariance matrix.')
-flags.DEFINE_float('temperature', 0.3,
+flags.DEFINE_float('temperature', 1.25,
                    'Temperature for heteroscedastic head.')
-flags.DEFINE_integer('num_mc_samples', 100,
+flags.DEFINE_integer('num_mc_samples', 5000,
                      'Num MC samples for heteroscedastic layer.')
 
 # HetSNGP-specific flags
@@ -151,7 +151,7 @@ flags.DEFINE_float('het_var_weight', 1., 'Weight for the het. variance.')
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
 # TODO(jereliu): Support use_bfloat16=True which currently raises error with
 # spectral normalization.
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_bool('use_bfloat16', True, 'Whether to use mixed precision.')
 flags.DEFINE_integer('num_cores', 32, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', None,
                     'Name of the TPU. Only used if use_gpu is False.')
@@ -180,6 +180,7 @@ def main(argv):
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -194,17 +195,20 @@ def main(argv):
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
-      validation_percent=1.-FLAGS.train_proportion)
+      validation_percent=1. - FLAGS.train_proportion,
+      data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   if FLAGS.train_proportion != 1.:
     test_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
         use_bfloat16=FLAGS.use_bfloat16,
-        validation_percent=1.-FLAGS.train_proportion)
+        validation_percent=1. - FLAGS.train_proportion,
+        data_dir=data_dir)
   else:
     test_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.TEST,
-        use_bfloat16=FLAGS.use_bfloat16)
+        use_bfloat16=FLAGS.use_bfloat16,
+        data_dir=data_dir)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
@@ -400,7 +404,7 @@ def main(argv):
       probs = tf.reduce_mean(probs_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.num_dropout_samples, labels.shape[0]])
+          labels, [FLAGS.num_dropout_samples, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(

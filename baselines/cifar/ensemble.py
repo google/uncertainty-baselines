@@ -31,8 +31,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import ood_utils  # local file import
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
@@ -78,9 +78,11 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
+  data_dir = FLAGS.data_dir
   dataset_builder = ub.datasets.get(
       FLAGS.dataset,
       download_data=FLAGS.download_data,
+      data_dir=data_dir,
       split=tfds.Split.TEST,
       drop_remainder=FLAGS.drop_remainder_for_eval)
   dataset = dataset_builder.load(batch_size=batch_size)
@@ -94,6 +96,8 @@ def main(argv):
         batch_size,
         drop_remainder=FLAGS.drop_remainder_for_eval)
     test_datasets.update(ood_datasets)
+  if FLAGS.dataset == 'cifar100':
+    data_dir = FLAGS.cifar100_c_path
   corruption_types, _ = utils.load_corrupted_test_info(FLAGS.dataset)
   for corruption_type in corruption_types:
     for severity in range(1, 6):
@@ -101,6 +105,7 @@ def main(argv):
           f'{FLAGS.dataset}_corrupted',
           corruption_type=corruption_type,
           download_data=FLAGS.download_data,
+          data_dir=data_dir,
           severity=severity,
           split=tfds.Split.TEST,
           drop_remainder=FLAGS.drop_remainder_for_eval).load(

@@ -26,9 +26,9 @@ import jax
 # import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import checkpoint_utils  # local file import
-import sngp  # local file import
-import test_utils  # local file import
+import checkpoint_utils  # local file import from baselines.jft
+import sngp  # local file import from baselines.jft
+import test_utils  # local file import from baselines.jft
 
 FLAGS = flags.FLAGS
 
@@ -133,8 +133,9 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
       config.train_split = 'train[30:60]'
       config.num_classes = 10
       config.ood_datasets = ['cifar100']
+      config.ood_num_classes = [100]
       config.ood_split = 'test[10:20]'
-      config.ood_methods = ['maha', 'rmaha', 'msp']
+      config.ood_methods = ['maha', 'entropy', 'rmaha', 'msp']
       config.eval_on_cifar_10h = True
       config.cifar_10h_split = 'test[:9]'
       config.pp_eval_cifar_10h = (
@@ -155,8 +156,16 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     config.pp_eval = 'decode|resize(384)' + pp_common
     config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)|drop("segmentation_mask")'
     config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)|drop("segmentation_mask")'
+    if config.get('ood_num_classes'):
+      pp_eval_ood = []
+      for num_classes in config.ood_num_classes:
+        pp_eval_ood.append(
+            config.pp_eval.replace(f'onehot({config.num_classes}',
+                                   f'onehot({num_classes}'))
+      config.pp_eval_ood = pp_eval_ood
 
     with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      logging.info('!!!config %s', config)
       train_loss, val_loss, fewshot_results = sngp.main(config, output_dir)
 
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])

@@ -22,7 +22,7 @@ from absl import logging
 import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import eval as eval_lib  # local file import
+import eval as eval_lib  # local file import from experimental.deterministic
 from tensorboard.plugins.hparams import api as hp
 
 

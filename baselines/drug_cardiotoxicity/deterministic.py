@@ -16,11 +16,10 @@
 """Binary to train a deterministic MPNN model."""
 import collections
 import dataclasses
-import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Sequence
+from typing import Dict, Sequence
 
 from absl import app
 from absl import flags
@@ -29,7 +28,7 @@ import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-from uncertainty_baselines.datasets.drug_cardiotoxicity import DrugCardiotoxicityDataset
+import utils  # local file import from baselines.drug_cardiotoxicity
 
 FLAGS = flags.FLAGS
 
@@ -63,64 +62,15 @@ flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
                   'Type of loss function to use.')
 
 
-# TODO(kehanghan): Factor this out to a shared `utils.py`.
-@dataclasses.dataclass(frozen=True)
-class ModelParameters:
-  """Model Parameters used in MPNN architecture.
-
-  Attributes:
-    num_heads: Int, number of output classes.
-    num_layers: Int, number of Message Passing layers.
-    message_layer_size: Int, dimension of message representation.
-    readout_layer_size: Int, dimension of graph level readout representation.
-    use_gp_layer: Bool, whether to use Gaussian Process layer as classifier.
-    learning_rate: Float, learning rate.
-    num_epochs: Int, number of epoch for the entire training process.
-    steps_per_epoch: Int, number of training batches to take in one epoch.
-  """
-  num_heads: int = 2
-  num_layers: int = 2
-  message_layer_size: int = 32
-  readout_layer_size: int = 32
-  use_gp_layer: bool = False
-  learning_rate: float = 0.001
-  num_epochs: int = 100
-  steps_per_epoch: Optional[int] = None
-
-
-def get_tpu_strategy(master: str) -> tf.distribute.TPUStrategy:
-  """Builds a TPU distribution strategy."""
-  logging.info('TPU master: %s', master)
-  resolver = tf.distribute.cluster_resolver.TPUClusterResolver(master)
-  tf.config.experimental_connect_to_cluster(resolver)
-  tf.tpu.experimental.initialize_tpu_system(resolver)
-  return tf.distribute.TPUStrategy(resolver)
-
-
-def write_params(params: Any, filename: str):
-  """Writes a dataclass to disk."""
-  tf.io.gfile.makedirs(os.path.dirname(filename))
-  with tf.io.gfile.GFile(filename, 'w') as f:
-    json.dump(params, f, indent=2)
-
-
-def get_metric_result_value(metric):
-  """Gets the value of the input metric current result."""
-  result = metric.result()
-  if isinstance(metric, tf.keras.metrics.Metric):
-    return result.numpy()
-  elif isinstance(metric, rm.metrics.Metric):
-    return list(result.values())[0]
-  else:
-    raise ValueError(f'Metric type {type(metric)} not supported.')
-
-
-def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
-                                                            tf.data.Dataset],
-        steps_per_eval: Dict[str, int], params: ModelParameters, model_dir: str,
-        strategy: tf.distribute.Strategy,
-        summary_writer: tf.summary.SummaryWriter,
-        loss_type: str):
+def run(
+    train_dataset: tf.data.Dataset,
+    eval_datasets: Dict[str, tf.data.Dataset],
+    steps_per_eval: Dict[str, int],
+    params: utils.ModelParameters,
+    model_dir: str,
+    strategy: tf.distribute.Strategy,
+    summary_writer: tf.summary.SummaryWriter,
+    loss_type: str):
   """Trains and evaluates the model."""
   with strategy.scope():
     model = ub.models.mpnn(
@@ -257,7 +207,7 @@ def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
     metrics_history['epoch'].append(epoch + 1)
     with summary_writer.as_default():
       for name, metric in metrics.items():
-        result = get_metric_result_value(metric)
+        result = utils.get_metric_result_value(metric)
         tf.summary.scalar(name, result, step=epoch + 1)
         metrics_history[name].append(str(result))
 
@@ -267,8 +217,8 @@ def run(train_dataset: tf.data.Dataset, eval_datasets: Dict[str,
 
     model.save(os.path.join(model_dir, f'model_{epoch + 1}'), overwrite=True)
 
-  write_params(metrics_history,
-               os.path.join(model_dir, 'metrics_history.json'))
+  utils.write_params(metrics_history,
+                     os.path.join(model_dir, 'metrics_history.json'))
 
 
 def main(argv: Sequence[str]):
@@ -281,59 +231,23 @@ def main(argv: Sequence[str]):
 
   if not FLAGS.use_gpu:
     logging.info('Using TPU for training.')
-    strategy = get_tpu_strategy(FLAGS.tpu)
+    strategy = utils.get_tpu_strategy(FLAGS.tpu)
   else:
     logging.info('Using GPU for training.')
     strategy = tf.distribute.MirroredStrategy()
 
-  train_dataset_builder = DrugCardiotoxicityDataset(
-      split=tfds.Split.TRAIN,
-      data_dir=FLAGS.data_dir)
-  train_dataset = train_dataset_builder.load(
-      batch_size=FLAGS.batch_size).map(lambda x: (x['features'], x['labels']))
+  train_dataset, steps_per_epoch = utils.load_dataset(FLAGS.data_dir,
+                                                      tfds.Split.TRAIN,
+                                                      FLAGS.batch_size)
 
-  ds_info = train_dataset_builder.tfds_info
-  max_nodes = ds_info.metadata['max_nodes']
-  node_features = ds_info.metadata['node_features']
-  edge_features = ds_info.metadata['edge_features']
-  steps_per_epoch = train_dataset_builder.num_examples // FLAGS.batch_size
-
-  eval_datasets = {}
-  steps_per_eval = {}
-  test_iid_builder = DrugCardiotoxicityDataset(
-      split=tfds.Split.VALIDATION,
-      data_dir=FLAGS.data_dir,
-      drop_remainder=False)
-  test_iid_dataset = test_iid_builder.load(
-      batch_size=FLAGS.batch_size).map(lambda x: (x['features'], x['labels']))
-
-  eval_datasets['tune'] = test_iid_dataset
-  steps_per_eval['tune'] = 1 + test_iid_builder.num_examples//FLAGS.batch_size
-
-  test_ood1_builder = DrugCardiotoxicityDataset(
-      split=tfds.Split.TEST,
-      data_dir=FLAGS.data_dir,
-      drop_remainder=False)
-  test_ood1_dataset = test_ood1_builder.load(
-      batch_size=FLAGS.batch_size).map(lambda x: (x['features'], x['labels']))
-
-  eval_datasets['test1'] = test_ood1_dataset
-  steps_per_eval['test1'] = 1 + test_ood1_builder.num_examples//FLAGS.batch_size
-
-  test_ood2_builder = DrugCardiotoxicityDataset(
-      split=tfds.Split('test2'),
-      data_dir=FLAGS.data_dir,
-      is_training=False,
-      drop_remainder=False)
-  test_ood2_dataset = test_ood2_builder.load(
-      batch_size=FLAGS.batch_size).map(lambda x: (x['features'], x['labels']))
-
-  eval_datasets['test2'] = test_ood2_dataset
-  steps_per_eval['test2'] = 1 + test_ood2_builder.num_examples//FLAGS.batch_size
+  eval_identifiers = ['tune', 'test1', 'test2']
+  splits = [tfds.Split.VALIDATION, tfds.Split.TEST, tfds.Split('test2')]
+  eval_datasets, steps_per_eval = utils.load_eval_datasets(
+      eval_identifiers, splits, FLAGS.data_dir, FLAGS.batch_size)
 
   logging.info('Steps for eval datasets: %s', steps_per_eval)
 
-  params = ModelParameters(
+  params = utils.ModelParameters(
       num_heads=FLAGS.num_heads,
       num_layers=FLAGS.num_layers,
       message_layer_size=FLAGS.message_layer_size,
@@ -344,7 +258,7 @@ def main(argv: Sequence[str]):
       steps_per_epoch=steps_per_epoch)
 
   model_dir = FLAGS.output_dir
-  write_params(
+  utils.write_params(
       dataclasses.asdict(params), os.path.join(model_dir, 'params.json'))
 
   summary_writer = tf.summary.create_file_writer(

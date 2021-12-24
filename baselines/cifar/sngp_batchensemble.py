@@ -49,7 +49,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer(
@@ -105,6 +106,21 @@ flags.DEFINE_float(
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
+
+# OOD flags.
+flags.DEFINE_bool('eval_only', False,
+                  'Whether to run only eval and (maybe) OOD steps.')
+flags.DEFINE_bool('eval_on_ood', False,
+                  'Whether to run OOD evaluation on specified OOD datasets.')
+flags.DEFINE_list('ood_dataset', 'cifar100,svhn_cropped',
+                  'list of OOD datasets to evaluate on.')
+flags.DEFINE_integer(
+    'ood_interval', -1, 'Number of epochs between evaluating on OOD metrics.'
+    ' Use -1 to never evaluate.')
+flags.DEFINE_string('saved_model_dir', None,
+                    'Directory containing the saved model checkpoints.')
+flags.DEFINE_bool('dempster_shafer_ood', False,
+                  'Wheter to use DempsterShafer Uncertainty score.')
 
 # Redefining default values
 flags.FLAGS.set_default('lr_decay_epochs', ['80', '160', '180'])
@@ -164,7 +180,8 @@ def main(argv):
         data_dir=data_dir,
         download_data=FLAGS.download_data,
         split=tfds.Split.VALIDATION,
-        validation_percent=1. - FLAGS.train_proportion)
+        validation_percent=1. - FLAGS.train_proportion,
+        drop_remainder=FLAGS.drop_remainder_for_eval)
     validation_dataset = validation_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
@@ -173,7 +190,8 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST)
+      split=tfds.Split.TEST,
+      drop_remainder=FLAGS.drop_remainder_for_eval)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
@@ -182,6 +200,20 @@ def main(argv):
   steps_per_epoch = train_builder.num_examples // batch_size
   steps_per_eval = clean_test_builder.num_examples // batch_size
   num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
+
+  if FLAGS.eval_on_ood:
+    ood_dataset_names = FLAGS.ood_dataset
+    ood_ds, steps_per_ood = ood_utils.load_ood_datasets(
+        ood_dataset_names,
+        clean_test_builder,
+        1 - FLAGS.train_proportion,
+        batch_size,
+        drop_remainder=FLAGS.drop_remainder_for_eval)
+    ood_datasets = {
+        name: strategy.experimental_distribute_dataset(ds)
+        for name, ds in ood_ds.items()
+    }
+
   if FLAGS.corruptions_interval > 0:
     extra_kwargs = {}
     if FLAGS.dataset == 'cifar100':
@@ -195,7 +227,8 @@ def main(argv):
             data_dir=data_dir,
             severity=severity,
             split=tfds.Split.TEST,
-            **extra_kwargs).load(batch_size=batch_size)
+            drop_remainder=FLAGS.drop_remainder_for_eval**extra_kwargs).load(
+                batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -263,6 +296,10 @@ def main(argv):
           'validation/stddev': tf.keras.metrics.Mean(),
       })
       eval_dataset_splits += ['validation']
+    if FLAGS.eval_on_ood:
+      ood_metrics = ood_utils.create_ood_metrics(
+          ood_dataset_names, tpr_list=FLAGS.ood_tpr_threshold)
+      metrics.update(ood_metrics)
     for i in range(FLAGS.ensemble_size):
       for dataset_split in eval_dataset_splits:
         metrics[f'{dataset_split}/nll_member_{i}'] = tf.keras.metrics.Mean()
@@ -291,6 +328,13 @@ def main(argv):
       checkpoint.restore(latest_checkpoint)
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
+    if FLAGS.saved_model_dir:
+      logging.info('Saved model dir : %s', FLAGS.saved_model_dir)
+      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
+      checkpoint.restore(latest_checkpoint)
+      logging.info('Loaded checkpoint %s', latest_checkpoint)
+    if FLAGS.eval_only:
+      initial_epoch = FLAGS.train_epochs - 1  # Run just one epoch of eval
 
   @tf.function
   def train_step(iterator):
@@ -358,10 +402,11 @@ def main(argv):
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract both
           logits, covmat = logits
+          logits = mean_field_logits(
+              logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
         else:
           covmat = tf.eye(logits.shape[0])
-        logits = mean_field_logits(
-            logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
+
         stddev = tf.sqrt(tf.linalg.diag_part(covmat))
 
         stddev_list.append(stddev)
@@ -382,7 +427,7 @@ def main(argv):
       probs = tf.reduce_mean(probs_list, axis=0)
 
       labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.ensemble_size, labels.shape[0]])
+          labels, [FLAGS.ensemble_size, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits_list, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(
@@ -395,7 +440,19 @@ def main(argv):
         metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
         metrics[f'{dataset_split}/stddev'].update_state(stddev)
-      else:
+      elif dataset_name.startswith('ood'):
+        ood_labels = 1 - inputs['is_in_distribution']
+        if FLAGS.dempster_shafer_ood:
+          ood_scores = ood_utils.DempsterShaferUncertainty(logits)
+        else:
+          ood_scores = 1 - tf.reduce_max(probs, axis=-1)
+
+        # Edgecase for if dataset_name contains underscores
+        ood_dataset_name = '_'.join(dataset_name.split('_')[1:])
+        for name, metric in metrics.items():
+          if ood_dataset_name in name:
+            metric.update_state(ood_labels, ood_scores)
+      elif FLAGS.corruptions_interval > 0:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
@@ -450,6 +507,16 @@ def main(argv):
 
       logging.info('Done with testing on %s', dataset_name)
 
+    if FLAGS.eval_on_ood:
+      for dataset_name in ood_dataset_names:
+        ood_iterator = iter(ood_datasets['ood_{}'.format(dataset_name)])
+        logging.info('Calculating OOD on dataset %s', dataset_name)
+        logging.info('Running OOD eval at epoch: %s', epoch)
+        test_step(ood_iterator, 'test', 'ood_{}'.format(dataset_name),
+                  steps_per_ood[dataset_name])
+
+        logging.info('Done with OOD eval on %s', dataset_name)
+
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
@@ -480,6 +547,10 @@ def main(argv):
 
     for metric in metrics.values():
       metric.reset_states()
+
+    if FLAGS.corruptions_interval > 0:
+      for metric in corrupt_metrics.values():
+        metric.reset_states()
 
     if (FLAGS.checkpoint_interval > 0 and
         (epoch + 1) % FLAGS.checkpoint_interval == 0):

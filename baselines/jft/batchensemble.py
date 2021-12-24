@@ -17,9 +17,10 @@
 
 import copy
 import functools
+import itertools
 import multiprocessing
+import os
 import time
-from typing import Any, Iterable, Mapping, Tuple
 
 from absl import app
 from absl import flags
@@ -38,11 +39,13 @@ import numpy as np
 import robustness_metrics as rm
 
 import tensorflow as tf
+from tensorflow.io import gfile
 import uncertainty_baselines as ub
-import batchensemble_utils  # local file import
-import input_utils  # local file import
-import preprocess_utils  # local file import
-import train_utils  # local file import
+import batchensemble_utils  # local file import from baselines.jft
+import checkpoint_utils  # local file import from baselines.jft
+import input_utils  # local file import from baselines.jft
+import preprocess_utils  # local file import from baselines.jft
+import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
 ensemble = None
@@ -67,79 +70,24 @@ flags.DEFINE_string('tpu', None,
 jax.config.parse_flags_with_absl()
 
 
-def restore_model_and_put_to_devices(
-    config: ml_collections.ConfigDict,
-    output_dir: str,
-    model: flax.nn.Module,
-    optimizer: flax.optim.Optimizer,
-    train_iter: Iterable[Any],
-    rngs: Mapping[str, jnp.ndarray],
-    thread_pool: multiprocessing.pool.ThreadPool,
-) -> Tuple[flax.optim.Optimizer, Iterable[Any], jnp.ndarray, Mapping[str, Any]]:
-  """Restores from latest available checkpoint and puts model to devices."""
-  (optimizer, train_iter, rng_state_tf, rngs,
-   global_state) = train.restore_checkpoints(
-       workdir=output_dir,
-       step=None,
-       partition_specs=[],
-       optimizer=optimizer,
-       train_iter=train_iter,
-       rng_state_tf=tf.random.get_global_generator().state.numpy(),
-       rng_state_jax=rngs,
-       global_state={},
-       thread_pool=thread_pool)
-  if global_state:
-    # 1. If a checkpoint is present in the current work dir, continue training.
-    logging.info('Continuing training from step %d', global_state['step'])
-    # Shard parameters and optim state and put to the corresponding device.
-    optimizer = core.tree_shard(optimizer)
-  elif config.get('model_init_prefix'):
-    # 2. Alternatively, initialize from the given model_init_prefix checkpoint.
-    logging.info('Fine-tuning model from %r...', config.model_init_prefix)
-    if not hasattr(model, 'load'):
-      # Note: Likely due to use of .partial, model may end up being e.g.
-      # a flax.nn.Base.PatchTransformer instead of experts_nn.PatchTransformer
-      # This causes explicit checks for class equivalence to fail, and also
-      # causes static type checking to fail. Checking for .load attribute
-      # circumvents both these issues.
-      raise ValueError((f'Loaded model {model} has no load method. Are you sure'
-                        ' it is one of "PatchTransformer" and "Resformer"?'))
-    restored_params = model.load(
-        prefix=config.model_init_prefix,
-        init_params=optimizer.target,
-        model_params=config.model,
-        keep_head=config.get('keep_head', False),
-        partition_specs=[])
-    # Shard restored parameters and replicate original optimizer state.
-    optimizer = optimizer.replace(
-        target=core.tree_shard(restored_params),
-        state=flax.jax_utils.replicate(optimizer.state))
-    global_state = {'step': 0, 'accum_train_time': 0.0}
-  else:
-    # 3. Use model initialized from scratch.
-    logging.info('Initializing training from scratch...')
-    optimizer = flax.jax_utils.replicate(optimizer)
-    global_state = {'step': 0, 'accum_train_time': 0.0}
-  # Set TF's global RNG generator and JAX's per-device RNG keys.
-  train.rng_tf_set_global_generator(rng_state_tf)
-  rngs_per_device = jax.tree_map(train.rng_jax_fold_host_if_needed_and_shard,
-                                 rngs)
-  return optimizer, train_iter, rngs_per_device, global_state
-
-
 def main(_):
   config = flags.FLAGS.config
   output_dir = flags.FLAGS.output_dir
   tf.io.gfile.makedirs(output_dir)
 
   seed = config.get('seed', 0)
-  partition_specs = []
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
+
+  save_checkpoint_path = None
+  if config.get('checkpoint_steps'):
+    gfile.makedirs(output_dir)
+    save_checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
 
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
       output_dir, just_logging=jax.process_index() > 0)
+  checkpoint_writer = None
 
   # Loss to apply.
   loss_to_apply = getattr(core, config.get('loss_to_apply', 'softmax_xent'))
@@ -164,6 +112,19 @@ def main(_):
                jax.process_index())
   logging.info('Config:\n%s', str(config))
 
+  def write_note(note):
+    if jax.host_id() == 0:
+      logging.info('NOTE: %s', note)
+
+  write_note('Initializing...')
+
+  # Verify settings to make sure no checkpoints are accidentally missed.
+  if config.get('keep_checkpoint_steps'):
+    assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
+    assert config.keep_checkpoint_steps % config.checkpoint_steps == 0, (
+        f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
+        f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
+
   if (config.batch_size % jax.device_count() != 0 or
       config.batch_size_eval % jax.device_count() != 0):
     raise ValueError(f'Batch sizes ({config.batch_size} and '
@@ -187,7 +148,6 @@ def main(_):
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=config.get('dataset_dir'))
-
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
 
@@ -271,7 +231,7 @@ def main(_):
 
   image_size = tuple(train_ds.element_spec['image'].shape[2:])
   logging.info('Model initialization: Starting.')
-  opt, rngs = train.model_and_optim_init(
+  opt_init, rngs = train.model_and_optim_init(
       model_train.init, opt_def, (batch_size_per_core,) + image_size,
       config.get('init_head_bias'), config.get('seed', 0),
       config.get('extra_rngs', []))
@@ -317,15 +277,25 @@ def main(_):
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
-  # Restore parameters from checkpoints (if possible) and put to TPU devices.
-  opt, train_iter, rngs_per_device, global_state = restore_model_and_put_to_devices(
-      config, output_dir, model, opt, train_iter, rngs,
-      pool)
-  del rngs
-  first_step = global_state['step']
-  accum_train_time = global_state['accum_train_time']
+  checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
+      train_loop_rngs=rng,
+      save_checkpoint_path=save_checkpoint_path,
+      init_optimizer=opt_init,
+      init_params=opt_init.target,
+      init_fixed_model_states=None,
+      default_reinit_params=['head/bias', 'head/kernel'],
+      config=config)
+
+  opt = checkpoint_data.optimizer
+  opt = opt.replace(target=flax.core.freeze(opt.target))
+  opt = flax.jax_utils.replicate(opt)
+  accumulated_train_time = checkpoint_data.accumulated_train_time
+
+  train_loop_rngs = jax.tree_map(
+      train.rng_jax_fold_host_if_needed_and_shard, rngs)
+
+  first_step = int(opt.state.step)
   start_time = time.time()
-  logging.info('Initial step for training = %d.', first_step)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
@@ -334,7 +304,20 @@ def main(_):
       map(lr_fn, range(first_step, total_steps)),
       config.get('prefetch_to_device', 1))
 
-  checkpoint_async_results = []
+  if first_step > 0:
+    write_note('Advancing iterators after resuming from a checkpoint...')
+    lr_iter = itertools.islice(lr_iter, first_step, None)
+    train_iter = itertools.islice(train_iter, first_step, None)
+    # NOTE: Validation eval is only run on certain steps, so determine how many
+    # times it was run previously.
+    num_val_runs = sum(
+        map(
+            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
+                                         ), range(1, first_step + 1)))
+    for val_name, (val_iter, val_steps) in val_iter_splits.items():
+      val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
+      val_iter_splits[val_name] = (val_iter, val_steps)
+
   log_training_first_n_steps = config.get('log_training_first_n_steps', -1)
   with metric_writers.ensure_flushes(writer):
     callback_fn = lambda x: x  # Do nothing.
@@ -346,61 +329,47 @@ def main(_):
         range(first_step + 1, total_steps + 1), train_iter, lr_iter):
       with xprof_session:
         with jax.profiler.StepTraceAnnotation(name='train', step_num=step):
-          opt, rngs_per_device, loss_value, _ = pmap_update_fn(
+          opt, train_loop_rngs, loss_value, _ = pmap_update_fn(
               opt,
-              rngs_per_device,
+              train_loop_rngs,
               lr_repl,
               train_batch['image'],
               train_batch['labels'],
               batch_loss_fn)
 
       # Checkpoint saving.
-      backup_checkpoints_every_n_steps = config.get('backup_checkpoint_steps')
-      if (step % config.write_checkpoint_every_n_steps == 0 or
-          (backup_checkpoints_every_n_steps is not None and
-           step % backup_checkpoints_every_n_steps == 0) or
-          step == total_steps):
-        # Before writing new checkpoints, make sure that all the previous
-        # checkpoint shards have been completely written (hosts are synced).
-        train.wait_async_results(
-            checkpoint_async_results,
-            timeout_secs=config.checkpoint_write_timeout_secs)
+      if train_utils.itstime(
+          step=step,
+          every_n_steps=config.get('checkpoint_steps'),
+          total_steps=total_steps, host=0, first=False):
+        train_utils.checkpointing_timeout(checkpoint_writer,
+                                          config.get('checkpoint_timeout', 1))
         train.sync_all_hosts()
-        # Now host 0 can remove all the checkpoints older than the previous
-        # checkpointed step. The pool is used to remove files in parallel.
-        if jax.process_index() == 0:
-          train.remove_old_checkpoints(
-              output_dir,
-              keep_steps_from=step - config.write_checkpoint_every_n_steps,
-              keep_steps_multiple_of=backup_checkpoints_every_n_steps,
-              thread_pool=pool)
-        # Save checkpoint for the current step, asynchronously.
-        # Note: Parameters on TPU are sliced and copied to CPU before scheduling
-        # the asynchronous copy, to prevent any extra TPU memory usage.
+
         time_since_last_start = float(time.time() - start_time)
-        checkpoint_async_results = train.save_checkpoints(
-            workdir=output_dir,
-            step=step,
-            partition_specs=partition_specs,
-            optimizer=opt,
-            # TODO(jpuigcerver): start_input_pipeline() does not return a
-            # serializable iterator. Also, serialization of a 'memory heavy'
-            # tf.data.Dataset iterator may cause OOM (e.g. big shuffle buffer).
-            train_iter=None,
-            rng_state_tf=tf.random.get_global_generator().state.numpy(),
-            rng_state_jax=rngs_per_device,
-            global_state={
-                # Note: 'step' is automatically added to this dictionary.
-                'accum_train_time': accum_train_time + time_since_last_start,
-            },
-            thread_pool=pool)
+        accumulated_train_time = accumulated_train_time + time_since_last_start
+        opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt)
+
+        copy_step = None
+        if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
+                               total_steps):
+          write_note('Keeping a checkpoint copy...')
+          copy_step = step
+
+        checkpoint_data = checkpoint_utils.CheckpointData(
+            train_loop_rngs=train_loop_rngs,
+            optimizer=opt_cpu,
+            accumulated_train_time=accumulated_train_time)
+        checkpoint_writer = pool.apply_async(
+            checkpoint_utils.checkpoint_trained_model,
+            (checkpoint_data, save_checkpoint_path, copy_step))
 
       # Report training progress
       if (jax.process_index() == 0 and config.log_training_every_n_steps > 0 and
           (step % config.log_training_every_n_steps == 0 or
            step == total_steps or step < log_training_first_n_steps)):
         train_loss = loss_value[0]
-        time_elapsed = time.time() - start_time + accum_train_time
+        time_elapsed = time.time() - start_time + accumulated_train_time
         img_sec_core = (
             config.batch_size * step / time_elapsed / jax.device_count())
         writer.write_scalars(step, {'learning_rate': lr_repl[0],
@@ -443,14 +412,11 @@ def main(_):
             logits, labels, masks = batch_metric_args
             masks = np.array(masks[0], dtype=np.bool)
             logits = np.array(logits[0])
-            print('logits', logits.shape)
             probs = jax.nn.softmax(logits)
-            print('probs', probs.shape)
             # From one-hot to integer labels, as required by ECE.
             int_labels = np.argmax(np.array(labels[0]), axis=-1)
             int_preds = np.argmax(logits, axis=-1)
             confidence = np.max(probs, axis=-1)
-            print('confidence', confidence.shape)
             for p, c, l, d, m in zip(probs, confidence, int_labels,
                                      int_preds, masks):
               ece.add_batch(p[m, :], label=l[m])

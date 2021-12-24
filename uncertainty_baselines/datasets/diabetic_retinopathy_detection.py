@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Kaggle diabetic retinopathy detection dataset builder."""
+"""Kaggle Diabetic Retinopathy Detection dataset builder."""
 
 from typing import Dict, Optional
 
@@ -50,9 +50,9 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      download_data: Whether or not to download data before loading.
       data_dir: optional dir to save TFDS data to. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
-      download_data: Whether or not to download data before loading.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -86,7 +86,8 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """
-      Resize images, binarize task based on provided decision threshold,
+      Preprocess images to range [0, 1],
+      binarize task based on provided decision threshold,
       produce example `Dict`.
       """
       image = example['image']

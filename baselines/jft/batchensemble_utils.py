@@ -57,7 +57,7 @@ def update_fn_be(
     labels: jnp.ndarray,
     batch_loss_fn: Callable[..., jnp.ndarray],
     weight_decay_fn: Optional[Callable[[Any, float], Any]],
-    plot_grad_norm_name_fn: Callable[[str], bool],
+    plot_grad_norm_name_fn: Optional[Callable[[str], bool]],
     plot_grads_nan_inf: bool,
     max_grad_norm_global: Optional[float],
     frozen_vars_patterns: Optional[Sequence[str]],
@@ -142,5 +142,6 @@ def update_fn_be(
   opt = opt.apply_gradient(grads, learning_rate=lr)
 
   if weight_decay_fn:
-    opt = opt.replace(target=weight_decay_fn(opt.target, lr))
+    params = weight_decay_fn(opt.target, lr)
+    opt = opt.replace(target=params)
   return opt, next_rngs, loss, aux

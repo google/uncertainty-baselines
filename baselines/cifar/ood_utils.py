@@ -44,7 +44,7 @@ def DempsterShaferUncertainty(logits):
   return num_classes / (belief_mass + num_classes)
 
 
-def create_ood_metrics(ood_dataset_names, tpr_list=None):
+def create_ood_metrics(ood_dataset_names, tpr_list=(0.95,)):
   """Create OOD metrics."""
   ood_metrics = {}
   for dataset_name in ood_dataset_names:
@@ -57,6 +57,7 @@ def create_ood_metrics(ood_dataset_names, tpr_list=None):
     })
     if tpr_list:
       for tpr in tpr_list:
+        tpr = float(tpr)
         tpr_percent = int(tpr * 100)
         ood_metrics.update({
             f'{ood_dataset_name}_(1-fpr)@{tpr_percent}tpr':

@@ -22,7 +22,10 @@ from absl import flags
 from absl import logging
 from absl.testing import flagsaver
 from absl.testing import parameterized
+import jax
+import jax.numpy as jnp
 import ml_collections
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import batchensemble  # local file import from baselines.jft
@@ -99,8 +102,7 @@ def get_config(classifier, representation_size):
   config.optim.weight_decay = 0.1
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
-  config.weight_decay = [.1]
-  config.weight_decay_pattern = ['.*/kernel']
+  config.weight_decay = .1
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 0.1
@@ -121,11 +123,24 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('data_dir contents: %s', os.listdir(data_dir))
     self.data_dir = data_dir
 
+  @parameterized.parameters(1, 3, 5)
+  def test_log_average_probs(self, ensemble_size):
+    batch_size, num_classes = 16, 3
+    logits_shape = (ensemble_size, batch_size, num_classes)
+
+    np.random.seed(42)
+    ensemble_logits = jnp.asarray(np.random.normal(size=logits_shape))
+    actual_logits = batchensemble._log_average_probs(ensemble_logits)
+    self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
+
+    expected_probs = jnp.mean(jax.nn.softmax(ensemble_logits), axis=0)
+    self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
+
   @parameterized.parameters(
-      ('token', 2, 346.3583, 222.2924),
+      ('token', 2, 346.3723, 218.5163),
       # ('token', None, 346.4346, 219.5707),  # TODO(zmariet): fix flaky test.
-      ('gap', 2, 346.4235, 219.5721),
-      ('gap', None, 346.5755, 220.4709),
+      ('gap', 2, 346.3702, 219.3948),
+      ('gap', None, 346.373, 219.2920),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,
@@ -142,8 +157,7 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
       train_loss, val_loss, _ = batchensemble.main(None)
 
     # Check for reproducibility.
-    logging.info('(train_loss, val_loss) = %s, %s',
-                 train_loss, val_loss['val'])
+    logging.info('(train_loss, val_loss) = %s, %s', train_loss, val_loss['val'])
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss['val'], correct_val_loss)
 

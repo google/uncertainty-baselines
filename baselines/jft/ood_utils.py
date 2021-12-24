@@ -175,11 +175,11 @@ def compute_mean_and_cov(embeds, labels):
     cov: The shared covariance mmatrix of the size [n_dim, n_dim].
   """
   n_dim = embeds.shape[1]
-  n_class = int(np.max(labels)) + 1
+  class_ids = np.unique(labels)
   mean_list = []
   cov = np.zeros((n_dim, n_dim))
 
-  for class_id in range(n_class):
+  for class_id in class_ids:
     data = embeds[labels == class_id]
     data_mean = np.mean(data, axis=0)
     cov += np.dot((data - data_mean).T, (data - data_mean))

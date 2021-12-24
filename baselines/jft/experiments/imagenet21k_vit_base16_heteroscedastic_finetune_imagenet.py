@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Finetune a ViT-B/16 heteroscedastic model on Imagenet.
+r"""ViT-B/16 finetuning on Imagenet.
 
 """
 # pylint: enable=line-too-long
@@ -63,9 +63,9 @@ def get_config():
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 100
-  config.log_eval_steps = 1000
-  config.checkpoint_steps = 4000
+  config.log_training_steps = 2000
+  config.log_eval_steps = 10000
+  config.checkpoint_steps = 10000
   config.checkpoint_timeout = 1
 
   config.prefetch_to_device = 2
@@ -93,7 +93,7 @@ def get_config():
   config.model.representation_size = 768
 
   # set reint_head = False to re-use the head parameters of the upstream model
-  config.reint_head = True
+  config.reint_head = False
 
   # Heteroscedastic
   config.model.multiclass = True
@@ -111,7 +111,7 @@ def get_config():
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.003
+  config.lr.base = 0.06
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
 

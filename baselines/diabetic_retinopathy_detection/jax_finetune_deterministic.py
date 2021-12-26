@@ -651,7 +651,8 @@ def main(argv):
           results_arrs['y_pred_entropy'].append(probs)
 
         results_arrs['y_true'] = np.concatenate(results_arrs['y_true'], axis=0)
-        results_arrs['y_pred'] = np.concatenate(results_arrs['y_pred'], axis=0)
+        results_arrs['y_pred'] = np.concatenate(
+          results_arrs['y_pred'], axis=0).astype('float64')
         results_arrs['y_pred_entropy'] = entropy(
             np.concatenate(results_arrs['y_pred_entropy'], axis=0), axis=-1)
 

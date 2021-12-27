@@ -39,7 +39,7 @@ import uncertainty_baselines as ub
 from baselines.diabetic_retinopathy_detection.utils import (
   save_per_prediction_results, evaluate_vit_predictions)
 # local file import
-from imagenet21k_vit_base16_finetune_country_shift import get_config
+from imagenet21k_vit_base16_finetune import get_config
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -50,6 +50,15 @@ flags.DEFINE_string(
   'are stored. If you aim to use these as trained models for ensemble.py, '
   'you should specify an output_dir name that includes the random seed to '
   'avoid overwriting.')
+flags.DEFINE_string(
+  'distribution_shift', None,
+  ("Specifies distribution shift to use, if any."
+   "aptos: loads APTOS (India) OOD validation and test datasets. "
+   "  Kaggle/EyePACS in-domain datasets are unchanged."
+   "severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision "
+   "  of the Kaggle/EyePACS dataset to hold out clinical severity labels "
+   "  as OOD."))
+flags.mark_flag_as_required('distribution_shift')
 
 # Logging and hyperparameter tuning.
 flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
@@ -143,6 +152,24 @@ def main(argv):
 
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
+
+  # Dataset Split Flags
+  dist_shift = FLAGS.distribution_shift
+  print(f'Distribution Shift: {dist_shift}.')
+  if dist_shift == 'aptos':
+    in_domain_dataset = 'ub_diabetic_retinopathy_detection'
+    ood_dataset = 'aptos'
+    train_split = 'train'
+    in_domain_val_split = 'validation'
+    ood_val_split = 'validation'
+  elif dist_shift == 'severity':
+    in_domain_dataset = 'diabetic_retinopathy_severity_shift_moderate'
+    ood_dataset = 'diabetic_retinopathy_severity_shift_moderate'
+    train_split = 'train'
+    in_domain_val_split = 'in_domain_validation'
+    ood_val_split = 'ood_validation'
+  else:
+    raise NotImplementedError
 
   # LR / Optimization Flags
   batch_size = FLAGS.batch_size
@@ -241,12 +268,12 @@ def main(argv):
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
   train_base_dataset = ub.datasets.get(
-    config.in_domain_dataset, split=config.train_split,
+    in_domain_dataset, split=train_split,
     data_dir=config.get('data_dir'))
   train_dataset_builder = train_base_dataset._dataset_builder
   train_ds = input_utils.get_data(
     dataset=train_dataset_builder,
-    split=config.train_split,
+    split=train_split,
     rng=train_ds_rng,
     host_batch_size=local_batch_size,
     preprocess_fn=preproc_fn,
@@ -278,7 +305,7 @@ def main(argv):
                  dataset, split)
     val_ds = input_utils.get_data(
       dataset=dataset,
-      split=config.val_split,
+      split=split,
       rng=None,
       host_batch_size=local_batch_size_eval,
       preprocess_fn=preproc_fn,
@@ -296,28 +323,28 @@ def main(argv):
   # Please specify the desired shift (Country Shift or Severity Shift)
   # in the config.
   in_domain_val_base_dataset = ub.datasets.get(
-    config.in_domain_dataset, split=config.val_split,
+    in_domain_dataset, split=in_domain_val_split,
     data_dir=config.get('data_dir'))
   in_domain_val_dataset_builder = in_domain_val_base_dataset._dataset_builder
   ood_val_base_dataset = ub.datasets.get(
-    config.ood_dataset, split=config.val_split,
+    ood_dataset, split=ood_val_split,
     data_dir=config.get('data_dir'))
   ood_val_dataset_builder = ood_val_base_dataset._dataset_builder
   val_iter_splits = {
     'in_domain_validation': _get_val_split(
       in_domain_val_dataset_builder,
-      config.val_split,
+      in_domain_val_split,
       pp_eval=config.pp_eval,
       data_dir=config.get('data_dir')),
     'ood_validation': _get_val_split(
       ood_val_dataset_builder,
-      config.val_split,
+      ood_val_split,
       pp_eval=config.pp_eval,
       data_dir=config.get('data_dir'))
   }
   ntrain_img = input_utils.get_num_examples(
     train_dataset_builder,
-    split=config.train_split,
+    split=train_split,
     host_batch_size=local_batch_size,
     data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size

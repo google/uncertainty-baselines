@@ -33,10 +33,10 @@ def get_config():
 
   # Fine-tuning dataset
   config.data_dir = 'gs://ub-data/retinopathy'
-  config.in_domain_dataset = 'ub_diabetic_retinopathy_detection'
-  config.ood_dataset = 'aptos'
-  config.train_split = 'train'
-  config.val_split = 'validation'
+  # config.in_domain_dataset = 'ub_diabetic_retinopathy_detection'
+  # config.ood_dataset = 'aptos'
+  # config.train_split = 'train'
+  # config.val_split = 'validation'
 
   # TODO(nband): fix issue with sigmoid loss.
   config.num_classes = 2

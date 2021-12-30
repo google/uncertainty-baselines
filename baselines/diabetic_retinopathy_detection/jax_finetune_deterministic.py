@@ -39,7 +39,10 @@ import uncertainty_baselines as ub
 from baselines.diabetic_retinopathy_detection.utils import (
   save_per_prediction_results, evaluate_vit_predictions)
 # local file import
-from imagenet21k_vit_base16_finetune import get_config
+from experiments.config.imagenet21k_vit_base16_finetune import (
+  get_config as get_i21k_config)
+from experiments.config.drd_vit_base16 import (
+  get_config as get_no_pretrain_config)
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -59,6 +62,9 @@ flags.DEFINE_string(
    "  of the Kaggle/EyePACS dataset to hold out clinical severity labels "
    "  as OOD."))
 flags.mark_flag_as_required('distribution_shift')
+flags.DEFINE_string(
+  'pretrain_dataset', 'imagenet21k',
+  ("Dataset for model pretraining. Specifies the config to use."))
 
 # Logging and hyperparameter tuning.
 flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
@@ -201,7 +207,10 @@ def main(argv):
   # In a TPU runtime this will be 8 cores.
   print('Number of Jax local devices:', jax.local_devices())
 
-  config = get_config()
+  if FLAGS.pretrain_dataset == 'imagenet21k':
+    config = get_i21k_config()
+  else:
+    config = get_no_pretrain_config()
 
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'

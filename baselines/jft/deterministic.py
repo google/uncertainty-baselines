@@ -285,6 +285,7 @@ def main(config, output_dir):
                               images,
                               train=False)
     label_indices = config.get('label_indices')
+    logging.info('!!! mask %s, label_indices %s', mask, label_indices)
     if label_indices:
       logits = logits[:, label_indices]
 

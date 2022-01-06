@@ -3,7 +3,6 @@
 # train cityscapes using segmenter with pretrained backbone
 # supports 2 options to
 
-
 if [ "$(uname)" = "Darwin" ] ; then
   # Do something under Mac OS X platform
   config_file='experiments/imagenet21k_segmenter_cityscapes1.py'
@@ -11,7 +10,7 @@ if [ "$(uname)" = "Darwin" ] ; then
   num_cores=0
   tpu=False
   use_gpu=False
-  python deterministic.py --output_dir=${output_dir} \
+  python deterministic_eval.py --output_dir=${output_dir} \
   --num_cores=$num_cores \
   --use_gpu=$use_gpu \
   --config=${config_file} \
@@ -27,5 +26,8 @@ elif [ "$(uname)" = "Linux" ]; then
   --num_cores=$num_cores \
   --use_gpu=$use_gpu \
   --config=${config_file} \
+  --config.batch_size=${batch_size} \
   --tpu=$tpu
 fi
+
+#%%

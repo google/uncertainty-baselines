@@ -20,7 +20,6 @@ r"""SNGP for WideResNet CIFAR-10.
 import datetime
 import getpass
 import os.path
-import random
 
 from ml_collections import config_dict
 
@@ -39,6 +38,8 @@ def get_config():
   output_dir = 'gs://launcher-beta-test-bucket/{}'.format(
       config.experiment_name)
   config.args = {
+      'base_learning_rate': 0.08,
+      'gp_mean_field_factor': 20,  # 25,
       'train_epochs': 250,
       'per_core_batch_size': 64,
       'data_dir': output_dir,
@@ -50,15 +51,15 @@ def get_config():
       # If drop_remainder=false, it will cause the issue of
       # `TPU has inputs with dynamic shapes`
       'drop_remainder_for_eval': True,
+      'corruptions_interval': 10,
   }
   return config
 
 
 def get_sweep(hyper):
   return hyper.product([
+      hyper.sweep('seed', list(range(10))),
       hyper.sweep('use_spec_norm', hyper.categorical([False, True])),
       hyper.sweep('use_gp_layer', hyper.categorical([False, True])),
       hyper.sweep('dempster_shafer_ood', hyper.categorical([False, True])),
-      hyper.sweep('seed', hyper.discrete(random.sample(range(1, int(1e10)),
-                                                       5))),
   ])

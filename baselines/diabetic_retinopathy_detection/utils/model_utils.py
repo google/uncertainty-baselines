@@ -1,24 +1,46 @@
+# coding=utf-8
+# Copyright 2021 The Uncertainty Baselines Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Model initialization and checkpointing utils."""
+# pylint: disable=g-bare-generic
+# pylint: disable=g-doc-args
+# pylint: disable=g-doc-return-or-yield
+# pylint: disable=g-importing-member
+# pylint: disable=g-no-space-after-docstring-summary
+# pylint: disable=g-short-docstring-punctuation
+# pylint: disable=logging-format-interpolation
+# pylint: disable=logging-fstring-interpolation
+# pylint: disable=missing-function-docstring
 import logging
 import os
 import pickle
-from typing import NamedTuple, List
+from typing import List, NamedTuple
 
 import tensorflow as tf
 
-
+# pylint: disable=g-import-not-at-top
 try:
   import haiku as hk
   use_fsvi = True
-  from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import (
-    CNN, Model)
+  from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import CNN
+  from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import Model
 except ModuleNotFoundError:
   print('Not importing haiku. The Function-Space VI baseline will fail.')
   use_fsvi = False
+# pylint: enable=g-import-not-at-top
 
-"""Model initialization and checkpointing utils."""
-
-
-# Model initialization.
 
 def log_model_init_info(model):
   """Log Keras model information.
@@ -67,6 +89,7 @@ def parse_checkpoint_dir(checkpoint_dir):
 
   Args:
     checkpoint_dir: checkpoint dir.
+
   Returns:
     paths of checkpoints
   """
@@ -91,6 +114,7 @@ def parse_keras_models(checkpoint_dir):
 
   Args:
     checkpoint_dir: checkpoint dir.
+
   Returns:
     paths of saved Keras models
   """
@@ -132,7 +156,7 @@ def get_latest_checkpoint(file_names, return_epoch=False):
     checkpoint_epoch_and_file_name.append((checkpoint_epoch, file_name))
 
   checkpoint_epoch_and_file_name = sorted(
-    checkpoint_epoch_and_file_name, reverse=True)
+      checkpoint_epoch_and_file_name, reverse=True)
 
   most_recent_checkpoint_epoch_and_file_name = checkpoint_epoch_and_file_name[0]
   if return_epoch:
@@ -167,12 +191,15 @@ def load_all_keras_checkpoints(checkpoint_dir):
   Yields:
     Tuple[int, tf.keras.Model]
     Epoch of model, as determined by its name, and the corresponding model.
+
+  Raises:
+    Exception: if no checkpoint name or proper path format.
   """
   checkpoint_filenames = parse_keras_models(checkpoint_dir)
   if not checkpoint_filenames:
     raise Exception(
-      f'Did not locate a Keras checkpoint in checkpoint directory '
-      f'{checkpoint_dir}')
+        f'Did not locate a Keras checkpoint in checkpoint directory '
+        f'{checkpoint_dir}')
 
   checkpoint_epoch_and_file_name = []
   for i, file_name in enumerate(checkpoint_filenames):
@@ -192,8 +219,9 @@ def load_all_keras_checkpoints(checkpoint_dir):
     yield epoch, load_keras_model(checkpoint=checkpoint_file)
 
 
-def load_keras_checkpoints(
-    checkpoint_dir, load_ensemble=False, return_epoch=True):
+def load_keras_checkpoints(checkpoint_dir,
+                           load_ensemble=False,
+                           return_epoch=True):
   """Main checkpoint loading function.
 
   When not loading an ensemble, defaults to also return the epoch
@@ -204,13 +232,16 @@ def load_keras_checkpoints(
     load_ensemble: bool, loads all checkpoints in the directory.
     return_epoch: bool, if only returning a single model, also return the epoch
       for that model checkpoint.
+
+  Raises:
+    Exception: if no checkpoint found.
   """
   # TODO(nband): debug, switch from keras.models.save to tf.train.Checkpoint
   checkpoint_filenames = parse_keras_models(checkpoint_dir)
   if not checkpoint_filenames:
     raise Exception(
-      f'Did not locate a Keras checkpoint in checkpoint directory '
-      f'{checkpoint_dir}')
+        f'Did not locate a Keras checkpoint in checkpoint directory '
+        f'{checkpoint_dir}')
 
   if load_ensemble:
     model = []
@@ -220,7 +251,7 @@ def load_keras_checkpoints(
     if len(checkpoint_filenames) == 1 and not return_epoch:
       return load_keras_model(checkpoint_filenames[0])
     latest_checkpoint = get_latest_checkpoint(
-      file_names=checkpoint_filenames, return_epoch=return_epoch)
+        file_names=checkpoint_filenames, return_epoch=return_epoch)
     if return_epoch:
       epoch, latest_checkpoint = latest_checkpoint
       model = (epoch, load_keras_model(checkpoint=latest_checkpoint))
@@ -231,40 +262,39 @@ def load_keras_checkpoints(
 
 
 if use_fsvi:
+
   class FSVICheckpoint(NamedTuple):
     state: hk.State
     params: hk.Params
     model: Model
-
 
   def load_fsvi_checkpoint(path) -> FSVICheckpoint:
     """Loads a Function Space Variational Inference Jax checkpoint.
 
     Args:
       path: str, location of model.
+
     Returns:
       FSVICheckpoint.
     """
-    with tf.io.gfile.GFile(path, mode="rb") as f:
+    with tf.io.gfile.GFile(path, mode='rb') as f:
       chkpt = pickle.load(f)
 
-    hparams = chkpt["hparams"]
+    hparams = chkpt['hparams']
     model = CNN(
-      output_dim=2,
-      activation_fn=hparams["activation"],
-      stochastic_parameters=True,
-      linear_model=hparams["linear_model"],
-      dropout="dropout" in hparams["model_type"],
-      dropout_rate=hparams["dropout_rate"],
+        output_dim=2,
+        activation_fn=hparams['activation'],
+        stochastic_parameters=True,
+        linear_model=hparams['linear_model'],
+        dropout='dropout' in hparams['model_type'],
+        dropout_rate=hparams['dropout_rate'],
     )
 
-    return FSVICheckpoint(state=chkpt["state"], params=chkpt["params"],
-                          model=model)
+    return FSVICheckpoint(
+        state=chkpt['state'], params=chkpt['params'], model=model)
 
-
-  def get_latest_fsvi_checkpoint_name(
-      file_paths: List[str], return_epoch: bool
-  ):
+  def get_latest_fsvi_checkpoint_name(file_paths: List[str],
+                                      return_epoch: bool):
     """Obtains the path of most recent FSVI checkpoint.
 
     Args:
@@ -274,10 +304,9 @@ if use_fsvi:
     Returns:
       Union[Tuple[int, str], str]
     """
-    file_names = [os.path.basename(path.strip("/")) for path in file_paths]
-    epochs_and_file_paths = [
-      (int(file.split("_")[1]), file_paths[i])
-      for i, file in enumerate(file_names)]
+    file_names = [os.path.basename(path.strip('/')) for path in file_paths]
+    epochs_and_file_paths = [(int(file.split('_')[1]), file_paths[i])
+                             for i, file in enumerate(file_names)]
     max_epoch_and_file_path = max(epochs_and_file_paths)
 
     if return_epoch:
@@ -285,10 +314,9 @@ if use_fsvi:
     else:
       return max_epoch_and_file_path[1]
 
-
-  def load_fsvi_jax_checkpoints(
-      checkpoint_dir, load_ensemble=False, return_epoch=True
-  ):
+  def load_fsvi_jax_checkpoints(checkpoint_dir,
+                                load_ensemble=False,
+                                return_epoch=True):
     """Main checkpoint loading function for FSVI Jax checkpoints.
 
     When not loading an ensemble, defaults to also return the epoch
@@ -302,8 +330,10 @@ if use_fsvi:
     """
     files = tf.io.gfile.listdir(checkpoint_dir)
     checkpoint_filenames = [
-      os.path.join(checkpoint_dir, file)
-      for file in files if file[:5] == "chkpt"]
+        os.path.join(checkpoint_dir, file)
+        for file in files
+        if file[:5] == 'chkpt'
+    ]
     if load_ensemble:
       model = []
       for checkpoint_file in checkpoint_filenames:
@@ -312,7 +342,7 @@ if use_fsvi:
       if len(checkpoint_filenames) == 1 and not return_epoch:
         return load_fsvi_checkpoint(checkpoint_filenames[0])
       latest_checkpoint = get_latest_fsvi_checkpoint_name(
-        file_paths=checkpoint_filenames, return_epoch=return_epoch)
+          file_paths=checkpoint_filenames, return_epoch=return_epoch)
       if return_epoch:
         epoch, latest_checkpoint = latest_checkpoint
         model = (epoch, load_fsvi_checkpoint(latest_checkpoint))

@@ -16,7 +16,7 @@
 r"""Radial BNN baseline for Diabetic Retinopathy Detection.
 
 10 seeds using second-best hyperparameters from
-baselines/diabetic_retinopathy_detection/experiments/radial_tune_final.py.
+baselines/diabetic_retinopathy_detection/initial_tuning/experiments/radial_tune_final.py.
 
 We had to use the second-best hyperparameter point because the best point was
 very unstable, 11/20 runs diverged (dropped to 0 test AUC).

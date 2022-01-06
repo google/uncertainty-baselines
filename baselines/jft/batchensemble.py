@@ -20,12 +20,12 @@ import functools
 import itertools
 import multiprocessing
 import os
-import time
 
 from absl import app
 from absl import flags
 from absl import logging
 from clu import metric_writers
+from clu import periodic_actions
 from clu import preprocess_spec
 import flax
 import flax.jax_utils
@@ -48,13 +48,8 @@ import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
-ensemble = None
-train = None
-xprof = None
-core = None
 xm = None
 xm_api = None
-BIG_VISION_DIR = None
 
 ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
@@ -68,6 +63,14 @@ flags.DEFINE_string('tpu', None,
 
 # Adds jax flags to the program.
 jax.config.parse_flags_with_absl()
+
+
+def _log_average_probs(logits: jnp.ndarray) -> jnp.ndarray:
+  # TODO(zmariet): dedicated eval loss function.
+  ens_size, _, _ = logits.shape
+  log_p = jax.nn.log_softmax(logits)  # (ensemble_size, batch_size, num_classes)
+  log_p = jax.nn.logsumexp(log_p, axis=0) - jnp.log(ens_size)
+  return log_p
 
 
 def main(_):
@@ -90,7 +93,8 @@ def main(_):
   checkpoint_writer = None
 
   # Loss to apply.
-  loss_to_apply = getattr(core, config.get('loss_to_apply', 'softmax_xent'))
+  loss_to_apply = getattr(
+      train_utils, config.get('loss_to_apply', 'softmax_xent'))
   compute_ece = config.get('compute_ece', False)
   is_sigmoid = config.get('loss_to_apply', 'softmax_xent') == 'sigmoid_xent'
   if compute_ece and is_sigmoid:
@@ -113,7 +117,7 @@ def main(_):
   logging.info('Config:\n%s', str(config))
 
   def write_note(note):
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
 
   write_note('Initializing...')
@@ -142,7 +146,7 @@ def main(_):
       dataset=config.dataset,
       split=config.train_split,
       rng=train_ds_rng,
-      host_batch_size=batch_size_per_host,
+      process_batch_size=batch_size_per_host,
       preprocess_fn=preprocess_spec.parse(
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
@@ -154,7 +158,7 @@ def main(_):
   ntrain_img = input_utils.get_num_examples(
       config.dataset,
       split=config.train_split,
-      host_batch_size=batch_size_per_host,
+      process_batch_size=batch_size_per_host,
       data_dir=config.get('dataset_dir'))
   steps_per_epoch = ntrain_img / config.batch_size
 
@@ -174,7 +178,7 @@ def main(_):
     nval_img = input_utils.get_num_examples(
         dataset,
         split=split,
-        host_batch_size=batch_size_per_host_eval,
+        process_batch_size=batch_size_per_host_eval,
         drop_remainder=False,
         data_dir=data_dir)
     val_steps = int(np.ceil(nval_img / config.batch_size_eval))
@@ -189,7 +193,7 @@ def main(_):
         dataset=dataset,
         split=split,
         rng=None,
-        host_batch_size=batch_size_per_host_eval,
+        process_batch_size=batch_size_per_host_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
@@ -218,12 +222,15 @@ def main(_):
   # TODO(zmariet): Add fewshot evaluation.
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
-  opt_def = train.get_optimizer_from_config(config, f'{BIG_VISION_DIR}.optims')
+  opt_name = config.get('optim_name')
+  opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
+
   eval_config = copy.deepcopy(config)
   if config.get('eval_overrides'):
     with eval_config.unlocked():
       eval_config.update(config.eval_overrides)
   model = getattr(ub.models, config.model_name)
+
   model_train = model(
       num_classes=config.num_classes, train=True, **config.model)
   model_eval = model(
@@ -231,31 +238,51 @@ def main(_):
 
   image_size = tuple(train_ds.element_spec['image'].shape[2:])
   logging.info('Model initialization: Starting.')
-  opt_init, rngs = train.model_and_optim_init(
-      model_train.init, opt_def, (batch_size_per_core,) + image_size,
-      config.get('init_head_bias'), config.get('seed', 0),
-      config.get('extra_rngs', []))
-  logging.info('Model initialization: Done.')
-  # TODO(jpuigcerver): Support logging parameter count with new sharding.
 
-  weight_decay_fn = train.get_weight_decay_function_from_config(config)
-  batch_loss_fn = ensemble.wrap_ensemble_module_with_auxiliary_loss_fn(
-      module=model_train,
-      loss_fn=loss_to_apply,
-      auxiliary_loss_weight=config.get('auxiliary_loss_weight', 0.0),
-      ens_size=ens_size)
+  @functools.partial(jax.jit, backend='cpu')
+  def init(rng_init):
+    dummy_input = jnp.zeros((batch_size_per_core,) + image_size, jnp.float32)
+    params = model_eval.init(rng_init, dummy_input)['params']
+    params = flax.core.unfreeze(params)
 
-  update_fn = functools.partial(
-      batchensemble_utils.update_fn_be,
-      weight_decay_fn=weight_decay_fn,
-      plot_grad_norm_name_fn=None,
-      plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
-      max_grad_norm_global=config.get('clip_grad_norm', None),
-      frozen_vars_patterns=config.get('frozen_var_patterns', None),
-      fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
-  pmap_update_fn = core.pmap_sorted(
-      update_fn, axis_name='batch', donate_argnums=(0, 1),
-      static_broadcasted_argnums=(5,))
+    # Set bias in the head to a low value, such that loss is small initially.
+    params['batchensemble_head']['bias'] = jnp.full_like(
+        params['batchensemble_head']['bias'], config.get('init_head_bias', 0))
+
+    # init head kernel to all zeros for fine-tuning
+    if config.get('model_init'):
+      params['batchensemble_head']['kernel'] = jnp.full_like(
+          params['batchensemble_head']['kernel'], 0)
+
+    return params
+
+  rng, rng_init = jax.random.split(rng)
+  params_init = init(rng_init)
+  opt_init = opt_def.create(params_init)
+
+  weight_decay_rules = config.get('weight_decay', []) or []
+  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  weight_decay_fn = train_utils.get_weight_decay_fn(
+      weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
+
+  def batch_loss_fn(params, inputs, labels, *args, **kwargs):
+    logits, _ = model_train.apply(
+        {'params': params}, inputs, *args, **kwargs)
+    labels = jnp.tile(labels, (ens_size, 1))
+    loss = jnp.mean(loss_to_apply(logits=logits, labels=labels))
+    return loss, dict()
+
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
+  def pmap_update_fn(opt, rngs, lr, images, labels):
+    return batchensemble_utils.update_fn_be(
+        opt=opt, rngs=rngs, lr=lr, images=images, labels=labels,
+        batch_loss_fn=batch_loss_fn,
+        weight_decay_fn=weight_decay_fn,
+        plot_grad_norm_name_fn=None,
+        plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
+        max_grad_norm_global=config.get('clip_grad_norm', None),
+        frozen_vars_patterns=config.get('frozen_var_patterns', None),
+        fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
   @functools.partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
@@ -263,17 +290,20 @@ def main(_):
     mask *= labels.max(axis=1)
     tiled_logits, _ = model_eval.apply({'params': flax.core.freeze(params)},
                                        images)
-    ens_logits = jnp.asarray(jnp.split(tiled_logits, ens_size))
+    ens_logits = _log_average_probs(
+        jnp.asarray(jnp.split(tiled_logits, ens_size)))
 
-    losses = ensemble.ensemble_softmax_xent(
-        logits=ens_logits, labels=labels)
+    losses = train_utils.softmax_xent(logits=ens_logits,
+                                      labels=labels[:, :config.num_classes],
+                                      reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
-    ncorrect = ensemble.ensemble_softmax_correct_multilabel(
-        ens_logits, labels, mask, psum_axis_name='batch')
+    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
+    ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
-    logits = jnp.log(jnp.mean(jax.nn.softmax(ens_logits), axis=0))
-    metric_args = jax.lax.all_gather([logits, labels, mask],
+
+    metric_args = jax.lax.all_gather([ens_logits, labels, mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
@@ -283,19 +313,35 @@ def main(_):
       init_optimizer=opt_init,
       init_params=opt_init.target,
       init_fixed_model_states=None,
-      default_reinit_params=['head/bias', 'head/kernel'],
+      default_reinit_params=['batchensemble_head/bias',
+                             'batchensemble_head/kernel'],
       config=config)
 
   opt = checkpoint_data.optimizer
-  opt = opt.replace(target=flax.core.freeze(opt.target))
-  opt = flax.jax_utils.replicate(opt)
-  accumulated_train_time = checkpoint_data.accumulated_train_time
-
-  train_loop_rngs = jax.tree_map(
-      train.rng_jax_fold_host_if_needed_and_shard, rngs)
-
+  train_loop_rngs = {'params': checkpoint_data.train_loop_rngs}
+  opt = opt.replace(target=opt.target)
   first_step = int(opt.state.step)
-  start_time = time.time()
+
+  accumulated_train_time = checkpoint_data.accumulated_train_time
+  write_note('Adapting the checkpoint model...')
+  adapted_params = checkpoint_utils.adapt_upstream_architecture(
+      init_params=params_init,
+      loaded_params=opt.target)
+  opt = opt.replace(target=adapted_params)
+  opt = flax.jax_utils.replicate(opt)
+
+  write_note('Kicking off misc stuff...')
+  if first_step == 0 and jax.process_index() == 0:
+    writer.write_hparams(dict(config))
+  chrono = train_utils.Chrono(
+      first_step, total_steps, config.batch_size, accumulated_train_time)
+
+  # Note: switch to ProfileAllHosts() if you need to profile all hosts.
+  # (Xprof data become much larger and take longer to load for analysis)
+  profiler = periodic_actions.Profile(
+      # Create profile after every restart to analyze pre-emption related
+      # problems and assure we get similar performance in every run.
+      logdir=output_dir, first_profile=first_step + 10)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
@@ -304,6 +350,10 @@ def main(_):
       map(lr_fn, range(first_step, total_steps)),
       config.get('prefetch_to_device', 1))
 
+  write_note(f'First step compilations...\n{chrono.note}')
+  logging.info('first_step = %s', first_step)
+  # Advance the iterators if we are restarting from an earlier checkpoint.
+  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
@@ -318,131 +368,136 @@ def main(_):
       val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
       val_iter_splits[val_name] = (val_iter, val_steps)
 
-  log_training_first_n_steps = config.get('log_training_first_n_steps', -1)
-  with metric_writers.ensure_flushes(writer):
-    callback_fn = lambda x: x  # Do nothing.
-    xprof_session = xprof.MultiStepXprofSession(
-        profile_steps=20,    # For how many steps to profile after warmup.
-        warmup_steps=170,    # For how many steps to wait before profiling.
-        stop_callback_fn=callback_fn)
-    for step, train_batch, lr_repl in zip(
-        range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-      with xprof_session:
-        with jax.profiler.StepTraceAnnotation(name='train', step_num=step):
-          opt, train_loop_rngs, loss_value, _ = pmap_update_fn(
-              opt,
-              train_loop_rngs,
-              lr_repl,
-              train_batch['image'],
-              train_batch['labels'],
-              batch_loss_fn)
+  for step, train_batch, lr_repl in zip(
+      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
 
-      # Checkpoint saving.
-      if train_utils.itstime(
-          step=step,
-          every_n_steps=config.get('checkpoint_steps'),
-          total_steps=total_steps, host=0, first=False):
-        train_utils.checkpointing_timeout(checkpoint_writer,
-                                          config.get('checkpoint_timeout', 1))
-        train.sync_all_hosts()
+    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+      opt, train_loop_rngs, loss_value, extra_measurements = pmap_update_fn(
+          opt,
+          train_loop_rngs,
+          lr_repl,
+          train_batch['image'],
+          train_batch['labels'])
 
-        time_since_last_start = float(time.time() - start_time)
-        accumulated_train_time = accumulated_train_time + time_since_last_start
-        opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt)
+    if jax.process_index() == 0:
+      profiler(step)
 
-        copy_step = None
-        if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
-                               total_steps):
-          write_note('Keeping a checkpoint copy...')
-          copy_step = step
+    # Checkpoint saving.
+    if train_utils.itstime(
+        step=step,
+        every_n_steps=config.get('checkpoint_steps'),
+        total_steps=total_steps,
+        process=0):
+      write_note('Checkpointing...')
+      chrono.pause()
+      train_utils.checkpointing_timeout(checkpoint_writer,
+                                        config.get('checkpoint_timeout', 1))
+      accumulated_train_time = chrono.accum_train_time
+      opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt)
 
-        checkpoint_data = checkpoint_utils.CheckpointData(
-            train_loop_rngs=train_loop_rngs,
-            optimizer=opt_cpu,
-            accumulated_train_time=accumulated_train_time)
-        checkpoint_writer = pool.apply_async(
-            checkpoint_utils.checkpoint_trained_model,
-            (checkpoint_data, save_checkpoint_path, copy_step))
+      # Check whether we want to keep a copy of the current checkpoint.
+      copy_step = None
+      if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
+                             total_steps):
+        write_note('Keeping a checkpoint copy...')
+        copy_step = step
 
-      # Report training progress
-      if (jax.process_index() == 0 and config.log_training_every_n_steps > 0 and
-          (step % config.log_training_every_n_steps == 0 or
-           step == total_steps or step < log_training_first_n_steps)):
-        train_loss = loss_value[0]
-        time_elapsed = time.time() - start_time + accumulated_train_time
-        img_sec_core = (
-            config.batch_size * step / time_elapsed / jax.device_count())
-        writer.write_scalars(step, {'learning_rate': lr_repl[0],
-                                    'training_loss': np.mean(loss_value),
-                                    'img/sec/core': img_sec_core,
-                                    'epoch': step / steps_per_epoch})
+      checkpoint_data = checkpoint_utils.CheckpointData(
+          train_loop_rngs=train_loop_rngs,
+          optimizer=opt_cpu,
+          accumulated_train_time=accumulated_train_time)
+      checkpoint_writer = pool.apply_async(
+          checkpoint_utils.checkpoint_trained_model,
+          (checkpoint_data, save_checkpoint_path, copy_step))
+      chrono.resume()
 
-      # Evaluate the model.
-      if train_utils.itstime(step, config.log_eval_steps, total_steps):
-        for val_name, (val_iter, val_steps) in val_iter_splits.items():
-          # Sets up evaluation metrics.
-          ece_num_bins = config.get('ece_num_bins', 15)
-          auc_num_bins = config.get('auc_num_bins', 1000)
-          ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
-          calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
-          oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
-                                                         num_bins=auc_num_bins)
-          oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
+    # Report training progress
+    if train_utils.itstime(
+        step, config.log_training_steps, total_steps, process=0):
+      write_note('Reporting training progress...')
+      train_loss = loss_value[0]
+      timing_measurements, note = chrono.tick(step)
+      write_note(note)
+      train_measurements = {}
+      train_measurements.update({
+          'learning_rate': lr_repl[0],
+          'training_loss': train_loss,
+      })
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(timing_measurements)
+      writer.write_scalars(step, train_measurements)
+
+    # Evaluate the model.
+    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+      write_note('Evaluating on the validation set...')
+      chrono.pause()
+      for val_name, (val_iter, val_steps) in val_iter_splits.items():
+        # Sets up evaluation metrics.
+        ece_num_bins = config.get('ece_num_bins', 15)
+        auc_num_bins = config.get('auc_num_bins', 1000)
+        ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+        calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
                                                        num_bins=auc_num_bins)
-          oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
-                                                       num_bins=auc_num_bins)
-          oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
-                                                       num_bins=auc_num_bins)
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
+                                                     num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
+                                                     num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
+                                                     num_bins=auc_num_bins)
 
-          # Runs evaluation loop.
-          ncorrect, loss, nseen = 0, 0, 0
-          for _, batch in zip(range(val_steps), val_iter):
-            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                evaluation_fn(opt.target, batch['image'],
-                              batch['labels'], batch['mask']))
-            # All results are a replicated array shaped as follows:
-            # (local_devices, per_device_batch_size, elem_shape...)
-            # with each local device's entry being identical as they got psum'd.
-            # So let's just take the first one to the host as numpy.
-            ncorrect += np.sum(np.array(batch_ncorrect[0]))
-            loss += np.sum(np.array(batch_losses[0]))
-            nseen += np.sum(np.array(batch_n[0]))
-            # Here we parse batch_metric_args to compute uncertainty metrics.
-            # (e.g., ECE or Calibration AUC).
-            logits, labels, masks = batch_metric_args
-            masks = np.array(masks[0], dtype=np.bool)
-            logits = np.array(logits[0])
-            probs = jax.nn.softmax(logits)
-            # From one-hot to integer labels, as required by ECE.
-            int_labels = np.argmax(np.array(labels[0]), axis=-1)
-            int_preds = np.argmax(logits, axis=-1)
-            confidence = np.max(probs, axis=-1)
-            for p, c, l, d, m in zip(probs, confidence, int_labels,
-                                     int_preds, masks):
-              ece.add_batch(p[m, :], label=l[m])
-              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-              # TODO(jereliu): Extend to support soft multi-class probabilities.
-              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+        # Runs evaluation loop.
+        ncorrect, loss, nseen = 0, 0, 0
+        for _, batch in zip(range(val_steps), val_iter):
+          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+              evaluation_fn(opt.target, batch['image'],
+                            batch['labels'], batch['mask']))
+          # All results are a replicated array shaped as follows:
+          # (local_devices, per_device_batch_size, elem_shape...)
+          # with each local device's entry being identical as they got psum'd.
+          # So let's just take the first one to the host as numpy.
+          ncorrect += np.sum(np.array(batch_ncorrect[0]))
+          loss += np.sum(np.array(batch_losses[0]))
+          nseen += np.sum(np.array(batch_n[0]))
+          # Here we parse batch_metric_args to compute uncertainty metrics.
+          # (e.g., ECE or Calibration AUC).
+          logits, labels, masks = batch_metric_args
+          masks = np.array(masks[0], dtype=np.bool)
+          logits = np.array(logits[0])
+          probs = jax.nn.softmax(logits)
+          # From one-hot to integer labels, as required by ECE.
+          int_labels = np.argmax(np.array(labels[0]), axis=-1)
+          int_preds = np.argmax(logits, axis=-1)
+          confidence = np.max(probs, axis=-1)
+          for p, c, l, d, m in zip(probs, confidence, int_labels,
+                                   int_preds, masks):
+            ece.add_batch(p[m, :], label=l[m])
+            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+            # TODO(jereliu): Extend to support soft multi-class probabilities.
+            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-          val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
-          val_measurements = {
-              f'{val_name}_prec@1': ncorrect / nseen,
-              f'{val_name}_loss': val_loss[val_name],
-              f'{val_name}_ece': ece.result()['ece'],
-              f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-              f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
-                  'collaborative_auc'],
-              f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-              f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-              f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
-          }
-          writer.write_scalars(step, val_measurements)
+        val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
+        val_measurements = {
+            f'{val_name}_prec@1': ncorrect / nseen,
+            f'{val_name}_loss': val_loss[val_name],
+            f'{val_name}_ece': ece.result()['ece'],
+            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
+            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
+                'collaborative_auc'],
+            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
+            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
+            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
+        }
+        writer.write_scalars(step, val_measurements)
+      chrono.resume()
 
+  write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
+  writer.close()
 
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.

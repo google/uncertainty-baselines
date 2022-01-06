@@ -18,7 +18,6 @@
 from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
 import multiprocessing
-import numbers
 import os
 
 from absl import app
@@ -180,7 +179,7 @@ def main(argv):
       dataset=config.dataset,
       split=config.train_split,
       rng=train_ds_rng,
-      host_batch_size=local_batch_size,
+      process_batch_size=local_batch_size,
       preprocess_fn=preprocess_spec.parse(
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
@@ -199,7 +198,7 @@ def main(argv):
     nval_img = input_utils.get_num_examples(
         dataset,
         split=split,
-        host_batch_size=local_batch_size_eval,
+        process_batch_size=local_batch_size_eval,
         drop_remainder=False,
         data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
@@ -214,7 +213,7 @@ def main(argv):
         dataset=dataset,
         split=split,
         rng=None,
-        host_batch_size=local_batch_size_eval,
+        process_batch_size=local_batch_size_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
@@ -287,7 +286,7 @@ def main(argv):
   ntrain_img = input_utils.get_num_examples(
       config.dataset,
       split=config.train_split,
-      host_batch_size=local_batch_size,
+      process_batch_size=local_batch_size,
       data_dir=fillin(config.get('data_dir')))
   steps_per_epoch = ntrain_img / batch_size
 
@@ -334,8 +333,9 @@ def main(argv):
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
 
-    init_rngs = {'params': rng, 'diag_noise_samples': (rng + 1) * 7,
-                 'standard_norm_noise_samples': (rng + 3) * 13}
+    rng, diag_noise_rng, standard_noise_rng = jax.random.split(rng, num=3)
+    init_rngs = {'params': rng, 'diag_noise_samples': diag_noise_rng,
+                 'standard_norm_noise_samples': standard_noise_rng}
     variables = model.init(init_rngs, dummy_input, train=False)
     # Split model parameters into trainable and untrainable collections.
     states, params = variables.pop('params')
@@ -355,7 +355,8 @@ def main(argv):
 
     return params, states
 
-  rng, rng_init = jax.random.split(rng)
+  (rng, rng_init, rng_dropout, diag_noise_rng,
+   standard_noise_rng) = jax.random.split(rng, num=5)
   params_cpu, states_cpu = init(rng_init)
 
   if jax.process_index() == 0:
@@ -372,9 +373,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
 
     # Note that logits and labels are usually of the shape [batch,num_classes].
     # But for OOD data, when num_classes_ood > num_classes_ind, we need to
@@ -402,9 +403,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -431,9 +432,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -449,6 +450,11 @@ def main(argv):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
+  weight_decay_rules = config.get('weight_decay', []) or []
+  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  weight_decay_fn = train_utils.get_weight_decay_fn(
+      weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
+
   @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, states, lr, reset_covmat, images, labels, rng):
     """Update step."""
@@ -457,6 +463,8 @@ def main(argv):
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
     rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
+    rng_model_local, diag_noise_rng, standard_noise_rng = jax.random.split(
+        rng_model_local, num=3)
 
     def loss_fn(params, states, images, labels):
       # Specify mutable collection to update untrainable GP parameters.
@@ -466,8 +474,8 @@ def main(argv):
           images,
           train=True,
           rngs={'dropout': rng_model_local,
-                'diag_noise_samples': (rng_model_local + 1) * 7,
-                'standard_norm_noise_samples': (rng_model_local + 3) * 13},
+                'diag_noise_samples': diag_noise_rng,
+                'standard_norm_noise_samples': standard_noise_rng},
           mutable=list(states.keys()))
 
       logits, _ = model_results
@@ -513,17 +521,7 @@ def main(argv):
       g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
       g = jax.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
-
-    decay_rules = config.get('weight_decay', []) or []
-    if isinstance(decay_rules, numbers.Number):
-      decay_rules = [('.*kernel.*', decay_rules)]
-    sched_m = lr/config.lr.base if config.get('weight_decay_decouple') else lr
-    def decay_fn(v, wd):
-      return (1.0 - sched_m * wd) * v
-
-    opt = opt.replace(
-        target=train_utils.tree_map_with_regex(decay_fn, opt.target,
-                                               decay_rules))
+    opt = opt.replace(target=weight_decay_fn(opt.target, lr))
 
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
@@ -638,7 +636,7 @@ def main(argv):
 
     # Checkpoint saving
     if train_utils.itstime(
-        step, config.get('checkpoint_steps'), total_steps, host=0):
+        step, config.get('checkpoint_steps'), total_steps, process=0):
       write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
@@ -675,7 +673,7 @@ def main(argv):
 
     # Report training progress
     if train_utils.itstime(
-        step, config.log_training_steps, total_steps, host=0):
+        step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)

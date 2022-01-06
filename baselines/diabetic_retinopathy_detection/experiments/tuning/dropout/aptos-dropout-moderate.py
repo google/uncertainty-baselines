@@ -13,10 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""
-MC Dropout baseline for Diabetic Retinopathy Detection,
-evaluated on the OOD APTOS Indian retinopathy dataset
-with moderate decision threshold.
+r"""MC Dropout baseline for Diabetic Retinopathy Detection, evaluated on the OOD APTOS Indian retinopathy dataset with moderate decision threshold.
 """
 
 import datetime
@@ -40,7 +37,7 @@ def get_config():
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   output_dir = 'gs://drd-dropout-aptos-results/{}'.format(
-    config.experiment_name)
+      config.experiment_name)
   config.args = {
       'per_core_batch_size': 16,
       'num_dropout_samples_eval': 5,
@@ -59,8 +56,9 @@ def get_config():
 def get_sweep(hyper):
   num_trials = 32
   return hyper.zipit([
-    hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.5)),
-    hyper.loguniform('one_minus_momentum', hyper.interval(5e-3, 0.05)),
-    hyper.loguniform('l2', hyper.interval(1e-6, 2e-4)),
-    hyper.uniform('dropout_rate', hyper.interval(0.05, 0.2)),
-  ], length=num_trials)
+      hyper.loguniform('base_learning_rate', hyper.interval(1e-3, 0.5)),
+      hyper.loguniform('one_minus_momentum', hyper.interval(5e-3, 0.05)),
+      hyper.loguniform('l2', hyper.interval(1e-6, 2e-4)),
+      hyper.uniform('dropout_rate', hyper.interval(0.05, 0.2)),
+  ],
+                     length=num_trials)

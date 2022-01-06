@@ -14,7 +14,15 @@
 # limitations under the License.
 
 """Loss utils, including rebalancing based on class distribution."""
-
+# pylint: disable=g-bare-generic
+# pylint: disable=g-doc-args
+# pylint: disable=g-doc-return-or-yield
+# pylint: disable=g-importing-member
+# pylint: disable=g-no-space-after-docstring-summary
+# pylint: disable=g-short-docstring-punctuation
+# pylint: disable=logging-format-interpolation
+# pylint: disable=logging-fstring-interpolation
+# pylint: disable=missing-function-docstring
 from typing import Dict, Union
 
 import tensorflow as tf
@@ -23,8 +31,7 @@ import torch
 
 
 def get_diabetic_retinopathy_class_balance_weights(
-  positive_empirical_prob: float = None
-) -> Dict[int, float]:
+    positive_empirical_prob: float = None) -> Dict[int, float]:
   r"""Class weights used for rebalancing the dataset, by skewing the `loss`.
 
   Diabetic Retinopathy positive class proportions are imbalanced:
@@ -56,10 +63,10 @@ def get_diabetic_retinopathy_class_balance_weights(
   """
 
   if positive_empirical_prob is None:
+    # positive_empirical_prob = 0.196
     raise NotImplementedError(
-      'Needs to be updated for APTOS / Severity shifts, '
-      'different decision thresholds (Mild / Moderate classifiers).')
-    positive_empirical_prob = 0.196
+        'Needs to be updated for APTOS / Severity shifts, '
+        'different decision thresholds (Mild / Moderate classifiers).')
 
   return {
       0: (1 / 2) * (1 / (1 - positive_empirical_prob)),
@@ -68,9 +75,9 @@ def get_diabetic_retinopathy_class_balance_weights(
 
 
 def get_positive_empirical_prob(labels: tf.Tensor) -> float:
-  """
-  Given a set of binary labels, determine the empirical probability of a
-  positive label (i.e., the proportion of ones).
+  """Given set of binary labels, determine empirical prob of positive label.
+
+  (i.e., the proportion of ones).
 
   Args:
     labels: tf.Tensor, batch of labels
@@ -195,9 +202,9 @@ def get_weighted_binary_cross_entropy_torch(weights: Dict[int, float]):
   if 0 not in weights or 1 not in weights:
     raise NotImplementedError
 
-  def weighted_cross_entropy_fn(
-      y_true: torch.Tensor, y_pred: torch.Tensor, from_logits: bool = False
-  ):
+  def weighted_cross_entropy_fn(y_true: torch.Tensor,
+                                y_pred: torch.Tensor,
+                                from_logits: bool = False):
     assert y_true.dtype == torch.float32
     assert y_pred.dtype == torch.float32
 
@@ -233,14 +240,14 @@ def get_diabetic_retinopathy_loss_fn(class_reweight_mode: Union[str, None],
   Returns:
     None, or loss_fn
   """
-  #
+  del class_weights
   if class_reweight_mode is None:
     loss_fn = tf.keras.losses.binary_crossentropy
   elif class_reweight_mode == 'constant':
-    raise NotImplementedError
     # Initialize a reweighted BCE using the empirical class distribution
     # of the training dataset.
-    loss_fn = get_weighted_binary_cross_entropy(weights=class_weights)
+    # loss_fn = get_weighted_binary_cross_entropy(weights=class_weights)
+    raise NotImplementedError('No constant reweighting.')
   elif class_reweight_mode == 'minibatch':
     # This loss_fn must be reinitialized for each batch, using the
     # minibatch empirical class distribution.
@@ -254,11 +261,13 @@ def get_diabetic_retinopathy_loss_fn(class_reweight_mode: Union[str, None],
 
 def get_minibatch_reweighted_loss_fn(labels: tf.Tensor, loss_fn_type='keras'):
   """The minibatch-reweighted loss function can only be initialized
+
   using the labels of a particular minibatch.
 
   Args:
     labels: tf.Tensor, the labels of a minibatch
     loss_fn_type: str, one of {'keras', 'torch', 'jax'}
+
   Returns:
     loss_fn, for use in a particular minibatch
   """
@@ -272,7 +281,7 @@ def get_minibatch_reweighted_loss_fn(labels: tf.Tensor, loss_fn_type='keras'):
         weights=minibatch_class_weights)
   elif loss_fn_type == 'torch':
     for key, value in minibatch_class_weights.items():
-      minibatch_class_weights[key] = value._numpy()
+      minibatch_class_weights[key] = value._numpy()  # pylint: disable=protected-access
     batch_loss_fn = get_weighted_binary_cross_entropy_torch(
         weights=minibatch_class_weights)
   elif loss_fn_type == 'jax':

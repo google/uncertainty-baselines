@@ -13,12 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""
-Top hyperparameter configuration of the
-Radial baseline for Diabetic Retinopathy Detection,
-tuning on in-domain validation AUC,
-evaluated on the OOD APTOS Indian retinopathy dataset
-with moderate decision threshold.
+r"""Top hyperparameter configuration of the Radial baseline for Diabetic Retinopathy Detection, tuning on in-domain validation AUC, evaluated on the OOD APTOS Indian retinopathy dataset with moderate decision threshold.
 """
 
 import datetime
@@ -43,7 +38,7 @@ def get_config():
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   output_dir = 'gs://drd-radial-aptos-finetune/indomain/{}'.format(
-    config.experiment_name)
+      config.experiment_name)
   config.args = {
       'batch_size': 16,
       'num_mc_samples_train': 1,
@@ -56,7 +51,6 @@ def get_config():
       'checkpoint_interval': 1,
       'output_dir': output_dir,
       'data_dir': 'gs://ub-data/retinopathy',
-
       'l2': 0.0005243849811857283,
       'one_minus_momentum': 0.016699763426232056,
       'stddev_stddev_init': 0.06282496582469976,

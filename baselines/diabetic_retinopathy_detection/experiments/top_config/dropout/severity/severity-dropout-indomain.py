@@ -13,11 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""
-Top hyperparameter configuration of the
-MC Dropout baseline for Diabetic Retinopathy Detection,
-tuning on in-domain validation AUC,
-evaluated on the Severity Shift with moderate decision threshold.
+r"""Top hyperparameter configuration of the MC Dropout baseline for Diabetic Retinopathy Detection, tuning on in-domain validation AUC, evaluated on the Severity Shift with moderate decision threshold.
 """
 
 import datetime
@@ -41,7 +37,7 @@ def get_config():
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   output_dir = 'gs://drd-dropout-severity-finetune/indomain/{}'.format(
-    config.experiment_name)
+      config.experiment_name)
   config.args = {
       'per_core_batch_size': 16,
       'num_dropout_samples_eval': 5,

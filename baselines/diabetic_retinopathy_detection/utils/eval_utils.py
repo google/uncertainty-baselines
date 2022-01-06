@@ -1,43 +1,72 @@
+# coding=utf-8
+# Copyright 2021 The Uncertainty Baselines Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Eval utils."""
+# pylint: disable=g-bare-generic
+# pylint: disable=g-doc-args
+# pylint: disable=g-doc-return-or-yield
+# pylint: disable=g-importing-member
+# pylint: disable=g-no-space-after-docstring-summary
+# pylint: disable=g-short-docstring-punctuation
+# pylint: disable=logging-format-interpolation
+# pylint: disable=logging-fstring-interpolation
+# pylint: disable=missing-function-docstring
+import collections
 import time
-from collections import defaultdict
+from typing import Any, Dict
+from absl import logging
 
 import numpy as np
 import robustness_metrics as rm
-import tensorflow as tf
-from absl import logging
-from sklearn.metrics import (log_loss, roc_auc_score, accuracy_score,
-                             roc_curve, precision_recall_curve, auc)
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import auc
+from sklearn.metrics import log_loss
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_curve
 from sklearn.preprocessing import LabelBinarizer
-from sklearn.utils import check_array, check_consistent_length
-
-from .metric_utils import log_epoch_metrics
-from .results_storage_utils import (
-  add_joint_dicts,
-  load_dataframe_gfile)
+from sklearn.utils import check_array
+from sklearn.utils import check_consistent_length
+import tensorflow as tf
+import log_epoch_metrics  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
+import add_joint_dicts  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+import load_dataframe_gfile  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
 
 
 @tf.function
-def eval_step_tf(
-  dataset_iterator, dataset_steps, strategy, estimator,
-  estimator_args, uncertainty_estimator_fn, is_deterministic
-):
-  """Run TensorFlow model evaluation, using an `uncertainty_estimator_fn`
+def eval_step_tf(dataset_iterator, dataset_steps, strategy, estimator,
+                 estimator_args, uncertainty_estimator_fn, is_deterministic):
+  """Eval step.
+
+  Run TensorFlow model evaluation, using an `uncertainty_estimator_fn`
   to produce predictions and decomposed uncertainty estimates for each example.
 
   Args:
-    dataset_iterator: tf.data.Dataset, dataset on which we will
-      evaluate the model.
+    dataset_iterator: tf.data.Dataset, dataset on which we will evaluate the
+      model.
     dataset_steps: int, number of gradient steps in the dataset.
     strategy: tf.distribute strategy, used to distribute datasets.
-    estimator: model wrapped to produce a `tf.Tensor`, predictive mean,
-      with shape [B].
-    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`,
-      such as the number of MC samples, `num_samples`.
-    uncertainty_estimator_fn: Callable, method to produce predictive means
-      along with various metrics of uncertainty, e.g., predictive_entropy,
-      epistemic uncertainty (mutual information).
-    is_deterministic: bool, is the model a single deterministic network.
-      In this case, we cannot capture epistemic uncertainty.
+    estimator: model wrapped to produce a `tf.Tensor`, predictive mean, with
+      shape [B].
+    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`, such as
+      the number of MC samples, `num_samples`.
+    uncertainty_estimator_fn: Callable, method to produce predictive means along
+      with various metrics of uncertainty, e.g., predictive_entropy, epistemic
+      uncertainty (mutual information).
+    is_deterministic: bool, is the model a single deterministic network. In this
+      case, we cannot capture epistemic uncertainty.
 
   Returns:
     Dict, contains `tf.Tensor` predictions, ground truth,
@@ -52,7 +81,7 @@ def eval_step_tf(
 
     # Compute prediction, total, aleatoric, and epistemic uncertainty estimates
     pred_and_uncert = uncertainty_estimator_fn(
-      images, estimator, training_setting=False, **estimator_args)
+        images, estimator, training_setting=False, **estimator_args)
 
     # Return a tuple
     y_true = labels
@@ -68,9 +97,8 @@ def eval_step_tf(
       y_aleatoric_uncert = tf.zeros(0)
       y_epistemic_uncert = tf.zeros(0)
 
-    return (
-      y_true, y_pred, y_pred_entropy, y_pred_variance,
-      y_aleatoric_uncert, y_epistemic_uncert)
+    return (y_true, y_pred, y_pred_entropy, y_pred_variance, y_aleatoric_uncert,
+            y_epistemic_uncert)
 
   # Containers for storage of
   # predictions, ground truth, uncertainty estimates
@@ -87,8 +115,8 @@ def eval_step_tf(
     result = strategy.run(step_fn, args=(next(dataset_iterator),))
 
     # Parse results tuple
-    (y_true_, y_pred_, y_pred_entropy_, y_pred_variance_,
-     y_aleatoric_uncert_, y_epistemic_uncert_) = result
+    (y_true_, y_pred_, y_pred_entropy_, y_pred_variance_, y_aleatoric_uncert_,
+     y_epistemic_uncert_) = result
 
     # Convert from Per-Replica object to tuple
     if strategy.num_replicas_in_sync > 1:
@@ -131,9 +159,9 @@ def eval_step_tf(
         y_epistemic_uncert = y_epistemic_uncert.write(i, y_epistemic_uncert_)
 
   results_arrs = {
-    'y_true': y_true.stack(),
-    'y_pred': y_pred.stack(),
-    'y_pred_entropy': y_pred_entropy.stack(),
+      'y_true': y_true.stack(),
+      'y_pred': y_pred.stack(),
+      'y_pred_entropy': y_pred_entropy.stack(),
   }
   if not is_deterministic:
     results_arrs['y_pred_variance'] = y_pred_variance.stack()
@@ -143,12 +171,21 @@ def eval_step_tf(
   return results_arrs
 
 
-def evaluate_model_on_datasets(
-  strategy, datasets, steps, estimator, estimator_args,
-  uncertainty_estimator_fn, eval_batch_size, call_dataset_iter,
-  is_deterministic=False, backend="tf", eval_step_jax=None, verbose=False
-):
-  """Run model evaluation on all provided datasets, using an
+def evaluate_model_on_datasets(strategy,
+                               datasets,
+                               steps,
+                               estimator,
+                               estimator_args,
+                               uncertainty_estimator_fn,
+                               eval_batch_size,
+                               call_dataset_iter,
+                               is_deterministic=False,
+                               backend='tf',
+                               eval_step_jax=None,
+                               verbose=False):
+  """Eval on dataset.
+
+  Run model evaluation on all provided datasets, using an
   `uncertainty_estimator_fn` to produce predictions and decomposed
   uncertainty estimates for each example.
 
@@ -157,24 +194,25 @@ def evaluate_model_on_datasets(
 
   Args:
     strategy: tf.distribute strategy, used to distribute datasets.
-    datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate
-      the model.
+    datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate the
+      model.
     steps: Dict[str, int], number of gradient steps in each dataset.
     estimator: model wrapped to produce a `tf.Tensor` (if `backend`=='tf') or
       `np.ndarray` (if `backend`=='jax'), predictive mean, with shape [B].
-    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`,
-      such as the number of MC samples, `num_samples`.
-    uncertainty_estimator_fn: Callable, method to produce predictive means
-      along with various metrics of uncertainty, e.g., predictive_entropy,
-      epistemic uncertainty (mutual information).
+    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`, such as
+      the number of MC samples, `num_samples`.
+    uncertainty_estimator_fn: Callable, method to produce predictive means along
+      with various metrics of uncertainty, e.g., predictive_entropy, epistemic
+      uncertainty (mutual information).
     eval_batch_size: int, size of evaluation minibatches.
-    call_dataset_iter: bool, if True, should call `iter()` on each dataset.
-      May not need if evaluation datasets have been repeated.
-    is_deterministic: bool, is the model a single deterministic network.
-      In this case, we cannot capture epistemic uncertainty.
+    call_dataset_iter: bool, if True, should call `iter()` on each dataset. May
+      not need if evaluation datasets have been repeated.
+    is_deterministic: bool, is the model a single deterministic network. In this
+      case, we cannot capture epistemic uncertainty.
     backend: str, in {'tf', 'jax'}, specifies the evaluation method.
     eval_step_jax: Callable, evaluation method used for Jax model.
     verbose: bool, extra logging.
+
   Returns:
     Dict, for each dataset, contains `np.array` predictions, ground truth,
       and uncertainty estimates.
@@ -196,15 +234,16 @@ def evaluate_model_on_datasets(
 
     dataset_steps = steps[dataset_split]
     logging.info(f'Evaluating split {dataset_split}.')
-    if backend == "jax":
-      eval_epoch_arrs = eval_step_jax(
-        dataset_iterator, dataset_steps, is_deterministic, **estimator_args)
-    elif backend == "tf":
-      eval_epoch_arrs = eval_step_tf(
-        dataset_iterator, tf.convert_to_tensor(dataset_steps), strategy,
-        estimator, estimator_args, uncertainty_estimator_fn, is_deterministic)
+    if backend == 'jax':
+      eval_epoch_arrs = eval_step_jax(dataset_iterator, dataset_steps,
+                                      is_deterministic, **estimator_args)
+    elif backend == 'tf':
+      eval_epoch_arrs = eval_step_tf(dataset_iterator,
+                                     tf.convert_to_tensor(dataset_steps),
+                                     strategy, estimator, estimator_args,
+                                     uncertainty_estimator_fn, is_deterministic)
     else:
-      raise NotImplementedError(f"Backend {backend} is not supported yet.")
+      raise NotImplementedError(f'Backend {backend} is not supported yet.')
 
     # Update metadata
     time_elapsed = time.time() - start_time
@@ -215,65 +254,79 @@ def evaluate_model_on_datasets(
 
     # Use vectorized NumPy containers
     for eval_key, eval_arr in eval_epoch_arrs.items():
-      _eval_arr = eval_arr if backend == "jax" else eval_arr.numpy()
+      tmp_eval_arr = eval_arr if backend == 'jax' else eval_arr.numpy()
 
-      if _eval_arr.ndim > 1:
-        _eval_arr = np.concatenate(_eval_arr).flatten()
+      if tmp_eval_arr.ndim > 1:
+        tmp_eval_arr = np.concatenate(tmp_eval_arr).flatten()
 
-      dataset_split_dict[eval_key] = _eval_arr
+      dataset_split_dict[eval_key] = tmp_eval_arr
       if verbose:
-        print(
-          f'Concatenated {eval_key} into shape '
-          f'{dataset_split_dict[eval_key].shape}')
+        print(f'Concatenated {eval_key} into shape '
+              f'{dataset_split_dict[eval_key].shape}')
 
-    dataset_split_dict['y_pred'] = dataset_split_dict[
-      'y_pred'].astype('float64')
+    dataset_split_dict['y_pred'] = dataset_split_dict['y_pred'].astype(
+        'float64')
 
   # Add Joint Dicts
   dataset_split_to_containers = add_joint_dicts(
-    dataset_split_to_containers, is_deterministic=is_deterministic)
+      dataset_split_to_containers, is_deterministic=is_deterministic)
 
   return dataset_split_to_containers
 
 
 def evaluate_model_and_compute_metrics(
-    strategy, eval_datasets, steps, metrics, eval_estimator,
-    uncertainty_estimator_fn, eval_batch_size, available_splits,
-    estimator_args, call_dataset_iter, is_deterministic=False,
-    num_bins=15, use_tpu=True, return_per_pred_results=False,
-    backend="tf", eval_step_jax=None,
-):
-  """Main method for evaluation and computing metrics using TF or Jax
+    strategy,
+    eval_datasets,
+    steps,
+    metrics,
+    eval_estimator,
+    uncertainty_estimator_fn,
+    eval_batch_size,
+    available_splits,
+    estimator_args,
+    call_dataset_iter,
+    is_deterministic=False,
+    num_bins=15,
+    use_tpu=True,
+    return_per_pred_results=False,
+    backend='tf',
+    eval_step_jax=None):
+  """Main.
+
+  Main method for evaluation and computing metrics using TF or Jax
   models. Usable for evaluation during tuning.
 
   Args:
     strategy: tf.distribute strategy, used to distribute datasets.
-    eval_datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate
-      the model.
+    eval_datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate the
+      model.
     steps: Dict[str, int], number of gradient steps in each dataset.
+    metrics: metrics.
     eval_estimator: model wrapped to produce a `tf.Tensor` (if `backend`=='tf')
       or `np.ndarray` (if `backend`=='jax'), predictive mean, with shape [B].
-    uncertainty_estimator_fn: Callable, method to produce predictive means
-      along with various metrics of uncertainty, e.g., predictive_entropy,
-      epistemic uncertainty (mutual information).
+    uncertainty_estimator_fn: Callable, method to produce predictive means along
+      with various metrics of uncertainty, e.g., predictive_entropy, epistemic
+      uncertainty (mutual information).
     eval_batch_size: int, size of evaluation minibatches.
-    available_splits: List[str], names of the evaluation datasets provided,
-      used to log results only for these splits.
-    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`,
-      such as the number of MC samples, `num_samples`.
-    call_dataset_iter: bool, if True, should call `iter()` on each dataset.
-      May not need if evaluation datasets have been repeated.
-    is_deterministic: bool, is the model a single deterministic network.
-      In this case, we cannot capture epistemic uncertainty.
+    available_splits: List[str], names of the evaluation datasets provided, used
+      to log results only for these splits.
+    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`, such as
+      the number of MC samples, `num_samples`.
+    call_dataset_iter: bool, if True, should call `iter()` on each dataset. May
+      not need if evaluation datasets have been repeated.
+    is_deterministic: bool, is the model a single deterministic network. In this
+      case, we cannot capture epistemic uncertainty.
     num_bins: int, number of bins to use with expected calibration error.
-    use_tpu: bool, currently exists a bug that disallows collecting ECE
-      during training with TPU, this is used to avoid logging that metric.
+    use_tpu: bool, currently exists a bug that disallows collecting ECE during
+      training with TPU, this is used to avoid logging that metric.
     return_per_pred_results: bool,
     backend: str, in {'tf', 'jax'}, specifies the evaluation method.
     eval_step_jax: Callable, evaluation method used for Jax model.
+
   Returns:
     Union[Tuple[Dict, Dict], Dict]
-      If return_per_pred_results, return two Dicts. Else, return only the second.
+      If return_per_pred_results, return two Dicts. Else, return only the
+      second.
       first Dict:
         for each dataset, per-prediction results (e.g., each prediction,
         ground-truth, loss, retention arrays).
@@ -285,12 +338,17 @@ def evaluate_model_and_compute_metrics(
   # When we eval during training we don't need to re-iterate the
   # evaluation datasets
   eval_results = evaluate_model_on_datasets(
-    strategy=strategy, datasets=eval_datasets, steps=steps,
-    estimator=eval_estimator, estimator_args=estimator_args,
-    uncertainty_estimator_fn=uncertainty_estimator_fn,
-    eval_batch_size=eval_batch_size, call_dataset_iter=call_dataset_iter,
-    is_deterministic=is_deterministic,
-    backend=backend, eval_step_jax=eval_step_jax)
+      strategy=strategy,
+      datasets=eval_datasets,
+      steps=steps,
+      estimator=eval_estimator,
+      estimator_args=estimator_args,
+      uncertainty_estimator_fn=uncertainty_estimator_fn,
+      eval_batch_size=eval_batch_size,
+      call_dataset_iter=call_dataset_iter,
+      is_deterministic=is_deterministic,
+      backend=backend,
+      eval_step_jax=eval_step_jax)
 
   # For each eval dataset, add NLL and accuracy for each example
   eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)
@@ -298,14 +356,18 @@ def evaluate_model_and_compute_metrics(
   # Compute all metrics for each dataset --
   # Robustness, Open Set Recognition, Retention AUC
   metrics_results = compute_metrics_for_all_datasets(
-    eval_results, use_precomputed_arrs=False, ece_num_bins=num_bins,
-    compute_retention_auc=True,
-    verbose=False)
+      eval_results,
+      use_precomputed_arrs=False,
+      ece_num_bins=num_bins,
+      compute_retention_auc=True,
+      verbose=False)
 
   # Log metrics
   metrics_results = log_epoch_metrics(
-    metrics=metrics, eval_results=metrics_results,
-    use_tpu=use_tpu, dataset_splits=available_splits)
+      metrics=metrics,
+      eval_results=metrics_results,
+      use_tpu=use_tpu,
+      dataset_splits=available_splits)
 
   if return_per_pred_results:
     return eval_results, metrics_results
@@ -314,30 +376,38 @@ def evaluate_model_and_compute_metrics(
 
 
 def evaluate_model_on_datasets_np(
-  datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-  eval_batch_size, is_deterministic, np_input=False,
+    datasets,
+    steps,
+    estimator,
+    estimator_args,
+    uncertainty_estimator_fn,
+    eval_batch_size,
+    is_deterministic,
+    np_input=False,
 ):
   """Main method for evaluation and computing metrics.
+
   Appropriate for evaluation loops with a single GPU (i.e., no
   distribution strategy), and is framework-agnostic (will work just as
   well with a TF, Jax, or PyTorch model, given an `uncertainty_estimator_fn`
   to cast to NumPy ndarrays.
 
   Args:
-    datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate
-      the model.
+    datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate the
+      model.
     steps: Dict[str, int], number of gradient steps in each dataset.
-    estimator: model wrapped to produce a `np.ndarray`, predictive mean,
-      with shape [B].
-    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`,
-      such as the number of MC samples, `num_samples`.
-    uncertainty_estimator_fn: Callable, method to produce predictive means
-      along with various metrics of uncertainty, e.g., predictive_entropy,
-      epistemic uncertainty (mutual information).
+    estimator: model wrapped to produce a `np.ndarray`, predictive mean, with
+      shape [B].
+    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`, such as
+      the number of MC samples, `num_samples`.
+    uncertainty_estimator_fn: Callable, method to produce predictive means along
+      with various metrics of uncertainty, e.g., predictive_entropy, epistemic
+      uncertainty (mutual information).
     eval_batch_size: int, size of evaluation minibatches.
-    is_deterministic: bool, is the model a single deterministic network.
-      In this case, we cannot capture epistemic uncertainty.
+    is_deterministic: bool, is the model a single deterministic network. In this
+      case, we cannot capture epistemic uncertainty.
     np_input: bool, True if the model expects a NumPy input; we add a cast.
+
   Returns:
     Dict, for each dataset, contains `np.array` predictions, ground truth,
       and uncertainty estimates.
@@ -375,8 +445,10 @@ def evaluate_model_on_datasets_np(
       # Compute prediction, total, aleatoric, and epistemic
       # uncertainty estimates
       pred_and_uncert = uncertainty_estimator_fn(
-        images._numpy() if np_input else images,
-        estimator, training_setting=False, **estimator_args)
+          images._numpy() if np_input else images,  # pylint: disable=protected-access
+          estimator,
+          training_setting=False,
+          **estimator_args)
 
       # Add this batch of predictions to the containers
       names.append(inputs['name'])
@@ -399,68 +471,83 @@ def evaluate_model_on_datasets_np(
     dataset_split_dict['y_true'] = np.concatenate(y_true).flatten()
     dataset_split_dict['y_pred'] = np.concatenate(y_pred).flatten()
     dataset_split_dict['y_pred'] = dataset_split_dict['y_pred'].astype(
-      'float64')
+        'float64')
 
     # Use vectorized NumPy containers
     dataset_split_dict['y_pred_entropy'] = (
-      np.concatenate(y_pred_entropy).flatten())
+        np.concatenate(y_pred_entropy).flatten())
 
     if not is_deterministic:
       dataset_split_dict['y_pred_variance'] = (
-        np.concatenate(y_pred_variance).flatten())
+          np.concatenate(y_pred_variance).flatten())
       dataset_split_dict['y_aleatoric_uncert'] = (
-        np.concatenate(y_aleatoric_uncert).flatten())
+          np.concatenate(y_aleatoric_uncert).flatten())
       dataset_split_dict['y_epistemic_uncert'] = (
-        np.concatenate(y_epistemic_uncert).flatten())
+          np.concatenate(y_epistemic_uncert).flatten())
 
   # Add Joint Dicts
   dataset_split_to_containers = add_joint_dicts(
-    dataset_split_to_containers, is_deterministic=is_deterministic)
+      dataset_split_to_containers, is_deterministic=is_deterministic)
 
   return dataset_split_to_containers
 
 
-def eval_model_numpy(
-   datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-   eval_batch_size, is_deterministic, distribution_shift, num_bins=15,
-   np_input=False
-):
+def eval_model_numpy(datasets,
+                     steps,
+                     estimator,
+                     estimator_args,
+                     uncertainty_estimator_fn,
+                     eval_batch_size,
+                     is_deterministic,
+                     distribution_shift,
+                     num_bins=15,
+                     np_input=False):
   """Main method for evaluation and computing metrics.
+
   Appropriate for evaluation loops with a single GPU (i.e., no
   distribution strategy), and is framework-agnostic (will work just as
   well with a TF, Jax, or PyTorch model, given an `uncertainty_estimator_fn`
   to cast to NumPy ndarrays.
 
   Args:
-    datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate
-      the model.
+    datasets: Dict[str, tf.data.Dataset], datasets on which we evaluate the
+      model.
     steps: Dict[str, int], number of gradient steps in each dataset.
-    estimator: model wrapped to produce a `np.ndarray`, predictive mean,
-      with shape [B].
-    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`,
-      such as the number of MC samples, `num_samples`.
-    uncertainty_estimator_fn: Callable, method to produce predictive means
-      along with various metrics of uncertainty, e.g., predictive_entropy,
-      epistemic uncertainty (mutual information).
+    estimator: model wrapped to produce a `np.ndarray`, predictive mean, with
+      shape [B].
+    estimator_args: Dict, extra args for the `uncertainty_estimator_fn`, such as
+      the number of MC samples, `num_samples`.
+    uncertainty_estimator_fn: Callable, method to produce predictive means along
+      with various metrics of uncertainty, e.g., predictive_entropy, epistemic
+      uncertainty (mutual information).
     eval_batch_size: int, size of evaluation minibatches.
-    is_deterministic: bool, is the model a single deterministic network.
-      In this case, we cannot capture epistemic uncertainty.
+    is_deterministic: bool, is the model a single deterministic network. In this
+      case, we cannot capture epistemic uncertainty.
+    distribution_shift: which distribution shift to run on.
+    num_bins: the number of bins to use for ECE.
     np_input: bool, True if the model expects a NumPy input; we add a cast.
+
   Returns:
     Dict, for each dataset, contains `np.array` predictions, ground truth,
       and uncertainty estimates.
   """
   eval_results = evaluate_model_on_datasets_np(
-    datasets, steps, estimator, estimator_args, uncertainty_estimator_fn,
-    eval_batch_size, is_deterministic=is_deterministic, np_input=np_input)
+      datasets,
+      steps,
+      estimator,
+      estimator_args,
+      uncertainty_estimator_fn,
+      eval_batch_size,
+      is_deterministic=is_deterministic,
+      np_input=np_input)
 
   if distribution_shift == 'aptos':
-    # TODO: generalize
+    # TODO(nband): generalize
     aptos_metadata_path = 'gs://ub-data/aptos/metadata.csv'
     eval_results['ood_test_balanced'] = compute_rebalanced_aptos_dataset(
-      aptos_dataset=eval_results['ood_test'],
-      aptos_metadata_path=aptos_metadata_path,
-      new_aptos_size=10000)
+        aptos_dataset=eval_results['ood_test'],
+        aptos_metadata_path=aptos_metadata_path,
+        new_aptos_size=10000)
 
   # For each eval dataset, add NLL and accuracy for each example
   eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)
@@ -468,85 +555,93 @@ def eval_model_numpy(
   # Precompute ROC/PR curves, retention and balanced retention curves
   logging.info('Precomputing ROC/PR curves, retention and balanced'
                ' retention curves.')
-  eval_results = precompute_arrs_for_all_datasets(
-    eval_results=eval_results)
+  eval_results = precompute_arrs_for_all_datasets(eval_results=eval_results)
 
   logging.info('Computing metrics with precomputed arrs.')
   metrics_results = compute_metrics_for_all_datasets(
-    eval_results, use_precomputed_arrs=True, ece_num_bins=num_bins,
-    compute_retention_auc=True, verbose=False)
+      eval_results,
+      use_precomputed_arrs=True,
+      ece_num_bins=num_bins,
+      compute_retention_auc=True,
+      verbose=False)
 
   # Log metrics
   available_splits = [split for split in eval_results.keys()]
   metrics_results = log_epoch_metrics(
-    metrics=None, eval_results=metrics_results,
-    use_tpu=False, dataset_splits=available_splits)
+      metrics=None,
+      eval_results=metrics_results,
+      use_tpu=False,
+      dataset_splits=available_splits)
 
   return eval_results, metrics_results
 
 
-def compute_metrics_for_all_datasets(
-    eval_results, use_precomputed_arrs, ece_num_bins=15,
-    compute_retention_auc=False,
-    verbose=False
-):
+def compute_metrics_for_all_datasets(eval_results,
+                                     use_precomputed_arrs,
+                                     ece_num_bins=15,
+                                     compute_retention_auc=False,
+                                     verbose=False):
   """Computes scalar metrics for all datasets.
 
   Args:
     eval_results: Dict[str, Dict], evaluation results for each dataset.
+    use_precomputed_arrs: selects which eval function to use.
     ece_num_bins: int, used to compute expected calibration error metric.
     compute_retention_auc: bool, should compute retention metrics.
     verbose: bool, extra logging.
+
   Returns:
     Dict[str, Dict], scalar metric results for each dataset.
   """
   dataset_eval_fn = (
-    compute_dataset_eval_metrics_with_precomputed_arrs if
-    use_precomputed_arrs else compute_dataset_eval_metrics)
+      compute_dataset_eval_metrics_with_precomputed_arrs
+      if use_precomputed_arrs else compute_dataset_eval_metrics)
   metric_results = {}
   for dataset_key, results_dict in eval_results.items():
     if verbose:
-      logging.info(
-        f'Computing metrics for dataset split {dataset_key}.')
+      logging.info(f'Computing metrics for dataset split {dataset_key}.')
 
     compute_open_set_recognition = 'joint' in dataset_key
     metric_results[dataset_key] = dataset_eval_fn(
-      dataset_key, results_dict, ece_num_bins=ece_num_bins,
-      compute_open_set_recognition=compute_open_set_recognition,
-      compute_retention_auc=compute_retention_auc)
+        dataset_key,
+        results_dict,
+        ece_num_bins=ece_num_bins,
+        compute_open_set_recognition=compute_open_set_recognition,
+        compute_retention_auc=compute_retention_auc)
 
   return metric_results
 
 
-def precompute_arrs_for_all_datasets(
-    eval_results, verbose=False
-):
+def precompute_arrs_for_all_datasets(eval_results, verbose=False):
   """Precompute metric arrays for all datasets, e.g., log loss, retention
+
   arrays, etc.
 
   Args:
     eval_results: Dict[str, Dict], evaluation results for each dataset.
     verbose: bool, extra logging.
+
   Returns:
     Dict[str, Dict], metric arrays for each dataset.
   """
   for dataset_key, results_dict in eval_results.items():
     if verbose:
-      logging.info(
-        f'Computing metrics for dataset split {dataset_key}.')
+      logging.info(f'Computing metrics for dataset split {dataset_key}.')
 
     compute_open_set_recognition = 'joint' in dataset_key
     eval_results[dataset_key] = precompute_metric_arrs(
-      results=results_dict,
-      compute_open_set_recognition=compute_open_set_recognition)
+        results=results_dict,
+        compute_open_set_recognition=compute_open_set_recognition)
 
   return eval_results
 
 
 def compute_loss_and_accuracy_arrs_for_all_datasets(eval_results):
   """Compute loss and accuracy arrays for each dataset.
+
   Args:
     eval_results: Dict[str, Dict], evaluation results for each dataset.
+
   Returns:
     Dict[str, Dict], loss and accuracy arrays for each dataset.
   """
@@ -558,8 +653,10 @@ def compute_loss_and_accuracy_arrs_for_all_datasets(eval_results):
 
 def compute_loss_and_accuracy_arrs(results):
   """Compute loss and accuracy arrays for a particular dataset results dict.
+
   Args:
     results: Dict, evaluation results for a single dataset.
+
   Returns:
     Dict, loss and accuracy arrays for a single dataset.
   """
@@ -569,14 +666,14 @@ def compute_loss_and_accuracy_arrs(results):
   return results
 
 
-def compute_log_loss_arr(
-  results, labels=np.asarray([0, 1]), eps=1e-15
-):
+def compute_log_loss_arr(results, labels=np.asarray([0, 1]), eps=1e-15):
   """Based on sklearn.preprocessing.log_loss, no aggregation.
+
   Args:
     results: Dict, evaluation results for a single dataset.
     labels: np.ndarray, binary classification task labels.
     eps: float, for numerical stability.
+
   Returns:
     Dict containing unaggregated log loss `np.ndarray`.
   """
@@ -604,8 +701,8 @@ def compute_log_loss_arr(
   transformed_labels = lb.transform(y_true)
 
   if transformed_labels.shape[1] == 1:
-    transformed_labels = np.append(1 - transformed_labels,
-                                   transformed_labels, axis=1)
+    transformed_labels = np.append(
+        1 - transformed_labels, transformed_labels, axis=1)
 
   # Clipping
   y_pred = np.clip(y_pred, eps, 1 - eps)
@@ -621,13 +718,12 @@ def compute_log_loss_arr(
   transformed_labels = check_array(transformed_labels)
   if len(lb.classes_) != y_pred.shape[1]:
     if labels is None:
-      raise ValueError("y_true and y_pred contain different number of "
-                       "classes {0}, {1}. Please provide the true "
-                       "labels explicitly through the labels argument. "
-                       "Classes found in "
-                       "y_true: {2}".format(transformed_labels.shape[1],
-                                            y_pred.shape[1],
-                                            lb.classes_))
+      raise ValueError('y_true and y_pred contain different number of '
+                       'classes {0}, {1}. Please provide the true '
+                       'labels explicitly through the labels argument. '
+                       'Classes found in '
+                       'y_true: {2}'.format(transformed_labels.shape[1],
+                                            y_pred.shape[1], lb.classes_))
     else:
       raise ValueError('The number of classes in labels is different '
                        'from that in y_pred. Classes found in '
@@ -640,9 +736,11 @@ def compute_log_loss_arr(
   return results
 
 
-def compute_rebalanced_aptos_dataset(
-    aptos_dataset, aptos_metadata_path, new_aptos_size=10000):
+def compute_rebalanced_aptos_dataset(aptos_dataset,
+                                     aptos_metadata_path,
+                                     new_aptos_size=10000):
   """The APTOS dataset has a significantly different underlying distribution
+
   of clinical severity (e.g., there are far more severe examples) versus
   the EyePACS dataset.
 
@@ -659,30 +757,32 @@ def compute_rebalanced_aptos_dataset(
     aptos_metadata_path: str, location of APTOS metadata (names and clinical
       labels of each example).
     new_aptos_size: int, target size of the new rebalanced APTOS dataset.
+
   Returns:
     Dict, rebalanced APTOS dataset predictions, ground truths, etc.
   """
   # EyePACS Test Data: clinical severity label to proportion of dataset
   label_to_proportion = {
-    0: 0.7359503164,
-    1: 0.07129130537,
-    2: 0.1472228732,
-    3: 0.0228966487,
-    4: 0.02263885634}
+      0: 0.7359503164,
+      1: 0.07129130537,
+      2: 0.1472228732,
+      3: 0.0228966487,
+      4: 0.02263885634
+  }
 
   # Load in APTOS metadata
   aptos_metadata_df = load_dataframe_gfile(
-    file_path=aptos_metadata_path, sep=',')
+      file_path=aptos_metadata_path, sep=',')
   name_to_diagnosis = dict(
-    zip(aptos_metadata_df['id_code'], aptos_metadata_df['diagnosis']))
+      zip(aptos_metadata_df['id_code'], aptos_metadata_df['diagnosis']))
 
   # Determine location of indices corresponding to each diagnosis
-  diagnosis_to_indices = defaultdict(list)
+  diagnosis_to_indices = collections.defaultdict(list)
   names = aptos_dataset['names']
   for i, name in enumerate(names):
     try:
       name = name.decode('utf-8')
-    except:
+    except UnicodeDecodeError:
       name = str(name)
     diagnosis = int(name_to_diagnosis[name])
     diagnosis_to_indices[diagnosis].append(i)
@@ -692,32 +792,35 @@ def compute_rebalanced_aptos_dataset(
   # and total size ~10000
   new_indices = []
   for diagnosis, indices in diagnosis_to_indices.items():
-    total_count_in_new_dataset = int(
-      label_to_proportion[diagnosis] * new_aptos_size)
-    new_indices.append(np.random.choice(
-      indices, size=total_count_in_new_dataset, replace=True))
+    total_count_in_new_dataset = int(label_to_proportion[diagnosis] *
+                                     new_aptos_size)
+    new_indices.append(
+        np.random.choice(
+            indices, size=total_count_in_new_dataset, replace=True))
 
   new_indices = np.concatenate(new_indices)
   new_aptos_dataset = {}
-  arr_len = aptos_dataset['y_true']
   for key, value in aptos_dataset.items():
-      try:
-        new_aptos_dataset[key] = value[new_indices]
-      except:
-        new_aptos_dataset[key] = value
+    try:
+      new_aptos_dataset[key] = value[new_indices]
+    except IndexError:
+      new_aptos_dataset[key] = value
 
   return new_aptos_dataset
 
 
-def compute_rebalanced_retention_curves(results: dict):
-  """Compute rebalanced retention curves, which are used for joint (ID + OOD)
+def compute_rebalanced_retention_curves(results: Dict[str, Any]):
+  """Compute rebalanced retention curves.
+
+  Compute rebalanced retention curves, which are used for joint (ID + OOD)
   tuning. This is done by repeating the OOD indices many times, and then
   bringing the number of OOD indices to the number of ID indices by sampling
   from the OOD indices without replacement.
 
   Args:
-    results: Dict, results for a particular dataset (must be joint to have
-      the `is_ood` key, for a binary `np.ndarray`.
+    results: Dict, results for a particular dataset (must be joint to have the
+      `is_ood` key, for a binary `np.ndarray`.
+
   Returns:
     Dict, contains rebalanced retention curves.
   """
@@ -740,12 +843,12 @@ def compute_rebalanced_retention_curves(results: dict):
   remaining_n_ood_indices = n_in_domain - (n_ood_repeats * n_ood)
 
   remaining_ood_indices = np.random.choice(
-    ood_indices, size=remaining_n_ood_indices, replace=False)
+      ood_indices, size=remaining_n_ood_indices, replace=False)
 
   # Construct a list of all of the indices to retrieve
-  all_indices = (in_domain_indices.tolist() +
-                 (n_ood_repeats * ood_indices.tolist()) +
-                 remaining_ood_indices.tolist())
+  all_indices = (
+      in_domain_indices.tolist() + (n_ood_repeats * ood_indices.tolist()) +
+      remaining_ood_indices.tolist())
 
   # Construct predictive entropy, accuracy, NLL arrays with these indices
   rebalanced_y_pred_entropy = y_pred_entropy[all_indices]
@@ -753,53 +856,55 @@ def compute_rebalanced_retention_curves(results: dict):
   rebalanced_nll = results['nll_arr'][all_indices]
 
   rebalanced_accuracy_retention_curve = compute_retention_curve_on_accuracies(
-    accuracies=rebalanced_accuracy, uncertainty=rebalanced_y_pred_entropy)
+      accuracies=rebalanced_accuracy, uncertainty=rebalanced_y_pred_entropy)
   rebalanced_nll_retention_curve = compute_retention_curve_on_losses(
-    losses=rebalanced_nll, uncertainty=rebalanced_y_pred_entropy)
+      losses=rebalanced_nll, uncertainty=rebalanced_y_pred_entropy)
 
   y_pred = results['y_pred']
   y_true = results['y_true']
   rebalanced_auroc_retention_curve = compute_auc_retention_curve(
-    y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
   rebalanced_auprc_retention_curve = compute_auc_retention_curve(
-    y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
 
   return {
-    'accuracy': rebalanced_accuracy_retention_curve,
-    'nll': rebalanced_nll_retention_curve,
-    'auroc': rebalanced_auroc_retention_curve,
-    'auprc': rebalanced_auprc_retention_curve
+      'accuracy': rebalanced_accuracy_retention_curve,
+      'nll': rebalanced_nll_retention_curve,
+      'auroc': rebalanced_auroc_retention_curve,
+      'auprc': rebalanced_auprc_retention_curve
   }
 
 
-def compute_rebalanced_retention_scores(results: dict):
-  """Computes rebalanced retention curves, and then simply computes the
-  mean to get an area under the curve.
+def compute_rebalanced_retention_scores(results: Dict[str, Any]):
+  """Computes rebalanced retention curves, then the mean to get an AUC.
 
   Args:
-    results: Dict, results for a particular dataset (must be joint to have
-      the `is_ood` key, for a binary `np.ndarray`.
+    results: Dict, results for a particular dataset (must be joint to have the
+      `is_ood` key, for a binary `np.ndarray`.
+
   Returns:
     Dict, contains the AUCs of the retention curves built on various
       base metrics.
   """
   rebalanced_curves = compute_rebalanced_retention_curves(results)
   return {
-    'accuracy': np.mean(rebalanced_curves['accuracy']),
-    'nll': np.mean(rebalanced_curves['nll']),
-    'auroc': np.mean(rebalanced_curves['auroc']),
-    'auprc': np.mean(rebalanced_curves['auprc'])
+      'accuracy': np.mean(rebalanced_curves['accuracy']),
+      'nll': np.mean(rebalanced_curves['nll']),
+      'auroc': np.mean(rebalanced_curves['auroc']),
+      'auprc': np.mean(rebalanced_curves['auprc'])
   }
 
 
 def precompute_metric_arrs(results, compute_open_set_recognition=False):
-  """Compute retention arrays and ROC/PR curves, for caching to do
-  downstream plots and scalar metrics quickly.
+  """Compute retention arrays and ROC/PR curves.
+
+  Used for caching to do downstream plots and scalar metrics quickly.
 
   Args:
     results: dict, results for a particular dataset split.
     compute_open_set_recognition: bool, if True, compute OOD detection PR and
       AUROC metrics.
+
   Returns:
       Dict, contains retention arrays and ROC/PR curves.
   """
@@ -808,26 +913,26 @@ def precompute_metric_arrs(results, compute_open_set_recognition=False):
   y_pred_entropy = results['y_pred_entropy']
 
   # Compute ROC curve
-  try:
-    results['fpr_arr'], results['tpr_arr'], _ = roc_curve(
+  # try:
+  results['fpr_arr'], results['tpr_arr'], _ = roc_curve(
       y_true=y_true, y_score=y_pred)
-  except:
-    pass
+  # except:
+  #   pass
 
   # Compute PR curve
-  try:
-    results['precision_arr'], results['recall_arr'], _ = precision_recall_curve(
+  # try:
+  results['precision_arr'], results['recall_arr'], _ = precision_recall_curve(
       y_true=y_true, probas_pred=y_pred)
-  except:
-    pass
+  # except:
+  #   pass
 
   if compute_open_set_recognition:
     is_ood = results['is_ood']
     results['ood_detection_fpr_arr'], results['ood_detection_tpr_arr'], _ = (
-      roc_curve(y_true=is_ood, y_score=y_pred_entropy))
+        roc_curve(y_true=is_ood, y_score=y_pred_entropy))
     (results['ood_detection_precision_arr'],
      results['ood_detection_recall_arr'], _) = (
-      precision_recall_curve(y_true=is_ood, probas_pred=y_pred_entropy))
+         precision_recall_curve(y_true=is_ood, probas_pred=y_pred_entropy))
 
     # For the joint datasets, we also compute a rebalanced retention metric,
     # in which we duplicate the OOD dataset to match the size of the in-domain
@@ -854,36 +959,40 @@ def precompute_metric_arrs(results, compute_open_set_recognition=False):
 
 
 def compute_dataset_eval_metrics_with_precomputed_arrs(
-    dataset_key, results, ece_num_bins=15,
-    compute_open_set_recognition=False, compute_retention_auc=False
-):
+    dataset_key,
+    results,
+    ece_num_bins=15,
+    compute_open_set_recognition=False,
+    compute_retention_auc=False):
   """Compute scalar metrics using cached retention and ROC/PR curves for
+
   efficiency.
 
   Args:
     dataset_key: str, name of dataset (prepends each metric in returned Dict).
-    results: Dict, results for a particular dataset split including
-      precomputed arrays.
+    results: Dict, results for a particular dataset split including precomputed
+      arrays.
     ece_num_bins: int, number of bins used in computing expected calibration
       error.
     compute_open_set_recognition: bool, if True, compute OOD detection PR and
       AUROC metrics.
     compute_retention_auc: bool, if True, compute retention AUC metrics by
       taking the mean of the retention arrays.
+
   Returns:
       Dict, scalar metrics.
   """
-  y_pred, y_true, y_pred_entropy = (
-    results['y_pred'], results['y_true'], results['y_pred_entropy'])
+  y_pred = results['y_pred']
+  y_true = results['y_true']
 
   eval_metrics = dict()
 
   # Standard predictive metrics
   eval_metrics[f'{dataset_key}/negative_log_likelihood'] = log_loss(
-    y_pred=y_pred, y_true=y_true, labels=np.asarray([0, 1]))
+      y_pred=y_pred, y_true=y_true, labels=np.asarray([0, 1]))
   if 'fpr_arr' in results.keys() and 'tpr_arr' in results.keys():
-    eval_metrics[f'{dataset_key}/auroc'] = auc(
-      results['fpr_arr'], results['tpr_arr'])
+    eval_metrics[f'{dataset_key}/auroc'] = auc(results['fpr_arr'],
+                                               results['tpr_arr'])
   else:
     eval_metrics[f'{dataset_key}/auroc'] = None
 
@@ -893,7 +1002,7 @@ def compute_dataset_eval_metrics_with_precomputed_arrs(
     eval_metrics[f'{dataset_key}/auprc'] = auc(recall, precision)
 
   eval_metrics[f'{dataset_key}/accuracy'] = (
-    accuracy_score(y_true=y_true, y_pred=(y_pred > 0.5)))
+      accuracy_score(y_true=y_true, y_pred=(y_pred > 0.5)))
 
   # Uncertainty metrics
   ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
@@ -902,19 +1011,19 @@ def compute_dataset_eval_metrics_with_precomputed_arrs(
 
   if compute_open_set_recognition:
     eval_metrics[f'{dataset_key}/ood_detection_auroc'] = auc(
-      results['ood_detection_fpr_arr'], results['ood_detection_tpr_arr'])
+        results['ood_detection_fpr_arr'], results['ood_detection_tpr_arr'])
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = auc(
-      results['ood_detection_recall_arr'],
-      results['ood_detection_precision_arr'])
+        results['ood_detection_recall_arr'],
+        results['ood_detection_precision_arr'])
 
     eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = np.mean(
-      results['balanced_retention_accuracy_arr'])
+        results['balanced_retention_accuracy_arr'])
     eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = np.mean(
-      results['balanced_retention_nll_arr'])
+        results['balanced_retention_nll_arr'])
     eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = np.mean(
-      results['balanced_retention_auroc_arr'])
+        results['balanced_retention_auroc_arr'])
     eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = np.mean(
-      results['balanced_retention_auprc_arr'])
+        results['balanced_retention_auprc_arr'])
   else:
     # This is added for convenience when logging (so the entry exists
     # in tabular format)
@@ -930,20 +1039,23 @@ def compute_dataset_eval_metrics_with_precomputed_arrs(
     assert 'nll_arr' in results
 
     eval_metrics[f'{dataset_key}/retention_accuracy_auc'] = np.mean(
-      results['retention_accuracy_arr'])
+        results['retention_accuracy_arr'])
     eval_metrics[f'{dataset_key}/retention_nll_auc'] = np.mean(
-      results['retention_nll_arr'])
+        results['retention_nll_arr'])
     eval_metrics[f'{dataset_key}/retention_auroc_auc'] = np.mean(
-      results['retention_auroc_arr'])
+        results['retention_auroc_arr'])
     eval_metrics[f'{dataset_key}/retention_auprc_auc'] = np.mean(
-      results['retention_auprc_arr'])
+        results['retention_auprc_arr'])
 
   return eval_metrics
 
 
 def compute_dataset_eval_metrics(
-    dataset_key, results, ece_num_bins=15,
-    compute_open_set_recognition=False, compute_retention_auc=False,
+    dataset_key,
+    results,
+    ece_num_bins=15,
+    compute_open_set_recognition=False,
+    compute_retention_auc=False,
 ):
   """Compute scalar metrics.
 
@@ -956,27 +1068,28 @@ def compute_dataset_eval_metrics(
       AUROC metrics.
     compute_retention_auc: bool, if True, compute retention AUC metrics by
       taking the mean of the retention arrays.
+
   Returns:
       Dict, scalar metrics.
   """
-  y_pred, y_true, y_pred_entropy = (
-    results['y_pred'], results['y_true'], results['y_pred_entropy'])
+  y_pred, y_true, y_pred_entropy = (results['y_pred'], results['y_true'],
+                                    results['y_pred_entropy'])
 
   eval_metrics = dict()
 
   # Standard predictive metrics
   eval_metrics[f'{dataset_key}/negative_log_likelihood'] = log_loss(
-    y_pred=y_pred, y_true=y_true, labels=np.asarray([0, 1]))
+      y_pred=y_pred, y_true=y_true, labels=np.asarray([0, 1]))
   try:
     eval_metrics[f'{dataset_key}/auroc'] = roc_auc_score(
-      y_true=y_true, y_score=y_pred, labels=np.asarray([0, 1]))
+        y_true=y_true, y_score=y_pred, labels=np.asarray([0, 1]))
   except ValueError:
     eval_metrics[f'{dataset_key}/auroc'] = None
   precision, recall, _ = precision_recall_curve(
-    y_true=y_true, probas_pred=y_pred)
+      y_true=y_true, probas_pred=y_pred)
   eval_metrics[f'{dataset_key}/auprc'] = auc(recall, precision)
   eval_metrics[f'{dataset_key}/accuracy'] = (
-    accuracy_score(y_true=y_true, y_pred=(y_pred > 0.5)))
+      accuracy_score(y_true=y_true, y_pred=(y_pred > 0.5)))
 
   # Uncertainty metrics
   ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
@@ -986,9 +1099,9 @@ def compute_dataset_eval_metrics(
   if compute_open_set_recognition:
     is_ood = results['is_ood']
     eval_metrics[f'{dataset_key}/ood_detection_auroc'] = roc_auc_score(
-      y_true=is_ood, y_score=y_pred_entropy)
+        y_true=is_ood, y_score=y_pred_entropy)
     precision, recall, _ = precision_recall_curve(
-      y_true=is_ood, probas_pred=y_pred_entropy)
+        y_true=is_ood, probas_pred=y_pred_entropy)
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = auc(recall, precision)
 
     # For the joint datasets, we also compute a rebalanced retention metric,
@@ -996,13 +1109,13 @@ def compute_dataset_eval_metrics(
     # dataset, and then compute the retention metrics.
     rebal_ret_scores = compute_rebalanced_retention_scores(results)
     eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = (
-      rebal_ret_scores['accuracy'])
+        rebal_ret_scores['accuracy'])
     eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = (
-      rebal_ret_scores['nll'])
+        rebal_ret_scores['nll'])
     eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = (
-      rebal_ret_scores['auroc'])
+        rebal_ret_scores['auroc'])
     eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = (
-      rebal_ret_scores['auprc'])
+        rebal_ret_scores['auprc'])
   else:
     # This is added for convenience when logging (so the entry exists
     # in tabular format)
@@ -1017,19 +1130,23 @@ def compute_dataset_eval_metrics(
     assert 'accuracy_arr' in results
     assert 'nll_arr' in results
     eval_metrics[f'{dataset_key}/retention_accuracy_auc'] = np.mean(
-      compute_retention_curve_on_accuracies(
-        accuracies=results['accuracy_arr'], uncertainty=y_pred_entropy))
+        compute_retention_curve_on_accuracies(
+            accuracies=results['accuracy_arr'], uncertainty=y_pred_entropy))
     eval_metrics[f'{dataset_key}/retention_nll_auc'] = np.mean(
-      compute_retention_curve_on_losses(
-        losses=results['nll_arr'], uncertainty=y_pred_entropy))
+        compute_retention_curve_on_losses(
+            losses=results['nll_arr'], uncertainty=y_pred_entropy))
     eval_metrics[f'{dataset_key}/retention_auroc_auc'] = np.mean(
-      compute_auc_retention_curve(
-        y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
-    )
+        compute_auc_retention_curve(
+            y_pred=y_pred,
+            y_true=y_true,
+            uncertainty=y_pred_entropy,
+            auc_str='roc'))
     eval_metrics[f'{dataset_key}/retention_auprc_auc'] = np.mean(
-      compute_auc_retention_curve(
-        y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
-    )
+        compute_auc_retention_curve(
+            y_pred=y_pred,
+            y_true=y_true,
+            uncertainty=y_pred_entropy,
+            auc_str='prc'))
 
   return eval_metrics
 
@@ -1041,6 +1158,7 @@ def compute_roc_curve(y_uncertainty: np.ndarray, is_ood: np.ndarray):
     y_uncertainty: np.ndarray, uncertainty scores for each example.
     is_ood: np.ndarray, Boolean array indicating if an example is from the OOD
       dataset (True) or in-domain (False).
+
   Returns:
       Tuple[np.ndarray, np.ndarray, np.float]:
         FPR curve, TPR curve, and ROC-AUC value.
@@ -1075,15 +1193,19 @@ def compute_retention_curve_on_losses(losses, uncertainty):
   return error_rates
 
 
-def compute_retention_curve_on_accuracies(accuracies, uncertainty,
-                                          use_oracle=False):
+def compute_retention_curve_on_accuracies(
+    accuracies,
+    uncertainty,
+    use_oracle=False
+):
   """Computes a retention curve on an accuracy (where higher accuracy is better)
+
   and corresponding per-example uncertainty values.
 
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
 
-    Args:
+  Args:
     accuracies: np.ndarray, accuracies from a particular dataset.
     uncertainty: np.ndarray, per-example uncertainties for the same dataset,
       should follow the order of the accuracies.
@@ -1116,23 +1238,26 @@ def compute_retention_curve_on_accuracies(accuracies, uncertainty,
   return acc_rates
 
 
-def compute_auc_retention_curve(
-    y_pred, y_true, uncertainty, auc_str, n_buckets=100, use_oracle=False
-):
+def compute_auc_retention_curve(y_pred,
+                                y_true,
+                                uncertainty,
+                                auc_str,
+                                n_buckets=100,
+                                use_oracle=False):
   """Computes a retention curve for AUC or AUPRC using predictions, ground
   truths, and corresponding per-example uncertainty values.
 
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
 
-    Args:
+  Args:
     y_pred: np.ndarray, predicted sigmoid probabilities.
     y_true: np.ndarray, ground truth values.
     uncertainty: np.ndarray, per-example uncertainties for the same dataset,
       should follow the order of the accuracies.
     auc_str: str, determines if we evaluate the retention AUC or AUPRC.
-    n_buckets: int, number of retention thresholds to evaluate (AUC can
-      be costly to evaluate for thousands of possible thresholds).
+    n_buckets: int, number of retention thresholds to evaluate (AUC can be
+      costly to evaluate for thousands of possible thresholds.
     use_oracle, Bool (default: False), if True, evaluate the combined predictive
       performance of the model and an oracle that is correct on all referred
       datapoints.
@@ -1140,12 +1265,12 @@ def compute_auc_retention_curve(
   Returns:
     np.ndarray, AUC or AUPRC retention curve at specified number of thresholds.
   """
+
   def compute_auroc(true, pred):
     return roc_auc_score(y_true=true, y_score=pred)
 
   def compute_auprc(true, pred):
-    precision, recall, _ = precision_recall_curve(
-      y_true=true, probas_pred=pred)
+    precision, recall, _ = precision_recall_curve(y_true=true, probas_pred=pred)
     return auc(recall, precision)
 
   if auc_str == 'roc':
@@ -1221,11 +1346,14 @@ def compute_auc_retention_curve(
 
 
 def compute_ood_calibration_curve(y_pred: np.ndarray):
-  """Form a curve by sweeping over confidences in [0, 1], and counting
+  """OOO calibration curve.
+
+  Form a curve by sweeping over confidences in [0, 1], and counting
   the number of predictions with confidence over the threshold.
   On an OOD dataset, we should expect low confidence.
   Args:
     y_pred: np.ndarray, predictions on the OOD dataset
+
   Returns:
     Tuple[np.ndarray, np.ndarray]
       First np.ndarray:
@@ -1234,43 +1362,5 @@ def compute_ood_calibration_curve(y_pred: np.ndarray):
         number of predictions with confidence greater than or equal to
         the confidence at a given threshold
   """
-  # TODO: @nband Debug OOD calibration curve metric.
+  # TODO(nband): Debug OOD calibration curve metric.
   raise NotImplementedError('Implementation in progress.')
-
-  assert y_pred.ndim == 1
-  assert (np.max(y_pred) <= 1 and np.min(y_pred) >= 0), (
-    'Expected input are probabilities.')
-
-  # We want the probabiliity of the predicted class, so for all predictions
-  # under 0.5 y^*, we transform as y^* = 1 - y^*
-  sorted_y_pred = np.sort(y_pred)
-  min_pred_above_halfway = None
-  for i, pred in enumerate(sorted_y_pred):
-    if pred >= 0.5:
-      min_pred_above_halfway = i
-      break
-
-  sorted_y_pred[:min_pred_above_halfway] = (
-      1 - sorted_y_pred[:min_pred_above_halfway])
-
-  # Sort again
-  sorted_y_pred = np.sort(sorted_y_pred)
-  num_preds = len(sorted_y_pred)
-  # num_buckets = min(num_buckets, num_preds)
-
-  # Keep track of the number of predictions with
-  # greater than or equal confidence
-
-  num_preds_with_geq_confidence = []
-  pointer = 0
-
-  for pred_confidence in sorted_y_pred:
-    while pointer < num_preds and sorted_y_pred[pointer] < pred_confidence:
-      pointer += 1
-
-    num_preds_with_geq_confidence.append(num_preds - pointer)
-
-  sorted_y_pred = sorted_y_pred.tolist()
-  sorted_y_pred.append(1)
-  num_preds_with_geq_confidence.append(0)
-  return np.array(sorted_y_pred), np.array(num_preds_with_geq_confidence)

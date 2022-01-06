@@ -204,7 +204,7 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
         builder=self,
         description=_DESCRIPTION,
         features=tfds.features.FeaturesDict(features),
-        homepage='https://github.com/ncats/herg-ml/tree/master/data/train_valid',
+        homepage='https://www.tensorflow.org/datasets/catalog/cardiotox',
         citation=_CITATION,
         # Note that while metadata seems to be the most appropriate way to store
         # arbitrary info, it will not be printed when printing out the dataset

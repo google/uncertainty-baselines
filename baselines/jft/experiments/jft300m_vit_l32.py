@@ -64,7 +64,7 @@ def get_config():
   config.model.transformer.num_heads = 16
   config.model.transformer.num_layers = 24
   config.model.classifier = 'token'  # Or 'gap'
-  config.model.representation_size = None
+  config.model.representation_size = 1024
 
   # Optimizer section
   config.optim_name = 'Adam'

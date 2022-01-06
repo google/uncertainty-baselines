@@ -26,6 +26,7 @@ from ml_collections import config_dict
 
 def get_config(launch_on_gcp):
   """Returns the configuration for this experiment."""
+  del launch_on_gcp
   config = config_dict.ConfigDict()
   config.user = getpass.getuser()
   config.priority = 'prod'

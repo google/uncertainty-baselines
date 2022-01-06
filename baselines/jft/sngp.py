@@ -18,7 +18,6 @@
 from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
 import multiprocessing
-import numbers
 import os
 
 from absl import app
@@ -174,7 +173,7 @@ def main(config, output_dir):
       dataset=config.dataset,
       split=config.train_split,
       rng=train_ds_rng,
-      host_batch_size=local_batch_size,
+      process_batch_size=local_batch_size,
       preprocess_fn=preprocess_spec.parse(
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
@@ -193,7 +192,7 @@ def main(config, output_dir):
     nval_img = input_utils.get_num_examples(
         dataset,
         split=split,
-        host_batch_size=local_batch_size_eval,
+        process_batch_size=local_batch_size_eval,
         drop_remainder=False,
         data_dir=data_dir)
     val_steps = int(np.ceil(nval_img / batch_size_eval))
@@ -208,7 +207,7 @@ def main(config, output_dir):
         dataset=dataset,
         split=split,
         rng=None,
-        host_batch_size=local_batch_size_eval,
+        process_batch_size=local_batch_size_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
         repeat_after_batching=True,
@@ -281,7 +280,7 @@ def main(config, output_dir):
   ntrain_img = input_utils.get_num_examples(
       config.dataset,
       split=config.train_split,
-      host_batch_size=local_batch_size,
+      process_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
   steps_per_epoch = int(ntrain_img / batch_size)
 
@@ -427,6 +426,11 @@ def main(config, output_dir):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
+  weight_decay_rules = config.get('weight_decay', []) or []
+  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  weight_decay_fn = train_utils.get_weight_decay_fn(
+      weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
+
   @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, states, lr, reset_covmat, images, labels, rng):
     """Update step."""
@@ -490,17 +494,7 @@ def main(config, output_dir):
       g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
       g = jax.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
-
-    decay_rules = config.get('weight_decay', []) or []
-    if isinstance(decay_rules, numbers.Number):
-      decay_rules = [('.*kernel.*', decay_rules)]
-    sched_m = lr/config.lr.base if config.get('weight_decay_decouple') else lr
-    def decay_fn(v, wd):
-      return (1.0 - sched_m * wd) * v
-
-    opt = opt.replace(
-        target=train_utils.tree_map_with_regex(decay_fn, opt.target,
-                                               decay_rules))
+    opt = opt.replace(target=weight_decay_fn(opt.target, lr))
 
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
@@ -622,7 +616,7 @@ def main(config, output_dir):
 
     # Checkpoint saving
     if train_utils.itstime(
-        step, config.get('checkpoint_steps'), total_steps, host=0):
+        step, config.get('checkpoint_steps'), total_steps, process=0):
       write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
@@ -659,7 +653,7 @@ def main(config, output_dir):
 
     # Report training progress
     if train_utils.itstime(
-        step, config.log_training_steps, total_steps, host=0):
+        step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)

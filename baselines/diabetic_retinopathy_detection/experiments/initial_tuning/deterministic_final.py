@@ -16,7 +16,7 @@
 r"""Deterministic baseline for Diabetic Retinopathy Detection.
 
 10 seeds of best hyperparameters from
-baselines/diabetic_retinopathy_detection/experiments/deterministic_tune_final.py.
+baselines/diabetic_retinopathy_detection/initial_tuning/experiments/deterministic_tune_final.py.
 
 """
 

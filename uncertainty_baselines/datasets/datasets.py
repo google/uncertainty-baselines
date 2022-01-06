@@ -92,8 +92,10 @@ DATASETS = {
     'clinic_intent': ClincIntentDetectionDataset,
     'criteo': CriteoDataset,
     'ub_diabetic_retinopathy_detection': UBDiabeticRetinopathyDetectionDataset,
-    'diabetic_retinopathy_severity_shift_mild': DiabeticRetinopathySeverityShiftMildDataset,
-    'diabetic_retinopathy_severity_shift_moderate': DiabeticRetinopathySeverityShiftModerateDataset,
+    'diabetic_retinopathy_severity_shift_mild':
+        (DiabeticRetinopathySeverityShiftMildDataset),
+    'diabetic_retinopathy_severity_shift_moderate':
+        (DiabeticRetinopathySeverityShiftModerateDataset),
     'imagenet': ImageNetDataset,
     'mnist': MnistDataset,
     'mnli': MnliDataset,

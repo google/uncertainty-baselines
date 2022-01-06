@@ -111,6 +111,8 @@ def load_checkpoint(tree, path):
   return tree
 
 
+
+
 def _traverse_with_names(tree):
   """Traverses nested dicts/dataclasses and emits (leaf_name, leaf_val)."""
   if dataclasses.is_dataclass(tree):
@@ -466,7 +468,7 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
         model_classifier=config.model.classifier,
         reinit_params=reinit_params)
     optimizer = init_optimizer.replace(target=loaded)
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info("Restored parameter overview:")
       parameter_overview.log_parameter_overview(loaded)
 

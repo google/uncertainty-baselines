@@ -31,13 +31,12 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
       builder_config: str = 'ub_diabetic_retinopathy_detection/btgraham-300',
       shuffle_buffer_size: Optional[int] = None,
       num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
       download_data: bool = False,
       drop_remainder: bool = True,
+      data_dir: Optional[str] = None,
       is_training: Optional[bool] = None,
       decision_threshold: Optional[str] = 'moderate',
-      cache: bool = False
-  ):
+      cache: bool = False):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
     Args:
@@ -51,6 +50,7 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
       download_data: Whether or not to download data before loading.
+      drop_remainder: Whether or not to drop the remaining partial batch.
       data_dir: optional dir to save TFDS data to. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
       is_training: Whether or not the given `split` is the training split. Only
@@ -60,6 +60,8 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
         to create the binary classification task.
         'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?
         'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?
+      cache: Whether or not to cache the dataset in memory. Can lead to OOM
+        errors in host memory.
     """
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
@@ -85,10 +87,17 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
-      """
+      """Preprocess function.
+
       Preprocess images to range [0, 1],
       binarize task based on provided decision threshold,
       produce example `Dict`.
+
+      Args:
+        example: Dict containing 'image' and 'label'.
+
+      Returns:
+        Dict with preprocessed image in 'features' and 'labels' and 'name' keys.
       """
       image = example['image']
       image = tf.image.convert_image_dtype(image, tf.float32)

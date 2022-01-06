@@ -24,7 +24,7 @@ File consists of:
 import copy
 import json
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 import tensorflow as tf
@@ -183,6 +183,103 @@ def add_features(dialogs: List[Dialog], vocab_mapping: Dict[str, int],
       dialogs_copy[index_i][index_j][0] = utterance
 
   return dialogs_copy
+
+
+def _reduce_to_dialog_turn(dialogs: tf.Tensor, reduce_fn: Any) -> tf.Tensor:
+  """Reduce the dialogs tensor to dialog turns level by `reduce_fn`.
+
+  Args:
+    dialogs: tensor of shape [batch_size, dialog_length, 2, seq_length].
+    reduce_fn: tf reduction operation taking argument `axis`.
+
+  Returns:
+    tensor of shape [batch_size, dialog_length]
+  """
+  return reduce_fn(dialogs, axis=[2, 3])
+
+
+def _get_utterance_mask(inputs: tf.Tensor) -> tf.Tensor:
+  """Creates the mask indicating whether the dialog turn is padded."""
+  return tf.cast(
+      _reduce_to_dialog_turn(tf.greater(inputs, 0), tf.reduce_any),
+      dtype=tf.int32)
+
+
+def _get_last_utterance_mask(utterance_mask: tf.Tensor) -> tf.Tensor:
+  """Creates the mask indicating whether the dialog turn is the last turn."""
+  utterance_mask_extra_padding = tf.concat([
+      utterance_mask[:, 1:],
+      tf.zeros_like(utterance_mask[:, :1], dtype=utterance_mask.dtype)
+  ],
+                                           axis=1)
+  return utterance_mask - utterance_mask_extra_padding
+
+
+def create_utterance_mask_feature(dialogs: tf.Tensor,
+                                  pad_utterance_mask_value: int,
+                                  utterance_mask_value: int,
+                                  last_utterance_mask_value: int) -> tf.Tensor:
+  """Creates features from actual dialog turn length."""
+  utterance_mask = _get_utterance_mask(dialogs)
+  last_utterance_mask = _get_last_utterance_mask(utterance_mask)
+  non_last_utterance_mask = utterance_mask - last_utterance_mask
+  pad_utterance_mask = 1 - utterance_mask
+  mask_feature = (
+      last_utterance_mask * last_utterance_mask_value +
+      non_last_utterance_mask * utterance_mask_value +
+      pad_utterance_mask * pad_utterance_mask_value)
+  return mask_feature
+
+
+def create_keyword_feature(dialogs: tf.Tensor, keyword_ids: Sequence[int],
+                           include_keyword_value: int,
+                           exclude_keyword_value: int) -> tf.Tensor:
+  """Creates binary features for whether a dialog turn contains any word of interest."""
+  has_keyword = 0
+  for keyword_id in keyword_ids:
+    has_keyword += tf.cast(
+        _reduce_to_dialog_turn(tf.equal(dialogs, keyword_id), tf.reduce_any),
+        dtype=tf.int32)
+  include_keyword_mask = tf.sign(has_keyword)
+  keyword_feature = include_keyword_mask * include_keyword_value + (
+      1 - include_keyword_mask) * exclude_keyword_value
+  return keyword_feature
+
+
+def create_features(dialogs: tf.Tensor,
+                    keyword_ids_per_class: Sequence[Sequence[int]],
+                    include_keyword_value: int, exclude_keyword_value: int,
+                    pad_utterance_mask_value: int, utterance_mask_value: int,
+                    last_utterance_mask_value: int) -> tf.Tensor:
+  """Creates the features needed by the PSL constraint model.
+
+  Args:
+    dialogs: tensor of shape [batch_size, dialog_length, 2, seq_length].
+    keyword_ids_per_class: the key word ids for each class.
+    include_keyword_value: mark if a dialog turn contains a keyword.
+    exclude_keyword_value: mark if a dialog turn doesn't contain a keyword.
+    pad_utterance_mask_value: mark if a dialog turn is a padded turn.
+    utterance_mask_value: mark if a dialog turn is a not a padded turn.
+    last_utterance_mask_value: mark if a dialog turn is the last non-padded
+      turn.
+
+  Returns:
+    Feature tensor for PSL constraint model.
+  """
+  # Create mask features
+  features = [
+      create_utterance_mask_feature(dialogs, pad_utterance_mask_value,
+                                    utterance_mask_value,
+                                    last_utterance_mask_value)
+  ]
+
+  # Keyword features
+  for keyword_ids in keyword_ids_per_class:
+    features.append(
+        create_keyword_feature(dialogs, keyword_ids, include_keyword_value,
+                               exclude_keyword_value))
+
+  return tf.stack(features, axis=-1)
 
 
 def pad_utterance(utterance: Utterance,

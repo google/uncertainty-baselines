@@ -16,7 +16,7 @@
 r"""Dropout baseline for Diabetic Retinopathy Detection.
 
 10 seed runs using best hyperparameters from
-baselines/diabetic_retinopathy_detection/experiments/dropout_tune_final.py.
+baselines/diabetic_retinopathy_detection/initial_tuning/experiments/dropout_tune_final.py.
 
 """
 

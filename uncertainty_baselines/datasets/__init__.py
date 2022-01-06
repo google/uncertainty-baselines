@@ -15,6 +15,8 @@
 
 """Uncertainty baseline training datasets."""
 
+from absl import logging
+
 from uncertainty_baselines.datasets.diabetic_retinopathy_detection import UBDiabeticRetinopathyDetectionDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_mild import DiabeticRetinopathySeverityShiftMildDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_moderate import DiabeticRetinopathySeverityShiftModerateDataset

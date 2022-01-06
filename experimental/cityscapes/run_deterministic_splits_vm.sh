@@ -13,7 +13,7 @@ tpu='local'
 use_gpu=False
 
 
-for rng_seed in 0 1 2 3
+for rng_seed in 4 
 do
 for train_mode in "deterministic" "gp" "scratch"
 do

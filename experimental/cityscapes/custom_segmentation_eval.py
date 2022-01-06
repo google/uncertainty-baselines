@@ -96,6 +96,8 @@ def eval_step1(
     batch = jax.lax.all_gather(batch, 'batch')
     confusion_matrix = jax.lax.all_gather(confusion_matrix, 'batch')
 
+    logits = jax.lax.all_gather(logits, 'batch')
+ 
     return batch, logits, predictions, metrics, confusion_matrix
 
 
@@ -239,8 +241,10 @@ def eval1(
     steps_per_eval = config.get('steps_per_eval') or total_eval_steps
 
     batch_size = config.batch_size
-    num_eval_examples = dataset.meta_data['num_eval_examples']
+    #num_eval_examples = dataset.meta_data['num_eval_examples']
+    num_eval_examples = int(steps_per_eval * config.batch_size)
 
+    # TODO(kellbuchanan): add compatibility w gcp bucket
     store_logits_fname = os.path.join(workdir, "logits", "val.h5py")
 
     if not Path(store_logits_fname).parent.exists():
@@ -255,7 +259,7 @@ def eval1(
     logits_out = f.create_dataset('logits', (num_eval_examples,) + input_shape + (num_classes,))
     inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
     labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
-    predictions_out = f.create_dataset('predictions', (num_eval_examples,) + input_shape)
+    #predictions_out = f.create_dataset('predictions', (num_eval_examples,) + input_shape)
 
     def evaluate(train_state: train_utils.TrainState,
                  step: int) -> Dict[str, Any]:
@@ -289,7 +293,7 @@ def eval1(
                 inputs_out[start_idx:end_idx] = to_cpu(e_batch)['inputs']
                 labels_out[start_idx:end_idx] = to_cpu(e_batch)['label']
                 logits_out[start_idx:end_idx] = to_cpu(e_logits)
-                predictions_out[start_idx:end_idx] = to_cpu(e_predictions)
+                #predictions_out[start_idx:end_idx] = to_cpu(e_predictions)
 
         eval_global_metrics_summary = {}
         if lead_host and global_metrics_fn is not None:
@@ -397,12 +401,12 @@ def eval1(
           # Reset metric accumulation for next evaluation cycle.
           train_metrics, extra_training_logs = [], []
         """
-        if (step % log_eval_steps == 0) or (step == total_steps):
-            with report_progress.timed('eval'):
-                # Sync model state across replicas (in case of having model state, e.g.
-                # batch statistic when using batch norm).
-                train_state = train_utils.sync_model_state_across_replicas(train_state)
-                eval_summary = evaluate(train_state, step)
+        #if (step % log_eval_steps == 0) or (step == total_steps):
+        with report_progress.timed('eval'):
+            # Sync model state across replicas (in case of having model state, e.g.
+            # batch statistic when using batch norm).
+            train_state = train_utils.sync_model_state_across_replicas(train_state)
+            eval_summary = evaluate(train_state, step)
         """
         if ((step % checkpoint_steps == 0 and step > 0) or
             (step == total_steps)) and config.checkpoint:

@@ -40,9 +40,9 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.utils import check_array
 from sklearn.utils import check_consistent_length
 import tensorflow as tf
-import log_epoch_metrics  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
-import add_joint_dicts  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
-import load_dataframe_gfile  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+from .metric_utils import log_epoch_metrics  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
+from .results_storage_utils import add_joint_dicts  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+from .results_storage_utils import load_dataframe_gfile  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
 
 
 @tf.function

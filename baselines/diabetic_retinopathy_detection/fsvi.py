@@ -33,24 +33,26 @@ import pprint
 import sys
 import time
 from typing import Any, Dict, List, Tuple
-from absl import app
-from absl import flags
-from baselines.diabetic_retinopathy_detection import utils
-from baselines.diabetic_retinopathy_detection.fsvi_utils.initializers import Initializer
-from baselines.diabetic_retinopathy_detection.fsvi_utils.initializers import OptimizerInitializer
-from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import initialize_random_keys
-from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import to_one_hot
+
 import jax
-from jax import jit
-from jax import random
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 import optax
 import tensorflow as tf
-from tqdm import tqdm
 import tree
 import wandb
+from absl import app
+from absl import flags
+from jax import jit
+from jax import random
+from jax.lib import xla_bridge
 from tensorboard.plugins.hparams import api as hp
+from tqdm import tqdm
+
+import utils
+from fsvi_utils.initializers import Initializer
+from fsvi_utils.initializers import OptimizerInitializer
+from fsvi_utils.utils import initialize_random_keys
+from fsvi_utils.utils import to_one_hot
 
 tf.config.experimental.set_visible_devices([], "GPU")
 print("WARNING: TensorFlow is set to only use CPU.")

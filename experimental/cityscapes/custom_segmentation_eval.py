@@ -246,9 +246,11 @@ def eval1(
 
     # TODO(kellbuchanan): add compatibility w gcp bucket
     store_logits_fname = os.path.join(workdir, "logits", "val.h5py")
-
-    if not Path(store_logits_fname).parent.exists():
-        os.makedirs(str(Path(store_logits_fname).parent))
+    store_logits_fname = "logits/val.h5py"
+    #store_logits_fname = workdir + "/logits/val.h5py"
+    
+    #if not Path(store_logits_fname).parent.exists():
+    #    os.makedirs(str(Path(store_logits_fname).parent))
     #import pdb;pdb.set_trace()
     # assert not os.path.isfile(store_logits_fname)
     # with h5py.File(args.store_logits_fname, 'w', libver='latest', swmr=True) as f:
@@ -257,8 +259,8 @@ def eval1(
     input_shape = dataset.meta_data['input_shape'][1:3]
     num_classes = dataset.meta_data['num_classes']
     logits_out = f.create_dataset('logits', (num_eval_examples,) + input_shape + (num_classes,))
-    inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
-    labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
+    #inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
+    #labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
     #predictions_out = f.create_dataset('predictions', (num_eval_examples,) + input_shape)
 
     def evaluate(train_state: train_utils.TrainState,
@@ -290,8 +292,8 @@ def eval1(
                 # store logits, wbu batch_size
                 start_idx = step_ * batch_size
                 end_idx = start_idx + batch_size
-                inputs_out[start_idx:end_idx] = to_cpu(e_batch)['inputs']
-                labels_out[start_idx:end_idx] = to_cpu(e_batch)['label']
+                #inputs_out[start_idx:end_idx] = to_cpu(e_batch)['inputs']
+                #labels_out[start_idx:end_idx] = to_cpu(e_batch)['label']
                 logits_out[start_idx:end_idx] = to_cpu(e_logits)
                 #predictions_out[start_idx:end_idx] = to_cpu(e_predictions)
 

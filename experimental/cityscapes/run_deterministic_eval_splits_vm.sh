@@ -27,8 +27,16 @@ python3 deterministic_eval.py --output_dir=${output_dir_ckpt} \
 	--num_cores=$num_cores \
 	--use_gpu=$use_gpu \
 	--config=${config_file} \
-	--config.rng_seed=${rng_seed} \
 	--tpu=$tpu
+        #--config.rng_seed=${rng_seed} \
+	#--tpu=$tpu
+
+output_dir_logit="${output_dir_ckpt}/logits"
+echo "copy logits to bucket"
+gsutil cp -r "logits/val.h5py" "${output_dir_logit}/val.h5py"
+echo "remove logits_file"
+rm "logits/val.h5py"
+
 done
 done
 done

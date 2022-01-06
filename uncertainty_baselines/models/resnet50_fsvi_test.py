@@ -18,7 +18,7 @@ import jax
 import tensorflow as tf
 
 import uncertainty_baselines as ub
-from uncertainty_baselines.models.resnet50_fsvi import zero_padding_2D
+from uncertainty_baselines.models.resnet50_fsvi import zero_padding_2d
 
 
 class ResNet50FSVITest(tf.test.TestCase):
@@ -47,7 +47,7 @@ class ResNet50FSVITest(tf.test.TestCase):
     key = jax.random.PRNGKey(42)
     x = jax.random.normal(key, shape=(2, 32, 32, 3))
     padding = 3
-    actual = zero_padding_2D(x, padding=padding)
+    actual = zero_padding_2d(x, padding=padding)
     # TODO(nbdand): make this work, currently have the following error
     # tensorflow.python.framework.errors_impl.InternalError: Cannot dlopen all
     # CUDA libraries.

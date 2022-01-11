@@ -7,8 +7,10 @@ from scenic.model_lib.base_models.model_utils import apply_weights
 
 from jax import lax
 
+# TODO(kellybuchanan): consolidate metric calculation
 
-def calculate_pavpu(
+
+def calculate_puncert_inacc(
     labels: jnp.ndarray,
     logits: jnp.ndarray,
     weights: Optional[jnp.ndarray] = None,
@@ -17,6 +19,7 @@ def calculate_pavpu(
     window_size: Optional[int] = 2) -> jnp.ndarray:
   """
   Calculate PavPu
+  TODO(kellybuchana): include weights for entropy calculation
   """
   if labels.ndim == logits.ndim:  # One-hot targets.
     targets = jnp.argmax(labels, axis=-1)
@@ -28,15 +31,139 @@ def calculate_pavpu(
   # calculate binary accuracy map
   correct = jnp.equal(preds, targets)
 
+  # batch masking
   if weights is not None:
     correct = apply_weights(correct, weights)
 
   correct = correct.astype(jnp.float32)
 
-  binary_acc_map = binarize_map(correct,window_size,accuracy_th)
+  binary_acc_map = binarize_map(correct, window_size, accuracy_th)
 
-  # calculate uncertainty map
-  entropy = jnp.sum(logits*jnp.log(logits), axis=-1).astype(jnp.float32)
+  # Calculate uncertainty map
+  probs = jnp.exp(logits)/ jnp.sum(jnp.exp(logits),-1, keepdims=True)
+  entropy = -jnp.sum(probs*jnp.log(probs), axis=-1).astype(jnp.float32)
+
+  binary_unc_map = binarize_map(entropy, window_size, uncertainty_th)
+
+  # umber of patches that are accurate and certain
+  n_ac = jnp.sum(jnp.logical_and(binary_acc_map, binary_unc_map))
+
+  # number of patches that are inaccurate and certain
+  n_ic = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 0),
+                                 jnp.equal(binary_unc_map, 1))
+                 )
+  # number of patches that are inaccurate and uncertain
+  n_iu = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 0),
+                                 jnp.equal(binary_unc_map, 0))
+                 )
+
+  # number of patches that are accurate and uncertain
+  n_au = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 1),
+                                 jnp.equal(binary_unc_map, 0))
+                 )
+
+  p_accurate_certain = n_ac / (n_ac + n_ic)
+  p_uncertain_inaccurate = n_iu / (n_ic + n_iu)
+
+  # Patch accuracy vs Patch uncertainty
+  pavpu = (n_ac + n_iu) / (n_ac + n_au + n_ic + n_iu)
+
+  return p_uncertain_inaccurate
+
+
+def calculate_pacc_cert(
+    labels: jnp.ndarray,
+    logits: jnp.ndarray,
+    weights: Optional[jnp.ndarray] = None,
+    accuracy_th: Optional[float] = 0.5,
+    uncertainty_th: Optional[float] = 0.5,
+    window_size: Optional[int] = 2) -> jnp.ndarray:
+  """
+  Calculate PavPu
+  TODO(kellybuchana): include weights for entropy calculation
+  """
+  if labels.ndim == logits.ndim:  # One-hot targets.
+    targets = jnp.argmax(labels, axis=-1)
+  else:
+    targets = labels
+
+  preds = jnp.argmax(logits, axis=-1)
+
+  # calculate binary accuracy map
+  correct = jnp.equal(preds, targets)
+
+  # batch masking
+  if weights is not None:
+    correct = apply_weights(correct, weights)
+
+  correct = correct.astype(jnp.float32)
+
+  binary_acc_map = binarize_map(correct, window_size, accuracy_th)
+
+  # Calculate uncertainty map
+  probs = jnp.exp(logits)/ jnp.sum(jnp.exp(logits),-1, keepdims=True)
+  entropy = -jnp.sum(probs*jnp.log(probs), axis=-1).astype(jnp.float32)
+
+  binary_unc_map = binarize_map(entropy, window_size, uncertainty_th)
+
+  # umber of patches that are accurate and certain
+  n_ac = jnp.sum(jnp.logical_and(binary_acc_map, binary_unc_map))
+
+  # number of patches that are inaccurate and certain
+  n_ic = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 0),
+                                 jnp.equal(binary_unc_map, 1))
+                 )
+  # number of patches that are inaccurate and uncertain
+  n_iu = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 0),
+                                 jnp.equal(binary_unc_map, 0))
+                 )
+
+  # number of patches that are accurate and uncertain
+  n_au = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 1),
+                                 jnp.equal(binary_unc_map, 0))
+                 )
+
+  p_accurate_certain = n_ac / (n_ac + n_ic)
+  # p_uncertain_inaccurate = n_iu / (n_ic + n_iu)
+
+  # Patch accuracy vs Patch uncertainty
+  pavpu = (n_ac + n_iu) / (n_ac + n_au + n_ic + n_iu)
+
+  return p_accurate_certain
+
+
+def calculate_pavpu(
+    labels: jnp.ndarray,
+    logits: jnp.ndarray,
+    weights: Optional[jnp.ndarray] = None,
+    accuracy_th: Optional[float] = 0.5,
+    uncertainty_th: Optional[float] = 0.5,
+    window_size: Optional[int] = 2) -> jnp.ndarray:
+  """
+  Calculate PavPu
+  TODO(kellybuchana): include weights for entropy calculation
+  """
+  if labels.ndim == logits.ndim:  # One-hot targets.
+    targets = jnp.argmax(labels, axis=-1)
+  else:
+    targets = labels
+
+  preds = jnp.argmax(logits, axis=-1)
+
+  # calculate binary accuracy map
+  correct = jnp.equal(preds, targets)
+
+  # batch masking
+  if weights is not None:
+    correct = apply_weights(correct, weights)
+
+  correct = correct.astype(jnp.float32)
+
+  binary_acc_map = binarize_map(correct, window_size, accuracy_th)
+
+  # Calculate uncertainty map
+  probs = jnp.exp(logits)/ jnp.sum(jnp.exp(logits),-1, keepdims=True)
+  entropy = -jnp.sum(probs*jnp.log(probs), axis=-1).astype(jnp.float32)
 
   binary_unc_map = binarize_map(entropy, window_size, uncertainty_th)
 
@@ -68,7 +195,7 @@ def calculate_pavpu(
 
 def binarize_map(
   array_map: jnp.ndarray,
-  window_size: Optional[int] = 2,
+  window_size: Optional[int] = 4,
   threshold:Optional[float] = 0.5,
   ) -> jnp.ndarray:
   """

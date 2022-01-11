@@ -24,7 +24,7 @@ from scenic.model_lib.base_models import model_utils
 PyTree = Union[Mapping[str, Mapping], Any]
 import functools
 
-from uncertainty_metrics import calculate_pavpu
+from uncertainty_metrics import calculate_pavpu, calculate_puncert_inacc, calculate_pacc_cert
 
 # Standard default metrics for the semantic segmentation models.
 _SEMANTIC_SEGMENTATION_METRICS_UNC = immutabledict({
@@ -35,6 +35,12 @@ _SEMANTIC_SEGMENTATION_METRICS_UNC = immutabledict({
 
     # The pavpu is already normalized, so we set num_pixels to 1.0:
     'pavpu': (calculate_pavpu, lambda *a, **kw: 1.0),
+
+    # The pavpu is already normalized, so we set num_pixels to 1.0:
+    'puncert_inacc': (calculate_puncert_inacc, lambda *a, **kw: 1.0),
+
+    # The pavpu is already normalized, so we set num_pixels to 1.0:
+    'pacc_cert': (calculate_pacc_cert, lambda *a, **kw: 1.0),
 
 })
 

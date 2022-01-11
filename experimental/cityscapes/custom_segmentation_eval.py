@@ -335,7 +335,7 @@ def eval1(
             step0_log['gflops'] = gflops
         writer.write_scalars(1, step0_log)
 
-    for step in range(start_step + 1, total_steps + 2):
+    for step in range(start_step + 1, start_step + 2):
         with jax.profiler.StepTraceContext('train', sfLtep_num=step):
             train_batch = next(dataset.train_iter)
 

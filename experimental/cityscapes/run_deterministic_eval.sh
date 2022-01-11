@@ -1,7 +1,13 @@
-#!/bin/sh
+#!/bin/bash
 
 # train cityscapes using segmenter with pretrained backbone
 # supports 2 options to
+
+function get_config()
+{
+  local config_file_name="experiments/splits/imagenet21k_segmenter_cityscapes_$1_$2.py"
+  echo "$config_file_name"
+}
 
 if [ "$(uname)" = "Darwin" ] ; then
   # Do something under Mac OS X platform
@@ -17,17 +23,24 @@ if [ "$(uname)" = "Darwin" ] ; then
   # --tpu=$tpu
 elif [ "$(uname)" = "Linux" ]; then
   echo "in Linux"
-  config_file='experiments/imagenet21k_segmenter_cityscapes13.py'
-  output_dir="/home/ekellbuch/ub_ekb/experimental/cityscapes/outputs13"
+  train_mode="scratch"
+  train_split=100
+  rng_seed=0
+  config_file=$(get_config $train_mode $train_split)
+  run_name="${train_mode}_split${train_split}_seed${rng_seed}"
+  #config_file='experiments/imagenet21k_segmenter_cityscapes13.py' 
+  #output_dir="/home/ekellbuch/ub_ekb/experimental/cityscapes/outputs13"
+  output_dir="gs://ub-ekb/segmenter/cityscapes/run_splits1/checkpoints/${run_name}"
   num_cores=8
   tpu='local'
   use_gpu=False
-  python3 deterministic.py --output_dir=${output_dir} \
+  python3 deterministic_eval_gcp.py --output_dir=${output_dir} \
   --num_cores=$num_cores \
   --use_gpu=$use_gpu \
   --config=${config_file} \
-  --config.batch_size=${batch_size} \
   --tpu=$tpu
+#  --config.batch_size=${batch_size} \
+
 fi
 
 #%%

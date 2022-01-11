@@ -141,7 +141,7 @@ def main(config, output_dir):
                                                       config=config,
                                                       workdir=output_dir, writer=summary_writer)
 
-  print(train_summary)
+  print(eval_summary)
   return
 
 

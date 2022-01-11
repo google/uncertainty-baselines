@@ -6,7 +6,7 @@ Minor changes to account for ub models which ouput a tuple (logits, dict)
 """
 
 import functools
-from typing import Any, Callable, Dict, Tuple, Optional, Type
+from typing import Any, Callable, Dict, Tuple, Optional, Type, Sequence
 
 import flax.linen as nn
 import jax
@@ -85,6 +85,7 @@ def eval_step1(
     }
     (logits, _) = flax_model.apply(
         variables, batch['inputs'], train=False, mutable=False, debug=debug)
+
     metrics = metrics_fn(logits, batch)
 
     confusion_matrix = get_confusion_matrix(
@@ -96,9 +97,7 @@ def eval_step1(
     batch = jax.lax.all_gather(batch, 'batch')
     confusion_matrix = jax.lax.all_gather(confusion_matrix, 'batch')
 
-    logits = jax.lax.all_gather(logits, 'batch')
- 
-    return batch, logits, predictions, metrics, confusion_matrix
+    return batch, predictions, metrics, confusion_matrix
 
 
 def eval1(
@@ -224,12 +223,11 @@ def eval1(
     #learning_rate_fn = lr_schedules.get_learning_rate_fn(config)
 
     ############### EVALUATION CODE #################
-
     eval_step_pmapped = jax.pmap(
         functools.partial(
             eval_step1,
             flax_model=model.flax_model,
-            metrics_fn=model.get_metrics_fn('validation'),
+            metrics_fn=model.get_metrics_fn_unc('validation'),
             debug=config.debug_eval),
         axis_name='batch',
         # We can donate the eval_batch's buffer.
@@ -244,25 +242,6 @@ def eval1(
     #num_eval_examples = dataset.meta_data['num_eval_examples']
     num_eval_examples = int(steps_per_eval * config.batch_size)
 
-    # TODO(kellbuchanan): add compatibility w gcp bucket
-    store_logits_fname = os.path.join(workdir, "logits", "val.h5py")
-    store_logits_fname = "logits/val.h5py"
-    #store_logits_fname = workdir + "/logits/val.h5py"
-    
-    #if not Path(store_logits_fname).parent.exists():
-    #    os.makedirs(str(Path(store_logits_fname).parent))
-    #import pdb;pdb.set_trace()
-    # assert not os.path.isfile(store_logits_fname)
-    # with h5py.File(args.store_logits_fname, 'w', libver='latest', swmr=True) as f:
-    f = h5py.File(store_logits_fname, 'w', libver='latest')
-    # f.swmr_mode = True  # single write multi-read
-    input_shape = dataset.meta_data['input_shape'][1:3]
-    num_classes = dataset.meta_data['num_classes']
-    logits_out = f.create_dataset('logits', (num_eval_examples,) + input_shape + (num_classes,))
-    #inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
-    #labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
-    #predictions_out = f.create_dataset('predictions', (num_eval_examples,) + input_shape)
-
     def evaluate(train_state: train_utils.TrainState,
                  step: int) -> Dict[str, Any]:
         eval_metrics = []
@@ -276,34 +255,32 @@ def eval1(
         for step_ in range(steps_per_eval):
             eval_batch = next(dataset.valid_iter)
             e_batch, \
-            e_logits, \
             e_predictions, \
             e_metrics, \
             confusion_matrix = eval_step_pmapped(train_state=train_state, batch=eval_batch)
 
             eval_metrics.append(train_utils.unreplicate_and_get(e_metrics))
+            eval_metrics.append(train_utils.unreplicate_and_get(e_metrics))
+
             # Evaluate global metrics on one of the hosts (lead_host), but given
             # intermediate values collected from all hosts.
             if lead_host and global_metrics_fn is not None:
                 # Collect data to be sent for computing global metrics.
                 eval_all_confusion_mats.append(to_cpu(confusion_matrix))
 
-                #import pdb;pdb.set_trace()
-                # store logits, wbu batch_size
-                start_idx = step_ * batch_size
-                end_idx = start_idx + batch_size
-                #inputs_out[start_idx:end_idx] = to_cpu(e_batch)['inputs']
-                #labels_out[start_idx:end_idx] = to_cpu(e_batch)['label']
-                logits_out[start_idx:end_idx] = to_cpu(e_logits)
-                #predictions_out[start_idx:end_idx] = to_cpu(e_predictions)
-
         eval_global_metrics_summary = {}
         if lead_host and global_metrics_fn is not None:
             eval_global_metrics_summary = global_metrics_fn(eval_all_confusion_mats,
                                                             dataset.meta_data)
-
         ############### LOG EVAL SUMMARY ###############
+        #eval_summary = train_utils.log_eval_summary(
+        eval_summary = log_eval_summary(
 
+            step=step,
+            eval_metrics=eval_metrics,
+            extra_eval_summary=eval_global_metrics_summary,
+            #    writer=writer
+        )
         """
         eval_summary = train_utils.log_eval_summary(
             step=step,
@@ -321,7 +298,7 @@ def eval1(
     
         writer.flush()
         """
-        eval_summary = 0
+        #eval_summary = 0
         del eval_metrics
         return eval_summary
 
@@ -423,8 +400,66 @@ def eval1(
         """
         chrono.resume()  # Un-pause now.
 
-    f.close()
     # Wait until computations are done before exiting.
     jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
     # Return the train and eval summary after last step for regresesion testing.
     return train_state, train_summary, eval_summary
+
+
+def log_eval_summary(step: int,
+                     eval_metrics: Sequence[Dict[str, Tuple[float, int]]],
+                     extra_eval_summary: Optional[Dict[str, Any]] = None,
+                     summary_writer: Optional[Any] = None,
+                     metrics_normalizer_fn: Optional[
+                         Callable[[Dict[str, Tuple[float, int]], str],
+                                  Dict[str, float]]] = None,
+                     prefix: str = 'valid',
+                     key_separator: str = '_') -> Dict[str, float]:
+  """Computes and logs eval metrics.
+
+  Args:
+    step: Current step.
+    eval_metrics: Sequence of dictionaries of calculated metrics.
+    extra_eval_summary: A dict containing summaries that are already ready to be
+      logged, e.g. global metrics from eval set, like precision/recall.
+    summary_writer: Summary writer object.
+    metrics_normalizer_fn: Used for normalizing metrics. The api for
+      this function is: `new_metrics_dict = metrics_normalizer_fn( metrics_dict,
+        split)`. If set to None, we use the normalize_metrics_summary which uses
+        the normalizer paired with each metric to normalize it.
+    prefix: str; Prefix added to the name of the summaries writen by this
+      function.
+    key_separator: Separator added between the prefix and key.
+
+  Returns:
+    eval summary: A dictionary of metrics.
+  """
+  eval_metrics = train_utils.stack_forest(eval_metrics)
+
+  # Compute the sum over all examples in all batches.
+  eval_metrics_summary = jax.tree_map(lambda x: x.sum(), eval_metrics)
+  # Normalize metrics by the total number of exampels.
+  metrics_normalizer_fn = (
+      metrics_normalizer_fn or train_utils.normalize_metrics_summary)
+  eval_metrics_summary = metrics_normalizer_fn(eval_metrics_summary, 'eval')
+  # If None, set to an empty dictionary.
+  extra_eval_summary = extra_eval_summary or {}
+
+  if jax.process_index() == 0:
+    message = ''
+    for key, val in eval_metrics_summary.items():
+      message += f'{key}: {val} | '
+    for key, val in extra_eval_summary.items():
+      message += f'{key}: {val} | '
+    logging.info('step: %d -- %s -- {%s}', step, prefix, message)
+
+    if summary_writer is not None:
+      for key, val in eval_metrics_summary.items():
+        summary_writer.scalar(f'{prefix}{key_separator}{key}', val, step)
+      for key, val in extra_eval_summary.items():
+        summary_writer.scalar(f'{prefix}{key_separator}{key}', val, step)
+      summary_writer.flush()
+
+  # Add extra_eval_summary to the returned eval_summary.
+  eval_metrics_summary.update(extra_eval_summary)
+  return eval_metrics_summary

@@ -10,13 +10,34 @@ import numpy as np
 import scipy
 from absl import logging
 
-from scenic.model_lib.base_models.segmentation_model import SegmentationModel
+from scenic.model_lib.base_models.segmentation_model import SegmentationModel, \
+    semantic_segmentation_metrics_function, _SEMANTIC_SEGMENTATION_METRICS, num_pixels
 from scenic.train_lib import train_utils
 from uncertainty_baselines.models.segmenter import SegVit
+from immutabledict import immutabledict
 
+
+from scenic.model_lib.base_models import base_model
+from scenic.model_lib.base_models import model_utils
 # JAX team is working on type annotation for pytree:
 # https://github.com/google/jax/issues/1555
 PyTree = Union[Mapping[str, Mapping], Any]
+import functools
+
+from uncertainty_metrics import calculate_pavpu
+
+# Standard default metrics for the semantic segmentation models.
+_SEMANTIC_SEGMENTATION_METRICS_UNC = immutabledict({
+    'accuracy': (model_utils.weighted_correctly_classified, num_pixels),
+
+    # The loss is already normalized, so we set num_pixels to 1.0:
+    'loss': (model_utils.weighted_softmax_cross_entropy, lambda *a, **kw: 1.0),
+
+    # The pavpu is already normalized, so we set num_pixels to 1.0:
+    'pavpu': (calculate_pavpu, lambda *a, **kw: 1.0),
+
+})
+
 
 
 class SegmenterSegmentationModel(SegmentationModel):
@@ -131,6 +152,23 @@ class SegmenterSegmentationModel(SegmentationModel):
           train_state = train_state.replace(  # pytype: disable=attribute-error
               model_state=model_state)
       return train_state
+
+  def get_metrics_fn_unc(self, split: Optional[str] = None) -> base_model.MetricFn:
+    """Returns a callable metric function for the model.
+
+    Edited from get_metrics_fn to support additional uncertainty metrics.
+
+    Args:
+      split: The split for which we calculate the metrics. It should be one of
+        the ['train',  'validation', 'test'].
+    Returns: A metric function with the following API: ```metrics_fn(logits,
+      batch)```
+    """
+    del split  # For all splits, we return the same metric functions.
+    return functools.partial(
+        semantic_segmentation_metrics_function,
+        target_is_onehot=self.dataset_meta_data.get('target_is_onehot', False),
+        metrics=_SEMANTIC_SEGMENTATION_METRICS_UNC)
 
 
 def _replace_dict(model: PyTree,

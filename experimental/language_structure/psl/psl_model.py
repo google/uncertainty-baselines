@@ -37,6 +37,11 @@ class PSLModel(abc.ABC):
   def compute_loss(self, data: tf.Tensor, logits: tf.Tensor) -> float:
     pass
 
+  @abc.abstractmethod
+  def compute_loss_per_rule(self, data: tf.Tensor,
+                            logits: tf.Tensor) -> List[float]:
+    pass
+
   @staticmethod
   def compute_rule_loss(body: List[tf.Tensor],
                         head: tf.Tensor,

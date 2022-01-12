@@ -312,7 +312,7 @@ def main(argv):
     dataset=train_dataset_builder,
     split=train_split,
     rng=train_ds_rng,
-    host_batch_size=local_batch_size,
+    process_batch_size=local_batch_size,
     preprocess_fn=preproc_fn,
     shuffle_buffer_size=config.shuffle_buffer_size,
     prefetch_size=config.get('prefetch_to_host', 2),
@@ -334,7 +334,7 @@ def main(argv):
     nval_img = input_utils.get_num_examples(
       dataset,
       split=split,
-      host_batch_size=local_batch_size_eval,
+      process_batch_size=local_batch_size_eval,
       drop_remainder=False,
       data_dir=fillin(data_dir))
     val_steps = int(np.ceil(nval_img / batch_size_eval))
@@ -344,7 +344,7 @@ def main(argv):
       dataset=dataset,
       split=split,
       rng=None,
-      host_batch_size=local_batch_size_eval,
+      process_batch_size=local_batch_size_eval,
       preprocess_fn=preproc_fn,
       cache=False,
       repeat_after_batching=True,
@@ -382,7 +382,7 @@ def main(argv):
   ntrain_img = input_utils.get_num_examples(
     train_dataset_builder,
     split=train_split,
-    host_batch_size=local_batch_size,
+    process_batch_size=local_batch_size,
     data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size
   if config.get('num_epochs'):

@@ -12,6 +12,8 @@ entity: uncertainty-baselines
 parameters:
   output_dir:
     value: 'gs://ub-vit-tuning/vit16-finetune-aptos-deterministic-focused-2'
+  distribution_shift:
+    value: 'aptos'
   use_wandb:
     value: True
   batch_size:

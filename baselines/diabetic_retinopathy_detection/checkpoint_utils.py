@@ -22,14 +22,29 @@ https://github.com/google-research/vision_transformer.
 import collections
 import dataclasses
 import io
+from typing import Any, Iterable, MutableMapping, Optional
 
 from absl import logging
+from clu import parameter_overview
 import flax
+import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
+import ml_collections
 import numpy as np
 import scipy
 from tensorflow.io import gfile
+
+Params = MutableMapping[str, Any]
+
+
+@dataclasses.dataclass
+class CheckpointData:
+  """Container class for data stored and loaded into checkpoints."""
+  train_loop_rngs: jnp.ndarray
+  optimizer: flax.optim.Optimizer
+  accumulated_train_time: float
+  fixed_model_states: Optional[Params] = None
 
 
 def _convert_and_recover_bfloat16(x):
@@ -96,6 +111,8 @@ def load_checkpoint(tree, path):
   return tree
 
 
+
+
 def _traverse_with_names(tree):
   """Traverses nested dicts/dataclasses and emits (leaf_name, leaf_val)."""
   if dataclasses.is_dataclass(tree):
@@ -136,7 +153,8 @@ def _tree_flatten_with_names(tree):
   return [(val_names[i], v) for i, v in zip(inv_perm, vals)], tree_def
 
 
-def save_checkpoint(tree, path, step_for_copy=None):
+def save_checkpoint(tree: Params, path: str,
+                    step_for_copy: Optional[int] = None) -> None:
   """Saves the values of JAX pytrees to disk in a NumPy `.npz` file.
 
   Args:
@@ -169,13 +187,38 @@ def save_checkpoint(tree, path, step_for_copy=None):
     gfile.copy(path, f"{path}-{step_for_copy:09d}", overwrite=True)
 
 
-def _flatten_dict(d, parent_key="", sep="/"):
+def checkpoint_trained_model(
+    checkpoint_data: CheckpointData,
+    path: str,
+    step_for_copy: Optional[int] = None) -> None:
+  """Saves all information pertaining to a trained model in .npz format.
+
+  Args:
+    checkpoint_data: CheckpointData instance.
+    path: A path to save the checkpoint.
+    step_for_copy: Optional integer that, when not None, will be used to save a
+      copy of the checkpoint with the name `path-{step_for_copy}`.
+  """
+  # TODO(zmariet, dusenberrymw): Remove intermediate `checkpoint_extra` dict.
+  tree = dict(
+      opt=checkpoint_data.optimizer,
+      extra=dict(
+          rngs_loop=checkpoint_data.train_loop_rngs,
+          accum_train_time=checkpoint_data.accumulated_train_time),
+      )
+  if checkpoint_data.fixed_model_states is not None:
+    tree["states"] = checkpoint_data.fixed_model_states
+  save_checkpoint(tree, path, step_for_copy)
+
+
+def _flatten_jax_params_dict(d: Params, parent_key: str = "",
+                             sep: str = "/") -> Params:
   """Flattens a dictionary, keeping empty leaves."""
   items = []
   for k, v in d.items():
     path = parent_key + sep + k if parent_key else k
     if isinstance(v, collections.abc.Mapping):
-      items.extend(_flatten_dict(v, path, sep=sep).items())
+      items.extend(_flatten_jax_params_dict(v, path, sep=sep).items())
     else:
       items.append((path, v))
 
@@ -186,16 +229,31 @@ def _flatten_dict(d, parent_key="", sep="/"):
   return dict(items)
 
 
+def _unflatten_jax_params_dict(flat_params: Params, sep: str = "/") -> Params:
+  """Unflattens a dictionary that maps strings to non-dictionaries.
+
+  Args:
+    flat_params: A dictionary mapping strings to non-dictionary values.
+    sep: Separator indicating key hierarchy in `flat_params`. For example,
+      unflattening {"a/b": 1} with separator "/" will yield {"a": {"b": 1}}.
+
+  Returns:
+    A dictionary mapping strings to arbitrary values (including dictionaries).
+  """
+  tuple_to_value = {tuple(k.split(sep)): v for k, v in flat_params.items()}
+  return flax.traverse_util.unflatten_dict(tuple_to_value)
+
+
 def _inspect_params(*,
                     params,
                     expected,
                     fail_if_extra=True,
                     fail_if_missing=True):
   """Inspects whether the params are consistent with the expected keys."""
-  params_flat = _flatten_dict(params)
-  expected_flat = _flatten_dict(expected)
-  missing_keys = expected_flat.keys() - params_flat.keys()
-  extra_keys = params_flat.keys() - expected_flat.keys()
+  params_flat = _flatten_jax_params_dict(params)
+  expected_flat = _flatten_jax_params_dict(expected)
+  missing_keys = set(expected_flat.keys()) - set(params_flat.keys())
+  extra_keys = set(params_flat.keys()) - set(expected_flat.keys())
 
   # Adds back empty dict explicitly, to support layers without weights.
   # Context: FLAX ignores empty dict during serialization.
@@ -318,3 +376,149 @@ def load_from_pretrained_checkpoint(init_params, pretrained_path,
       restored_params["Transformer"]["posembed_input"]["pos_embedding"] = posemb
 
   return restored_params
+
+
+def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
+                          save_checkpoint_path: str,
+                          init_optimizer: flax.optim.Optimizer,
+                          init_params: Params,
+                          init_fixed_model_states: Optional[Params],
+                          default_reinit_params: Iterable[str],
+                          config: ml_collections.ConfigDict) -> CheckpointData:
+  """Loads a model from an existing checkpoint if so indicated by the config.
+
+  Whether to resume training, initialize from a previous checkpoint, or do
+  nothing is set by the `config` ConfigDict, based on the existence of fields
+  `resume` (resume training) or `model_init` (initialize from pretrained
+  checkpoint).
+
+  When resuming training, both the model weights and optimizer
+  state (including the training step) are restored. When initializing, only
+  the model parameters are updated.
+
+  The way in which initializing is prioritized in the following way:
+  1. Always resume from an existing checkpoint, e.g. resume a finetune job.
+  2. Resume from a previous checkpoint, e.g. start a cooldown training job.
+  3. Initialize model from something, e,g, start a fine-tuning job.
+  4. Do nothing (training from scratch).
+
+  Args:
+    train_loop_rngs: unreplicated jax.PRNGKey.
+    save_checkpoint_path: File pointing to pretrained checkpoint stored in NumPy
+      `.npz` file.
+    init_optimizer: flax.Optimizer to be updated.
+    init_params: Tree of (possibly randomly) initialized parameters for the
+      model.
+    init_fixed_model_states: Optional pytree of non-trainable parameters.
+      Currently only passed when using SNGP models.
+    default_reinit_params: List of parameter names to reinitialize if not
+      provided by the config file.
+    config: ConfigDict which contains fields indicating if, and how, to load an
+      available checkpoint into the optimizer. If resuming from a previous
+      checkpoint *to start a cooldown job*, the flag `resume` must be set. If
+      initializing a (subset of) model parameters to start a file tuning job,
+      fields `model_init`, `representation_size` and `classifier` must be set.
+
+  Returns:
+    A CheckpointData instance containing a new rng key, the new optimizer state,
+    the new untrainable parameters (if resuming from a checkpoint), and a
+    dictionary of information about the reloaded state.
+  """
+  optimizer = init_optimizer
+  fixed_model_states = init_fixed_model_states
+
+  accum_train_time = 0.0
+  # TODO(dusenberrymw, zmariet): Directly return an unreplicated rng and the
+  # cumulative training time instead of storing them in `checkpoint_extra`.
+  checkpoint_extra = dict(
+      accum_train_time=accum_train_time,
+      rngs_loop=flax_utils.replicate(train_loop_rngs))
+
+  # Parse config file to figure out which setting we are in.
+  resume_from_checkpoint = (
+      (save_checkpoint_path is not None and gfile.exists(save_checkpoint_path))
+      or config.get("resume") is not None)
+  reinitialize_model = config.get(
+      "model_init") is not None and not resume_from_checkpoint
+
+  if resume_from_checkpoint:
+    logging.info("Resume training from checkpoint...")
+    # Always prioritize loading from a checkpoint from the current training job.
+    if save_checkpoint_path and gfile.exists(save_checkpoint_path):
+      resume_checkpoint_path = save_checkpoint_path
+    # Otherwise, we reload from a previous checkpoint provided by the config.
+    else:
+      resume_checkpoint_path = config.resume
+
+    checkpoint_tree = {"opt": init_optimizer, "extra": checkpoint_extra}
+    if init_fixed_model_states is not None:
+      checkpoint_tree["states"] = init_fixed_model_states
+    checkpoint = load_checkpoint(checkpoint_tree, resume_checkpoint_path)
+    optimizer, checkpoint_extra = checkpoint["opt"], checkpoint["extra"]
+    fixed_model_states = checkpoint.get("states", None)
+
+  elif reinitialize_model:
+    logging.info("Initialize model...")
+    reinit_params = config.get("model_reinit_params", default_reinit_params)
+    logging.info("Reinitializing these parameters: %s", reinit_params)
+    loaded = load_from_pretrained_checkpoint(
+        init_params=init_params,
+        pretrained_path=config.model_init,
+        model_representation_size=config.model.representation_size,
+        model_classifier=config.model.classifier,
+        reinit_params=reinit_params)
+    optimizer = init_optimizer.replace(target=loaded)
+    if jax.process_index() == 0:
+      logging.info("Restored parameter overview:")
+      parameter_overview.log_parameter_overview(loaded)
+
+  else:
+    logging.info("No checkpoint to recover from; using default initialization.")
+
+  return CheckpointData(
+      optimizer=optimizer,
+      fixed_model_states=fixed_model_states,
+      train_loop_rngs=checkpoint_extra["rngs_loop"],
+      accumulated_train_time=checkpoint_extra["accum_train_time"])
+
+
+def adapt_upstream_architecture(
+    init_params: Params, loaded_params: Params) -> Params:
+  """Align upstream parameters with those expected by the current architecture.
+
+  This function converts the loaded architecture into the architecture expected
+  by `init_params` when using a pretrained model of a different architecture
+  (e.g., finetuning an SGNP model based on an upstream deterministic model).
+
+  This function relies upon the fact that the parameters in `loaded_params`
+  that should be kept will have the same name in `init_params`. If that is not
+  the case, loaded parameter values will be lost.
+
+  Args:
+    init_params: Tree of (possibly randomly) initialized parameters for the
+      model.
+    loaded_params: Tree of parameters loaded from a checkpoint (in practice, the
+      upstream model).
+
+  Returns:
+    A tree with similar structure to that of `init_params`, where values match
+    those of `loaded_params` when possible.
+  """
+  loaded_flat = _flatten_jax_params_dict(loaded_params)
+  init_flat = _flatten_jax_params_dict(init_params)
+
+  missing_keys = set(init_flat.keys()) - set(loaded_flat.keys())
+  extra_keys = set(loaded_flat.keys()) - set(init_flat.keys())
+
+  logging.info("Deleting %s from checkpoint architecture.", extra_keys)
+  logging.info("Adding %s from checkpoint architecture.", missing_keys)
+
+  # Remove extra parameters.
+  for extra_key in extra_keys:
+    del loaded_flat[extra_key]
+
+  # Add missing parameters using initialized values.
+  for missing_key in missing_keys:
+    loaded_flat[missing_key] = init_flat[missing_key]
+
+  return _unflatten_jax_params_dict(loaded_flat)

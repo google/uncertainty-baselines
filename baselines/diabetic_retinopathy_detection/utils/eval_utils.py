@@ -1050,18 +1050,40 @@ def compute_roc_curve(y_uncertainty: np.ndarray, is_ood: np.ndarray):
   return fpr, tpr, roc_auc
 
 
-def compute_retention_curve_on_losses(losses, uncertainty):
+def get_retention_curve_normalizer(use_oracle, n_objects):
+  """Obtain normalization constants for each entry of the unnormalized
+  retention curve.
+  When using an oracle, we divide by the total number of objects.
+  When not, we divide by the object index (i.e., the number of objects used
+    to compute the model metric at each referral rate).
+  Args:
+    use_oracle: Bool, if True, evaluate the combined predictive performance
+      of the model and an oracle that is correct on all referred datapoints.
+    n_objects: int, number of objects used to create the retention curve.
+  """
+  if use_oracle:
+    return n_objects
+  else:
+    # e.g., for 5 objects, returns [5, 4, 3, 2, 1, 1], where the extra
+    # element at the end divides the term corresponding to referring
+    # all examples.
+      normalizer = np.arange(n_objects + 1)
+      normalizer[0] = 1
+      return normalizer[::-1]
+
+
+def compute_retention_curve_on_losses(losses, uncertainty, use_oracle=False):
   """Computes a retention curve on a loss (where lower loss is better)
   and corresponding per-example uncertainty values.
-
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
-
   Args:
     losses: np.ndarray, losses from a particular dataset.
     uncertainty: np.ndarray, per-example uncertainties for the same dataset,
       should follow the order of the losses.
-
+    use_oracle: Bool (default: False), if True, evaluate the combined predictive
+      performance of the model and an oracle that is correct on all referred
+      datapoints.
   Returns:
     np.ndarray, retention curve at all possible retention thresholds,
       including all examples retained (i.e., no referral) and no examples
@@ -1069,24 +1091,39 @@ def compute_retention_curve_on_losses(losses, uncertainty):
   """
   n_objects = losses.shape[0]
   uncertainty_order = uncertainty.argsort()
+
+  # Losses in order of increasing uncertainty
   losses = losses[uncertainty_order]
   error_rates = np.zeros(n_objects + 1)
-  error_rates[:-1] = np.cumsum(losses)[::-1] / n_objects
+  error_rates[:-1] = np.cumsum(losses)[::-1]
+
+  # With oracle:
+  # * Divide by total number of predictions
+  # Without oracle:
+  # * Divide by only the number of predictions the model must make at each
+  # * referral rate
+  normalizer = get_retention_curve_normalizer(use_oracle, n_objects)
+  error_rates = error_rates / normalizer
+
   return error_rates
 
 
-def compute_retention_curve_on_accuracies(accuracies, uncertainty):
+def compute_retention_curve_on_accuracies(
+    accuracies,
+    uncertainty,
+    use_oracle=False
+):
   """Computes a retention curve on an accuracy (where higher accuracy is better)
   and corresponding per-example uncertainty values.
-
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
-
-    Args:
+  Args:
     accuracies: np.ndarray, accuracies from a particular dataset.
     uncertainty: np.ndarray, per-example uncertainties for the same dataset,
       should follow the order of the accuracies.
-
+    use_oracle: Bool (default: False), if True, evaluate the combined predictive
+      performance of the model and an oracle that is correct on all referred
+      datapoints.
   Returns:
     np.ndarray, retention curve at all possible retention thresholds,
       including all examples retained (i.e., no referral) and no examples
@@ -1094,46 +1131,65 @@ def compute_retention_curve_on_accuracies(accuracies, uncertainty):
   """
   n_objects = accuracies.shape[0]
   uncertainty_order = uncertainty.argsort()
+
+  # Per-point accuracy (binary) in order of increasing uncertainty
   accuracies = accuracies[uncertainty_order]
-  cumul_oracle_collaborative_acc = np.zeros(n_objects + 1)
+  retention_arr = np.zeros(n_objects + 1)
 
-  for i in range(n_objects):
-    j = n_objects - i
-    cumul_oracle_collaborative_acc[i] = accuracies[:i].sum() + j
+  for i in range(1, n_objects):
+    accuracy_i = accuracies[:i].sum()
 
-  cumul_oracle_collaborative_acc[-1] = accuracies.sum()
+    if use_oracle:
+      j = n_objects - i
+      accuracy_i += j
 
-  acc_rates = cumul_oracle_collaborative_acc[::-1] / n_objects
+    retention_arr[i] = accuracy_i
+
+  # With oracle:
+  # * Divide by total number of predictions
+  # Without oracle:
+  # * Divide by only the number of predictions the model must make at each
+  # * referral rate
+  normalizer = get_retention_curve_normalizer(use_oracle, n_objects)
+
+  # Assume perfect performance when all examples have been referred.
+  retention_arr[0] = n_objects if use_oracle else 1
+  retention_arr[-1] = accuracies.sum()
+
+  acc_rates = retention_arr[::-1] / normalizer
   return acc_rates
 
 
-def compute_auc_retention_curve(
-    y_pred, y_true, uncertainty, auc_str, n_buckets=100
-):
+def compute_auc_retention_curve(y_pred,
+                                y_true,
+                                uncertainty,
+                                auc_str,
+                                n_buckets=100,
+                                use_oracle=False):
   """Computes a retention curve for AUC or AUPRC using predictions, ground
   truths, and corresponding per-example uncertainty values.
-
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
-
-    Args:
+  Args:
     y_pred: np.ndarray, predicted sigmoid probabilities.
     y_true: np.ndarray, ground truth values.
     uncertainty: np.ndarray, per-example uncertainties for the same dataset,
       should follow the order of the accuracies.
     auc_str: str, determines if we evaluate the retention AUC or AUPRC.
-    n_buckets: int, number of retention thresholds to evaluate (AUC can
-      be costly to evaluate for thousands of possible thresholds.
-
+    n_buckets: int, number of retention thresholds to evaluate (AUC can be
+      costly to evaluate for thousands of possible thresholds.
+    use_oracle: Bool (default: False), if True, evaluate the combined predictive
+      performance of the model and an oracle that is correct on all referred
+      datapoints.
   Returns:
     np.ndarray, AUC or AUPRC retention curve at specified number of thresholds.
   """
+
   def compute_auroc(true, pred):
     return roc_auc_score(y_true=true, y_score=pred)
 
   def compute_auprc(true, pred):
-    precision, recall, _ = precision_recall_curve(
-      y_true=true, probas_pred=pred)
+    precision, recall, _ = precision_recall_curve(y_true=true, probas_pred=pred)
     return auc(recall, precision)
 
   if auc_str == 'roc':
@@ -1150,8 +1206,18 @@ def compute_auc_retention_curve(
   uncertainty_order = uncertainty.argsort()
   y_pred = y_pred[uncertainty_order]
   y_true = y_true[uncertainty_order]
-  cumul_oracle_collaborative_auc = np.zeros(n_buckets + 1)
-  cumul_oracle_collaborative_auc[0] = n_objects
+
+  retention_arr = np.zeros(n_buckets + 1)
+
+  if use_oracle:
+    # We will later divide by n_objects
+    perfect_performance = n_objects
+  else:
+    perfect_performance = 1
+
+  # Assume perfect performance when all examples have been referred.
+  retention_arr[0] = perfect_performance
+
   check_n_unique = True
 
   for i_buckets in range(1, n_buckets):
@@ -1159,23 +1225,45 @@ def compute_auc_retention_curve(
     j_objects = n_objects - i_objects
     y_pred_curr = y_pred[:i_objects]
     y_true_curr = y_true[:i_objects]
-    if check_n_unique and len(np.unique(y_true_curr)) == 1:
-      cumul_oracle_collaborative_auc[i_buckets] = n_objects
+
+    # For the first few low uncertainty points, we may be predicting the same
+    # (correct) label, which would break AUC. We default to assigning
+    # perfect AUC until this condition is broken.
+    if (check_n_unique and
+        len(np.unique(y_true_curr)) == 1 and
+            np.array_equal(y_pred_curr > 0.5, y_true_curr)):
+      retention_arr[i_buckets] = perfect_performance
     else:
       try:
-        cumul_oracle_collaborative_auc[i_buckets] = (i_objects * auc_fn(
-          true=y_true_curr, pred=y_pred_curr)) + j_objects
+        auc_val = auc_fn(true=y_true_curr, pred=y_pred_curr)
+        if use_oracle:
+          # Weight current AUC/AUPRC by number of objects, and
+          # add weight of oracle's perfect prediction.
+          retention_arr[i_buckets] = (i_objects * auc_val) + j_objects
+        else:
+          retention_arr[i_buckets] = auc_val
       except ValueError:  # All of the preds are the same
-        cumul_oracle_collaborative_auc[i_buckets] = j_objects
+        if use_oracle:
+          retention_arr[i_buckets] = j_objects
+        else:
+          retention_arr[i_buckets] = 0
       check_n_unique = False
 
+  # Handle the case when no examples have been referred.
   try:
-    cumul_oracle_collaborative_auc[-1] = n_objects * auc_fn(
-      true=y_true, pred=y_pred)
+    auc_val = auc_fn(true=y_true, pred=y_pred)
+    if use_oracle:
+      retention_arr[-1] = n_objects * auc_val
+    else:
+      retention_arr[-1] = auc_val
   except ValueError:
-    cumul_oracle_collaborative_auc[-1] = 0
+    retention_arr[-1] = 0
 
-  auc_retention = cumul_oracle_collaborative_auc[::-1] / n_objects
+  if use_oracle:
+    auc_retention = retention_arr[::-1] / n_objects
+  else:
+    auc_retention = retention_arr[::-1]
+
   return auc_retention
 
 

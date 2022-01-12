@@ -71,6 +71,7 @@ from uncertainty_baselines.models.resnet50_fsvi import ResNet50FSVI
 try:
   # Try to import ViT models.
   from uncertainty_baselines.models import vit_batchensemble
+  from uncertainty_baselines.models.bit_resnet import bit_resnet
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp

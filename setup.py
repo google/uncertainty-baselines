@@ -88,7 +88,8 @@ setup(
             'wandb',
             'dm-haiku',
             'torch',
-            'seaborn'
+            'seaborn',
+            'tfds-nightly'
         ],
     },
     classifiers=[

@@ -14,17 +14,12 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-B/16 finetuning on a Diabetic Retinopathy Detection dataset.
+r"""ViT-SNGP-B/16 finetuning on a Diabetic Retinopathy Detection dataset
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
-
-
-def get_sweep(hyper):
-  return hyper.product([])
 
 
 def get_config():
@@ -68,8 +63,7 @@ def get_config():
   # Model section
   # pre-trained model ckpt file
   # !!!  The below section should be modified per experiment
-  config.model_init = (
-    "gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz")
+  config.model_init = 'gs://ub-checkpoints/ImageNet21k_ViT-B16-GP/ImageNet21k_ViT-B:16-GP_29240948.npz' \
 
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
@@ -87,18 +81,31 @@ def get_config():
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None
 
+  # Re-initialize the trainable parameters in GP output layer (Also those in the
+  # dense output layer if loading from deterministic checkpoint).
+  config.model_reinit_params = ('head/output_layer/kernel',
+                                'head/output_layer/bias', 'head/kernel',
+                                'head/bias')
+
+  # Gaussian process layer section
+  # config.gp_layer = ml_collections.ConfigDict()
+
+  # config.gp_layer.ridge_penalty = 1.
+  # Disable momentum in order to use exact covariance update for finetuning.
+  # config.gp_layer.covmat_momentum = -1.
+  # config.gp_layer.mean_field_factor = 20.
+
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
-  # config.loss = 'sigmoid_xent'
 
   # config.lr = ml_collections.ConfigDict()
 
-  # Set as command line arguments now, for wandb compatibility.
-  # config.grad_clip_norm = 20.0
+  # Set as command line arguments for wandb compatibility.
+  # config.grad_clip_norm = 1.
   # config.weight_decay = None  # No explicit weight decay
-  # config.lr.base = 0.003
+  # config.lr.base = 0.0005
   # config.lr.warmup_steps = 500
   # config.lr.decay_type = 'cosine'
 

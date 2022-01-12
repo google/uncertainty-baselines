@@ -239,6 +239,7 @@ def main(argv):
   config.gp_layer.covmat_momentum = FLAGS.sngp_covmat_momentum
 
   config.gp_layer.mean_field_factor = FLAGS.sngp_mean_field_factor
+  print('SNGP Params:', config.gp_layer)
 
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'

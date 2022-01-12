@@ -238,7 +238,7 @@ def main(argv):
   pool = multiprocessing.pool.ThreadPool()
 
   def write_note(note):
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
 
   write_note('Initializing...')
@@ -397,7 +397,7 @@ def main(argv):
   rng, rng_init = jax.random.split(rng)
   params_cpu = init(rng_init)
 
-  if jax.host_id() == 0:
+  if jax.process_index() == 0:
     num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
@@ -524,7 +524,7 @@ def main(argv):
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
-  if first_step == 0 and jax.host_id() == 0:
+  if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
   chrono = train_utils.Chrono(first_step, total_steps, batch_size,
                               checkpoint_extra['accum_train_time'])
@@ -589,7 +589,7 @@ def main(argv):
         train_batch['labels'],
         rng=rngs_loop)
 
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       profiler(step)
 
     # Checkpoint saving

@@ -356,11 +356,12 @@ def main(_):
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
+    # TODO(zmariet): Find better way to cut down iteration advancement cost.
+    if not config.get('disable_preemption_reproducibility', False):
+      train_iter = itertools.islice(train_iter, first_step, None)
 
   for step, train_batch, lr_repl in zip(
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
       opt, train_loop_rngs, loss_value, extra_measurements = pmap_update_fn(
           opt,

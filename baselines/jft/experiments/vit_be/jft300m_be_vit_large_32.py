@@ -62,7 +62,7 @@ def get_config():
 
   # BatchEnsemblee parameters.
   config.model.transformer.be_layers = (21, 23)
-  config.model.transformer.ens_size = 4
+  config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = 0.5
   config.fast_weight_lr_multiplier = 1.0
 
@@ -73,15 +73,16 @@ def get_config():
   config.clip_grad_norm = None
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 1e-3  # LR likely has to be lower for larger models!
+  config.lr.base = 6e-4  # LR likely has to be lower for larger models!
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
+  config.disable_preemption_reproducibility = True
 
-  config.batch_size = 1024         # Global batch size.
-  config.batch_size_eval = 1024    # Global batch size.
+  config.batch_size = 4096         # Global batch size.
+  config.batch_size_eval = 4096    # Global batch size.
 
-  config.num_epochs = 5
+  config.num_epochs = 7
 
   config.log_training_steps = 50
   config.log_eval_steps = 1000
@@ -99,12 +100,7 @@ def get_config():
 def get_sweep(hyper):
   return hyper.product([
       # Use this as a sensible sweep over other hyperparameters.
-      hyper.sweep('config.model.transformer.ens_size', [3]),
-      hyper.sweep('config.num_epochs', [7]),
-      hyper.sweep('config.model.transformer.be_layers',
-                  [(21, 23)]),  # Last two
       hyper.sweep('config.model.transformer.random_sign_init',
-                  [-0.5, 0.5]),
-      hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-      hyper.sweep('config.lr.base', [6e-4]),
+                  [0.5, -.5]),
+      hyper.sweep('config.fast_weight_lr_multiplier', [1.0]),
   ])

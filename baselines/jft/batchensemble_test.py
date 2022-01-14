@@ -39,24 +39,28 @@ def get_config(classifier, representation_size):
   config = ml_collections.ConfigDict()
   config.seed = 0
 
+  config.batch_size = 3
+  config.total_steps = 3
+
+  num_examples = config.batch_size * config.total_steps
+
   # TODO(dusenberrymw): JFT + mocking is broken.
   # config.dataset = 'jft/entity:1.0.0'
   # config.val_split = 'test[:49511]'  # aka tiny_test/test[:5%] in task_adapt
   # config.train_split = 'train'  # task_adapt used train+validation so +64167
   # config.num_classes = 18291
 
+  # NOTE: TFDS mocking currently ignores split slices.
   config.dataset = 'imagenet21k'
-  config.val_split = 'full[:9]'
-  config.train_split = 'full[30:60]'
+  config.val_split = f'full[:{num_examples}]'
+  config.train_split = f'full[{num_examples}:{num_examples*2}]'
   config.num_classes = 21843
 
-  config.batch_size = 3
   config.batch_size_eval = 3
   config.prefetch_to_device = 1
   config.shuffle_buffer_size = 20
   config.val_cache = False
 
-  config.total_steps = 3
   config.log_training_steps = config.total_steps
   config.log_eval_steps = config.total_steps
   config.checkpoint_steps = config.total_steps
@@ -137,10 +141,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
 
   @parameterized.parameters(
-      ('token', 2, 346.3723, 218.5163),
-      # ('token', None, 346.4346, 219.5707),  # TODO(zmariet): fix flaky test.
-      ('gap', 2, 346.3702, 219.3948),
-      ('gap', None, 346.373, 219.2920),
+      ('token', 2, 206.4417, 273.6591),
+      ('token', None, 206.43283, 272.3655),
+      # ('gap', 2, 206.46452, 267.4063),  # TODO(dusenberrymw,zmariet): flaky.
+      ('gap', None, 206.45187, 268.5371),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,
@@ -151,9 +155,11 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.dataset_dir = self.data_dir
+    num_examples = FLAGS.config.batch_size * FLAGS.config.total_steps
 
     # Check for any errors.
-    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+    with tfds.testing.mock_data(
+        num_examples=num_examples, data_dir=self.data_dir):
       train_loss, val_loss, _ = batchensemble.main(None)
 
     # Check for reproducibility.
@@ -175,8 +181,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.dataset_dir = self.data_dir
     FLAGS.config.total_steps = 2
+    num_examples = FLAGS.config.batch_size * FLAGS.config.total_steps
 
-    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+    with tfds.testing.mock_data(
+        num_examples=num_examples, data_dir=self.data_dir):
       _, val_loss, _ = batchensemble.main(None)
       checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
       self.assertTrue(os.path.exists(checkpoint_path))

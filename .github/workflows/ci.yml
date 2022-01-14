@@ -58,6 +58,8 @@ jobs:
           set -v
           set -e
           cd baselines/jft
+          python -m unittest -v al_utils_test.py
+          python -m unittest -v active_learning_test.py
           python -m unittest -v checkpoint_utils_test.py
           python -m unittest -v ood_utils_test.py
           python -m unittest -v deterministic_test.py

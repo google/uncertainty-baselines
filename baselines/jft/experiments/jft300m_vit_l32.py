@@ -27,6 +27,8 @@ def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
 
+  config.seed = 0
+
   # Directory for the version de-dup'd from BiT downstream test-sets.
   config.dataset = 'jft/entity:1.0.0'
   config.val_split = 'test[:49511]'  # aka tiny_test/test[:5%] in task_adapt
@@ -90,4 +92,7 @@ def get_config():
 
 
 def get_sweep(hyper):
-  return hyper.product([])
+  return hyper.product([
+      # Use this for the experiments that use four seeds.
+      # hyper.sweep('config.seed', list(range(4))),
+  ])

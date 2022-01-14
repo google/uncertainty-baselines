@@ -426,9 +426,11 @@ def main(config, output_dir):
                                ('head/kernel', 'head/bias'))
     logging.info('Reinitializing these parameters: %s', reinit_params)
     # We only support "no head" fine-tuning for now.
-    loaded = checkpoint_utils.load_from_pretrained_checkpoint(
+    loaded_params = checkpoint_utils.load_checkpoint(tree=None,
+                                                     path=config.model_init)
+    loaded = checkpoint_utils.restore_from_pretrained_params(
         params_cpu,
-        config.model_init,
+        loaded_params,
         model_representation_size=None,
         model_classifier=None,
         reinit_params=reinit_params)

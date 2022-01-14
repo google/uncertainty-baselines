@@ -305,17 +305,16 @@ def _reinit(restored_params, init_params, to_reinit):
   return _tree_map_with_names(f, restored_params, init_params)
 
 
-def load_from_pretrained_checkpoint(init_params, pretrained_path,
-                                    model_representation_size, model_classifier,
-                                    reinit_params):
-  """Initializes (part of) a model from a pretrained checkpoint for fine tuning.
+def restore_from_pretrained_params(init_params, loaded_params,
+                                   model_representation_size, model_classifier,
+                                   reinit_params):
+  """Initializes (some) model parameters based on pretrained parameters.
 
   Args:
     init_params: Tree of (possibly randomly) initialized parameters for the
       model. The structure will be kept, and a subset of the values will be
       replaced with values loaded from the pretrained checkpoint.
-    pretrained_path: File pointing to pretrained checkpoint stored in NumPy
-      `.npz` file.
+    loaded_params: Tree with pretrained weights.
     model_representation_size: Optional integer representation size
       hyperparameter for the model. If None, then the representation layer in
       the checkpoint will be removed (if present).
@@ -325,13 +324,12 @@ def load_from_pretrained_checkpoint(init_params, pretrained_path,
 
   Returns:
     A tree of parameters with the same structure as `init_params`, but loaded
-    with pretrained weights from `pretrained_path` and adapted accordingly.
+    with pretrained weights in `loaded_params` and adapted accordingly.
   """
-  params = load_checkpoint(None, pretrained_path)
-  if "opt" in params:
-    params = params["opt"]["target"]
+  if "opt" in loaded_params:
+    loaded_params = loaded_params["opt"]["target"]
   restored_params = _inspect_params(
-      params=params,
+      params=loaded_params,
       expected=init_params,
       fail_if_extra=False,
       fail_if_missing=False)
@@ -350,9 +348,10 @@ def load_from_pretrained_checkpoint(init_params, pretrained_path,
     restored_params = _reinit(restored_params, init_params, reinit_params)
 
   if "posembed_input" in restored_params.get("Transformer", {}):
-    # Rescale the grid of position embeddings. Param shape is (1,N,1024)
+    # Rescale the grid of position embeddings. Param shape is (1,N,1024).
     posemb = restored_params["Transformer"]["posembed_input"]["pos_embedding"]
     posemb_new = init_params["Transformer"]["posembed_input"]["pos_embedding"]
+
     if posemb.shape != posemb_new.shape:
       logging.info("load_pretrained: resized variant: %s to %s", posemb.shape,
                    posemb_new.shape)
@@ -461,16 +460,21 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
     logging.info("Initialize model...")
     reinit_params = config.get("model_reinit_params", default_reinit_params)
     logging.info("Reinitializing these parameters: %s", reinit_params)
-    loaded = load_from_pretrained_checkpoint(
+
+    loader = lambda path: load_checkpoint(tree=None, path=path)
+    loaded_params = loader(config.model_init)
+
+    loaded_params = restore_from_pretrained_params(
         init_params=init_params,
-        pretrained_path=config.model_init,
+        loaded_params=loaded_params,
         model_representation_size=config.model.representation_size,
         model_classifier=config.model.classifier,
         reinit_params=reinit_params)
-    optimizer = init_optimizer.replace(target=loaded)
+
+    optimizer = init_optimizer.replace(target=loaded_params)
     if jax.process_index() == 0:
       logging.info("Restored parameter overview:")
-      parameter_overview.log_parameter_overview(loaded)
+      parameter_overview.log_parameter_overview(loaded_params)
 
   else:
     logging.info("No checkpoint to recover from; using default initialization.")

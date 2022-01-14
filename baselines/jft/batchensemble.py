@@ -196,17 +196,16 @@ def main(_):
         process_batch_size=batch_size_per_host_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
+        num_epochs=1,
         repeat_after_batching=True,
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
         data_dir=data_dir)
-    val_iter = input_utils.start_input_pipeline(
-        val_ds, config.get('prefetch_to_device', 1))
 
-    return (val_iter, val_steps)
+    return val_ds
 
-  val_iter_splits = {
+  val_ds_splits = {
       'val':
           _get_val_split(
               config.dataset,
@@ -218,7 +217,7 @@ def main(_):
   # Note: we return the train loss and val loss for use in reproducibility unit
   # tests.
   train_loss = -jnp.inf
-  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_ds_splits.items()}
   # TODO(zmariet): Add fewshot evaluation.
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
@@ -358,15 +357,6 @@ def main(_):
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
-    # NOTE: Validation eval is only run on certain steps, so determine how many
-    # times it was run previously.
-    num_val_runs = sum(
-        map(
-            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
-                                         ), range(1, first_step + 1)))
-    for val_name, (val_iter, val_steps) in val_iter_splits.items():
-      val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
-      val_iter_splits[val_name] = (val_iter, val_steps)
 
   for step, train_batch, lr_repl in zip(
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
@@ -431,7 +421,7 @@ def main(_):
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
-      for val_name, (val_iter, val_steps) in val_iter_splits.items():
+      for val_name, val_ds in val_ds_splits.items():
         # Sets up evaluation metrics.
         ece_num_bins = config.get('ece_num_bins', 15)
         auc_num_bins = config.get('auc_num_bins', 1000)
@@ -447,8 +437,10 @@ def main(_):
                                                      num_bins=auc_num_bins)
 
         # Runs evaluation loop.
+        val_iter = input_utils.start_input_pipeline(
+            val_ds, config.get('prefetch_to_device', 1))
         ncorrect, loss, nseen = 0, 0, 0
-        for _, batch in zip(range(val_steps), val_iter):
+        for batch in val_iter:
           batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
               evaluation_fn(opt.target, batch['image'],
                             batch['labels'], batch['mask']))

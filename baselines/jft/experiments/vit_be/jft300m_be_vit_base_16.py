@@ -35,8 +35,6 @@ def get_config():
   config.num_classes = 18291
   config.init_head_bias = -10.0  # ~= ln(1/18k) ~= ln(1/num_classes)
 
-  config.loss_to_apply = 'softmax_xent'
-
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
   # To use ancestor 'smearing', use this line instead:

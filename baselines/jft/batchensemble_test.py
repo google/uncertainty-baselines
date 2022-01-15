@@ -131,20 +131,26 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
   def test_log_average_probs(self, ensemble_size):
     batch_size, num_classes = 16, 3
     logits_shape = (ensemble_size, batch_size, num_classes)
-
     np.random.seed(42)
     ensemble_logits = jnp.asarray(np.random.normal(size=logits_shape))
-    actual_logits = batchensemble._log_average_probs(ensemble_logits)
+
+    actual_logits = batchensemble._log_average_softmax_probs(ensemble_logits)
     self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
 
     expected_probs = jnp.mean(jax.nn.softmax(ensemble_logits), axis=0)
     self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
 
+    actual_logits = batchensemble._log_average_sigmoid_probs(ensemble_logits)
+    self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
+
+    expected_probs = jnp.mean(jax.nn.sigmoid(ensemble_logits), axis=0)
+    self.assertAllClose(jax.nn.sigmoid(actual_logits), expected_probs)
+
   @parameterized.parameters(
-      ('token', 2, 206.4417, 273.6591),
-      ('token', None, 206.43283, 272.3655),
-      # ('gap', 2, 206.46452, 267.4063),  # TODO(dusenberrymw,zmariet): flaky.
-      ('gap', None, 206.45187, 268.5371),
+      ('token', 2, 12492.359, 11125.7217881),
+      ('token', None, 10672.909, 8519.65234375),
+      ('gap', 2, 12902.053, 12786.2899305),
+      ('gap', None, 12961.835, 12762.797743),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,

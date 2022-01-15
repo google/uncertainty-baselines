@@ -65,11 +65,22 @@ flags.DEFINE_string('tpu', None,
 jax.config.parse_flags_with_absl()
 
 
-def _log_average_probs(logits: jnp.ndarray) -> jnp.ndarray:
+# TODO(dusenberrymw,zmariet): Clean up and generalize these log marginal probs.
+def _log_average_softmax_probs(logits: jnp.ndarray) -> jnp.ndarray:
   # TODO(zmariet): dedicated eval loss function.
   ens_size, _, _ = logits.shape
   log_p = jax.nn.log_softmax(logits)  # (ensemble_size, batch_size, num_classes)
   log_p = jax.nn.logsumexp(log_p, axis=0) - jnp.log(ens_size)
+  return log_p
+
+
+def _log_average_sigmoid_probs(logits: jnp.ndarray) -> jnp.ndarray:
+  ens_size, _, _ = logits.shape
+  log_p = jax.nn.log_sigmoid(logits)  # (ensemble_size, batch_size, num_classes)
+  log_p = jax.nn.logsumexp(log_p, axis=0) - jnp.log(ens_size)
+  log_not_p = jax.nn.log_sigmoid(-logits)
+  log_not_p = jax.nn.logsumexp(log_not_p, axis=0) - jnp.log(ens_size)
+  log_p = log_p - log_not_p
   return log_p
 
 
@@ -93,13 +104,7 @@ def main(_):
   checkpoint_writer = None
 
   # Loss to apply.
-  loss_to_apply = getattr(
-      train_utils, config.get('loss_to_apply', 'softmax_xent'))
-  compute_ece = config.get('compute_ece', False)
-  is_sigmoid = config.get('loss_to_apply', 'softmax_xent') == 'sigmoid_xent'
-  if compute_ece and is_sigmoid:
-    error_msg = 'Inconsistent config: ECE can only be used with "softmax_xent".'
-    raise ValueError(error_msg)
+  loss_to_apply = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
 
   ens_size = config.get('model.transformer.ens_size', 1)
 
@@ -289,12 +294,20 @@ def main(_):
     mask *= labels.max(axis=1)
     tiled_logits, _ = model_eval.apply({'params': flax.core.freeze(params)},
                                        images)
-    ens_logits = _log_average_probs(
-        jnp.asarray(jnp.split(tiled_logits, ens_size)))
 
-    losses = train_utils.softmax_xent(logits=ens_logits,
-                                      labels=labels[:, :config.num_classes],
-                                      reduction=False)
+    loss_name = config.get('loss', 'sigmoid_xent')
+    # TODO(dusenberrymw,zmariet): Clean up and generalize this.
+    if loss_name == 'sigmoid_xent':
+      ens_logits = _log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+    else:  # softmax
+      ens_logits = _log_average_softmax_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+
+    losses = getattr(train_utils, loss_name)(
+        logits=ens_logits,
+        labels=labels[:, :config.num_classes],
+        reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
     top1_idx = jnp.argmax(ens_logits, axis=1)
@@ -452,38 +465,44 @@ def main(_):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute uncertainty metrics.
-          # (e.g., ECE or Calibration AUC).
-          logits, labels, masks = batch_metric_args
-          masks = np.array(masks[0], dtype=np.bool)
-          logits = np.array(logits[0])
-          probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          int_preds = np.argmax(logits, axis=-1)
-          confidence = np.max(probs, axis=-1)
-          for p, c, l, d, m in zip(probs, confidence, int_labels,
-                                   int_preds, masks):
-            ece.add_batch(p[m, :], label=l[m])
-            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-            # TODO(jereliu): Extend to support soft multi-class probabilities.
-            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+          if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+            # Here we parse batch_metric_args to compute uncertainty metrics.
+            # (e.g., ECE or Calibration AUC).
+            logits, labels, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits = np.array(logits[0])
+            probs = jax.nn.softmax(logits)
+            # From one-hot to integer labels, as required by ECE.
+            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+            int_preds = np.argmax(logits, axis=-1)
+            confidence = np.max(probs, axis=-1)
+            for p, c, l, d, m in zip(probs, confidence, int_labels, int_preds,
+                                     masks):
+              ece.add_batch(p[m, :], label=l[m])
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              # TODO(jereliu): Extend to support soft multi-class probabilities.
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
             f'{val_name}_loss': val_loss[val_name],
-            f'{val_name}_ece': ece.result()['ece'],
-            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
-                'collaborative_auc'],
-            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
         }
+        if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+          val_measurements[f'{val_name}_ece'] = ece.result()['ece']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result(
+          )['calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result(
+          )['collaborative_auc']
         writer.write_scalars(step, val_measurements)
       chrono.resume()
 

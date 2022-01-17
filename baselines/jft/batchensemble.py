@@ -359,7 +359,7 @@ def main(_):
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
                                                     **config.get('lr', {}))
   lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(first_step, total_steps)),
+      map(lr_fn, range(total_steps)),
       config.get('prefetch_to_device', 1))
 
   write_note(f'First step compilations...\n{chrono.note}')

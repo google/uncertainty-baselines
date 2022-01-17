@@ -98,8 +98,6 @@ def get_config():
   # Few-shot eval section
   config.fewshot = common_fewshot.get_fewshot()
   config.fewshot.log_steps = 20_000
-
-  config.args = {}
   return config
 
 

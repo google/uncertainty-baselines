@@ -125,8 +125,6 @@ def get_config():
 
   config.batch_size = 1024  # Global batch size.
   config.batch_size_eval = 1024  # Global batch size.
-
-  config.args = {}
   return config
 
 

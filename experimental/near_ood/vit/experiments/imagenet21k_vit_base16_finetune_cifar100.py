@@ -113,6 +113,4 @@ def get_config():
   config.lr.base = 0.01
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-
-  config.args = {}
   return config

@@ -92,8 +92,6 @@ def get_config():
 
   config.prefetch_to_device = 2
   config.trial = 0
-
-  config.args = {}
   return config
 
 

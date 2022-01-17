@@ -90,6 +90,4 @@ def get_config():
 
   # Disable unnecessary CNS TTLs.
   config.ttl = 0
-
-  config.args = {}
   return config

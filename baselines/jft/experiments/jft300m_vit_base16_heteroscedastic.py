@@ -92,8 +92,6 @@ def get_config():
   # Few-shot eval section
   config.fewshot = None
   config.fewshot.log_steps = 25_000
-
-  config.args = {}
   return config
 
 

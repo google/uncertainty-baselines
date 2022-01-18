@@ -19,7 +19,7 @@ For example, the ViT-B_16 pre-trained model checkpoint file can be downloaded fr
 Finetuning the CIFAR model roughly takes 3.5 hours using TPU. Instructions for running the experiments using TPU can be found at [https://github.com/google/uncertainty-baselines#usage](https://github.com/google/uncertainty-baselines#usage).
 
 
-
+We also provide a [colab](https://github.com/stanislavfort/exploring_the_limits_of_OOD_detection) for a quick start. It loads the finetuned model checkpoint, extracts its embeddings, and performs OOD detection on the hard near-OOD CIFAR-100 vs CIFAR-10 task.
 
 
 

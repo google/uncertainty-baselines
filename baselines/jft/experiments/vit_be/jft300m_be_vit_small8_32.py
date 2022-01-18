@@ -67,8 +67,11 @@ def get_config():
   # Optimizer parameters.
   config.optim_name = 'Adam'
   config.optim = ml_collections.ConfigDict(dict(beta1=0.9, beta2=0.999))
-  config.weight_decay = [0.1]
-  config.weight_decay_pattern = ['.*/kernel']  # Does not decay fast-weights.
+  config.weight_decay = 0.1
+  # TODO(trandustin): Potentially add weight decay only on slow weights, similar
+  # to original BE and ghassen's BE ViT code.
+  # config.weight_decay = [0.1]
+  # config.weight_decay_pattern = [".*/kernel"]  # Does not decay fast-weights.
   config.clip_grad_norm = None
 
   config.lr = ml_collections.ConfigDict()
@@ -77,14 +80,12 @@ def get_config():
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
 
-  config.batch_size = 1024         # Global batch size.
-  config.batch_size_eval = 1024    # Global batch size.
+  config.batch_size = 4096         # Global batch size.
+  config.batch_size_eval = 4096    # Global batch size.
 
   config.num_epochs = 5
 
-  config.log_training_every_n_steps = 50
-  config.run_evaluation_every_n_steps = 1000
-  config.log_training_first_n_steps = 10
+  config.log_training_steps = 50
   config.log_eval_steps = 1000
 
   config.checkpoint_steps = 5000
@@ -99,12 +100,12 @@ def get_sweep(hyper):
   return hyper.product([
       # Use this as a sensible sweep over other hyperparameters.
       # hyper.sweep('config.seed', list(range(3))),
-      hyper.sweep('config.model.transformer.ens_size', [4]),
-      hyper.sweep('config.num_epochs', [14]),
+      hyper.sweep('config.model.transformer.ens_size', [2, 4]),
+      # hyper.sweep('config.model.transformer.be_layers',
+      #             [(1, 3, 5, 7), (0, 1, 2, 3, 4, 5, 6, 7)]),
       hyper.sweep('config.model.transformer.be_layers',
-                  [(1, 3, 5, 7)]),  # Every two layers.
+                  [(1, 3, 5, 7)]),
       hyper.sweep('config.model.transformer.random_sign_init',
                   [-0.5, 0.5]),
       hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-      hyper.sweep('config.lr.base', [1e-3]),
   ])

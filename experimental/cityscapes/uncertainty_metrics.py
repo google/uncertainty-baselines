@@ -11,6 +11,7 @@ from scenic.model_lib.base_models.model_utils import apply_weights
 from jax import lax
 
 # TODO(kellybuchanan): consolidate metric calculation as class
+# TODO(kellybuchanan): support cases where mask is 0
 
 
 def calculate_num_patches_binary_maps(
@@ -22,7 +23,8 @@ def calculate_num_patches_binary_maps(
   """
   # number of patches that are accurate and certain
   n_ac = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 1),
-                                 jnp.equal(binary_unc_map, 0)), axis=(-1, -2))
+                                 jnp.equal(binary_unc_map, 0)), axis=(-1, -2)
+                 )
 
   # number of patches that are inaccurate and certain
   n_ic = jnp.sum(jnp.logical_and(jnp.equal(binary_acc_map, 0),
@@ -87,12 +89,12 @@ def calculate_uncertainty_confusion_matrix(
 
 
 def calculate_puncert_inacc(
-    logits: jnp.ndarray,
-    labels: jnp.ndarray,
-    weights: Optional[jnp.ndarray] = None,
-    accuracy_th: Optional[float] = 0.5,
-    uncertainty_th: Optional[float] = 0.4,
-    window_size: Optional[int] = 2) -> jnp.ndarray:
+  logits: jnp.ndarray,
+  labels: jnp.ndarray,
+  weights: Optional[jnp.ndarray] = None,
+  accuracy_th: Optional[float] = 0.5,
+  uncertainty_th: Optional[float] = 0.4,
+  window_size: Optional[int] = 2) -> jnp.ndarray:
   """
   Calculate p(uncertain | inaccurate)
   """
@@ -105,18 +107,22 @@ def calculate_puncert_inacc(
       uncertainty_th=uncertainty_th,
       window_size=window_size)
 
-  p_uncertain_inaccurate = n_iu / (n_ic + n_iu)
+  # p(uncertain | innacurate)
+  p_tmp = n_iu / (n_ic + n_iu)
 
-  return p_uncertain_inaccurate
+  # TODO: ignore cases where mask is 0
+  p_tmp = jnp.nan_to_num(p_tmp)
+
+  return p_tmp
 
 
 def calculate_pacc_cert(
-    logits: jnp.ndarray,
-    labels: jnp.ndarray,
-    weights: Optional[jnp.ndarray] = None,
-    accuracy_th: Optional[float] = 0.5,
-    uncertainty_th: Optional[float] = 0.4,
-    window_size: Optional[int] = 2) -> jnp.ndarray:
+  logits: jnp.ndarray,
+  labels: jnp.ndarray,
+  weights: Optional[jnp.ndarray] = None,
+  accuracy_th: Optional[float] = 0.5,
+  uncertainty_th: Optional[float] = 0.4,
+  window_size: Optional[int] = 2) -> jnp.ndarray:
   """
   Calculate p(accurate|certain)
   """
@@ -130,17 +136,20 @@ def calculate_pacc_cert(
       uncertainty_th=uncertainty_th,
       window_size=window_size)
 
-  p_accurate_certain = n_ac / (n_ac + n_ic)
-  return p_accurate_certain
+  p_tmp = n_ac / (n_ac + n_ic)
+
+  # TODO: ignore cases where mask is 0
+  p_tmp = jnp.nan_to_num(p_tmp)
+  return p_tmp
 
 
 def calculate_pavpu(
-    logits: jnp.ndarray,
-    labels: jnp.ndarray,
-    weights: Optional[jnp.ndarray] = None,
-    accuracy_th: Optional[float] = 0.5,
-    uncertainty_th: Optional[float] = 0.4,
-    window_size: Optional[int] = 2) -> jnp.ndarray:
+  logits: jnp.ndarray,
+  labels: jnp.ndarray,
+  weights: Optional[jnp.ndarray] = None,
+  accuracy_th: Optional[float] = 0.5,
+  uncertainty_th: Optional[float] = 0.4,
+  window_size: Optional[int] = 2) -> jnp.ndarray:
   """
   Calculate PavPu
   """
@@ -153,9 +162,11 @@ def calculate_pavpu(
       window_size=window_size)
 
   # Patch accuracy vs Patch uncertainty
-  pavpu = (n_ac + n_iu) / (n_ac + n_au + n_ic + n_iu)
+  p_tmp = (n_ac + n_iu) / (n_ac + n_au + n_ic + n_iu)
 
-  return pavpu
+  # TODO: ignore cases where mask is 0
+  p_tmp = jnp.nan_to_num(p_tmp)
+  return p_tmp
 
 
 def reduce_2dmap(

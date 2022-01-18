@@ -260,7 +260,6 @@ def eval1(
             confusion_matrix = eval_step_pmapped(train_state=train_state, batch=eval_batch)
 
             eval_metrics.append(train_utils.unreplicate_and_get(e_metrics))
-            eval_metrics.append(train_utils.unreplicate_and_get(e_metrics))
 
             # Evaluate global metrics on one of the hosts (lead_host), but given
             # intermediate values collected from all hosts.

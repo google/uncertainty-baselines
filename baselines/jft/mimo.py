@@ -13,10 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BatchEnsemble Vision Transformer."""
+"""Deterministic ViT on JFT-300M."""
 
-import copy
-import functools
+from functools import partial  # pylint: disable=g-importing-member so standard
 import itertools
 import multiprocessing
 import os
@@ -25,16 +24,14 @@ from absl import app
 from absl import flags
 from absl import logging
 from clu import metric_writers
+from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
 import flax
-import flax.jax_utils
-import flax.struct
+import flax.jax_utils as flax_utils
 import jax
-import jax.config
-import jax.nn
 import jax.numpy as jnp
-import ml_collections
+from ml_collections.config_flags import config_flags
 import numpy as np
 import robustness_metrics as rm
 
@@ -50,10 +47,10 @@ import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
-xm = None
-xm_api = None
+fewshot = None
 
-ml_collections.config_flags.DEFINE_config_file(
+
+config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
@@ -63,18 +60,71 @@ flags.DEFINE_boolean(
 flags.DEFINE_string('tpu', None,
                     'Unused. Name of the TPU. Only used if use_gpu is False.')
 
-# Adds jax flags to the program.
-jax.config.parse_flags_with_absl()
+FLAGS = flags.FLAGS
 
 
-def main(_):
-  config = flags.FLAGS.config
-  output_dir = flags.FLAGS.output_dir
-  tf.io.gfile.makedirs(output_dir)
+# TODO(trandustin): Test this function.
+def replicate_inputs_and_labels(inputs: jnp.ndarray,
+                                labels: jnp.ndarray,
+                                ensemble_size: int,
+                                batch_repetitions: int,
+                                input_rep_prob: float,
+                                rng: jnp.ndarray):
+  """Replicates inputs and labels for MIMO.
+
+  Let E = ensemble size, B = batch size, C = number of classes, R = number of
+  batch repetitions, (h, w, c) = image shape.
+
+  Args:
+    inputs: Inputs of shape [B, h, w, c].
+    labels: Labels of shape [B, C].
+    ensemble_size: Size of ensemble.
+    batch_repetitions: How often to repeat the batch size. This reduces
+      stochasticity with respect to the ensemble (i.e., mixture sum).
+    input_rep_prob: Probability of repeating inputs across ensemble members.
+    rng: PRNGKey.
+
+  Returns:
+    Tuple of replicated inputs with shape [B * R, h, w, c * E] and replicated
+    labels of shape [E * B * R, C].
+  """
+  rngs = jax.random.split(rng, num=ensemble_size + 1)
+  batch_size = inputs.shape[0]
+
+  # Shape: (B * R,).
+  indices = jnp.tile(jnp.arange(batch_size), (batch_repetitions,))
+
+  # Shuffle indices differently for each ensemble member so they don't train
+  # with the same batch order. But keep some the same with input_rep_prob.
+  num_distinct = int(batch_size * batch_repetitions * (1 - input_rep_prob))
+  repeated_indices = jax.random.shuffle(rngs[0], indices[num_distinct:])
+
+  # Shape: (E, B * R).
+  indices = jnp.array([
+      jnp.concatenate((jax.random.shuffle(ens_rng, indices[:num_distinct]),
+                       repeated_indices), axis=0)
+      for ens_rng in rngs[1:]])
+
+  # Shape: (E, B * R, h, w, c).
+  replicated_inputs = inputs[indices]
+  # Shape: (B * R, h, w, c * E).
+  replicated_inputs = jnp.concatenate(replicated_inputs, axis=-1)
+  # Shape: (E, B * R, C).
+  replicated_labels = labels[indices]
+  # Shape: (E * B * R, C).
+  replicated_labels = jnp.concatenate(replicated_labels, axis=0)
+  return replicated_inputs, replicated_labels
+
+
+def main(config, output_dir):
 
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
+
+  if config.get('data_dir'):
+    logging.info('data_dir=%s', config.data_dir)
+  logging.info('Output dir: %s', output_dir)
 
   save_checkpoint_path = None
   if config.get('checkpoint_steps'):
@@ -84,30 +134,13 @@ def main(_):
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
       output_dir, just_logging=jax.process_index() > 0)
-  checkpoint_writer = None
-
-  # Loss to apply.
-  loss_to_apply = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
-
-  ens_size = config.get('model.transformer.ens_size', 1)
 
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  # Ideally, this should make code deterministic, but for many reasons we are
-  # not there yet. For instance, tf.data.map is not determisntic.
-  rng_generator = tf.random.Generator.from_seed(config.get('seed', 0))
-  tf.random.set_global_generator(
-      rng_generator.split(jax.process_count())[jax.process_index()])
-
-  logging.info('Number of devices: %s  (process index: %s)', jax.device_count(),
-               jax.process_index())
-  logging.info('Config:\n%s', str(config))
-
   def write_note(note):
     if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
-
   write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
@@ -117,59 +150,51 @@ def main(_):
         f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
         f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
 
-  if (config.batch_size % jax.device_count() != 0 or
-      config.batch_size_eval % jax.device_count() != 0):
-    raise ValueError(f'Batch sizes ({config.batch_size} and '
-                     f'{config.batch_size_eval}) must be divisible by '
-                     f'the number of devices ({jax.device_count()})')
+  batch_size = config.batch_size
+  batch_size_eval = config.get('batch_size_eval', batch_size)
+  if (batch_size % jax.device_count() != 0 or
+      batch_size_eval % jax.device_count() != 0):
+    raise ValueError(f'Batch sizes ({batch_size} and {batch_size_eval}) must '
+                     f'be divisible by device number ({jax.device_count()})')
 
-  batch_size_per_host = config.batch_size // jax.process_count()
-  batch_size_per_core = config.batch_size // jax.device_count()
-  batch_size_per_host_eval = config.batch_size_eval // jax.process_count()
+  local_batch_size = batch_size // jax.process_count()
+  local_batch_size_eval = batch_size_eval // jax.process_count()
+  logging.info(
+      'Global batch size %d on %d hosts results in %d local batch size. '
+      'With %d devices per host (%d devices total), that\'s a %d per-device '
+      'batch size.', batch_size, jax.process_count(), local_batch_size,
+      jax.local_device_count(), jax.device_count(),
+      local_batch_size // jax.local_device_count())
 
+  write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
-
   train_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.train_split,
       rng=train_ds_rng,
-      process_batch_size=batch_size_per_host,
+      process_batch_size=local_batch_size,
       preprocess_fn=preprocess_spec.parse(
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
-      data_dir=config.get('dataset_dir'))
+      data_dir=config.get('data_dir'))
+
+  # Start prefetching already.
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
 
-  ntrain_img = input_utils.get_num_examples(
-      config.dataset,
-      split=config.train_split,
-      process_batch_size=batch_size_per_host,
-      data_dir=config.get('dataset_dir'))
-  steps_per_epoch = ntrain_img / config.batch_size
-
-  if config.get('num_epochs'):
-    total_steps = int(config.num_epochs * steps_per_epoch)
-    assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
-  else:
-    total_steps = config.total_steps
-
-  logging.info(
-      'Running for %d steps, that means %f epochs and %f steps per epoch',
-      total_steps, total_steps * config.batch_size / ntrain_img,
-      steps_per_epoch)
+  write_note('Initializing val dataset(s)...')
 
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
     # We do ceil rounding such that we include the last incomplete batch.
     nval_img = input_utils.get_num_examples(
         dataset,
         split=split,
-        process_batch_size=batch_size_per_host_eval,
+        process_batch_size=local_batch_size_eval,
         drop_remainder=False,
         data_dir=data_dir)
-    val_steps = int(np.ceil(nval_img / config.batch_size_eval))
+    val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
 
@@ -181,7 +206,7 @@ def main(_):
         dataset=dataset,
         split=split,
         rng=None,
-        process_batch_size=batch_size_per_host_eval,
+        process_batch_size=local_batch_size_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
         num_epochs=1,
@@ -213,8 +238,8 @@ def main(_):
         split=config.get('cifar_10h_split') or 'test',
         pp_eval=pp_eval,
         data_dir=config.get('data_dir'))
-
   elif config.get('eval_on_imagenet_real'):
+
     def avg_label(example):
       real_label = example['real_label']
       if tf.shape(real_label)[0] > 0:
@@ -252,136 +277,120 @@ def main(_):
           _get_val_split,
       )
 
-  # Note: we return the train loss and val loss for use in reproducibility unit
-  # tests.
-  train_loss = -jnp.inf
-  val_loss = {val_name: -jnp.inf for val_name, _ in val_ds_splits.items()}
-  # TODO(zmariet): Add fewshot evaluation.
-  fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
+  ntrain_img = input_utils.get_num_examples(
+      config.dataset,
+      split=config.train_split,
+      process_batch_size=local_batch_size,
+      data_dir=config.get('data_dir'))
+  steps_per_epoch = int(ntrain_img / batch_size)
 
-  opt_name = config.get('optim_name')
-  opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
+  if config.get('num_epochs'):
+    total_steps = int(config.num_epochs * steps_per_epoch)
+    assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
+  else:
+    total_steps = config.total_steps
 
-  eval_config = copy.deepcopy(config)
-  if config.get('eval_overrides'):
-    with eval_config.unlocked():
-      eval_config.update(config.eval_overrides)
-  model = getattr(ub.models, config.model_name)
+  logging.info('Total train data points: %d', ntrain_img)
+  logging.info(
+      'Running for %d steps, that means %f epochs and %d steps per epoch',
+      total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
-  model_train = model(
-      num_classes=config.num_classes, train=True, **config.model)
-  model_eval = model(
-      num_classes=config.num_classes, train=False, **config.model)
+  write_note('Initializing model...')
+  logging.info('config.model = %s', config.get('model'))
+  model = ub.models.VisionTransformerMIMO(
+      num_classes=config.num_classes,
+      **config.get('model', {}))
 
-  image_size = tuple(train_ds.element_spec['image'].shape[2:])
-  logging.info('Model initialization: Starting.')
-
-  @functools.partial(jax.jit, backend='cpu')
-  def init(rng_init):
-    dummy_input = jnp.zeros((batch_size_per_core,) + image_size, jnp.float32)
-    params = model_eval.init(rng_init, dummy_input)['params']
-    params = flax.core.unfreeze(params)
+  # We want all parameters to be created in host RAM, not on any device, they'll
+  # be sent there later as needed, otherwise we already encountered two
+  # situations where we allocate them twice.
+  @partial(jax.jit, backend='cpu')
+  def init(rng):
+    image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    logging.info('image_size = %s', image_size)
+    input_shape = ((local_batch_size * config.mimo.batch_repetitions,) +
+                   image_size[:-1] +
+                   (image_size[-1] * config.model.ensemble_size,))
+    dummy_input = jnp.zeros(input_shape, jnp.float32)
+    params = flax.core.unfreeze(model.init(rng, dummy_input,
+                                           train=False))['params']
 
     # Set bias in the head to a low value, such that loss is small initially.
-    params['batchensemble_head']['bias'] = jnp.full_like(
-        params['batchensemble_head']['bias'], config.get('init_head_bias', 0))
+    params['head']['bias'] = jnp.full_like(
+        params['head']['bias'], config.get('init_head_bias', 0))
 
     # init head kernel to all zeros for fine-tuning
     if config.get('model_init'):
-      params['batchensemble_head']['kernel'] = jnp.full_like(
-          params['batchensemble_head']['kernel'], 0)
+      params['head']['kernel'] = jnp.full_like(params['head']['kernel'], 0)
 
     return params
 
   rng, rng_init = jax.random.split(rng)
-  params_init = init(rng_init)
-  opt_init = opt_def.create(params_init)
+  params_cpu = init(rng_init)
 
-  weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
-  weight_decay_fn = train_utils.get_weight_decay_fn(
-      weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
+  if jax.process_index() == 0:
+    num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
+    parameter_overview.log_parameter_overview(params_cpu)
+    writer.write_scalars(step=0, scalars={'num_params': num_params})
 
-  def batch_loss_fn(params, inputs, labels, *args, **kwargs):
-    logits, _ = model_train.apply(
-        {'params': params}, inputs, *args, **kwargs)
-    labels = jnp.tile(labels, (ens_size, 1))
-    loss = jnp.mean(loss_to_apply(logits=logits, labels=labels))
-    return loss, dict()
-
-  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
-  def pmap_update_fn(opt, rngs, lr, images, labels):
-    return batchensemble_utils.update_fn_be(
-        opt=opt, rngs=rngs, lr=lr, images=images, labels=labels,
-        batch_loss_fn=batch_loss_fn,
-        weight_decay_fn=weight_decay_fn,
-        plot_grad_norm_name_fn=None,
-        plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
-        max_grad_norm_global=config.get('clip_grad_norm', None),
-        frozen_vars_patterns=config.get('frozen_var_patterns', None),
-        fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
-
-  @functools.partial(jax.pmap, axis_name='batch')
+  @partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    tiled_logits, out = model_eval.apply({'params': flax.core.freeze(params)},
-                                         images)
-
+    tiled_images = jnp.tile(images, (1, 1, 1, config.model.ensemble_size,))
+    tiled_logits, out = model.apply({'params': flax.core.freeze(params)},
+                                    tiled_images,
+                                    train=False)
     loss_name = config.get('loss', 'sigmoid_xent')
     # TODO(dusenberrymw,zmariet): Clean up and generalize this.
     if loss_name == 'sigmoid_xent':
-      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+      logits = batchensemble_utils.log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(tiled_logits, config.model.ensemble_size)))
     else:  # softmax
-      ens_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+      logits = batchensemble_utils.log_average_softmax_probs(
+          jnp.asarray(jnp.split(tiled_logits, config.model.ensemble_size)))
 
-    losses = getattr(train_utils, loss_name)(
-        logits=ens_logits,
-        labels=labels[:, :config.num_classes],
-        reduction=False)
+    label_indices = config.get('label_indices')
+    logging.info('!!! mask %s, label_indices %s', mask, label_indices)
+    if label_indices:
+      logits = logits[:, label_indices]
+
+    # Note that logits and labels are usually of the shape [batch,num_classes].
+    # But for OOD data, when num_classes_ood > num_classes_ind, we need to
+    # adjust labels to labels[:, :config.num_classes] to match the shape of
+    # logits. That is just to avoid shape mismatch. The output losses does not
+    # have any meaning for OOD data, because OOD not belong to any IND class.
+    losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
+        logits=logits,
+        labels=labels[:, :(len(label_indices) if label_indices
+                           else config.num_classes)], reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
-    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_idx = jnp.argmax(logits, axis=1)
+    # Extracts the label at the highest logit index for each image.
     top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
 
-    metric_args = jax.lax.all_gather(
-        [ens_logits, labels, pre_logits, mask],
-        axis_name='batch')
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
+                                     axis_name='batch')
     return ncorrect, loss, n, metric_args
 
-  @functools.partial(jax.pmap, axis_name='batch')
+  @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, images, labels, mask):
-    tiled_logits, out = model_eval.apply({'params': flax.core.freeze(params)},
-                                         images)
-    loss_name = config.get('loss', 'softmax_xent')
-    if loss_name == 'sigmoid_xent':
-      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
-    else:  # softmax
-      ens_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
-
+    # TODO(trandustin): Implement mimo eval.
+    logits, out = model.apply({'params': flax.core.freeze(params)},
+                              images,
+                              train=False)
     label_indices = config.get('label_indices')
     if label_indices:
-      ens_logits = ens_logits[:, label_indices]
+      logits = logits[:, label_indices]
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
-        logits=ens_logits, labels=labels, reduction=False)
+        logits=logits, labels=labels, reduction=False)
     loss = jax.lax.psum(losses, axis_name='batch')
 
-    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_idx = jnp.argmax(logits, axis=1)
     # Extracts the label at the highest logit index for each image.
     one_hot_labels = jnp.eye(10)[jnp.argmax(labels, axis=1)]
 
@@ -390,39 +399,123 @@ def main(_):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([ens_logits, labels, pre_logits, mask],
+    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
+  # Setup function for computing representation.
+  @partial(jax.pmap, axis_name='batch')
+  def representation_fn(params, images, labels, mask):
+    # TODO(trandustin): See efficient ens repr fn implementation. Also
+    # ensemble_few_shot.
+    _, outputs = model.apply({'params': flax.core.freeze(params)},
+                             images,
+                             train=False)
+    representation = outputs[config.fewshot.representation_layer]
+    representation = jax.lax.all_gather(representation, 'batch')
+    labels = jax.lax.all_gather(labels, 'batch')
+    mask = jax.lax.all_gather(mask, 'batch')
+    return representation, labels, mask
+
+  # Load the optimizer from flax.
+  opt_name = config.get('optim_name')
+  write_note(f'Initializing {opt_name} optimizer...')
+  opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
+
+  # We jit this, such that the arrays that are created are created on the same
+  # device as the input is, in this case the CPU. Else they'd be on device[0].
+  opt_cpu = jax.jit(opt_def.create)(params_cpu)
+
+  weight_decay_rules = config.get('weight_decay', []) or []
+  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  weight_decay_fn = train_utils.get_weight_decay_fn(
+      weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
+
+  @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
+  def update_fn(opt, lr, images, labels, rng):
+    """Update step."""
+
+    measurements = {}
+
+    # Get device-specific loss rng.
+    rng, rng_model = jax.random.split(rng, 2)
+    rng_model_local, rng_model_mimo = jax.random.split(rng_model, 2)
+
+    def loss_fn(params, images, labels):
+      replicated_images, replicated_labels = replicate_inputs_and_labels(
+          images,
+          labels,
+          config.model.ensemble_size,
+          config.mimo.batch_repetitions,
+          config.mimo.input_repetition_prob,
+          rng_model_mimo)
+
+      logits, _ = model.apply(
+          {'params': flax.core.freeze(params)}, replicated_images,
+          train=True, rngs={'dropout': rng_model_local})
+      label_indices = config.get('label_indices')
+      if label_indices:
+        logits = logits[:, label_indices]
+      return getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
+          logits=logits, labels=replicated_labels)
+
+    # Implementation considerations compared and summarized at
+    # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
+    l, g = train_utils.accumulate_gradient(
+        jax.value_and_grad(loss_fn), opt.target, images, labels,
+        config.get('grad_accum_steps'))
+    l, g = jax.lax.pmean((l, g), axis_name='batch')
+
+    # Log the gradient norm only if we need to compute it anyways (clipping)
+    # or if we don't use grad_accum_steps, as they interact badly.
+    if config.get('grad_accum_steps', 1) == 1 or config.get('grad_clip_norm'):
+      grads, _ = jax.tree_flatten(g)
+      l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
+      measurements['l2_grads'] = l2_g
+
+    # Optionally resize the global gradient to a maximum norm. We found this
+    # useful in some cases across optimizers, hence it's in the main loop.
+    if config.get('grad_clip_norm'):
+      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
+      g = jax.tree_util.tree_map(lambda p: g_factor * p, g)
+    opt = opt.apply_gradient(g, learning_rate=lr)
+
+    opt = opt.replace(target=weight_decay_fn(opt.target, lr))
+
+    params, _ = jax.tree_flatten(opt.target)
+    measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
+
+    return opt, l, rng, measurements
+
+  rng, train_loop_rngs = jax.random.split(rng)
+  reint_params = ('head/kernel', 'head/bias')
+  if config.get('only_eval', False) or not config.get('reint_head', True):
+    reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
-      train_loop_rngs=rng,
+      train_loop_rngs=train_loop_rngs,
       save_checkpoint_path=save_checkpoint_path,
-      init_optimizer=opt_init,
-      init_params=opt_init.target,
+      init_optimizer=opt_cpu,
+      init_params=params_cpu,
       init_fixed_model_states=None,
-      default_reinit_params=['batchensemble_head/bias',
-                             'batchensemble_head/kernel'],
-      config=config)
-
-  opt = checkpoint_data.optimizer
-  train_loop_rngs = {'params': checkpoint_data.train_loop_rngs}
-  opt = opt.replace(target=opt.target)
-  first_step = int(opt.state.step)
-
+      default_reinit_params=reint_params,
+      config=config,
+  )
+  train_loop_rngs = checkpoint_data.train_loop_rngs
+  opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
+
   write_note('Adapting the checkpoint model...')
   adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_init,
-      loaded_params=opt.target)
-  opt = opt.replace(target=adapted_params)
-  opt = flax.jax_utils.replicate(opt)
+      init_params=params_cpu,
+      loaded_params=opt_cpu.target)
+  opt_cpu = opt_cpu.replace(target=adapted_params)
 
   write_note('Kicking off misc stuff...')
+  first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
   chrono = train_utils.Chrono(
-      first_step, total_steps, config.batch_size, accumulated_train_time)
-
+      first_step, total_steps, batch_size, accumulated_train_time)
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -433,9 +526,28 @@ def main(_):
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
                                                     **config.get('lr', {}))
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
   lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)),
-      config.get('prefetch_to_device', 1))
+      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
+
+  write_note(f'Replicating...\n{chrono.note}')
+  opt_repl = flax_utils.replicate(opt_cpu)
+
+  write_note(f'Initializing few-shotters...\n{chrono.note}')
+  fewshotter = None
+  if 'fewshot' in config and fewshot is not None:
+    fewshotter = fewshot.FewShotEvaluator(
+        representation_fn, config.fewshot,
+        config.fewshot.get('batch_size') or batch_size_eval)
+
+  checkpoint_writer = None
+
+  # Note: we return the train loss, val loss, and fewshot best l2s for use in
+  # reproducibility unit tests.
+  train_loss = -jnp.inf
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_ds_splits.items()}
+  fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
@@ -444,35 +556,37 @@ def main(_):
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
-    # TODO(zmariet): Find better way to cut down iteration advancement cost.
-    if not config.get('disable_preemption_reproducibility', False):
-      train_iter = itertools.islice(train_iter, first_step, None)
+    train_iter = itertools.islice(train_iter, first_step, None)
 
+  # Using a python integer for step here, because opt.state.step is allocated
+  # on TPU during replication.
   for step, train_batch, lr_repl in zip(
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
+
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
-      opt, train_loop_rngs, loss_value, extra_measurements = pmap_update_fn(
-          opt,
-          train_loop_rngs,
-          lr_repl,
-          train_batch['image'],
-          train_batch['labels'])
+      if not config.get('only_eval', False):
+        opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
+            opt_repl,
+            lr_repl,
+            train_batch['image'],
+            train_batch['labels'],
+            rng=train_loop_rngs)
 
     if jax.process_index() == 0:
       profiler(step)
 
-    # Checkpoint saving.
-    if train_utils.itstime(
-        step=step,
-        every_n_steps=config.get('checkpoint_steps'),
-        total_steps=total_steps,
-        process=0):
+    # Checkpoint saving
+    if not config.get('only_eval', False) and train_utils.itstime(
+        step, config.get('checkpoint_steps'), total_steps, process=0):
       write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
       accumulated_train_time = chrono.accum_train_time
-      opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt)
+      # We need to transfer the weights over now or else we risk keeping them
+      # alive while they'll be updated in a future step, creating hard to debug
+      # memory errors (see b/160593526). Also, takes device 0's params only.
+      opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt_repl)
 
       # Check whether we want to keep a copy of the current checkpoint.
       copy_step = None
@@ -481,20 +595,23 @@ def main(_):
         write_note('Keeping a checkpoint copy...')
         copy_step = step
 
+      # Checkpoint should be a nested dictionary or FLAX datataclasses from
+      # `flax.struct`. Both can be present in a checkpoint.
       checkpoint_data = checkpoint_utils.CheckpointData(
           train_loop_rngs=train_loop_rngs,
           optimizer=opt_cpu,
           accumulated_train_time=accumulated_train_time)
+
       checkpoint_writer = pool.apply_async(
           checkpoint_utils.checkpoint_trained_model,
           (checkpoint_data, save_checkpoint_path, copy_step))
       chrono.resume()
 
     # Report training progress
-    if train_utils.itstime(
+    if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
-      train_loss = loss_value[0]
+      train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
@@ -506,7 +623,7 @@ def main(_):
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
 
-    # Evaluate the model.
+    # Report validation performance
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
@@ -535,11 +652,11 @@ def main(_):
         for batch in val_iter:
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                cifar_10h_evaluation_fn(opt.target, batch['image'],
+                cifar_10h_evaluation_fn(opt_repl.target, batch['image'],
                                         batch['labels'], batch['mask']))
           else:
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                evaluation_fn(opt.target, batch['image'],
+                evaluation_fn(opt_repl.target, batch['image'],
                               batch['labels'], batch['mask']))
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
@@ -584,16 +701,16 @@ def main(_):
         }
         if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
           val_measurements[f'{val_name}_ece'] = ece.result()['ece']
-          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result(
-          )['calibration_auc']
-          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result(
-          )['collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result(
-          )['collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result(
-          )['collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result(
-          )['collaborative_auc']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[
+              'calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[
+              'collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[
+              'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h':
@@ -616,10 +733,37 @@ def main(_):
             ood_ds_names,
             config.ood_methods,
             evaluation_fn,
-            opt,
+            opt_repl,
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
+
+    if 'fewshot' in config and fewshotter is not None:
+      # Compute few-shot on-the-fly evaluation.
+      if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
+        chrono.pause()
+        write_note(f'Few-shot evaluation...\n{chrono.note}')
+        # Keep `results` to return for reproducibility tests.
+        fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
+                                                      config.fewshot.datasets)
+
+        # TODO(dusenberrymw): Remove this once fewshot.py is updated.
+        def make_writer_measure_fn(step):
+
+          def writer_measure(name, value):
+            writer.write_scalars(step, {name: value})
+
+          return writer_measure
+
+        fewshotter.walk_results(
+            make_writer_measure_fn(step), fewshot_results, best_l2)
+        chrono.resume()
+
+    # End of step.
+    if config.get('testing_failure_step'):
+      # Break early to simulate infra failures in test cases.
+      if config.testing_failure_step == step:
+        break
 
   write_note(f'Done!\n{chrono.note}')
   pool.close()
@@ -630,5 +774,19 @@ def main(_):
   # reproducibility test cases.
   return train_loss, val_loss, fewshot_results
 
+
 if __name__ == '__main__':
-  app.run(main)
+  # Adds jax flags to the program.
+  jax.config.config_with_absl()
+
+  # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
+  # function that returns values for tests and does not directly access flags,
+  # and then have `main` return None.
+
+  def _main(argv):
+    del argv
+    config = FLAGS.config
+    output_dir = FLAGS.output_dir
+    main(config, output_dir)
+
+  app.run(_main)  # Ignore the returned values from `main`.

@@ -29,6 +29,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import batchensemble  # local file import from baselines.jft
+import batchensemble_utils  # local file import from baselines.jft
 
 flags.adopt_module_key_flags(batchensemble)
 FLAGS = flags.FLAGS
@@ -134,13 +135,15 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     np.random.seed(42)
     ensemble_logits = jnp.asarray(np.random.normal(size=logits_shape))
 
-    actual_logits = batchensemble._log_average_softmax_probs(ensemble_logits)
+    actual_logits = batchensemble_utils.log_average_softmax_probs(
+        ensemble_logits)
     self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
 
     expected_probs = jnp.mean(jax.nn.softmax(ensemble_logits), axis=0)
     self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
 
-    actual_logits = batchensemble._log_average_sigmoid_probs(ensemble_logits)
+    actual_logits = batchensemble_utils.log_average_sigmoid_probs(
+        ensemble_logits)
     self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
 
     expected_probs = jnp.mean(jax.nn.sigmoid(ensemble_logits), axis=0)

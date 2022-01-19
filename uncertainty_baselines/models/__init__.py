@@ -76,6 +76,7 @@ try:
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp
   from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
+  from uncertainty_baselines.models.vit_mimo import VisionTransformerMIMO
   from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)

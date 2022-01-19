@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-L/32 finetuning on CIFAR-10 from upstream deterministic.
+r"""ViT-L/32 finetuning on CIFAR-10 from upstream batchensemble.
 
 """
 # pylint: enable=line-too-long
@@ -121,13 +121,12 @@ def get_config():
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.001
+  config.lr.base = 1e-3
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
 
   config.batch_size = 1024  # Global batch size.
   config.batch_size_eval = 1024  # Global batch size.
-
   return config
 
 

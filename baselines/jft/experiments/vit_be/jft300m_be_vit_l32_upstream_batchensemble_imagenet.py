@@ -133,5 +133,5 @@ def get_sweep(hyper):
   return hyper.product([
       hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
       hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003]),
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
   ])

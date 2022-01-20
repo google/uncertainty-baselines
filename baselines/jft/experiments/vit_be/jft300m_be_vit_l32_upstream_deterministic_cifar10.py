@@ -35,6 +35,7 @@ def get_config():
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
+  config.batch_size_eval = BATCH_SIZE  # Global batch size.
 
   config.total_steps = 10_000
 
@@ -124,9 +125,6 @@ def get_config():
   config.lr.base = 0.001
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-
-  config.batch_size = 1024  # Global batch size.
-  config.batch_size_eval = 1024  # Global batch size.
 
   return config
 

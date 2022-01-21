@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import checkpoint_utils  # local file import from baselines.diabetic_retinopathy_detection
+import checkpoint_utils  # local file import from baselines.jft
 
 # TODO(zmariet, dusenberrymw): create separate typing module.
 Params = checkpoint_utils.Params

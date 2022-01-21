@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,57 +34,6 @@ def _maybe_repeat(arg, n_reps):
 def all_ops():
   """Returns all preprocessing ops defined in this module."""
   return preprocess_spec.get_all_ops(__name__)
-
-
-@dataclasses.dataclass
-class DiabeticRetinopathyPreprocess:
-  """Processes a retina image by resizing and binarizing the labels
-    according to a given decision threshold.
-
-  Attributes:
-    pp_input_res: Input resolution to which we scale the image.
-    channels: Number of image channels.
-    key: Key of the data to be processed.
-    decision_threshold: Determines at which threshold the labels
-      should be binarized.
-    key_result: Key under which to store the result (same as `key` if None).
-  """
-
-  pp_input_res: int = 512
-  channels: int = 3
-  key: str = "image"
-  decision_threshold: str = "moderate"
-  key_result: Optional[str] = None
-
-  def __call__(self, features: Features) -> Features:
-    image_data = features[self.key]
-    decoded_image = tf.io.decode_image(
-        image_data, channels=self.channels, expand_animations=False)
-
-    # Also scales pixel values to (0, 1)
-    decoded_image = tf.image.convert_image_dtype(decoded_image, tf.float32)
-
-    decoded_image = tf.image.resize(
-      decoded_image,
-      size=(self.pp_input_res, self.pp_input_res), method='bilinear')
-
-    # * Binarize task *
-
-    # Get decision threshold
-    if self.decision_threshold == 'mild':
-      highest_negative_class = 0
-    elif self.decision_threshold == 'moderate':
-      highest_negative_class = 1
-    else:
-      raise NotImplementedError
-
-    # Perform binarization using given threshold
-    labels = features['label']
-    labels = tf.cast(labels > highest_negative_class, tf.int32)
-    features[self.key_result or self.key] = decoded_image
-    features['labels'] = labels
-    del features['label']
-    return features
 
 
 @dataclasses.dataclass

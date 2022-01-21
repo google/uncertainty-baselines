@@ -261,41 +261,37 @@ def main(argv):
 
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
-    output_dir, just_logging=jax.process_index() > 0)
+      output_dir, just_logging=jax.process_index() > 0)
 
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
   def write_note(note):
-    if jax.host_id() == 0:
+    if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
-
   write_note('Initializing...')
 
-  fillin = lambda *_: None
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
     assert config.keep_checkpoint_steps % config.checkpoint_steps == 0, (
-      f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
-      f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
+        f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
+        f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
 
   batch_size_eval = config.get('batch_size_eval', batch_size)
   if (batch_size % jax.device_count() != 0 or
       batch_size_eval % jax.device_count() != 0):
-    raise ValueError(
-      f'Batch sizes ({batch_size} and {batch_size_eval}) must '
-      f'be divisible by device number ({jax.device_count()})')
+    raise ValueError(f'Batch sizes ({batch_size} and {batch_size_eval}) must '
+                     f'be divisible by device number ({jax.device_count()})')
 
-  local_batch_size = batch_size // jax.host_count()
-  local_batch_size_eval = batch_size_eval // jax.host_count()
+  local_batch_size = batch_size // jax.process_count()
+  local_batch_size_eval = batch_size_eval // jax.process_count()
   logging.info(
-    'Global batch size %d on %d hosts results in %d local batch size. '
-    'With %d devices per host (%d devices total), that\'s a %d per-device '
-    'batch size.',
-    batch_size, jax.host_count(), local_batch_size,
-    jax.local_device_count(), jax.device_count(),
-    local_batch_size // jax.local_device_count())
+      'Global batch size %d on %d hosts results in %d local batch size. '
+      'With %d dev per host (%d dev total), that is a %d per-device batch size.',
+      batch_size,
+      jax.process_count(), local_batch_size, jax.local_device_count(),
+      jax.device_count(), local_batch_size // jax.local_device_count())
 
   write_note('Initializing preprocessing function...')
   # Same preprocessing function for training and evaluation
@@ -318,17 +314,15 @@ def main(argv):
     shuffle_buffer_size=config.shuffle_buffer_size,
     prefetch_size=config.get('prefetch_to_host', 2),
     data_dir=config.get('data_dir'))
+  logging.info('image_size = %s', train_ds.element_spec['image'].shape[1:])
 
   # Start prefetching already.
   train_iter = input_utils.start_input_pipeline(
-    train_ds, config.get('prefetch_to_device', 1))
+      train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
 
-  def _get_val_split(dataset,
-                     split,
-                     pp_eval,
-                     data_dir=None):
+  def _get_val_split(dataset, split, pp_eval, data_dir=None):
     del pp_eval  # Same as pp_train for Diabetic Retinopathy.
 
     # We do ceil rounding such that we include the last incomplete batch.
@@ -337,7 +331,7 @@ def main(argv):
       split=split,
       process_batch_size=local_batch_size_eval,
       drop_remainder=False,
-      data_dir=fillin(data_dir))
+      data_dir=data_dir)
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
@@ -352,7 +346,7 @@ def main(argv):
       shuffle=False,
       prefetch_size=config.get('prefetch_to_host', 2),
       drop_remainder=False,
-      data_dir=config.get('data_dir'))
+      data_dir=data_dir)
     val_iter = input_utils.start_input_pipeline(
       val_ds, config.get('prefetch_to_device', 1))
     return val_iter, val_steps
@@ -380,22 +374,24 @@ def main(argv):
       pp_eval=config.pp_eval,
       data_dir=config.get('data_dir'))
   }
+
   ntrain_img = input_utils.get_num_examples(
     train_dataset_builder,
     split=train_split,
     process_batch_size=local_batch_size,
     data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size
+
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
-    assert not config.get(
-      'total_steps'), 'Set either num_epochs or total_steps'
+    assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
   else:
     total_steps = FLAGS.total_steps
 
+  logging.info('Total train data points: %d', ntrain_img)
   logging.info(
-    'Running for %d steps, that means %f epochs and %f steps per epoch',
-    total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
+      'Running for %d steps, that means %f epochs and %d steps per epoch',
+      total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
@@ -479,8 +475,8 @@ def main(argv):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
-  weight_decay_rules = weight_decay or []
-  rescale_value = FLAGS.lr_base if config.get('weight_decay_decouple') else 1.
+  weight_decay_rules = config.get('weight_decay', []) or []
+  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
@@ -553,29 +549,6 @@ def main(argv):
     measurements['reset_covmat'] = reset_covmat
 
     return opt, s, l, rng, measurements
-
-    #
-    #
-    # decay_rules = weight_decay or []
-    # if isinstance(decay_rules, numbers.Number):
-    #   decay_rules = [('.*kernel.*', decay_rules)]
-    # # sched_m = lr / config.lr.base if config.get(
-    # #   'weight_decay_decouple') else lr
-    # sched_m = lr / FLAGS.lr_base if config.get(
-    #   'weight_decay_decouple') else lr
-    #
-    # def decay_fn(v, wd):
-    #   return (1.0 - sched_m * wd) * v
-    #
-    # opt = opt.replace(
-    #   target=train_utils.tree_map_with_regex(decay_fn, opt.target,
-    #                                          decay_rules))
-    #
-    # params, _ = jax.tree_flatten(opt.target)
-    # measurements['l2_params'] = jnp.sqrt(
-    #   sum([jnp.vdot(p, p) for p in params]))
-    #
-    # return opt, l, rng, measurements
 
   default_reinit_params = ('head/output_layer/kernel', 'head/output_layer/bias',
                            'head/kernel', 'head/bias')
@@ -651,15 +624,6 @@ def main(argv):
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
-    # NOTE: Validation eval is only run on certain steps, so determine how many
-    # times it was run previously.
-    num_val_runs = sum(
-        map(
-            lambda i: train_utils.itstime(i, log_eval_steps, total_steps
-                                          ), range(1, first_step + 1)))
-    for val_name, (val_iter, val_steps) in val_iter_splits.items():
-      val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
-      val_iter_splits[val_name] = (val_iter, val_steps)
 
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
@@ -678,6 +642,7 @@ def main(argv):
            train_batch['image'],
            train_batch['labels'],
            rng=train_loop_rngs)
+
     if jax.process_index() == 0:
       profiler(step)
 
@@ -829,4 +794,15 @@ def main(argv):
 
 
 if __name__ == '__main__':
-  app.run(main)
+  # Adds jax flags to the program.
+  jax.config.config_with_absl()
+
+  # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
+  # function that returns values for tests and does not directly access flags,
+  # and then have `main` return None.
+
+  def _main(argv):
+    del argv
+    main(FLAGS.config, FLAGS.output_dir)
+
+  app.run(_main)  # Ignore the returned values from `main`.

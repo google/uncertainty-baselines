@@ -243,30 +243,27 @@ def main(argv):
 
   write_note('Initializing...')
 
-  fillin = lambda *_: None
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
     assert config.get('checkpoint_steps'), 'Specify `checkpoint_steps`.'
     assert config.keep_checkpoint_steps % config.checkpoint_steps == 0, (
-      f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
-      f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
+        f'`keep_checkpoint_steps` ({config.checkpoint_steps}) should be'
+        f'divisible by `checkpoint_steps ({config.checkpoint_steps}).`')
 
   batch_size_eval = config.get('batch_size_eval', batch_size)
   if (batch_size % jax.device_count() != 0 or
       batch_size_eval % jax.device_count() != 0):
-    raise ValueError(
-      f'Batch sizes ({batch_size} and {batch_size_eval}) must '
-      f'be divisible by device number ({jax.device_count()})')
+    raise ValueError(f'Batch sizes ({batch_size} and {batch_size_eval}) must '
+                     f'be divisible by device number ({jax.device_count()})')
 
-  local_batch_size = batch_size // jax.host_count()
-  local_batch_size_eval = batch_size_eval // jax.host_count()
+  local_batch_size = batch_size // jax.process_count()
+  local_batch_size_eval = batch_size_eval // jax.process_count()
   logging.info(
-    'Global batch size %d on %d hosts results in %d local batch size. '
-    'With %d devices per host (%d devices total), that\'s a %d per-device '
-    'batch size.',
-    batch_size, jax.host_count(), local_batch_size,
-    jax.local_device_count(), jax.device_count(),
-    local_batch_size // jax.local_device_count())
+      'Global batch size %d on %d hosts results in %d local batch size. '
+      'With %d devices per host (%d devices total), that\'s a %d per-device '
+      'batch size.', batch_size, jax.process_count(), local_batch_size,
+      jax.local_device_count(), jax.device_count(),
+      local_batch_size // jax.local_device_count())
 
   write_note('Initializing preprocessing function...')
   # Same preprocessing function for training and evaluation
@@ -308,7 +305,7 @@ def main(argv):
       split=split,
       process_batch_size=local_batch_size_eval,
       drop_remainder=False,
-      data_dir=fillin(data_dir))
+      data_dir=data_dir)
     val_steps = int(np.ceil(nval_img / batch_size_eval))
     logging.info('Running validation for %d steps for %s, %s', val_steps,
                  dataset, split)
@@ -351,27 +348,29 @@ def main(argv):
       pp_eval=config.pp_eval,
       data_dir=config.get('data_dir'))
   }
+
   ntrain_img = input_utils.get_num_examples(
     train_dataset_builder,
     split=train_split,
     process_batch_size=local_batch_size,
     data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size
+
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
-    assert not config.get(
-      'total_steps'), 'Set either num_epochs or total_steps'
+    assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
   else:
     total_steps = FLAGS.total_steps
 
+  logging.info('Total train data points: %d', ntrain_img)
   logging.info(
-    'Running for %d steps, that means %f epochs and %f steps per epoch',
-    total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
+      'Running for %d steps, that means %f epochs and %d steps per epoch',
+      total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
   model = ub.models.vision_transformer(
-    num_classes=config.num_classes, **config.get('model', {}))
+      num_classes=config.num_classes, **config.get('model', {}))
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two
@@ -386,7 +385,7 @@ def main(argv):
 
     # Set bias in the head to a low value, such that loss is small initially.
     params['head']['bias'] = jnp.full_like(
-      params['head']['bias'], config.get('init_head_bias', 0))
+        params['head']['bias'], config.get('init_head_bias', 0))
 
     # init head kernel to all zeros for fine-tuning
     if config.get('model_init'):
@@ -487,53 +486,41 @@ def main(argv):
 
     return opt, l, rng, measurements
 
-  # Other things besides optimizer state to be stored.
-  rng, rng_loop = jax.random.split(rng, 2)
-  rngs_loop = flax_utils.replicate(rng_loop)
-  checkpoint_extra = dict(accum_train_time=0.0, rngs_loop=rngs_loop)
+  rng, train_loop_rngs = jax.random.split(rng)
+  reint_params = ('head/kernel', 'head/bias')
+  if config.get('only_eval', False) or not config.get('reint_head', True):
+    reint_params = []
+  checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
+    train_loop_rngs=train_loop_rngs,
+    save_checkpoint_path=save_checkpoint_path,
+    init_optimizer=opt_cpu,
+    init_params=params_cpu,
+    init_fixed_model_states=None,
+    default_reinit_params=reint_params,
+    config=config,
+  )
+  train_loop_rngs = checkpoint_data.train_loop_rngs
+  opt_cpu = checkpoint_data.optimizer
+  accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  # Decide how to initialize training. The order is important.
-  # 1. Always resumes from the existing checkpoint, e.g. resumes a finetune job.
-  # 2. Resume from a previous checkpoint, e.g. start a cooldown training job.
-  # 3. Initialize model from something, e,g, start a fine-tuning job.
-  # 4. Train from scratch.
-  resume_checkpoint_path = None
-  if save_checkpoint_path and gfile.exists(save_checkpoint_path):
-    resume_checkpoint_path = save_checkpoint_path
-  elif config.get('resume'):
-    resume_checkpoint_path = config.resume
-  # if resume_checkpoint_path:
-  #   write_note('Resume training from checkpoint...')
-  #   checkpoint_tree = {'opt': opt_cpu, 'extra': checkpoint_extra}
-  #   checkpoint = checkpoint_utils.load_checkpoint(checkpoint_tree,
-  #                                                 resume_checkpoint_path)
-  #   opt_cpu, checkpoint_extra = checkpoint['opt'], checkpoint['extra']
-  #   rngs_loop = checkpoint_extra['rngs_loop']
-  if config.get('model_init'):
-    write_note(f'Initialize model from {config.model_init}...')
-    reinit_params = config.get('model_reinit_params',
-                               ('head/kernel', 'head/bias'))
-    logging.info('Reinitializing these parameters: %s', reinit_params)
-    loaded = checkpoint_utils.load_from_pretrained_checkpoint(
-      params_cpu, config.model_init, config.model.representation_size,
-      config.model.classifier, reinit_params)
-    opt_cpu = opt_cpu.replace(target=loaded)
-    if jax.host_id() == 0:
-      logging.info('Restored parameter overview:')
-      parameter_overview.log_parameter_overview(loaded)
+  write_note('Adapting the checkpoint model...')
+  adapted_params = checkpoint_utils.adapt_upstream_architecture(
+    init_params=params_cpu,
+    loaded_params=opt_cpu.target)
+  opt_cpu = opt_cpu.replace(target=adapted_params)
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
-  chrono = train_utils.Chrono(first_step, total_steps, batch_size,
-                              checkpoint_extra['accum_train_time'])
+  chrono = train_utils.Chrono(
+      first_step, total_steps, batch_size, accumulated_train_time)
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
-    # Create profile after every restart to analyze pre-emption related
-    # problems and assure we get similar performance in every run.
-    logdir=output_dir, first_profile=first_step + 10)
+      # Create profile after every restart to analyze pre-emption related
+      # problems and assure we get similar performance in every run.
+      logdir=output_dir, first_profile=first_step + 10)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
   # lr_fn = train_utils.create_learning_rate_schedule(total_steps,
@@ -564,44 +551,32 @@ def main(argv):
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
-    # NOTE: Validation eval is only run on certain steps, so determine how many
-    # times it was run previously.
-    num_val_runs = sum(
-      map(
-        lambda i: train_utils.itstime(i, config.log_eval_steps,
-                                      total_steps
-                                      ), range(1, first_step + 1)))
-    for val_name, (val_iter, val_steps) in val_iter_splits.items():
-      val_iter = itertools.islice(val_iter, num_val_runs * val_steps,
-                                  None)
-      val_iter_splits[val_name] = (val_iter, val_steps)
 
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
   for step, train_batch, lr_repl in zip(
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
 
-    with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
-      opt_repl, loss_value, rngs_loop, extra_measurements = update_fn(
-        opt_repl,
-        lr_repl,
-        train_batch['image'],
-        train_batch['labels'],
-        rng=rngs_loop)
+    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+      if not config.get('only_eval', False):
+        opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
+          opt_repl,
+          lr_repl,
+          train_batch['image'],
+          train_batch['labels'],
+          rng=train_loop_rngs)
 
     if jax.process_index() == 0:
       profiler(step)
 
     # Checkpoint saving
-    if train_utils.itstime(
-        step, config.get('checkpoint_steps'), total_steps, host=0):
+    if not config.get('only_eval', False) and train_utils.itstime(
+        step, config.get('checkpoint_steps'), total_steps, process=0):
       write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
-                                        config.get('checkpoint_timeout',
-                                                   1))
-      checkpoint_extra['accum_train_time'] = chrono.accum_train_time
-      checkpoint_extra['rngs_loop'] = rngs_loop
+                                        config.get('checkpoint_timeout', 1))
+      accumulated_train_time = chrono.accum_train_time
       # We need to transfer the weights over now or else we risk keeping them
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
@@ -616,18 +591,21 @@ def main(argv):
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
       # `flax.struct`. Both can be present in a checkpoint.
-      checkpoint = {'opt': opt_cpu, 'extra': checkpoint_extra}
+      checkpoint_data = checkpoint_utils.CheckpointData(
+        train_loop_rngs=train_loop_rngs,
+        optimizer=opt_cpu,
+        accumulated_train_time=accumulated_train_time)
+
       checkpoint_writer = pool.apply_async(
-        checkpoint_utils.save_checkpoint,
-        (checkpoint, save_checkpoint_path, copy_step))
+        checkpoint_utils.checkpoint_trained_model,
+        (checkpoint_data, save_checkpoint_path, copy_step))
       chrono.resume()
 
     # Report training progress
-    if train_utils.itstime(
-        step, config.log_training_steps, total_steps, host=0):
+    if not config.get('only_eval', False) and train_utils.itstime(
+        step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
-      train_loss = loss_value[
-        0]  # Keep to return for reproducibility tests.
+      train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
@@ -635,8 +613,7 @@ def main(argv):
         'learning_rate': lr_repl[0],
         'training_loss': train_loss,
       })
-      train_measurements.update(
-        flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
 
@@ -736,4 +713,17 @@ def main(argv):
 
 
 if __name__ == '__main__':
-  app.run(main)
+  # Adds jax flags to the program.
+  jax.config.config_with_absl()
+
+  # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
+  # function that returns values for tests and does not directly access flags,
+  # and then have `main` return None.
+
+  def _main(argv):
+    del argv
+    config = FLAGS.config
+    output_dir = FLAGS.output_dir
+    main(config, output_dir)
+
+  app.run(_main)  # Ignore the returned values from `main`.

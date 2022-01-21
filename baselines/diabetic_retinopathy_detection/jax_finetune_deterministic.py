@@ -48,7 +48,7 @@ DEFAULT_NUM_EPOCHS = 90
 
 # Data load / output flags.
 flags.DEFINE_string(
-  'output_dir', '/tmp/diabetic_retinopathy_detection/vit-16-i21k',
+  'output_dir', '/tmp/diabetic_retinopathy_detection/vit-16-i21k/deterministic',
   'The directory where the model weights and training/evaluation summaries '
   'are stored. If you aim to use these as trained models for ensemble.py, '
   'you should specify an output_dir name that includes the random seed to '

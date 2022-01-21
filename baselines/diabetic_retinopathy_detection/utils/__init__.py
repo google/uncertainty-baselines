@@ -23,3 +23,4 @@ from .model_utils import *  # local file import from baselines.diabetic_retinopa
 from .plot_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.plot_utils
 from .results_storage_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
 from .uncertainty_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.uncertainty_utils
+from .vit_eval_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.vit_eval_utils

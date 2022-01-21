@@ -93,7 +93,7 @@ def _make_features_spec() -> Dict[str, tf.io.FixedLenFeature]:
       _EDGE_MASK_FEATURE_NAME:
           tf.io.FixedLenFeature([_MAX_NODES, _MAX_NODES], tf.float32),
       _DISTANCE_TO_TRAIN_NAME:
-            tf.io.FixedLenFeature(shape=[1], dtype=tf.float32),
+          tf.io.FixedLenFeature(shape=[1], dtype=tf.float32),
       _EXAMPLE_NAME:
           tf.io.FixedLenFeature([], tf.string)
   }
@@ -144,8 +144,7 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
 
   def __init__(self, data_dir, **kwargs):
     self._num_examples, self._file_names = _get_num_examples_and_filenames()
-    super().__init__(
-        data_dir=data_dir, **kwargs)
+    super().__init__(data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
     self._data_dir = data_dir
@@ -155,12 +154,11 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
     raise NotImplementedError(
         'Must provide a data_dir with the files already downloaded to.')
 
-  def _as_dataset(
-      self,
-      split: tfds.Split,
-      decoders=None,
-      read_config=None,
-      shuffle_files=False) -> tf.data.Dataset:
+  def _as_dataset(self,
+                  split: tfds.Split,
+                  decoders=None,
+                  read_config=None,
+                  shuffle_files=False) -> tf.data.Dataset:
     """Constructs a `tf.data.Dataset`."""
     del decoders
     del read_config
@@ -214,9 +212,10 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
         # Note that while metadata seems to be the most appropriate way to store
         # arbitrary info, it will not be printed when printing out the dataset
         # info.
-        metadata=tfds.core.MetadataDict(max_nodes=_MAX_NODES,
-                                        node_features=_NODE_FEATURE_LENGTH,
-                                        edge_features=_EDGE_FEATURE_LENGTH))
+        metadata=tfds.core.MetadataDict(
+            max_nodes=_MAX_NODES,
+            node_features=_NODE_FEATURE_LENGTH,
+            edge_features=_EDGE_FEATURE_LENGTH))
 
     # Instead of having a single element shard_lengths, we should really have a
     # list of the number of elements in each file shard in each split.
@@ -225,21 +224,29 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
             name=tfds.Split.VALIDATION,
             shard_lengths=[self._num_examples['validation']],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.VALIDATION),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TEST,
             shard_lengths=[self._num_examples['test']],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TEST),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split('test2'),
             shard_lengths=[self._num_examples['test2']],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split('test2')),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TRAIN,
             shard_lengths=[self._num_examples['train']],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TRAIN),
         ),
     ]
     split_dict = tfds.core.SplitDict(

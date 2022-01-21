@@ -23,7 +23,6 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
-
 NUM_INT_FEATURES = 13  # Number of Criteo integer features.
 NUM_CAT_FEATURES = 26  # Number of Criteo categorical features.
 NUM_TOTAL_FEATURES = NUM_INT_FEATURES + NUM_CAT_FEATURES
@@ -65,9 +64,8 @@ def apply_randomization(features, label, randomize_prob):
           tf.random.uniform(tf.shape(features[key]), 0, 99999999, tf.int32))  # pylint: disable=cell-var-from-loop
 
     # Ignore lint since tf.cond should evaluate lambda immediately.
-    features[key] = tf.cond(tf.random.uniform([]) < randomize_prob,
-                            rnd_tok,
-                            lambda: features[key])  # pylint: disable=cell-var-from-loop
+    features[key] = tf.cond(
+        tf.random.uniform([]) < randomize_prob, rnd_tok, lambda: features[key])  # pylint: disable=cell-var-from-loop
   return features, label
 
 
@@ -94,12 +92,11 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
     raise NotImplementedError(
         'Must provide a data_dir with the files already downloaded to.')
 
-  def _as_dataset(
-      self,
-      split: tfds.Split,
-      decoders=None,
-      read_config=None,
-      shuffle_files=False) -> tf.data.Dataset:
+  def _as_dataset(self,
+                  split: tfds.Split,
+                  decoders=None,
+                  read_config=None,
+                  shuffle_files=False) -> tf.data.Dataset:
     """Constructs a `tf.data.Dataset`.
 
     Args:
@@ -156,16 +153,22 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
             name=tfds.Split.VALIDATION,
             shard_lengths=[4420308],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.VALIDATION),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TEST,
             shard_lengths=[4420309],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TEST),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TRAIN,
             shard_lengths=[int(37e6)],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TRAIN),
         ),
     ]
     split_dict = tfds.core.SplitDict(
@@ -240,8 +243,8 @@ class CriteoDataset(base.BaseDataset):
         if self._corruption_level < 0.0 or self._corruption_level > 1.0:
           raise ValueError('shift_level not in [0, 1]: {}'.format(
               self._corruption_level))
-        features, labels = apply_randomization(
-            features, labels, self._corruption_level)
+        features, labels = apply_randomization(features, labels,
+                                               self._corruption_level)
 
       return {
           'features': features,

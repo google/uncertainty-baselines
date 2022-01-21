@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -216,17 +216,16 @@ def main(argv):
         process_batch_size=local_batch_size_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
+        num_epochs=1,
         repeat_after_batching=True,
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
         data_dir=fillin(data_dir))
-    val_iter = input_utils.start_input_pipeline(
-        val_ds, config.get('prefetch_to_device', 1))
 
-    return (val_iter, val_steps)
+    return val_ds
 
-  val_iter_splits = {
+  val_ds_splits = {
       'val':
           _get_val_split(config.dataset, config.val_split, config.pp_eval,
                          config.get('dataset_dir'))
@@ -238,7 +237,7 @@ def main(argv):
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
     pp_eval = lambda ex: preprocess_fn(cifar10_to_cifar10h_fn(ex))
-    val_iter_splits['cifar_10h'] = _get_val_split(
+    val_ds_splits['cifar_10h'] = _get_val_split(
         'cifar10',
         split=config.get('cifar_10h_split') or 'test',
         pp_eval=pp_eval,
@@ -260,17 +259,16 @@ def main(argv):
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
     pp_eval = lambda ex: preprocess_fn(avg_label(ex))
-    val_iter_imagenet_real, val_steps = _get_val_split(
+    val_ds_splits['imagenet_real'] = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',
         pp_eval=pp_eval,
         data_dir=config.get('data_dir'))
-    val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = {}
   if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
-      logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+      logging.info('loading OOD dataset = %s', config.get('ood_datasets'))
       ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
           config.dataset,
           config.ood_datasets,
@@ -592,7 +590,7 @@ def main(argv):
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
-  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_ds_splits.items()}
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
@@ -603,15 +601,6 @@ def main(argv):
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
-    # NOTE: Validation eval is only run on certain steps, so determine how many
-    # times it was run previously.
-    num_val_runs = sum(
-        map(
-            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
-                                         ), range(1, first_step + 1)))
-    for val_name, (val_iter, val_steps) in val_iter_splits.items():
-      val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
-      val_iter_splits[val_name] = (val_iter, val_steps)
 
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
@@ -691,7 +680,7 @@ def main(argv):
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
-      for val_name, (val_iter, val_steps) in val_iter_splits.items():
+      for val_name, val_ds in val_ds_splits.items():
         # Sets up evaluation metrics.
         ece_num_bins = config.get('ece_num_bins', 15)
         auc_num_bins = config.get('auc_num_bins', 1000)
@@ -711,8 +700,10 @@ def main(argv):
         ged = tf.keras.metrics.Mean()
 
         # Runs evaluation loop.
+        val_iter = input_utils.start_input_pipeline(
+            val_ds, config.get('prefetch_to_device', 1))
         ncorrect, loss, nseen = 0, 0, 0
-        for _, batch in zip(range(val_steps), val_iter):
+        for batch in val_iter:
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
                 cifar_10h_evaluation_fn(
@@ -804,8 +795,12 @@ def main(argv):
           return sngp_eval_fn
 
         ood_measurements = ood_utils.eval_ood_metrics(
-            ood_ds, ood_ds_names, config.ood_methods,
-            make_sngp_eval_fn(states_repl), opt_repl)
+            ood_ds,
+            ood_ds_names,
+            config.ood_methods,
+            make_sngp_eval_fn(states_repl),
+            opt_repl,
+            n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
 
       chrono.resume()

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,8 @@ import jax
 import numpy as np
 import scipy
 import sklearn.metrics
+
+import input_utils  # local file import from baselines.jft
 
 
 SUPPORTED_OOD_METHODS = ('msp', 'entropy', 'maha', 'rmaha')
@@ -249,13 +251,11 @@ def load_ood_datasets(
       'maha', 'rmaha'.
     train_split: The split of the training in-distribution dataset.
     data_dir: The data directory.
-    get_data_fn: A function for generates a tuple of (data iterator, num_steps)
-      given a dataset name or builder, split, preprocessing function, and
-      optional data_dir.
+    get_data_fn: A function that generates a tf.data.Dataset given a dataset
+      name or builder, split, preprocessing function, and optional data_dir.
 
   Returns:
-    ood_ds: A dictionary with dataset label as the key and dataset iterator as
-    the value.
+    ood_ds: A dictionary with dataset label as the key and dataset as the value.
     ood_ds_names: A list of dataset labels.
   """
   ood_ds = {}
@@ -291,8 +291,13 @@ def load_ood_datasets(
   return ood_ds, ood_ds_names
 
 
-def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
-                     opt_repl):
+# TODO(dusenberrymw,jjren): Add a test case.
+def eval_ood_metrics(ood_ds,
+                     ood_ds_names,
+                     ood_methods,
+                     evaluation_fn,
+                     opt_repl,
+                     n_prefetch=1):
   """Evaluate the model for OOD detection and record metrics."""
   # MSP stands for maximum softmax probability, max(softmax(logits)).
   # MSP can be used as confidence score.
@@ -320,10 +325,11 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
     # The dataset train_maha must come before ind and ood
     # because the train_maha will be used to esimate the class conditional
     # mean and shared covariance.
-    val_iter, val_steps = ood_ds[ood_ds_name]
+    val_ds = ood_ds[ood_ds_name]
+    val_iter = input_utils.start_input_pipeline(val_ds, n_prefetch)
     ncorrect, loss, nseen = 0, 0, 0
     pre_logits_list, labels_list = [], []
-    for _, batch in zip(range(val_steps), val_iter):
+    for batch in val_iter:
       batch_scores = {}
       batch_ncorrect, batch_losses, batch_n, batch_metric_args = evaluation_fn(
           opt_repl.target, batch['image'], batch['labels'], batch['mask'])

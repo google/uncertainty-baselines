@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -377,8 +377,10 @@ class PatchTransformerBE(nn.Module):
 
     if self.representation_size is None:
       x = identity.IdentityLayer(name="pre_logits")(x)
+      extra_info["pre_logits"] = x
     else:
       x = nn.Dense(self.representation_size, name="pre_logits")(x)
+      extra_info["pre_logits"] = x
       x = nn.tanh(x)
 
     x = nn.Dense(

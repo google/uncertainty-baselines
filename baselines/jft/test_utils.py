@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,33 +29,37 @@ def get_config(
   config = ml_collections.ConfigDict()
   config.seed = 0
 
+  config.batch_size = 3
+  config.total_steps = 3
+
+  num_examples = config.batch_size * config.total_steps
+
   # TODO(dusenberrymw): JFT + mocking is broken.
   # config.dataset = 'jft/entity:1.0.0'
   # config.val_split = 'test[:49511]'  # aka tiny_test/test[:5%] in task_adapt
   # config.train_split = 'train'  # task_adapt used train+validation so +64167
   # config.num_classes = 18291
+  # NOTE: TFDS mocking currently ignores split slices.
   if dataset_name == 'cifar10':
     config.dataset = 'cifar10'
-    config.val_split = 'train[:9]'
-    config.train_split = 'train[30:60]'
+    config.val_split = f'train[:{num_examples}]'
+    config.train_split = f'train[{num_examples}:{num_examples*2}]'
     config.num_classes = 10
   elif dataset_name == 'imagenet2012':
     config.dataset = 'imagenet2012'
-    config.val_split = 'train[:9]'
-    config.train_split = 'train[30:60]'
+    config.val_split = f'train[:{num_examples}]'
+    config.train_split = f'train[{num_examples}:{num_examples*2}]'
     config.num_classes = 1000
   elif dataset_name == 'imagenet21k':
     config.dataset = 'imagenet21k'
-    config.val_split = 'full[:9]'
-    config.train_split = 'full[30:60]'
+    config.val_split = f'full[:{num_examples}]'
+    config.train_split = f'full[{num_examples}:{num_examples*2}]'
     config.num_classes = 21843
 
-  config.batch_size = 3
   config.prefetch_to_device = 1
   config.shuffle_buffer_size = 20
   config.val_cache = False
 
-  config.total_steps = 3
   config.log_training_steps = config.total_steps
   config.log_eval_steps = config.total_steps
   config.checkpoint_steps = config.total_steps

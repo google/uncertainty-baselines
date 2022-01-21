@@ -16,7 +16,7 @@
 r"""Dropout baseline for Diabetic Retinopathy Detection.
 
 Refined search space based off
-baselines/diabetic_retinopathy_detection/experiments/dropout_tune.py.
+baselines/diabetic_retinopathy_detection/initial_tuning/experiments/dropout_tune.py.
 
 """
 

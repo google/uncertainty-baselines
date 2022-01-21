@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""
-Top hyperparameter configuration of the
-Radial baseline for Diabetic Retinopathy Detection.
+"""Top hyperparameter configuration of the Radial baseline for DRD.
+
 Tuning on either in-domain validation AUC or balanced joint R-Accuracy curve,
 the same configuration performed best.
+
 Evaluated on the Severity Shift with moderate decision threshold.
 """
 
@@ -43,7 +43,7 @@ def get_config():
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   output_dir = 'gs://drd-radial-severity-finetune/indomain/{}'.format(
-    config.experiment_name)
+      config.experiment_name)
   config.args = {
       'batch_size': 16,
       'num_mc_samples_train': 1,

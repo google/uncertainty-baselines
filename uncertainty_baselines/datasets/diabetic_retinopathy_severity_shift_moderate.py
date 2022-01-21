@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The TensorFlow Datasets Authors.
+# Copyright 2021 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,8 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Based on https://www.kaggle.com/c/diabetic-retinopathy-detection/data.
+r"""Based on https://www.kaggle.com/c/diabetic-retinopathy-detection/data.
 
 New split of the Kaggle Diabetic Retinopathy Detection data, in which we
 perform classification on
@@ -26,66 +25,60 @@ as out-of-distribution.
 We call this a _severity shift_.
 
 Note that this allows us to use examples with underlying labels \in {2, 3, 4}
- that are listed as "train" in the tf.data partition in the evaluation set here.
+ that are listed as 'train' in the tf.data partition in the evaluation set here.
 """
 
 import csv
 import os
-from itertools import chain
 from typing import Dict, Optional
 
+from absl import logging
 import tensorflow as tf
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
-import tensorflow_datasets.public_api as tfds
-from tensorflow_datasets.image_classification import (
-  diabetic_retinopathy_detection)
-
 from uncertainty_baselines.datasets import base
-from uncertainty_baselines.datasets.diabetic_retinopathy_dataset_utils import (
-  _btgraham_processing)
-
+from uncertainty_baselines.datasets.diabetic_retinopathy_dataset_utils import _btgraham_processing
+from uncertainty_baselines.datasets.diabetic_retinopathy_dataset_utils import _resize_image_if_necessary
 
 _CITATION = """\
 @ONLINE {kaggle-diabetic-retinopathy,
-    author = "Kaggle and EyePacs",
-    title  = "Kaggle Diabetic Retinopathy Detection",
-    month  = "jul",
-    year   = "2015",
-    url    = "https://www.kaggle.com/c/diabetic-retinopathy-detection/data"
+    author = 'Kaggle and EyePacs',
+    title  = 'Kaggle Diabetic Retinopathy Detection',
+    month  = 'jul',
+    year   = '2015',
+    url    = 'https://www.kaggle.com/c/diabetic-retinopathy-detection/data'
 }
 """
 _URL_TEST_LABELS = (
-  "https://storage.googleapis.com/kaggle-forum-message-attachments/"
-  "90528/2877/retinopathy_solution.csv")
+    'https://storage.googleapis.com/kaggle-forum-message-attachments/'
+    '90528/2877/retinopathy_solution.csv')
 _BTGRAHAM_DESCRIPTION_PATTERN = (
-    "Images have been preprocessed as the winner of the Kaggle competition did "
-    "in 2015: first they are resized so that the radius of an eyeball is "
-    "{} pixels, then they are cropped to 90% of the radius, and finally they "
-    "are encoded with 72 JPEG quality.")
+    'Images have been preprocessed as the winner of the Kaggle competition did '
+    'in 2015: first they are resized so that the radius of an eyeball is '
+    '{} pixels, then they are cropped to 90% of the radius, and finally they '
+    'are encoded with 72 JPEG quality.')
 _BLUR_BTGRAHAM_DESCRIPTION_PATTERN = (
-    "A variant of the processing method used by the winner of the 2015 Kaggle "
-    "competition: images are resized so that the radius of an eyeball is "
-    "{} pixels, then receive a Gaussian blur-based normalization with Kernel "
-    "standard deviation along the X-axis of {}. Then they are cropped to 90% "
-    "of the radius, and finally they are encoded with 72 JPEG quality.")
+    'A variant of the processing method used by the winner of the 2015 Kaggle '
+    'competition: images are resized so that the radius of an eyeball is '
+    '{} pixels, then receive a Gaussian blur-based normalization with Kernel '
+    'standard deviation along the X-axis of {}. Then they are cropped to 90% '
+    'of the radius, and finally they are encoded with 72 JPEG quality.')
 
 
 class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
   """Kaggle DiabeticRetinopathySeverityShift builder class."""
-  def __init__(
-      self,
-      split: str,
-      builder_config: str = (
-          'diabetic_retinopathy_severity_shift_moderate/btgraham-300'),
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
-      download_data: bool = False,
-      is_training: Optional[bool] = None,
-      drop_remainder: bool = True,
-      cache: bool = False
-  ):
+
+  def __init__(self,
+               split: str,
+               builder_config: str = (
+                   'diabetic_retinopathy_severity_shift_moderate/btgraham-300'),
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               data_dir: Optional[str] = None,
+               download_data: bool = False,
+               is_training: Optional[bool] = None,
+               drop_remainder: bool = True,
+               cache: bool = False):
     """Create a Kaggle diabetic retinopathy detection tf.data.Dataset builder.
 
     Args:
@@ -104,12 +97,16 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
+      drop_remainder: Whether or not to drop the remaining partial batch.
+      cache: Whether or not to cache the dataset in memory. Can lead to OOM
+        errors in host memory.
     """
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
 
-    print(f'Using Severity Shift (Moderate decision threshold) '
-          f'builder config {builder_config}.')
+    logging.info(
+        'Using Severity Shift (Moderate decision threshold) builder config %s.',
+        builder_config)
     dataset_builder = tfds.builder(builder_config, data_dir=data_dir)
     super(DiabeticRetinopathySeverityShiftModerateDataset, self).__init__(
         name='diabetic_retinopathy_severity_shift_moderate',
@@ -121,10 +118,12 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
         download_data=download_data,
         drop_remainder=drop_remainder,
         cache=cache)
-    print(f'Building Diabetic Retinopathy Severity Shift dataset with '
-          f'moderate decision threshold.')
+    logging.info(
+        'Building Diabetic Retinopathy Severity Shift dataset with moderate '
+        'decision threshold.')
     if not drop_remainder:
-      print('Not dropping the remainder (i.e., not truncating last batch).')
+      logging.info(
+          'Not dropping the remainder (i.e., not truncating last batch).')
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
@@ -156,6 +155,7 @@ class DiabeticRetinopathySeverityShiftModerateConfig(tfds.core.BuilderConfig):
 
   def __init__(self, target_pixels=None, blur_constant=None, **kwargs):
     """BuilderConfig for DiabeticRetinopathySeverityShiftModerate.
+
     Args:
       target_pixels: If given, rescale the images so that the total number of
         pixels is roughly this value.
@@ -164,9 +164,9 @@ class DiabeticRetinopathySeverityShiftModerateConfig(tfds.core.BuilderConfig):
       **kwargs: keyword arguments forward to super.
     """
     super(DiabeticRetinopathySeverityShiftModerateConfig, self).__init__(
-        version=tfds.core.Version("1.0.0"),
+        version=tfds.core.Version('1.0.0'),
         release_notes={
-            "1.0.0": "Initial release",
+            '1.0.0': 'Initial release',
         },
         **kwargs)
     self._target_pixels = target_pixels
@@ -182,8 +182,9 @@ class DiabeticRetinopathySeverityShiftModerateConfig(tfds.core.BuilderConfig):
 
 
 class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
-  """A partitioning of the Kaggle/EyePACS Diabetic Retinopathy Detection
-  that allows for the formation of an out-of-distribution dataset with
+  """A partitioning of the Kaggle/EyePACS Diabetic Retinopathy Detection.
+
+  Allows for the formation of an out-of-distribution dataset with
   underlying severity labels unseen at training time.
   """
 
@@ -197,37 +198,37 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
 
   BUILDER_CONFIGS = [
       DiabeticRetinopathySeverityShiftModerateConfig(
-          name="original",
-          description="Images at their original resolution and quality."),
+          name='original',
+          description='Images at their original resolution and quality.'),
       DiabeticRetinopathySeverityShiftModerateConfig(
-          name="1M",
-          description="Images have roughly 1,000,000 pixels, at 72 quality.",
+          name='1M',
+          description='Images have roughly 1,000,000 pixels, at 72 quality.',
           target_pixels=1000000),
       DiabeticRetinopathySeverityShiftModerateConfig(
-          name="250K",
-          description="Images have roughly 250,000 pixels, at 72 quality.",
+          name='250K',
+          description='Images have roughly 250,000 pixels, at 72 quality.',
           target_pixels=250000),
       DiabeticRetinopathySeverityShiftModerateConfig(
-          name="btgraham-300",
+          name='btgraham-300',
           description=_BTGRAHAM_DESCRIPTION_PATTERN.format(300),
           target_pixels=300),
       DiabeticRetinopathySeverityShiftModerateConfig(
-        name="blur-3-btgraham-300",
-        description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 / 3),
-        blur_constant=3,
-        target_pixels=300),
+          name='blur-3-btgraham-300',
+          description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 / 3),
+          blur_constant=3,
+          target_pixels=300),
       DiabeticRetinopathySeverityShiftModerateConfig(
-        name="blur-5-btgraham-300",
-        description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 / 5),
-        blur_constant=5,
-        target_pixels=300),
+          name='blur-5-btgraham-300',
+          description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 / 5),
+          blur_constant=5,
+          target_pixels=300),
       DiabeticRetinopathySeverityShiftModerateConfig(
-          name="blur-10-btgraham-300",
+          name='blur-10-btgraham-300',
           description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 10),
           blur_constant=10,
           target_pixels=300),
       DiabeticRetinopathySeverityShiftModerateConfig(
-          name="blur-20-btgraham-300",
+          name='blur-20-btgraham-300',
           description=_BLUR_BTGRAHAM_DESCRIPTION_PATTERN.format(300, 300 // 20),
           blur_constant=20,
           target_pixels=300)
@@ -236,17 +237,17 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
   def _info(self):
     return tfds.core.DatasetInfo(
         builder=self,
-        description="A large set of high-resolution retina images taken under "
-        "a variety of imaging conditions. Partitioned to evaluate "
-        "model generalization to clinical severity labels unseen at training "
-        "time.",
+        description='A large set of high-resolution retina images taken under '
+        'a variety of imaging conditions. Partitioned to evaluate '
+        'model generalization to clinical severity labels unseen at training '
+        'time.',
         features=tfds.features.FeaturesDict({
-            "name": tfds.features.Text(),  # patient ID + eye. eg: "4_left".
-            "image": tfds.features.Image(),
+            'name': tfds.features.Text(),  # patient ID + eye. eg: '4_left'.
+            'image': tfds.features.Image(),
             # From 0 (no DR - saine) to 4 (Proliferative DR). -1 means no label.
-            "label": tfds.features.ClassLabel(num_classes=5),
+            'label': tfds.features.ClassLabel(num_classes=5),
         }),
-        homepage="https://www.kaggle.com/c/diabetic-retinopathy-detection/data",
+        homepage='https://www.kaggle.com/c/diabetic-retinopathy-detection/data',
         citation=_CITATION,
     )
 
@@ -257,12 +258,12 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
     test_labels_path = dl_manager.download(_URL_TEST_LABELS)
     if tf.io.gfile.isdir(test_labels_path):
       # While testing: download() returns the dir containing the tests files.
-      test_labels_path = os.path.join(
-        test_labels_path, "retinopathy_solution.csv")
+      test_labels_path = os.path.join(test_labels_path,
+                                      'retinopathy_solution.csv')
 
-    train_images_path = os.path.join(path, "train")
-    test_images_path = os.path.join(path, "test")
-    train_labels_path = os.path.join(path, "trainLabels.csv")
+    train_images_path = os.path.join(path, 'train')
+    test_images_path = os.path.join(path, 'test')
+    train_labels_path = os.path.join(path, 'trainLabels.csv')
 
     # Each dataset split is specified by a list of subsets of the data.
     # These subsets are specified by:
@@ -271,44 +272,51 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
     # * csv_path, location of labels and image names
     # * csv_usage, divides between validation and test
     return {
-      'sample': self._generate_examples(
-        [(os.path.join(path, "sample"), None, None, None)]),
-      'train': self._generate_examples([(
-        train_images_path, True, train_labels_path, None)]),
-      'in_domain_validation': self._generate_examples([(
-        test_images_path, True, test_labels_path, "Public")]),
-      'ood_validation': self._generate_examples([(
-        test_images_path, False, test_labels_path, "Public")]),
-      'in_domain_test': self._generate_examples([(
-        test_images_path, True, test_labels_path, "Private")]),
-      # Note that we can use the OOD examples in the
-      # original Kaggle train set below.
-      'ood_test': self._generate_examples([
-        (train_images_path, False, train_labels_path, None),
-        (test_images_path, False, test_labels_path, "Private")]),
+        'sample':
+            self._generate_examples([(os.path.join(path, 'sample'), None, None,
+                                      None)]),
+        'train':
+            self._generate_examples([(train_images_path, True,
+                                      train_labels_path, None)]),
+        'in_domain_validation':
+            self._generate_examples([(test_images_path, True, test_labels_path,
+                                      'Public')]),
+        'ood_validation':
+            self._generate_examples([(test_images_path, False, test_labels_path,
+                                      'Public')]),
+        'in_domain_test':
+            self._generate_examples([(test_images_path, True, test_labels_path,
+                                      'Private')]),
+        # Note that we can use the OOD examples in the
+        # original Kaggle train set below.
+        'ood_test':
+            self._generate_examples([
+                (train_images_path, False, train_labels_path, None),
+                (test_images_path, False, test_labels_path, 'Private')
+            ]),
     }
 
     # SPLIT_TO_GENERATE_ARGS = {
     #   'train': [(
     #     train_images_path, True, train_labels_path, None)],
     #   'in_domain_validation': [(
-    #     test_images_path, True, test_labels_path, "Public")],
+    #     test_images_path, True, test_labels_path, 'Public')],
     #   'ood_validation': [(
-    #     test_images_path, False, test_labels_path, "Public")],
+    #     test_images_path, False, test_labels_path, 'Public')],
     #   'in_domain_test': [(
-    #     test_images_path, True, test_labels_path, "Private")],
+    #     test_images_path, True, test_labels_path, 'Private')],
     #   # Note that we can use the OOD examples in the
     #   # original Kaggle train set below.
     #   'ood_test': [
     #     (train_images_path, False, train_labels_path, None),
-    #     (test_images_path, False, test_labels_path, "Private")],
+    #     (test_images_path, False, test_labels_path, 'Private')],
     # }
 
     # splits = [
     #   tfds.core.SplitGenerator(
-    #     name="sample",  # 10 images, to do quicktests using dataset.
+    #     name='sample',  # 10 images, to do quicktests using dataset.
     #     gen_kwargs={
-    #       'split_args': [(os.path.join(path, "sample"), None, None, None)]})]
+    #       'split_args': [(os.path.join(path, 'sample'), None, None, None)]})]
 
     # for split_name, split_args in SPLIT_TO_GENERATE_ARGS.items():
     #   splits.append(tfds.core.SplitGenerator(
@@ -326,69 +334,71 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
       for name_and_record in generator:
         yield name_and_record
 
-  def _generate_examples_helper(
-      self, images_dir_path, is_in_domain: Optional[bool] = None,
-      csv_path=None, csv_usage=None
-  ):
+  def _generate_examples_helper(self,
+                                images_dir_path,
+                                is_in_domain: Optional[bool] = None,
+                                csv_path=None,
+                                csv_usage=None):
     """Yields example instances for a specified dataset split.
+
     Args:
+      images_dir_path: path to dir in which images are stored.
       is_in_domain: Optional[bool], use in-domain examples wrt severity level
         (or OOD, if False)
-      images_dir_path: path to dir in which images are stored.
       csv_path: optional, path to csv file with two columns: name of image and
         label. If not provided, just scan image directory, don't set labels.
       csv_usage: optional, subset of examples from the csv file to use based on
-        the "Usage" column from the csv.
+        the 'Usage' column from the csv.
     """
     if is_in_domain is not None and csv_path:
       in_domain_severity_levels = {0, 1, 2}
       ood_severity_levels = {3, 4}
       severity_level_set = (
-        in_domain_severity_levels if is_in_domain else ood_severity_levels)
+          in_domain_severity_levels if is_in_domain else ood_severity_levels)
 
     if csv_path:
       with tf.io.gfile.GFile(csv_path) as csv_f:
         reader = csv.DictReader(csv_f)
         data = []
         for row in reader:
-          level = int(row["level"])
+          level = int(row['level'])
           if level not in severity_level_set:
             continue
 
-          if csv_usage is None or row["Usage"] == csv_usage:
-            data.append((row["image"], level))
+          if csv_usage is None or row['Usage'] == csv_usage:
+            data.append((row['image'], level))
     else:
       data = [(fname[:-5], -1)
               for fname in tf.io.gfile.listdir(images_dir_path)
-              if fname.endswith(".jpeg")]
+              if fname.endswith('.jpeg')]
 
-    print(f'Using BuilderConfig {self.builder_config.name}.')
+    logging.info('Using BuilderConfig %s.', self.builder_config.name)
 
     for name, label in data:
-      image_filepath = "%s/%s.jpeg" % (images_dir_path, name)
+      image_filepath = '%s/%s.jpeg' % (images_dir_path, name)
       record = {
-        "name": name,
-        "image": self._process_image(image_filepath),
-        "label": label,
+          'name': name,
+          'image': self._process_image(image_filepath),
+          'label': label,
       }
       yield name, record
 
   def _process_image(self, filepath):
-    with tf.io.gfile.GFile(filepath, mode="rb") as image_fobj:
-      if self.builder_config.name.startswith("btgraham"):
-        return diabetic_retinopathy_detection._btgraham_processing(
+    with tf.io.gfile.GFile(filepath, mode='rb') as image_fobj:
+      if self.builder_config.name.startswith('btgraham'):
+        return _btgraham_processing(
             image_fobj=image_fobj,
             filepath=filepath,
             target_pixels=self.builder_config.target_pixels,
             crop_to_radius=True)
-      elif self.builder_config.name.startswith("blur"):
+      elif self.builder_config.name.startswith('blur'):
         return _btgraham_processing(
-          image_fobj=image_fobj,
-          filepath=filepath,
-          target_pixels=self.builder_config.target_pixels,
-          blur_constant=self.builder_config.blur_constant,
-          crop_to_radius=True)
+            image_fobj=image_fobj,
+            filepath=filepath,
+            target_pixels=self.builder_config.target_pixels,
+            blur_constant=self.builder_config.blur_constant,
+            crop_to_radius=True)
       else:
-        return diabetic_retinopathy_detection._resize_image_if_necessary(
+        return _resize_image_if_necessary(  # pylint: disable=protected-access
             image_fobj=image_fobj,
             target_pixels=self.builder_config.target_pixels)

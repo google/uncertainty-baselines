@@ -28,24 +28,22 @@ This script performs variational inference with a few notable techniques:
 4. KL annealing (Bowman et al., 2015).
 """
 
+import datetime
 import os
+import pathlib
+import pprint
 import time
 
 from absl import app
 from absl import flags
 from absl import logging
 import tensorflow as tf
-import tensorflow_datasets as tfds
-
 import uncertainty_baselines as ub
-import utils  # local file import
-from tensorboard.plugins.hparams import api as hp
-from pprint import pformat
+import utils
 import wandb
 
-import pathlib
-from datetime import datetime
-from pprint import pformat
+from tensorboard.plugins.hparams import api as hp
+
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -57,19 +55,18 @@ flags.DEFINE_string(
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_bool('use_validation', True, 'Whether to use a validation split.')
 flags.DEFINE_bool('use_test', False, 'Whether to use a test split.')
+flags.DEFINE_string('preproc_builder_config', 'btgraham-300', (
+    'Determines the preprocessing procedure for the images. Supported options: '
+    '{btgraham-300, blur-3-btgraham-300, blur-5-btgraham-300, '
+    'blur-10-btgraham-300, blur-20-btgraham-300}.'))
 flags.DEFINE_string(
-  'preproc_builder_config', 'btgraham-300',
-  ("Determines the preprocessing procedure for the images. Supported options: "
-   "{btgraham-300, blur-3-btgraham-300, blur-5-btgraham-300, "
-   "blur-10-btgraham-300, blur-20-btgraham-300}."))
-flags.DEFINE_string(
-  'dr_decision_threshold', 'moderate',
-  ("specifies where to binarize the labels {0, 1, 2, 3, 4} to create the "
-   "binary classification task. Only affects the APTOS dataset partitioning. "
-   "'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?"
-   "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
-flags.DEFINE_bool(
-  'load_from_checkpoint', False, "Attempt to load from checkpoint")
+    'dr_decision_threshold', 'moderate',
+    ('specifies where to binarize the labels {0, 1, 2, 3, 4} to create the '
+     'binary classification task. Only affects the APTOS dataset partitioning. '
+     "'mild': classify {0} vs {1, 2, 3, 4}, i.e., mild DR or worse?"
+     "'moderate': classify {0, 1} vs {2, 3, 4}, i.e., moderate DR or worse?"))
+flags.DEFINE_bool('load_from_checkpoint', False,
+                  'Attempt to load from checkpoint')
 flags.DEFINE_string('checkpoint_dir', None, 'Path to load Keras checkpoints.')
 flags.DEFINE_bool('cache_eval_datasets', False, 'Caches eval datasets.')
 
@@ -82,16 +79,16 @@ flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
 
 # OOD flags.
 flags.DEFINE_string(
-  'distribution_shift', None,
-  ("Specifies distribution shift to use, if any."
-   "aptos: loads APTOS (India) OOD validation and test datasets. "
-   "  Kaggle/EyePACS in-domain datasets are unchanged."
-   "severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision "
-   "  of the Kaggle/EyePACS dataset to hold out clinical severity labels "
-   "  as OOD."))
+    'distribution_shift', None,
+    ('Specifies distribution shift to use, if any.'
+     'aptos: loads APTOS (India) OOD validation and test datasets. '
+     '  Kaggle/EyePACS in-domain datasets are unchanged.'
+     'severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision '
+     '  of the Kaggle/EyePACS dataset to hold out clinical severity labels '
+     '  as OOD.'))
 flags.DEFINE_bool(
-  'load_train_split', True,
-  "Should always be enabled - required to load train split of the dataset.")
+    'load_train_split', True,
+    'Should always be enabled - required to load train split of the dataset.')
 
 # Learning rate / SGD flags.
 flags.DEFINE_float('base_learning_rate', 0.48065, 'Base learning rate.')
@@ -132,12 +129,12 @@ flags.DEFINE_float(
 # General model flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_string(
-  'class_reweight_mode', None,
-  'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,'
-  'test respectively). `None` (default) will not perform any loss reweighting. '
-  '`constant` will use the train proportions to reweight the binary cross '
-  'entropy loss. `minibatch` will use the proportions of each minibatch to '
-  'reweight the loss.')
+    'class_reweight_mode', None,
+    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, val,'
+    'test respectively). `None` (default) will not perform any loss reweighting. '
+    '`constant` will use the train proportions to reweight the binary cross '
+    'entropy loss. `minibatch` will use the proportions of each minibatch to '
+    'reweight the loss.')
 flags.DEFINE_float('l2', 0.00013178, 'L2 regularization coefficient.')
 flags.DEFINE_integer('train_epochs', DEFAULT_NUM_EPOCHS,
                      'Number of training epochs.')
@@ -170,16 +167,17 @@ def main(argv):
   if FLAGS.use_wandb:
     pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
     wandb_args = dict(
-      project=FLAGS.project,
-      entity="uncertainty-baselines",
-      dir=FLAGS.wandb_dir,
-      reinit=True,
-      name=FLAGS.exp_name,
-      group=FLAGS.exp_group)
+        project=FLAGS.project,
+        entity='uncertainty-baselines',
+        dir=FLAGS.wandb_dir,
+        reinit=True,
+        name=FLAGS.exp_name,
+        group=FLAGS.exp_group)
     wandb_run = wandb.init(**wandb_args)
     wandb.config.update(FLAGS, allow_val_change=True)
-    output_dir = str(os.path.join(
-      FLAGS.output_dir, datetime.now().strftime("%Y-%m-%d-%H-%M-%S")))
+    output_dir = str(
+        os.path.join(FLAGS.output_dir,
+                     datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
   else:
     wandb_run = None
     output_dir = FLAGS.output_dir
@@ -189,19 +187,19 @@ def main(argv):
 
   # Log Run Hypers
   hypers_dict = {
-    'batch_size': FLAGS.batch_size,
-    'base_learning_rate': FLAGS.base_learning_rate,
-    'one_minus_momentum': FLAGS.one_minus_momentum,
-    'l2': FLAGS.l2,
-    'stddev_mean_init': FLAGS.stddev_mean_init,
-    'stddev_stddev_init': FLAGS.stddev_stddev_init,
+      'batch_size': FLAGS.batch_size,
+      'base_learning_rate': FLAGS.base_learning_rate,
+      'one_minus_momentum': FLAGS.one_minus_momentum,
+      'l2': FLAGS.l2,
+      'stddev_mean_init': FLAGS.stddev_mean_init,
+      'stddev_stddev_init': FLAGS.stddev_stddev_init,
   }
   logging.info('Hypers:')
-  logging.info(pformat(hypers_dict))
+  logging.info(pprint.pformat(hypers_dict))
 
   # Initialize distribution strategy on flag-specified accelerator
-  strategy = utils.init_distribution_strategy(
-    FLAGS.force_use_cpu, FLAGS.use_gpu, FLAGS.tpu)
+  strategy = utils.init_distribution_strategy(FLAGS.force_use_cpu,
+                                              FLAGS.use_gpu, FLAGS.tpu)
   use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
   # Only permit use of L2 regularization with a tied mean prior
@@ -221,12 +219,16 @@ def main(argv):
 
   # Load in datasets.
   datasets, steps = utils.load_dataset(
-    train_batch_size=batch_size, eval_batch_size=batch_size,
-    flags=FLAGS, strategy=strategy)
+      train_batch_size=batch_size,
+      eval_batch_size=batch_size,
+      flags=FLAGS,
+      strategy=strategy)
   available_splits = list(datasets.keys())
   test_splits = [split for split in available_splits if 'test' in split]
-  eval_splits = [split for split in available_splits
-                 if 'validation' in split or 'test' in split]
+  eval_splits = [
+      split for split in available_splits
+      if 'validation' in split or 'test' in split
+  ]
 
   # Iterate eval datasets
   eval_datasets = {split: iter(datasets[split]) for split in eval_splits}
@@ -243,26 +245,26 @@ def main(argv):
 
   if FLAGS.prior_stddev is None:
     logging.info(
-      'A fixed prior stddev was not supplied. Computing a prior stddev = '
-      'sqrt(2 / fan_in) for each layer. This is recommended over providing '
-      'a fixed prior stddev.')
+        'A fixed prior stddev was not supplied. Computing a prior stddev = '
+        'sqrt(2 / fan_in) for each layer. This is recommended over providing '
+        'a fixed prior stddev.')
 
   with strategy.scope():
     logging.info('Building Keras ResNet-50 Variational Inference model.')
     model = None
     if FLAGS.load_from_checkpoint:
       initial_epoch, model = utils.load_keras_checkpoints(
-        FLAGS.checkpoint_dir, load_ensemble=False, return_epoch=True)
+          FLAGS.checkpoint_dir, load_ensemble=False, return_epoch=True)
     else:
       initial_epoch = 0
       model = ub.models.resnet50_variational(
-        input_shape=utils.load_input_shape(dataset_train),
-        num_classes=1,  # binary classification task
-        prior_stddev=FLAGS.prior_stddev,
-        dataset_size=train_dataset_size,
-        stddev_mean_init=FLAGS.stddev_mean_init,
-        stddev_stddev_init=FLAGS.stddev_stddev_init,
-        tied_mean_prior=FLAGS.tied_mean_prior)
+          input_shape=utils.load_input_shape(dataset_train),
+          num_classes=1,  # binary classification task
+          prior_stddev=FLAGS.prior_stddev,
+          dataset_size=train_dataset_size,
+          stddev_mean_init=FLAGS.stddev_mean_init,
+          stddev_stddev_init=FLAGS.stddev_stddev_init,
+          tied_mean_prior=FLAGS.tied_mean_prior)
       utils.log_model_init_info(model=model)
 
     # Linearly scale learning rate and the decay epochs by vanilla settings.
@@ -292,7 +294,7 @@ def main(argv):
         'train/kl_scale': tf.keras.metrics.Mean()
     })
 
-    # TODO: debug or remove
+    # TODO(nband): debug or remove
     # checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     # latest_checkpoint = tf.train.latest_checkpoint(output_dir)
     # if latest_checkpoint:
@@ -306,9 +308,9 @@ def main(argv):
   # This will cause an error on TPU.
   if not use_tpu:
     metrics.update(
-      utils.get_diabetic_retinopathy_cpu_metrics(
-        available_splits=available_splits,
-        use_validation=FLAGS.use_validation))
+        utils.get_diabetic_retinopathy_cpu_metrics(
+            available_splits=available_splits,
+            use_validation=FLAGS.use_validation))
 
   for test_split in test_splits:
     metrics.update({f'{test_split}/ms_per_example': tf.keras.metrics.Mean()})
@@ -322,15 +324,13 @@ def main(argv):
   # Get the wrapper function which will produce uncertainty estimates for
   # our choice of method and Y/N ensembling.
   uncertainty_estimator_fn = utils.get_uncertainty_estimator(
-    'variational_inference', use_ensemble=False, use_tf=True)
+      'variational_inference', use_ensemble=False, use_tf=True)
 
   # Wrap our estimator to predict probabilities (apply sigmoid on logits)
   eval_estimator = utils.wrap_retinopathy_estimator(
-    model, use_mixed_precision=FLAGS.use_bfloat16, numpy_outputs=False)
+      model, use_mixed_precision=FLAGS.use_bfloat16, numpy_outputs=False)
 
-  estimator_args = {
-    'num_samples': FLAGS.num_mc_samples_eval
-  }
+  estimator_args = {'num_samples': FLAGS.num_mc_samples_eval}
 
   @tf.function
   def train_step(iterator):
@@ -349,10 +349,10 @@ def main(argv):
         batch_loss_fn = loss_fn
 
       with tf.GradientTape() as tape:
-        # TODO: TPU-friendly implem
+        # TODO(nband): TPU-friendly implem
         if FLAGS.num_mc_samples_train > 1:
           logits_arr = tf.TensorArray(
-            tf.float32, size=FLAGS.num_mc_samples_train)
+              tf.float32, size=FLAGS.num_mc_samples_train)
 
           for i in tf.range(FLAGS.num_mc_samples_train):
             logits = model(images, training=True)
@@ -364,29 +364,29 @@ def main(argv):
 
           logits_list = logits_arr.stack()
 
-        # if FLAGS.num_mc_samples_train > 1:
-        #   # Pythonic Implem
-        #   logits_list = []
-        #   for _ in range(FLAGS.num_mc_samples_train):
-        #     print('Tracing for loop')
-        #     logits = model(images, training=True)
-        #     if FLAGS.use_bfloat16:
-        #       print('tracing bfloat conditional')
-        #       logits = tf.cast(logits, tf.float32)
-        #
-        #     logits = tf.squeeze(logits, axis=-1)
-        #     logits_list.append(logits)
-        #
-        #   # Logits dimension is (num_samples, batch_size).
-        #   logits_list = tf.stack(logits_list, axis=0)
+          # if FLAGS.num_mc_samples_train > 1:
+          #   # Pythonic Implem
+          #   logits_list = []
+          #   for _ in range(FLAGS.num_mc_samples_train):
+          #     print('Tracing for loop')
+          #     logits = model(images, training=True)
+          #     if FLAGS.use_bfloat16:
+          #       print('tracing bfloat conditional')
+          #       logits = tf.cast(logits, tf.float32)
+          #
+          #     logits = tf.squeeze(logits, axis=-1)
+          #     logits_list.append(logits)
+          #
+          #   # Logits dimension is (num_samples, batch_size).
+          #   logits_list = tf.stack(logits_list, axis=0)
 
           probs_list = tf.nn.sigmoid(logits_list)
           probs = tf.reduce_mean(probs_list, axis=0)
           negative_log_likelihood = tf.reduce_mean(
-            batch_loss_fn(
-              y_true=tf.expand_dims(labels, axis=-1),
-              y_pred=probs,
-              from_logits=False))
+              batch_loss_fn(
+                  y_true=tf.expand_dims(labels, axis=-1),
+                  y_pred=probs,
+                  from_logits=False))
         else:
           # Single train step
           logits = model(images, training=True)
@@ -460,11 +460,20 @@ def main(argv):
     # eval_datasets = {'ood_validation': eval_datasets['ood_validation']}
     # Run evaluation on all evaluation datasets, and compute metrics
     per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
-      strategy, eval_datasets, steps, metrics, eval_estimator,
-      uncertainty_estimator_fn, batch_size, available_splits,
-      estimator_args=estimator_args, call_dataset_iter=False,
-      is_deterministic=False, num_bins=FLAGS.num_bins,
-      use_tpu=use_tpu, return_per_pred_results=True)
+        strategy,
+        eval_datasets,
+        steps,
+        metrics,
+        eval_estimator,
+        uncertainty_estimator_fn,
+        batch_size,
+        available_splits,
+        estimator_args=estimator_args,
+        call_dataset_iter=False,
+        is_deterministic=False,
+        num_bins=FLAGS.num_bins,
+        use_tpu=use_tpu,
+        return_per_pred_results=True)
 
     # Optionally log to wandb
     if FLAGS.use_wandb:
@@ -486,14 +495,13 @@ def main(argv):
 
       # TODO(nband): debug checkpointing
       # Also save Keras model, due to checkpoint.save issue.
-      keras_model_name = os.path.join(output_dir,
-                                      f'keras_model_{epoch + 1}')
+      keras_model_name = os.path.join(output_dir, f'keras_model_{epoch + 1}')
       model.save(keras_model_name)
       logging.info('Saved keras model to %s', keras_model_name)
 
       # Save per-prediction metrics
       utils.save_per_prediction_results(
-        output_dir, epoch + 1, per_pred_results, verbose=False)
+          output_dir, epoch + 1, per_pred_results, verbose=False)
 
   # final_checkpoint_name = checkpoint.save(
   #     os.path.join(output_dir, 'checkpoint'),)
@@ -506,7 +514,7 @@ def main(argv):
 
   # Save per-prediction metrics
   utils.save_per_prediction_results(
-    output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
+      output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
 
   with summary_writer.as_default():
     hp.hparams({

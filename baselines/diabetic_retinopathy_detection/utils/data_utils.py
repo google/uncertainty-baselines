@@ -14,7 +14,15 @@
 # limitations under the License.
 
 """Diabetic Retinopathy Data Loading utils."""
-
+# pylint: disable=g-bare-generic
+# pylint: disable=g-doc-args
+# pylint: disable=g-doc-return-or-yield
+# pylint: disable=g-importing-member
+# pylint: disable=g-no-space-after-docstring-summary
+# pylint: disable=g-short-docstring-punctuation
+# pylint: disable=logging-format-interpolation
+# pylint: disable=logging-fstring-interpolation
+# pylint: disable=missing-function-docstring
 import logging
 
 import tensorflow_datasets as tfds
@@ -22,12 +30,12 @@ import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 
 
-def load_kaggle_severity_shift_dataset(
-    train_batch_size, eval_batch_size, flags, strategy, load_for_eval=False
-):
-  """
-  Partitioning of the Kaggle/EyePACS Diabetic Retinopathy dataset to
-  hold out certain clinical severity levels as OOD.
+def load_kaggle_severity_shift_dataset(train_batch_size,
+                                       eval_batch_size,
+                                       flags,
+                                       strategy,
+                                       load_for_eval=False):
+  """Partitioning of the Kaggle/EyePACS Diabetic Retinopathy dataset to hold out certain clinical severity levels as OOD.
 
   Optionally exclude train split (e.g., loading for evaluation) in flags.
   See runscripts for more information on loading options.
@@ -37,8 +45,8 @@ def load_kaggle_severity_shift_dataset(
     eval_batch_size: int.
     flags: FlagValues, runscript flags.
     strategy: tf.distribute strategy, used to distribute datasets.
-    load_for_eval: Bool, if True, does not truncate the last batch
-      (for standardized evaluation).
+    load_for_eval: Bool, if True, does not truncate the last batch (for
+      standardized evaluation).
 
   Returns:
     Dict of datasets, Dict of number of steps per dataset.
@@ -53,61 +61,61 @@ def load_kaggle_severity_shift_dataset(
   # We consider examples with levels 2,3,4 as OOD
   # This leaves a few thousand examples previously segmented in the Kaggle
   # training set (the 2,3,4 ones) which we now group into the OOD test set.
-#
+  #
   # We have split sizes:
   if flags.dr_decision_threshold == 'mild':
     split_to_num_examples = {
-      'in_domain_validation': 8850,
-      'ood_validation': 2056,
-      'in_domain_test': 34445,
-      'ood_test': 15098
+        'in_domain_validation': 8850,
+        'ood_validation': 2056,
+        'in_domain_test': 34445,
+        'ood_test': 15098
     }
     if train_batch_size is not None:
       split_to_num_examples['train'] = 28253
   elif flags.dr_decision_threshold == 'moderate':
     split_to_num_examples = {
-      'in_domain_validation': 10429,
-      'ood_validation': 477,
-      'in_domain_test': 40727,
-      'ood_test': 3524
+        'in_domain_validation': 10429,
+        'ood_validation': 477,
+        'in_domain_test': 40727,
+        'ood_test': 3524
     }
     if train_batch_size is not None:
       split_to_num_examples['train'] = 33545
   else:
     raise NotImplementedError(
-      f'Unknown decision threshold {flags.dr_decision_threshold}.')
+        f'Unknown decision threshold {flags.dr_decision_threshold}.')
 
   split_to_batch_size = {
-    'in_domain_validation': eval_batch_size,
-    'ood_validation': eval_batch_size,
-    'in_domain_test': eval_batch_size,
-    'ood_test': eval_batch_size
+      'in_domain_validation': eval_batch_size,
+      'ood_validation': eval_batch_size,
+      'in_domain_test': eval_batch_size,
+      'ood_test': eval_batch_size
   }
 
   if train_batch_size is not None:
     split_to_batch_size['train'] = train_batch_size
 
   split_to_steps_per_epoch = {
-    split: num_examples // split_to_batch_size[split]
-    for split, num_examples in split_to_num_examples.items()
+      split: num_examples // split_to_batch_size[split]
+      for split, num_examples in split_to_num_examples.items()
   }
-  splits_to_return = [
-    'in_domain_validation', 'ood_validation']
+  splits_to_return = ['in_domain_validation', 'ood_validation']
   if load_train_split:
     splits_to_return = ['train'] + splits_to_return
   if flags.use_test:
     splits_to_return = splits_to_return + ['in_domain_test', 'ood_test']
 
   dataset_name = (
-    f'diabetic_retinopathy_severity_shift_{flags.dr_decision_threshold}')
+      f'diabetic_retinopathy_severity_shift_{flags.dr_decision_threshold}')
   split_to_dataset = {}
   for split in splits_to_return:
     dataset_builder = ub.datasets.get(
-      dataset_name,
-      split=split, data_dir=data_dir,
-      cache=(flags.cache_eval_datasets and split != 'train'),
-      drop_remainder=not load_for_eval,
-      builder_config=f'{dataset_name}/{flags.preproc_builder_config}')
+        dataset_name,
+        split=split,
+        data_dir=data_dir,
+        cache=(flags.cache_eval_datasets and split != 'train'),
+        drop_remainder=not load_for_eval,
+        builder_config=f'{dataset_name}/{flags.preproc_builder_config}')
     dataset = dataset_builder.load(batch_size=split_to_batch_size[split])
 
     if strategy is not None:
@@ -118,12 +126,12 @@ def load_kaggle_severity_shift_dataset(
   return split_to_dataset, split_to_steps_per_epoch
 
 
-def load_kaggle_aptos_country_shift_dataset(
-    train_batch_size, eval_batch_size, flags, strategy, load_for_eval=False
-):
-  """
-  Full Kaggle/EyePACS Diabetic Retinopathy dataset, including OOD
-  validation/test sets (APTOS).
+def load_kaggle_aptos_country_shift_dataset(train_batch_size,
+                                            eval_batch_size,
+                                            flags,
+                                            strategy,
+                                            load_for_eval=False):
+  """Full Kaggle/EyePACS Diabetic Retinopathy dataset, including OOD validation/test sets (APTOS).
 
   Optionally exclude train split (e.g., loading for evaluation) in flags.
   See runscripts for more information on loading options.
@@ -151,11 +159,11 @@ def load_kaggle_aptos_country_shift_dataset(
   ds_info = tfds.builder('diabetic_retinopathy_detection').info
   if load_train_split:
     split_to_steps_per_epoch['train'] = (
-      ds_info.splits['train'].num_examples // train_batch_size)
+        ds_info.splits['train'].num_examples // train_batch_size)
   split_to_steps_per_epoch['in_domain_validation'] = (
-    ds_info.splits['validation'].num_examples // eval_batch_size)
+      ds_info.splits['validation'].num_examples // eval_batch_size)
   split_to_steps_per_epoch['in_domain_test'] = (
-    ds_info.splits['test'].num_examples // eval_batch_size)
+      ds_info.splits['test'].num_examples // eval_batch_size)
 
   # APTOS Evaluation Data
   split_to_steps_per_epoch['ood_validation'] = 733 // eval_batch_size
@@ -168,16 +176,18 @@ def load_kaggle_aptos_country_shift_dataset(
 
   # Load validation data
   dataset_validation_builder = ub.datasets.get(
-    dr_dataset_name, split='validation', data_dir=data_dir,
-    is_training=not flags.use_validation,
-    decision_threshold=flags.dr_decision_threshold,
-    cache=flags.cache_eval_datasets,
-    drop_remainder=not load_for_eval,
-    builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
+      dr_dataset_name,
+      split='validation',
+      data_dir=data_dir,
+      is_training=not flags.use_validation,
+      decision_threshold=flags.dr_decision_threshold,
+      cache=flags.cache_eval_datasets,
+      drop_remainder=not load_for_eval,
+      builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
   validation_batch_size = (
-    eval_batch_size if flags.use_validation else train_batch_size)
+      eval_batch_size if flags.use_validation else train_batch_size)
   dataset_validation = dataset_validation_builder.load(
-    batch_size=validation_batch_size)
+      batch_size=validation_batch_size)
 
   # If `flags.use_validation`, then we distribute the validation dataset
   # independently and add as a separate dataset.
@@ -185,19 +195,21 @@ def load_kaggle_aptos_country_shift_dataset(
   if flags.use_validation:
     # Load APTOS validation dataset
     aptos_validation_builder = ub.datasets.get(
-      'aptos', split='validation', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold,
-      cache=flags.cache_eval_datasets,
-      drop_remainder=not load_for_eval,
-      builder_config=f'aptos/{flags.preproc_builder_config}')
+        'aptos',
+        split='validation',
+        data_dir=data_dir,
+        decision_threshold=flags.dr_decision_threshold,
+        cache=flags.cache_eval_datasets,
+        drop_remainder=not load_for_eval,
+        builder_config=f'aptos/{flags.preproc_builder_config}')
     dataset_ood_validation = aptos_validation_builder.load(
-      batch_size=eval_batch_size)
+        batch_size=eval_batch_size)
 
     if strategy is not None:
       dataset_validation = strategy.experimental_distribute_dataset(
-        dataset_validation)
+          dataset_validation)
       dataset_ood_validation = strategy.experimental_distribute_dataset(
-        dataset_ood_validation)
+          dataset_ood_validation)
 
     split_to_dataset['in_domain_validation'] = dataset_validation
     split_to_dataset['ood_validation'] = dataset_ood_validation
@@ -205,20 +217,21 @@ def load_kaggle_aptos_country_shift_dataset(
   if load_train_split:
     # Load EyePACS train data
     dataset_train_builder = ub.datasets.get(
-      dr_dataset_name, split='train', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold,
-      builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
+        dr_dataset_name,
+        split='train',
+        data_dir=data_dir,
+        decision_threshold=flags.dr_decision_threshold,
+        builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
     dataset_train = dataset_train_builder.load(batch_size=train_batch_size)
 
     if not flags.use_validation:
-      raise NotImplementedError(
-        'Existing bug involving the number of steps not being adjusted after '
-        'concatenating the validation dataset. Needs verifying.')
       # TODO(nband): investigate validation dataset concat bug
-
       # Note that this will not create any mixed batches of
       # train and validation images.
-      dataset_train = dataset_train.concatenate(dataset_validation)
+      # dataset_train = dataset_train.concatenate(dataset_validation)
+      raise NotImplementedError(
+          'Existing bug involving the number of steps not being adjusted after '
+          'concatenating the validation dataset. Needs verifying.')
 
     if strategy is not None:
       dataset_train = strategy.experimental_distribute_dataset(dataset_train)
@@ -228,11 +241,13 @@ def load_kaggle_aptos_country_shift_dataset(
   if flags.use_test:
     # In-Domain Test
     dataset_test_builder = ub.datasets.get(
-      dr_dataset_name, split='test', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold,
-      cache=flags.cache_eval_datasets,
-      drop_remainder=not load_for_eval,
-      builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
+        dr_dataset_name,
+        split='test',
+        data_dir=data_dir,
+        decision_threshold=flags.dr_decision_threshold,
+        cache=flags.cache_eval_datasets,
+        drop_remainder=not load_for_eval,
+        builder_config=f'{dr_dataset_name}/{flags.preproc_builder_config}')
     dataset_test = dataset_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_test = strategy.experimental_distribute_dataset(dataset_test)
@@ -241,27 +256,29 @@ def load_kaggle_aptos_country_shift_dataset(
 
     # OOD (APTOS) Test
     aptos_test_builder = ub.datasets.get(
-      'aptos', split='test', data_dir=data_dir,
-      decision_threshold=flags.dr_decision_threshold,
-      cache=flags.cache_eval_datasets,
-      drop_remainder=not load_for_eval,
-      builder_config=f'aptos/{flags.preproc_builder_config}')
+        'aptos',
+        split='test',
+        data_dir=data_dir,
+        decision_threshold=flags.dr_decision_threshold,
+        cache=flags.cache_eval_datasets,
+        drop_remainder=not load_for_eval,
+        builder_config=f'aptos/{flags.preproc_builder_config}')
     dataset_ood_test = aptos_test_builder.load(batch_size=eval_batch_size)
     if strategy is not None:
       dataset_ood_test = strategy.experimental_distribute_dataset(
-        dataset_ood_test)
+          dataset_ood_test)
 
     split_to_dataset['ood_test'] = dataset_ood_test
 
   return split_to_dataset, split_to_steps_per_epoch
 
 
-def load_dataset(
-    train_batch_size, eval_batch_size, flags, strategy, load_for_eval=False
-):
-  """
-  Retrieve the in-domain and OOD datasets for a given distributional shift
-  task in diabetic retinopathy.
+def load_dataset(train_batch_size,
+                 eval_batch_size,
+                 flags,
+                 strategy,
+                 load_for_eval=False):
+  """Retrieve the in-domain and OOD datasets for a given distributional shift task in diabetic retinopathy.
 
   Optionally exclude train split (e.g., loading for evaluation) in flags.
   See runscripts for more information on loading options.
@@ -280,16 +297,22 @@ def load_dataset(
 
   if distribution_shift == 'severity':
     datasets, steps = load_kaggle_severity_shift_dataset(
-      train_batch_size, eval_batch_size,
-      flags=flags, strategy=strategy, load_for_eval=load_for_eval)
+        train_batch_size,
+        eval_batch_size,
+        flags=flags,
+        strategy=strategy,
+        load_for_eval=load_for_eval)
   elif distribution_shift == 'aptos' or distribution_shift is None:
     datasets, steps = load_kaggle_aptos_country_shift_dataset(
-      train_batch_size, eval_batch_size,
-      flags=flags, strategy=strategy, load_for_eval=load_for_eval)
+        train_batch_size,
+        eval_batch_size,
+        flags=flags,
+        strategy=strategy,
+        load_for_eval=load_for_eval)
   else:
     raise NotImplementedError(
-      'Only support `severity` and `aptos` dataset partitions '
-      '(None defaults to APTOS).')
+        'Only support `severity` and `aptos` dataset partitions '
+        '(None defaults to APTOS).')
 
   logging.info(f'Datasets using builder config {flags.preproc_builder_config}.')
   logging.info(f'Successfully loaded the following dataset splits from the '

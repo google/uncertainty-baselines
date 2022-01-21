@@ -13,18 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 """Distribution / parallelism utils."""
-
+# pylint: disable=g-bare-generic
+# pylint: disable=g-doc-args
+# pylint: disable=g-doc-return-or-yield
+# pylint: disable=g-importing-member
+# pylint: disable=g-no-space-after-docstring-summary
+# pylint: disable=g-short-docstring-punctuation
+# pylint: disable=logging-format-interpolation
+# pylint: disable=logging-fstring-interpolation
+# pylint: disable=missing-function-docstring
 import logging
 import os
 
 import tensorflow as tf
 
 
-def init_distribution_strategy(
-    force_use_cpu: bool, use_gpu: bool, tpu_name: str
-):
+def init_distribution_strategy(force_use_cpu: bool, use_gpu: bool,
+                               tpu_name: str):
   """Initialize distribution/parallelization of training or inference.
 
   Args:
@@ -46,7 +52,7 @@ def init_distribution_strategy(
     strategy = tf.distribute.MirroredStrategy()
   else:
     if tpu_name == 'read-from-file':
-      with open("tpu_name.txt", "r") as f:
+      with open('tpu_name.txt', 'r') as f:
         tpu_name = f.readline().rstrip()
 
     logging.info('Use TPU at %s', tpu_name if tpu_name is not None else 'local')

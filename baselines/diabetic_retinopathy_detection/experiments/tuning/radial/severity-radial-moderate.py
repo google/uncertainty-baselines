@@ -13,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""
-Radial baseline for Diabetic Retinopathy Detection,
-evaluated on the Severity Shift with moderate decision threshold.
+r"""Radial baseline for Diabetic Retinopathy Detection, evaluated on the Severity Shift with moderate decision threshold.
 """
 
 import datetime
@@ -40,7 +38,7 @@ def get_config():
       os.path.splitext(os.path.basename(__file__))[0] + '_' +
       datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   output_dir = 'gs://drd-radial-severity-results/{}'.format(
-    config.experiment_name)
+      config.experiment_name)
   config.args = {
       'batch_size': 16,
       'num_mc_samples_train': 1,
@@ -60,9 +58,10 @@ def get_config():
 def get_sweep(hyper):
   num_trials = 32
   return hyper.zipit([
-    hyper.loguniform('base_learning_rate', hyper.interval(0.15, 1.0)),
-    hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.05)),
-    hyper.loguniform('l2', hyper.interval(1e-4, 1e-3)),
-    hyper.loguniform('stddev_mean_init', hyper.interval(1e-5, 2e-2)),
-    hyper.loguniform('stddev_stddev_init', hyper.interval(1e-2, 0.2)),
-  ], length=num_trials)
+      hyper.loguniform('base_learning_rate', hyper.interval(0.15, 1.0)),
+      hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.05)),
+      hyper.loguniform('l2', hyper.interval(1e-4, 1e-3)),
+      hyper.loguniform('stddev_mean_init', hyper.interval(1e-5, 2e-2)),
+      hyper.loguniform('stddev_stddev_init', hyper.interval(1e-2, 0.2)),
+  ],
+                     length=num_trials)

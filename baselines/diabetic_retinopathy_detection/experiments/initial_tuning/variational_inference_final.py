@@ -16,7 +16,7 @@
 r"""Variational_inference baseline for Diabetic Retinopathy Detection.
 
 Refining based off
-baselines/diabetic_retinopathy_detection/experiments/variational_inference_tune_final.py.
+baselines/diabetic_retinopathy_detection/initial_tuning/experiments/variational_inference_tune_final.py.
 
 """
 
@@ -61,4 +61,3 @@ def get_config(launch_on_gcp):
 def get_sweep(hyper):
   num_trials = 10
   return hyper.sweep('seed', hyper.discrete(range(num_trials)))
-

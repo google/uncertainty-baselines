@@ -30,11 +30,9 @@ pretrained deterministic ViT and finetune a BatchEnsemble ViT.
     ([example](experiments/imagenet21k_vit_base16_eval_imagenet.py)).
 
     Example:
-    [`experiments/vit_base16_finetune_cifar10_and_100.py`](experiments/vit_base16_finetune_cifar10_and_100.py)
-    finetunes a ViT on CIFAR-10. This config is set
-    to use a ViT-B/16 checkpoint obtained from the previous step.
-
-    TODO(trandustin,dusenberrymw): Add finetuning configs for L/32.
+    [`experiments/vit_l32_finetune.py`](experiments/vit_l32_finetune.py)
+    finetunes a ViT across CIFAR-10, 100, and ImageNet. This config is set
+    to use a ViT-L/32 checkpoint obtained from the previous step.
 
     Example: For active learning, see [`active_learning.py`](active_learning.py)
     which is a slight adaptation to an existing finetuning config.

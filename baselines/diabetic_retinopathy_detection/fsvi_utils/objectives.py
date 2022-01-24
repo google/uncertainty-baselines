@@ -49,7 +49,7 @@ class Loss:
   ):
     """Args:
 
-      model: wrapper of ResNet50FSVI
+      model: wrapper of resnet50_fsvi
       kl_scale: the type of scale of kl, e.g. "equal", "normalized".
       n_samples: the number of Monte-Carlo samples used to estimate the
       posterior.

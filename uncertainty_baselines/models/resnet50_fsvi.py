@@ -766,7 +766,7 @@ class ResNet18(ResNet):
     )
 
 
-class ResNet50FSVI(ResNet):
+class resnet50_fsvi(ResNet):
   """ResNet18."""
 
   def __init__(

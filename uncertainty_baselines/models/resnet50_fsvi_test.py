@@ -27,7 +27,7 @@ class ResNet50FSVITest(tf.test.TestCase):
     batch_size = 31
 
     def forward(inputs, rng_key, stochastic, is_training):
-      model = ub.models.ResNet50FSVI(
+      model = ub.models.resnet50_fsvi(
           output_dim=10,
           stochastic_parameters=True,
           dropout=False,

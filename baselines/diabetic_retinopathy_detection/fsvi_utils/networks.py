@@ -29,7 +29,7 @@ import haiku as hk
 import jax
 from jax import jit
 import jax.numpy as jnp
-from uncertainty_baselines.models.resnet50_fsvi import ResNet50FSVI
+from uncertainty_baselines.models.resnet50_fsvi import resnet50_fsvi
 
 ACTIVATION_DICT = {"tanh": jnp.tanh, "relu": jax.nn.relu}
 
@@ -46,7 +46,7 @@ class Model:
       dropout: bool = False,
       dropout_rate: float = 0.0,
   ):
-    """Wrapper of ResNet50FSVI
+    """Wrapper of resnet50_fsvi
 
     Args:
     output_dim: the output dimension
@@ -223,7 +223,7 @@ class CNN(Model):
   def make_forward_fn(self) -> Callable:
 
     def forward_fn(inputs, rng_key, stochastic, is_training):
-      net = ResNet50FSVI(
+      net = resnet50_fsvi(
           output_dim=self.output_dim,
           stochastic_parameters=self.stochastic_parameters,
           dropout=self.dropout,

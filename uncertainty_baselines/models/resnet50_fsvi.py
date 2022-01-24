@@ -63,7 +63,6 @@ class DenseStochasticHaiku(hk.Module):
       stochastic_parameters: bool = False,
   ):
     super(DenseStochasticHaiku, self).__init__(name=name)
-    self.input_size = None
     self.output_size = output_size
     self.with_bias = with_bias
     self.w_init = w_init
@@ -87,7 +86,7 @@ class DenseStochasticHaiku(hk.Module):
     j, k = inputs.shape[-1], self.output_size
     dtype = inputs.dtype
 
-    stddev = 1.0 / np.sqrt(self.input_size)
+    stddev = 1.0 / np.sqrt(j)
     self.w_init = parse_w_init(init_type=self.w_init, uniform_stddev=stddev)
     w_mu = hk.get_parameter("w_mu", shape=[j, k], dtype=dtype, init=self.w_init)
 
@@ -766,7 +765,7 @@ class ResNet18(ResNet):
     )
 
 
-class ResNet50FSVI(ResNet):
+class resnet50_fsvi(ResNet):  # pylint: disable=invalid-name
   """ResNet18."""
 
   def __init__(

@@ -1,0 +1,51 @@
+"""
+Top hyperparameter configuration of the
+MFVI baseline for Diabetic Retinopathy Detection,
+tuning on area under the balanced joint SP-Accuracy curve,
+evaluated on the Severity Shift with moderate decision threshold.
+"""
+name: severity-vi-joint
+program: baselines/diabetic_retinopathy_detection/variational_inference.py
+method: grid
+project: severity-vi-joint
+entity: uncertainty-baselines
+
+parameters:
+  # Fixed
+  tpu:
+    value: 'read-from-file'
+  batch_size:
+    value: 32
+  num_mc_samples_train:
+    value: 1
+  num_mc_samples_eval:
+    value: 5
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'severity'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-vi-severity-finetune/joint-backup'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+
+  base_learning_rate:
+    value: 0.41973
+  l2:
+    value: 0.000024503
+  stddev_mean_init:
+    value: 0.00011944
+  stddev_stddev_init:
+    value: 0.10938
+  one_minus_momentum:
+    value: 0.021539
+  seed:
+    values: [42, 43, 44, 45, 46, 47]

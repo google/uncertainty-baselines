@@ -1,0 +1,48 @@
+"""
+Top hyperparameter configuration of the
+deterministic baseline for Diabetic Retinopathy Detection,
+tuning on area under the balanced joint SP-Accuracy curve,
+evaluated on the Severity Shift with moderate decision threshold.
+"""
+name: severity-deterministic-joint
+program: baselines/diabetic_retinopathy_detection/deterministic.py
+method: grid
+project: severity-deterministic-joint
+entity: uncertainty-baselines
+
+parameters:
+  tpu:
+    value: 'read-from-file'
+  per_core_batch_size:
+    value: 32
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'severity'
+  checkpoint_interval:
+    value: 1
+  lr_schedule:
+    value: 'linear'
+  output_dir:
+    value: 'gs://drd-deterministic-severity-finetune/joint'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+  use_wandb:
+    value: True
+  seed:
+    values: [42, 43, 44, 45, 46, 47]
+
+  final_decay_factor:
+    value: 0.0010000
+  one_minus_momentum:
+    value: 0.011876
+  l2:
+    value: 0.000012376
+  base_learning_rate:
+    value: 0.022779

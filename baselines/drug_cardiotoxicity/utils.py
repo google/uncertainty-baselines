@@ -18,7 +18,7 @@ import dataclasses
 import json
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import robustness_metrics as rm
 import tensorflow as tf
@@ -39,6 +39,7 @@ class ModelParameters:
     use_gp_layer: Bool, whether to use Gaussian Process layer as classifier.
     learning_rate: Float, learning rate.
     num_epochs: Int, number of epoch for the entire training process.
+    augmentations: List of str, representing augmentation function names.
     steps_per_epoch: Int, number of training batches to take in one epoch.
   """
   num_heads: int = 2
@@ -48,6 +49,7 @@ class ModelParameters:
   use_gp_layer: bool = False
   learning_rate: float = 0.001
   num_epochs: int = 100
+  augmentations: Optional[List[str]] = None
   steps_per_epoch: Optional[int] = None
 
 

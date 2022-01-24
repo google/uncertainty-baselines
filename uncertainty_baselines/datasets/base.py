@@ -38,6 +38,18 @@ _EnumeratedPreProcessFn = Callable[
     types.Features]
 
 
+def _absolute_split_len(absolute_split, dataset_splits):
+  if absolute_split.from_ is None:
+    start = 0
+  else:
+    start = absolute_split.from_
+  if absolute_split.to is None:
+    end = dataset_splits[absolute_split.splitname].num_examples
+  else:
+    end = absolute_split.to
+  return end - start
+
+
 def get_validation_percent_split(
     dataset_builder,
     validation_percent,
@@ -76,6 +88,15 @@ def get_validation_percent_split(
   else:
     new_split = split
   return new_split
+
+
+_drd_datasets = [
+    'ub_diabetic_retinopathy_detection',
+    'diabetic_retinopathy_severity_shift_mild',
+    'diabetic_retinopathy_severity_shift_moderate', 'aptos/btgraham-300',
+    'aptos/blur-3-btgraham-300', 'aptos/blur-5-btgraham-300',
+    'aptos/blur-10-btgraham-300', 'aptos/blur-20-btgraham-300'
+]
 
 
 class BaseDataset(robustness_metrics_base.TFDSDataset):
@@ -173,7 +194,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       self._shuffle_buffer_size = num_train_examples
     else:
       self._shuffle_buffer_size = shuffle_buffer_size
-    super().__init__(
+    super(BaseDataset, self).__init__(
         dataset_builder=dataset_builder,
         fingerprint_key=fingerprint_key,
         split=self._split,
@@ -197,6 +218,13 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
   @property
   def num_examples(self):
+    if isinstance(self._split, tfds.core.ReadInstruction):
+      absolute_split = self._split.to_absolute(
+          {
+              name: self.tfds_info.splits[name].num_examples
+              for name in self.tfds_info.splits.keys()
+          })[0]
+      return _absolute_split_len(absolute_split, self.tfds_info.splits)
     return self.tfds_info.splits[self._split].num_examples
 
   def _create_process_example_fn(self) -> Optional[PreProcessFn]:
@@ -288,6 +316,15 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
           add_fingerprint_key_fn,
           num_parallel_calls=self._num_parallel_parser_calls)
 
+    # If we are truncating the validation/test dataset (self._drop_remainder)
+    # we may as well repeat to speed things up.
+    # TODO(nband): benchmark.
+    if (self.name in _drd_datasets and not self._is_training and
+        self._drop_remainder):
+      dataset = dataset.repeat()
+      logging.info('Repeating dataset %s (training mode: %s).', self.name,
+                   self._is_training)
+
     # Shuffle and repeat only for the training split.
     if self._is_training:
       dataset = dataset.shuffle(
@@ -330,8 +367,14 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       dataset = dataset.map(
           process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    if not self._is_training and self.name != 'diabetic_retinopathy_detection':
+    if not self._is_training and self.name not in _drd_datasets:
       dataset = dataset.cache()
+    else:
+      if not self._cache:
+        logging.info(
+            'Not caching dataset %s (training mode: %s).',
+            self.name,
+            self._is_training)
 
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
@@ -413,7 +456,7 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
         in_distribution_dataset: BaseDataset,
         shuffle_datasets: bool = False,
         **kwargs):
-      super().__init__(**kwargs)
+      super(_OodBaseDataset, self).__init__(**kwargs)
       # This should be the builder for whatever split will be considered
       # in-distribution (usually the test split).
       self._in_distribution_dataset = in_distribution_dataset
@@ -440,13 +483,13 @@ def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
       if preprocess_fn:
         ood_dataset_preprocess_fn = preprocess_fn
       else:
-        ood_dataset_preprocess_fn = super()._create_process_example_fn()
+        ood_dataset_preprocess_fn = (
+            super(_OodBaseDataset, self)._create_process_example_fn())
       ood_dataset_preprocess_fn = ops.compose(
           ood_dataset_preprocess_fn,
           _create_ood_label_fn(False))
-      ood_dataset = super().load(
-          preprocess_fn=ood_dataset_preprocess_fn,
-          batch_size=batch_size)
+      ood_dataset = super(_OodBaseDataset, self).load(
+          preprocess_fn=ood_dataset_preprocess_fn, batch_size=batch_size)
       # We keep the fingerprint id in both dataset and ood_dataset
 
       # Combine the two datasets.

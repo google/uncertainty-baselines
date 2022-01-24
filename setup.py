@@ -82,6 +82,7 @@ setup(
             'torch',
             'torchvision',
         ],
+        'retinopathy': ['wandb', 'seaborn', 'dm-haiku'],
     },
     classifiers=[
         'Development Status :: 3 - Alpha',

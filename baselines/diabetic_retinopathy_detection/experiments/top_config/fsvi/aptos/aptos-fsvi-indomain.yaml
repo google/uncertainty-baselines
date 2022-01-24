@@ -1,0 +1,53 @@
+"""
+Top hyperparameter configuration of the
+FSVI baseline for Diabetic Retinopathy Detection,
+tuning on in-domain validation AUC,
+evaluated on the OOD APTOS Indian retinopathy dataset
+with moderate decision threshold.
+"""
+name: aptos-fsvi-finetune-id
+program: baselines/diabetic_retinopathy_detection/fsvi.py
+method: grid
+project: aptos-fsvi-finetune
+entity: nband
+parameters:
+  epochs:
+    value: 90
+  num_cores:
+    value: 4
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'aptos'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-aptos-finetune/indomain'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+  layer_to_linearize:
+    value: 1
+  per_core_batch_size:
+    value: 64
+  prior_cov:
+    value: 15.359475558718179
+  n_inducing_inputs:
+    value: 10
+  base_learning_rate:
+    value: 0.02145079969396404
+  one_minus_momentum:
+    value: 0.01921801498056592
+  l2:
+    value: 0.00015793214082680183
+  loss_type:
+    value: 5
+  stochastic_linearization:
+    value: True
+  seed:
+    values:
+      - 42
+      - 43
+      - 44
+      - 45
+      - 46
+      - 47

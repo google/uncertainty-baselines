@@ -33,7 +33,7 @@ import sklearn.metrics
 import input_utils  # local file import from baselines.jft
 
 
-SUPPORTED_OOD_METHODS = ('msp', 'entropy', 'maha', 'rmaha')
+SUPPORTED_OOD_METHODS = ('msp', 'entropy', 'maha', 'rmaha', 'mlogit')
 
 
 # TODO(dusenberrymw): Move it to robustness metrics.
@@ -128,6 +128,12 @@ class OODMetric:
         raise KeyError(
             ('The variable probs is needed for computing MSP OOD score. ',
              'But it is not found in the dict.'))
+    elif self.method_name == 'mlogit':
+      if 'logits' in scores:
+        ood_scores = 1 - np.max(scores['logits'], axis=-1)
+      else:
+        raise KeyError(('The variable logits is needed for computing MaxLogits',
+                        ' OOD score. But it is not found in the dict.'))
     elif self.method_name == 'entropy':
       if 'entropy' in scores:
         ood_scores = scores['entropy']
@@ -363,6 +369,7 @@ def eval_ood_metrics(ood_ds,
         # Computes Maximum softmax probability (MSP)
         probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
         batch_scores['probs'] = probs
+        batch_scores['logits'] = logits[0][masks_bool]
 
         # Compute Entropy
         batch_scores['entropy'] = np.array(

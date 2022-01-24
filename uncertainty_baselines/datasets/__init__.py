@@ -20,6 +20,7 @@ from absl import logging
 # pylint: disable=g-bad-import-order
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets import resnet_preprocessing
+from uncertainty_baselines.datasets.aptos import APTOSDataset
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.base import make_ood_dataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
@@ -31,7 +32,9 @@ from uncertainty_baselines.datasets.clinc_intent import ClincIntentDetectionData
 from uncertainty_baselines.datasets.criteo import CriteoDataset
 from uncertainty_baselines.datasets.datasets import DATASETS
 from uncertainty_baselines.datasets.datasets import get
-from uncertainty_baselines.datasets.diabetic_retinopathy_detection import DiabeticRetinopathyDetectionDataset
+from uncertainty_baselines.datasets.diabetic_retinopathy_detection import UBDiabeticRetinopathyDetectionDataset
+from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_mild import DiabeticRetinopathySeverityShiftMildDataset
+from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_moderate import DiabeticRetinopathySeverityShiftModerateDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import MultiWoZSynthDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SGDSynthDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset

@@ -15,7 +15,7 @@
 
 """Top hyperparameter configuration of the Radial baseline for DRD.
 
-Tuning on either in-domain validation AUC or balanced joint R-Accuracy curve,
+Tuning on either in-domain validation AUC or balanced joint SP-Accuracy curve,
 the same configuration performed best.
 
 Evaluated on the Severity Shift with moderate decision threshold.

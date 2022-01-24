@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Top hyperparameter configuration of the MC Dropout baseline for Diabetic Retinopathy Detection, tuning on area under the balanced joint R-Accuracy curve, evaluated on the OOD APTOS Indian retinopathy dataset with moderate decision threshold.
+r"""Top hyperparameter configuration of the MC Dropout baseline for Diabetic Retinopathy Detection, tuning on area under the balanced joint SP-Accuracy curve, evaluated on the OOD APTOS Indian retinopathy dataset with moderate decision threshold.
 """
 
 import datetime

@@ -1,7 +1,7 @@
 """
 Top hyperparameter configuration of the
 MFVI baseline for Diabetic Retinopathy Detection,
-tuning on area under the balanced joint R-Accuracy curve,
+tuning on area under the balanced joint SP-Accuracy curve,
 evaluated on the OOD APTOS Indian retinopathy dataset
 with moderate decision threshold.
 """

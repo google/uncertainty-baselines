@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,7 +43,9 @@ from tensorflow.io import gfile
 import uncertainty_baselines as ub
 import batchensemble_utils  # local file import from baselines.jft
 import checkpoint_utils  # local file import from baselines.jft
+import cifar10h_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
+import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
@@ -63,14 +65,6 @@ flags.DEFINE_string('tpu', None,
 
 # Adds jax flags to the program.
 jax.config.parse_flags_with_absl()
-
-
-def _log_average_probs(logits: jnp.ndarray) -> jnp.ndarray:
-  # TODO(zmariet): dedicated eval loss function.
-  ens_size, _, _ = logits.shape
-  log_p = jax.nn.log_softmax(logits)  # (ensemble_size, batch_size, num_classes)
-  log_p = jax.nn.logsumexp(log_p, axis=0) - jnp.log(ens_size)
-  return log_p
 
 
 def main(_):
@@ -93,13 +87,7 @@ def main(_):
   checkpoint_writer = None
 
   # Loss to apply.
-  loss_to_apply = getattr(
-      train_utils, config.get('loss_to_apply', 'softmax_xent'))
-  compute_ece = config.get('compute_ece', False)
-  is_sigmoid = config.get('loss_to_apply', 'softmax_xent') == 'sigmoid_xent'
-  if compute_ece and is_sigmoid:
-    error_msg = 'Inconsistent config: ECE can only be used with "softmax_xent".'
-    raise ValueError(error_msg)
+  loss_to_apply = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
 
   ens_size = config.get('model.transformer.ens_size', 1)
 
@@ -196,17 +184,16 @@ def main(_):
         process_batch_size=batch_size_per_host_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
+        num_epochs=1,
         repeat_after_batching=True,
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
         data_dir=data_dir)
-    val_iter = input_utils.start_input_pipeline(
-        val_ds, config.get('prefetch_to_device', 1))
 
-    return (val_iter, val_steps)
+    return val_ds
 
-  val_iter_splits = {
+  val_ds_splits = {
       'val':
           _get_val_split(
               config.dataset,
@@ -215,10 +202,60 @@ def main(_):
               data_dir=config.get('data_dir'))
   }
 
+  if config.get('eval_on_cifar_10h'):
+    cifar10_to_cifar10h_fn = cifar10h_utils.create_cifar10_to_cifar10h_fn(
+        config.get('data_dir', None))
+    preprocess_fn = preprocess_spec.parse(
+        spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
+    pp_eval = lambda ex: preprocess_fn(cifar10_to_cifar10h_fn(ex))
+    val_ds_splits['cifar_10h'] = _get_val_split(
+        'cifar10',
+        split=config.get('cifar_10h_split') or 'test',
+        pp_eval=pp_eval,
+        data_dir=config.get('data_dir'))
+
+  elif config.get('eval_on_imagenet_real'):
+    def avg_label(example):
+      real_label = example['real_label']
+      if tf.shape(real_label)[0] > 0:
+        one_hot = tf.one_hot(real_label, 1000)
+        example['labels'] = tf.reduce_mean(one_hot, axis=0)
+        example['mask'] = tf.identity(1.)
+      else:
+        example['labels'] = tf.zeros([1000])
+        example['mask'] = tf.identity(0.)
+      return example
+
+    preprocess_fn = preprocess_spec.parse(
+        spec=config.pp_eval_imagenet_real,
+        available_ops=preprocess_utils.all_ops())
+    pp_eval = lambda ex: preprocess_fn(avg_label(ex))
+    val_ds_splits['imagenet_real'] = _get_val_split(
+        'imagenet2012_real',
+        split=config.get('imagenet_real_split') or 'validation',
+        pp_eval=pp_eval,
+        data_dir=config.get('data_dir'))
+
+  ood_ds = {}
+  if config.get('ood_datasets') and config.get('ood_methods'):
+    if config.get('ood_methods'):  #  config.ood_methods is not a empty list
+      logging.info('loading OOD dataset = %s', config.get('ood_datasets'))
+      ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
+          config.dataset,
+          config.ood_datasets,
+          config.ood_split,
+          config.pp_eval,
+          config.pp_eval_ood,
+          config.ood_methods,
+          config.train_split,
+          config.get('data_dir'),
+          _get_val_split,
+      )
+
   # Note: we return the train loss and val loss for use in reproducibility unit
   # tests.
   train_loss = -jnp.inf
-  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_ds_splits.items()}
   # TODO(zmariet): Add fewshot evaluation.
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
@@ -288,14 +325,26 @@ def main(_):
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    tiled_logits, _ = model_eval.apply({'params': flax.core.freeze(params)},
-                                       images)
-    ens_logits = _log_average_probs(
-        jnp.asarray(jnp.split(tiled_logits, ens_size)))
+    tiled_logits, out = model_eval.apply({'params': flax.core.freeze(params)},
+                                         images)
 
-    losses = train_utils.softmax_xent(logits=ens_logits,
-                                      labels=labels[:, :config.num_classes],
-                                      reduction=False)
+    loss_name = config.get('loss', 'sigmoid_xent')
+    # TODO(dusenberrymw,zmariet): Clean up and generalize this.
+    if loss_name == 'sigmoid_xent':
+      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+    else:  # softmax
+      ens_logits = batchensemble_utils.log_average_softmax_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+      pre_logits = batchensemble_utils.log_average_softmax_probs(
+          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+
+    losses = getattr(train_utils, loss_name)(
+        logits=ens_logits,
+        labels=labels[:, :config.num_classes],
+        reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
     top1_idx = jnp.argmax(ens_logits, axis=1)
@@ -303,7 +352,45 @@ def main(_):
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([ens_logits, labels, mask],
+    metric_args = jax.lax.all_gather(
+        [ens_logits, labels, pre_logits, mask],
+        axis_name='batch')
+    return ncorrect, loss, n, metric_args
+
+  @functools.partial(jax.pmap, axis_name='batch')
+  def cifar_10h_evaluation_fn(params, images, labels, mask):
+    tiled_logits, out = model_eval.apply({'params': flax.core.freeze(params)},
+                                         images)
+    loss_name = config.get('loss', 'softmax_xent')
+    if loss_name == 'sigmoid_xent':
+      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+    else:  # softmax
+      ens_logits = batchensemble_utils.log_average_softmax_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+      pre_logits = batchensemble_utils.log_average_softmax_probs(
+          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+
+    label_indices = config.get('label_indices')
+    if label_indices:
+      ens_logits = ens_logits[:, label_indices]
+
+    losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
+        logits=ens_logits, labels=labels, reduction=False)
+    loss = jax.lax.psum(losses, axis_name='batch')
+
+    top1_idx = jnp.argmax(ens_logits, axis=1)
+    # Extracts the label at the highest logit index for each image.
+    one_hot_labels = jnp.eye(10)[jnp.argmax(labels, axis=1)]
+
+    top1_correct = jnp.take_along_axis(
+        one_hot_labels, top1_idx[:, None], axis=1)[:, 0]
+    ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
+    n = jax.lax.psum(one_hot_labels, axis_name='batch')
+
+    metric_args = jax.lax.all_gather([ens_logits, labels, pre_logits, mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
@@ -347,7 +434,7 @@ def main(_):
   lr_fn = train_utils.create_learning_rate_schedule(total_steps,
                                                     **config.get('lr', {}))
   lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(first_step, total_steps)),
+      map(lr_fn, range(total_steps)),
       config.get('prefetch_to_device', 1))
 
   write_note(f'First step compilations...\n{chrono.note}')
@@ -357,20 +444,12 @@ def main(_):
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
-    # NOTE: Validation eval is only run on certain steps, so determine how many
-    # times it was run previously.
-    num_val_runs = sum(
-        map(
-            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
-                                         ), range(1, first_step + 1)))
-    for val_name, (val_iter, val_steps) in val_iter_splits.items():
-      val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
-      val_iter_splits[val_name] = (val_iter, val_steps)
+    # TODO(zmariet): Find better way to cut down iteration advancement cost.
+    if not config.get('disable_preemption_reproducibility', False):
+      train_iter = itertools.islice(train_iter, first_step, None)
 
   for step, train_batch, lr_repl in zip(
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
       opt, train_loop_rngs, loss_value, extra_measurements = pmap_update_fn(
           opt,
@@ -431,7 +510,7 @@ def main(_):
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
-      for val_name, (val_iter, val_steps) in val_iter_splits.items():
+      for val_name, val_ds in val_ds_splits.items():
         # Sets up evaluation metrics.
         ece_num_bins = config.get('ece_num_bins', 15)
         auc_num_bins = config.get('auc_num_bins', 1000)
@@ -445,13 +524,23 @@ def main(_):
                                                      num_bins=auc_num_bins)
         oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
                                                      num_bins=auc_num_bins)
+        label_diversity = tf.keras.metrics.Mean()
+        sample_diversity = tf.keras.metrics.Mean()
+        ged = tf.keras.metrics.Mean()
 
         # Runs evaluation loop.
+        val_iter = input_utils.start_input_pipeline(
+            val_ds, config.get('prefetch_to_device', 1))
         ncorrect, loss, nseen = 0, 0, 0
-        for _, batch in zip(range(val_steps), val_iter):
-          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-              evaluation_fn(opt.target, batch['image'],
-                            batch['labels'], batch['mask']))
+        for batch in val_iter:
+          if val_name == 'cifar_10h':
+            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+                cifar_10h_evaluation_fn(opt.target, batch['image'],
+                                        batch['labels'], batch['mask']))
+          else:
+            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
+                evaluation_fn(opt.target, batch['image'],
+                              batch['labels'], batch['mask']))
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
           # with each local device's entry being identical as they got psum'd.
@@ -459,39 +548,77 @@ def main(_):
           ncorrect += np.sum(np.array(batch_ncorrect[0]))
           loss += np.sum(np.array(batch_losses[0]))
           nseen += np.sum(np.array(batch_n[0]))
-          # Here we parse batch_metric_args to compute uncertainty metrics.
-          # (e.g., ECE or Calibration AUC).
-          logits, labels, masks = batch_metric_args
-          masks = np.array(masks[0], dtype=np.bool)
-          logits = np.array(logits[0])
-          probs = jax.nn.softmax(logits)
-          # From one-hot to integer labels, as required by ECE.
-          int_labels = np.argmax(np.array(labels[0]), axis=-1)
-          int_preds = np.argmax(logits, axis=-1)
-          confidence = np.max(probs, axis=-1)
-          for p, c, l, d, m in zip(probs, confidence, int_labels,
-                                   int_preds, masks):
-            ece.add_batch(p[m, :], label=l[m])
-            calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
-            # TODO(jereliu): Extend to support soft multi-class probabilities.
-            oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-            oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+          if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+            # Here we parse batch_metric_args to compute uncertainty metrics.
+            # (e.g., ECE or Calibration AUC).
+            logits, labels, _, masks = batch_metric_args
+            masks = np.array(masks[0], dtype=np.bool)
+            logits = np.array(logits[0])
+            probs = jax.nn.softmax(logits)
+            # From one-hot to integer labels, as required by ECE.
+            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+            int_preds = np.argmax(logits, axis=-1)
+            confidence = np.max(probs, axis=-1)
+            for p, c, l, d, m, label in zip(probs, confidence, int_labels,
+                                            int_preds, masks, labels[0]):
+              ece.add_batch(p[m, :], label=l[m])
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              # TODO(jereliu): Extend to support soft multi-class probabilities.
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+
+              if val_name == 'cifar_10h':
+                (batch_label_diversity, batch_sample_diversity,
+                 batch_ged) = cifar10h_utils.generalized_energy_distance(
+                     label[m], p[m, :], 10)
+                label_diversity.update_state(batch_label_diversity)
+                sample_diversity.update_state(batch_sample_diversity)
+                ged.update_state(batch_ged)
 
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
             f'{val_name}_prec@1': ncorrect / nseen,
             f'{val_name}_loss': val_loss[val_name],
-            f'{val_name}_ece': ece.result()['ece'],
-            f'{val_name}_calib_auc': calib_auc.result()['calibration_auc'],
-            f'{val_name}_oc_auc_0.5%': oc_auc_0_5.result()[
-                'collaborative_auc'],
-            f'{val_name}_oc_auc_1%': oc_auc_1.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_2%': oc_auc_2.result()['collaborative_auc'],
-            f'{val_name}_oc_auc_5%': oc_auc_5.result()['collaborative_auc'],
         }
+        if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
+          val_measurements[f'{val_name}_ece'] = ece.result()['ece']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result(
+          )['calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result(
+          )['collaborative_auc']
         writer.write_scalars(step, val_measurements)
+
+        if val_name == 'cifar_10h':
+          cifar_10h_measurements = {
+              f'{val_name}_label_diversity': label_diversity.result(),
+              f'{val_name}_sample_diversity': sample_diversity.result(),
+              f'{val_name}_ged': ged.result(),
+          }
+          writer.write_scalars(step, cifar_10h_measurements)
+
+      # OOD eval
+      # Entries in the ood_ds dict include:
+      # (ind_dataset, ood_dataset1, ood_dataset2, ...).
+      # OOD metrics are computed using ind_dataset paired with each of the
+      # ood_dataset. When Mahalanobis distance method is applied, train_ind_ds
+      # is also included in the ood_ds.
+      if ood_ds and config.ood_methods:
+        ood_measurements = ood_utils.eval_ood_metrics(
+            ood_ds,
+            ood_ds_names,
+            config.ood_methods,
+            evaluation_fn,
+            opt,
+            n_prefetch=config.get('prefetch_to_device', 1))
+        writer.write_scalars(step, ood_measurements)
       chrono.resume()
 
   write_note(f'Done!\n{chrono.note}')

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -71,10 +71,12 @@ from uncertainty_baselines.models.resnet50_fsvi import ResNet50FSVI
 try:
   # Try to import ViT models.
   from uncertainty_baselines.models import vit_batchensemble
+  from uncertainty_baselines.models.bit_resnet import bit_resnet
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp
   from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
+  from uncertainty_baselines.models.vit_mimo import VisionTransformerMIMO
   from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)

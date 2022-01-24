@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import batchensemble  # local file import from baselines.jft
+import batchensemble_utils  # local file import from baselines.jft
 
 flags.adopt_module_key_flags(batchensemble)
 FLAGS = flags.FLAGS
@@ -39,24 +40,28 @@ def get_config(classifier, representation_size):
   config = ml_collections.ConfigDict()
   config.seed = 0
 
+  config.batch_size = 3
+  config.total_steps = 3
+
+  num_examples = config.batch_size * config.total_steps
+
   # TODO(dusenberrymw): JFT + mocking is broken.
   # config.dataset = 'jft/entity:1.0.0'
   # config.val_split = 'test[:49511]'  # aka tiny_test/test[:5%] in task_adapt
   # config.train_split = 'train'  # task_adapt used train+validation so +64167
   # config.num_classes = 18291
 
+  # NOTE: TFDS mocking currently ignores split slices.
   config.dataset = 'imagenet21k'
-  config.val_split = 'full[:9]'
-  config.train_split = 'full[30:60]'
+  config.val_split = f'full[:{num_examples}]'
+  config.train_split = f'full[{num_examples}:{num_examples*2}]'
   config.num_classes = 21843
 
-  config.batch_size = 3
   config.batch_size_eval = 3
   config.prefetch_to_device = 1
   config.shuffle_buffer_size = 20
   config.val_cache = False
 
-  config.total_steps = 3
   config.log_training_steps = config.total_steps
   config.log_eval_steps = config.total_steps
   config.checkpoint_steps = config.total_steps
@@ -127,20 +132,28 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
   def test_log_average_probs(self, ensemble_size):
     batch_size, num_classes = 16, 3
     logits_shape = (ensemble_size, batch_size, num_classes)
-
     np.random.seed(42)
     ensemble_logits = jnp.asarray(np.random.normal(size=logits_shape))
-    actual_logits = batchensemble._log_average_probs(ensemble_logits)
+
+    actual_logits = batchensemble_utils.log_average_softmax_probs(
+        ensemble_logits)
     self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
 
     expected_probs = jnp.mean(jax.nn.softmax(ensemble_logits), axis=0)
     self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
 
+    actual_logits = batchensemble_utils.log_average_sigmoid_probs(
+        ensemble_logits)
+    self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
+
+    expected_probs = jnp.mean(jax.nn.sigmoid(ensemble_logits), axis=0)
+    self.assertAllClose(jax.nn.sigmoid(actual_logits), expected_probs)
+
   @parameterized.parameters(
-      ('token', 2, 346.3723, 218.5163),
-      # ('token', None, 346.4346, 219.5707),  # TODO(zmariet): fix flaky test.
-      ('gap', 2, 346.3702, 219.3948),
-      ('gap', None, 346.373, 219.2920),
+      ('token', 2, 12492.359, 11125.7217881),
+      ('token', None, 10672.909, 8519.65234375),
+      ('gap', 2, 12902.053, 12786.2899305),
+      ('gap', None, 12961.835, 12762.797743),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,
@@ -151,9 +164,11 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
         classifier=classifier, representation_size=representation_size)
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.dataset_dir = self.data_dir
+    num_examples = FLAGS.config.batch_size * FLAGS.config.total_steps
 
     # Check for any errors.
-    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+    with tfds.testing.mock_data(
+        num_examples=num_examples, data_dir=self.data_dir):
       train_loss, val_loss, _ = batchensemble.main(None)
 
     # Check for reproducibility.
@@ -175,8 +190,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     FLAGS.output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     FLAGS.config.dataset_dir = self.data_dir
     FLAGS.config.total_steps = 2
+    num_examples = FLAGS.config.batch_size * FLAGS.config.total_steps
 
-    with tfds.testing.mock_data(num_examples=100, data_dir=self.data_dir):
+    with tfds.testing.mock_data(
+        num_examples=num_examples, data_dir=self.data_dir):
       _, val_loss, _ = batchensemble.main(None)
       checkpoint_path = os.path.join(FLAGS.output_dir, 'checkpoint.npz')
       self.assertTrue(os.path.exists(checkpoint_path))

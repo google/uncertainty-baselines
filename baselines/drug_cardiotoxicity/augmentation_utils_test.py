@@ -82,11 +82,28 @@ class AugmentationUtilsTest(googletest.TestCase):
         'pairs': tf.constant([]),
         'molecule_id': tf.constant([]),
     }
+    self.graph_augmenter_ratio_0 = augmentation_utils.GraphAugment(
+        ['drop_nodes'], aug_ratio=0.0)
+    self.graph_augmenter_empty_aug = augmentation_utils.GraphAugment(
+        [], aug_ratio=0.5)
+    self.graph_augmenter = augmentation_utils.GraphAugment(['drop_nodes'],
+                                                           aug_ratio=0.5)
 
-  def test_drop_no_nodes(self):
+  def test_drop_ratio_0(self):
     # Drop no nodes.
-    augmented_graph, idx_dropped_nodes = augmentation_utils.drop_nodes(
-        self.valid_graph, aug_ratio=0.)
+    augmented_graph, idx_dropped_nodes = self.graph_augmenter_ratio_0.augment(
+        self.valid_graph)
+    # Check that none of the features have changed.
+    for feature in augmented_graph:
+      np.testing.assert_array_equal(augmented_graph[feature],
+                                    self.valid_graph[feature])
+      # Check that returned arrays of dropped node indices are empty.
+      self.assertEmpty(idx_dropped_nodes)
+
+  def test_drop_augmentations_empty(self):
+    # Drop no nodes.
+    augmented_graph, idx_dropped_nodes = self.graph_augmenter_empty_aug.augment(
+        self.valid_graph)
     # Check that none of the features have changed.
     for feature in augmented_graph:
       np.testing.assert_array_equal(augmented_graph[feature],
@@ -112,8 +129,8 @@ class AugmentationUtilsTest(googletest.TestCase):
 
   def test_drop_nodes(self):
     # Drop 50% of nodes == 15 nodes.
-    augmented_graph, idx_dropped_nodes = augmentation_utils.drop_nodes(
-        self.valid_graph, aug_ratio=0.5)
+    augmented_graph, idx_dropped_nodes = self.graph_augmenter.drop_nodes(
+        self.valid_graph)
     expected_num_dropped = int(drug_cardiotoxicity._MAX_NODES * 0.5 * 0.5)
     for molecule_idx in range(NUM_MOLECULES):
       nodes_left = np.nonzero(
@@ -156,8 +173,7 @@ class AugmentationUtilsTest(googletest.TestCase):
           axis=1)
 
   def test_empty_graph(self):
-    _, idx_dropped_nodes = augmentation_utils.drop_nodes(
-        self.empty_graph, aug_ratio=0.5)
+    _, idx_dropped_nodes = self.graph_augmenter.drop_nodes(self.empty_graph)
     # Check that returned arrays of dropped node indices are empty.
     self.assertEmpty(idx_dropped_nodes)
 

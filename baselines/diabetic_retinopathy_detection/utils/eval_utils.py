@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1171,11 +1171,9 @@ def compute_roc_curve(y_uncertainty: np.ndarray, is_ood: np.ndarray):
 def get_retention_curve_normalizer(use_oracle, n_objects):
   """Obtain normalization constants for each entry of the unnormalized
   retention curve.
-
   When using an oracle, we divide by the total number of objects.
   When not, we divide by the object index (i.e., the number of objects used
     to compute the model metric at each referral rate).
-
   Args:
     use_oracle: Bool, if True, evaluate the combined predictive performance
       of the model and an oracle that is correct on all referred datapoints.
@@ -1389,13 +1387,11 @@ def compute_auc_retention_curve(y_pred,
 
 def compute_ood_calibration_curve(y_pred: np.ndarray):
   """OOO calibration curve.
-
   Form a curve by sweeping over confidences in [0, 1], and counting
   the number of predictions with confidence over the threshold.
   On an OOD dataset, we should expect low confidence.
   Args:
     y_pred: np.ndarray, predictions on the OOD dataset
-
   Returns:
     Tuple[np.ndarray, np.ndarray]
       First np.ndarray:

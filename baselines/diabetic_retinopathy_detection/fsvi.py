@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,25 +34,24 @@ import sys
 import time
 from typing import Any, Dict, List, Tuple
 
-import jax
-import jax.numpy as jnp
-import optax
-import tensorflow as tf
-import tree
-import wandb
 from absl import app
 from absl import flags
+from baselines.diabetic_retinopathy_detection import utils
+from baselines.diabetic_retinopathy_detection.fsvi_utils.initializers import Initializer
+from baselines.diabetic_retinopathy_detection.fsvi_utils.initializers import OptimizerInitializer
+from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import initialize_random_keys
+from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import to_one_hot
+import jax
 from jax import jit
 from jax import random
 from jax.lib import xla_bridge
-from tensorboard.plugins.hparams import api as hp
+import jax.numpy as jnp
+import optax
+import tensorflow as tf
 from tqdm import tqdm
-
-import utils
-from fsvi_utils.initializers import Initializer
-from fsvi_utils.initializers import OptimizerInitializer
-from fsvi_utils.utils import initialize_random_keys
-from fsvi_utils.utils import to_one_hot
+import tree
+import wandb
+from tensorboard.plugins.hparams import api as hp
 
 tf.config.experimental.set_visible_devices([], "GPU")
 print("WARNING: TensorFlow is set to only use CPU.")

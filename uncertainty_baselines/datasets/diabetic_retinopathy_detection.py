@@ -108,7 +108,7 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
       elif self.decision_threshold == 'moderate':
         highest_negative_class = 1
       else:
-        raise NotImplementedError
+        raise NotImplementedError('Decision threshold must be mild or moderate')
 
       # Binarize task.
       label = tf.cast(example['label'] > highest_negative_class, tf.int32)

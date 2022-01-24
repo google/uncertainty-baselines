@@ -51,6 +51,7 @@ class DrugCardiotoxicityDatasetTest(tf.test.TestCase, parameterized.TestCase):
     pairs = element['features']['pairs']
     atom_mask = element['features']['atom_mask']
     pair_mask = element['features']['pair_mask']
+    dist2topk_nbs = element['features']['dist2topk_nbs']
     molecule_id = element['features']['molecule_id']
     labels = element['labels']
 
@@ -58,6 +59,7 @@ class DrugCardiotoxicityDatasetTest(tf.test.TestCase, parameterized.TestCase):
     self.assertEqual(pairs.shape, (batch_size, 60, 60, 12))
     self.assertEqual(atom_mask.shape, (batch_size, 60))
     self.assertEqual(pair_mask.shape, (batch_size, 60, 60))
+    self.assertEqual(dist2topk_nbs.shape, (batch_size, 1))
     self.assertEqual(molecule_id.shape, (batch_size,))
     self.assertEqual(labels.shape, (batch_size, 2))
 

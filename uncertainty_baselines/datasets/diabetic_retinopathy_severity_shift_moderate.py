@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -295,34 +295,6 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
                 (test_images_path, False, test_labels_path, 'Private')
             ]),
     }
-
-    # SPLIT_TO_GENERATE_ARGS = {
-    #   'train': [(
-    #     train_images_path, True, train_labels_path, None)],
-    #   'in_domain_validation': [(
-    #     test_images_path, True, test_labels_path, 'Public')],
-    #   'ood_validation': [(
-    #     test_images_path, False, test_labels_path, 'Public')],
-    #   'in_domain_test': [(
-    #     test_images_path, True, test_labels_path, 'Private')],
-    #   # Note that we can use the OOD examples in the
-    #   # original Kaggle train set below.
-    #   'ood_test': [
-    #     (train_images_path, False, train_labels_path, None),
-    #     (test_images_path, False, test_labels_path, 'Private')],
-    # }
-
-    # splits = [
-    #   tfds.core.SplitGenerator(
-    #     name='sample',  # 10 images, to do quicktests using dataset.
-    #     gen_kwargs={
-    #       'split_args': [(os.path.join(path, 'sample'), None, None, None)]})]
-
-    # for split_name, split_args in SPLIT_TO_GENERATE_ARGS.items():
-    #   splits.append(tfds.core.SplitGenerator(
-    #     name=split_name, gen_kwargs={'split_args': split_args}))
-
-    # return splits
 
   def _generate_examples(self, split_args):
     for args in split_args:

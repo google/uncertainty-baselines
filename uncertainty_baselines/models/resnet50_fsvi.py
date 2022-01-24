@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -63,6 +63,7 @@ class DenseStochasticHaiku(hk.Module):
       stochastic_parameters: bool = False,
   ):
     super(DenseStochasticHaiku, self).__init__(name=name)
+    self.input_size = None
     self.output_size = output_size
     self.with_bias = with_bias
     self.w_init = w_init
@@ -545,7 +546,7 @@ class BlockGroup(hk.Module):
               use_projection=(i == 0 and use_projection),
               bottleneck=bottleneck,
               bn_config=bn_config,
-              name="block_%d" % (i),
+              name=f"block_{i}",
               w_init=w_init,
               b_init=b_init,
           ))
@@ -683,7 +684,7 @@ class ResNet(hk.Module):
               bn_config=bn_config,
               bottleneck=bottleneck,
               use_projection=use_projection[i],
-              name="block_group_%d" % (i),
+              name=f"block_group_{i}",
               w_init=w_init,
               b_init=b_init,
           ))

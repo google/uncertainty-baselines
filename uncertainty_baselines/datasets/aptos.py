@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -51,6 +51,7 @@ _CITATION = """\
 """
 
 _NUM_EXAMPLES = 3662
+_NUM_TRAINING_EXAMPLES = 2929
 _BTGRAHAM_DESCRIPTION_PATTERN = (
     "Images have been preprocessed as the winner of the Kaggle competition did "
     "in 2015: first they are resized so that the radius of an eyeball is "
@@ -206,9 +207,9 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
 
       id_code_and_diagnosis = list(zip(df["id_code"], df["diagnosis"]))
       if is_validation:
-        data = id_code_and_diagnosis[2929:]
+        data = id_code_and_diagnosis[_NUM_TRAINING_EXAMPLES:]
       else:
-        data = id_code_and_diagnosis[:2929]
+        data = id_code_and_diagnosis[:_NUM_TRAINING_EXAMPLES]
 
       data = [(id_code, int(diagnosis)) for id_code, diagnosis in data]
     else:
@@ -250,6 +251,7 @@ class APTOS(tfds.core.GeneratorBasedBuilder):
 
 class APTOSDataset(base.BaseDataset):
   """Kaggle APTOS 2019 Blindness Detection dataset builder class."""
+
   def __init__(self,
                split: str,
                builder_config: str = "aptos/btgraham-300",

@@ -281,6 +281,7 @@ def main(argv):
   def train_step(iterator):
     """Training step function."""
 
+    print('retracing train')
     def step_fn(inputs):
       """Per-replica step function."""
       images = inputs['features']

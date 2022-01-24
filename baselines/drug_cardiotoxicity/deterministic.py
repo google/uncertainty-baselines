@@ -28,6 +28,7 @@ import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import augmentation_utils  # local file import from baselines.drug_cardiotoxicity
 import utils  # local file import from baselines.drug_cardiotoxicity
 
 FLAGS = flags.FLAGS
@@ -57,6 +58,20 @@ flags.DEFINE_integer('message_layer_size', 32,
 flags.DEFINE_integer('readout_layer_size', 32,
                      'Number of units in the readout layer.')
 
+# Choose augmentations, if any.
+flags.DEFINE_float(
+    'aug_ratio', 0.2, 'Proportion of graph in terms of nodes '
+    'or edges to augment.')
+flags.DEFINE_float(
+    'aug_prob', 0.2, 'Probability of applying an augmentation for a given '
+    'graph.')
+flags.DEFINE_multi_enum(
+    'augmentations',
+    default=[],
+    enum_values=['drop_nodes'],
+    help='Types of augmentations to perform on graphs. If an empty list is '
+    'provided, then no augmentation will be applied to the data.')
+
 # Loss type.
 flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
                   'Type of loss function to use.')
@@ -70,7 +85,8 @@ def run(
     model_dir: str,
     strategy: tf.distribute.Strategy,
     summary_writer: tf.summary.SummaryWriter,
-    loss_type: str):
+    loss_type: str,
+    graph_augmenter: augmentation_utils.GraphAugment):
   """Trains and evaluates the model."""
   with strategy.scope():
     model = ub.models.mpnn(
@@ -114,6 +130,12 @@ def run(
       else:
         features, labels = inputs
         sample_weights = 1
+
+      if params.augmentations:
+        # TODO(jihyeonlee): For now, choose 1 augmentation function from all
+        # possible with equal probability. Allow user to specify number of
+        # augmentations to apply per graph.
+        features, _ = graph_augmenter.augment(features)
 
       with tf.GradientTape() as tape:
         probs = model(features, training=True)
@@ -246,6 +268,11 @@ def main(argv: Sequence[str]):
       eval_identifiers, splits, FLAGS.data_dir, FLAGS.batch_size)
 
   logging.info('Steps for eval datasets: %s', steps_per_eval)
+  graph_augmenter = None
+  if FLAGS.augmentations:
+    graph_augmenter = augmentation_utils.GraphAugment(FLAGS.augmentations,
+                                                      FLAGS.aug_ratio,
+                                                      FLAGS.aug_prob)
 
   params = utils.ModelParameters(
       num_heads=FLAGS.num_heads,
@@ -254,6 +281,7 @@ def main(argv: Sequence[str]):
       readout_layer_size=FLAGS.readout_layer_size,
       use_gp_layer=False,
       learning_rate=FLAGS.learning_rate,
+      augmentations=FLAGS.augmentations,
       num_epochs=FLAGS.num_epochs,
       steps_per_epoch=steps_per_epoch)
 
@@ -270,7 +298,8 @@ def main(argv: Sequence[str]):
       model_dir=model_dir,
       strategy=strategy,
       summary_writer=summary_writer,
-      loss_type=FLAGS.loss_type)
+      loss_type=FLAGS.loss_type,
+      graph_augmenter=graph_augmenter)
 
 
 if __name__ == '__main__':

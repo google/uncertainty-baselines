@@ -84,7 +84,7 @@ setup(
             'torch',
             'torchvision',
         ],
-        'drd': [
+        'retinopathy': [
             'wandb',
             'dm-haiku',
             'torch',

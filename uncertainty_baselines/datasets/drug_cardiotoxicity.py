@@ -63,6 +63,7 @@ _NODES_FEATURE_NAME = 'atoms'
 _EDGES_FEATURE_NAME = 'pairs'
 _NODE_MASK_FEATURE_NAME = 'atom_mask'
 _EDGE_MASK_FEATURE_NAME = 'pair_mask'
+_DISTANCE_TO_TRAIN_NAME = 'dist2topk_nbs'
 _EXAMPLE_NAME = 'molecule_id'
 
 _MAX_NODES = 60
@@ -91,6 +92,8 @@ def _make_features_spec() -> Dict[str, tf.io.FixedLenFeature]:
           tf.io.FixedLenFeature([_MAX_NODES], tf.float32),
       _EDGE_MASK_FEATURE_NAME:
           tf.io.FixedLenFeature([_MAX_NODES, _MAX_NODES], tf.float32),
+      _DISTANCE_TO_TRAIN_NAME:
+            tf.io.FixedLenFeature(shape=[1], dtype=tf.float32),
       _EXAMPLE_NAME:
           tf.io.FixedLenFeature([], tf.string)
   }
@@ -197,6 +200,8 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
         _EDGE_MASK_FEATURE_NAME:
             tfds.features.Tensor(
                 shape=[_MAX_NODES, _MAX_NODES], dtype=tf.float32),
+        _DISTANCE_TO_TRAIN_NAME:
+            tfds.features.Tensor(shape=[1], dtype=tf.float32),
         _EXAMPLE_NAME:
             tfds.features.Tensor(shape=[], dtype=tf.string),
     }

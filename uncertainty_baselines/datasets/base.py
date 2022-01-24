@@ -319,6 +319,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # If we are truncating the validation/test dataset (self._drop_remainder)
     # we may as well repeat to speed things up.
     # TODO(nband): benchmark.
+    # TODO(trandustin): Make this differing behavior consistent with other
+    # ub.datasets.
     if (self.name in _drd_datasets and not self._is_training and
         self._drop_remainder):
       dataset = dataset.repeat()

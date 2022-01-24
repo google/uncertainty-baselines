@@ -64,6 +64,7 @@ from uncertainty_baselines.models.wide_resnet_rank1 import wide_resnet_rank1
 from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be
 from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_variational
+from uncertainty_baselines.models.resnet50_fsvi import resnet50_fsvi
 
 # When adding a new model, also add to models.py for easier user access.
 

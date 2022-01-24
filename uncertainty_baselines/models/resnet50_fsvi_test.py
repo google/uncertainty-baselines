@@ -16,6 +16,7 @@
 import haiku as hk
 import jax
 import tensorflow as tf
+import numpy as np
 
 import uncertainty_baselines as ub
 from uncertainty_baselines.models.resnet50_fsvi import zero_padding_2d
@@ -27,7 +28,7 @@ class ResNet50FSVITest(tf.test.TestCase):
     batch_size = 31
 
     def forward(inputs, rng_key, stochastic, is_training):
-      model = ub.models.ResNet50FSVI(
+      model = ub.models.resnet50_fsvi(
           output_dim=10,
           stochastic_parameters=True,
           dropout=False,
@@ -48,11 +49,9 @@ class ResNet50FSVITest(tf.test.TestCase):
     x = jax.random.normal(key, shape=(2, 32, 32, 3))
     padding = 3
     actual = zero_padding_2d(x, padding=padding)
-    # TODO(nbdand): make this work, currently have the following error
-    # tensorflow.python.framework.errors_impl.InternalError: Cannot dlopen all
-    # CUDA libraries.
-    # expected = tf.keras.layers.ZeroPadding2D(padding=3)(x)
-    print(actual.shape)
+    expected = tf.keras.layers.ZeroPadding2D(padding=3)(x)
+    assert actual.shape == expected.shape
+    assert np.abs(expected.numpy() - actual).max() < 1e-10
 
 
 if __name__ == '__main__':

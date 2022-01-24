@@ -21,7 +21,7 @@ def main():
   results_df = pd.read_csv('results.tsv', sep='\t')
 
   in_domain_metric = 'in_domain_validation/auroc'
-  joint_metric = 'joint_validation/balanced_retention_accuracy_auc'
+  joint_metric = 'joint_validation/balanced_selective_prediction_accuracy_auc'
   in_domain_df = results_df[results_df['tag'] == in_domain_metric]
   joint_df = results_df[results_df['tag'] == joint_metric]
 

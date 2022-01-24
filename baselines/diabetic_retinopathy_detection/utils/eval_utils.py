@@ -329,7 +329,7 @@ def evaluate_model_and_compute_metrics(
       second.
       first Dict:
         for each dataset, per-prediction results (e.g., each prediction,
-        ground-truth, loss, retention arrays).
+        ground-truth, loss, selective prediction arrays).
       second Dict:
         for each dataset, contains `np.array` predictions, ground truth,
         and uncertainty estimates.
@@ -354,12 +354,12 @@ def evaluate_model_and_compute_metrics(
   eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)
 
   # Compute all metrics for each dataset --
-  # Robustness, Open Set Recognition, Retention AUC
+  # Robustness, Open Set Recognition, Selective Prediction AUC
   metrics_results = compute_metrics_for_all_datasets(
       eval_results,
       use_precomputed_arrs=False,
       ece_num_bins=num_bins,
-      compute_retention_auc=True,
+      compute_selective_prediction_auc=True,
       verbose=False)
 
   # Log metrics
@@ -552,9 +552,10 @@ def eval_model_numpy(datasets,
   # For each eval dataset, add NLL and accuracy for each example
   eval_results = compute_loss_and_accuracy_arrs_for_all_datasets(eval_results)
 
-  # Precompute ROC/PR curves, retention and balanced retention curves
-  logging.info('Precomputing ROC/PR curves, retention and balanced'
-               ' retention curves.')
+  # Precompute ROC/PR curves, selective prediction and
+  # balanced selective prediction curves
+  logging.info('Precomputing ROC/PR curves, selective prediction and balanced'
+               ' selective prediction curves.')
   eval_results = precompute_arrs_for_all_datasets(eval_results=eval_results)
 
   logging.info('Computing metrics with precomputed arrs.')
@@ -562,7 +563,7 @@ def eval_model_numpy(datasets,
       eval_results,
       use_precomputed_arrs=True,
       ece_num_bins=num_bins,
-      compute_retention_auc=True,
+      compute_selective_prediction_auc=True,
       verbose=False)
 
   # Log metrics
@@ -579,7 +580,7 @@ def eval_model_numpy(datasets,
 def compute_metrics_for_all_datasets(eval_results,
                                      use_precomputed_arrs,
                                      ece_num_bins=15,
-                                     compute_retention_auc=False,
+                                     compute_selective_prediction_auc=False,
                                      verbose=False):
   """Computes scalar metrics for all datasets.
 
@@ -587,7 +588,8 @@ def compute_metrics_for_all_datasets(eval_results,
     eval_results: Dict[str, Dict], evaluation results for each dataset.
     use_precomputed_arrs: selects which eval function to use.
     ece_num_bins: int, used to compute expected calibration error metric.
-    compute_retention_auc: bool, should compute retention metrics.
+    compute_selective_prediction_auc: bool, should compute selective
+      prediction metrics.
     verbose: bool, extra logging.
 
   Returns:
@@ -607,15 +609,14 @@ def compute_metrics_for_all_datasets(eval_results,
         results_dict,
         ece_num_bins=ece_num_bins,
         compute_open_set_recognition=compute_open_set_recognition,
-        compute_retention_auc=compute_retention_auc)
+        compute_selective_prediction_auc=compute_selective_prediction_auc)
 
   return metric_results
 
 
 def precompute_arrs_for_all_datasets(eval_results, verbose=False):
-  """Precompute metric arrays for all datasets, e.g., log loss, retention
-
-  arrays, etc.
+  """Precompute metric arrays for all datasets, e.g., log loss, selective
+  prediction arrays, etc.
 
   Args:
     eval_results: Dict[str, Dict], evaluation results for each dataset.
@@ -809,20 +810,20 @@ def compute_rebalanced_aptos_dataset(aptos_dataset,
   return new_aptos_dataset
 
 
-def compute_rebalanced_retention_curves(results: Dict[str, Any]):
-  """Compute rebalanced retention curves.
+def compute_rebalanced_selective_prediction_curves(results: Dict[str, Any]):
+  """Compute rebalanced selective prediction curves.
 
-  Compute rebalanced retention curves, which are used for joint (ID + OOD)
-  tuning. This is done by repeating the OOD indices many times, and then
-  bringing the number of OOD indices to the number of ID indices by sampling
-  from the OOD indices without replacement.
+  Compute rebalanced selective prediction curves, which are used for joint
+  (ID + OOD) tuning. This is done by repeating the OOD indices many times, and
+  then bringing the number of OOD indices to the number of ID indices by
+  sampling from the OOD indices without replacement.
 
   Args:
     results: Dict, results for a particular dataset (must be joint to have the
       `is_ood` key, for a binary `np.ndarray`.
 
   Returns:
-    Dict, contains rebalanced retention curves.
+    Dict, contains rebalanced selective prediction curves.
   """
   y_pred_entropy, is_ood = results['y_pred_entropy'], results['is_ood']
 
@@ -855,38 +856,43 @@ def compute_rebalanced_retention_curves(results: Dict[str, Any]):
   rebalanced_accuracy = results['accuracy_arr'][all_indices]
   rebalanced_nll = results['nll_arr'][all_indices]
 
-  rebalanced_accuracy_retention_curve = compute_retention_curve_on_accuracies(
-      accuracies=rebalanced_accuracy, uncertainty=rebalanced_y_pred_entropy)
-  rebalanced_nll_retention_curve = compute_retention_curve_on_losses(
-      losses=rebalanced_nll, uncertainty=rebalanced_y_pred_entropy)
+  rebalanced_accuracy_selective_prediction_curve = (
+    compute_selective_prediction_curve_on_accuracies(
+      accuracies=rebalanced_accuracy, uncertainty=rebalanced_y_pred_entropy))
+  rebalanced_nll_selective_prediction_curve = (
+    compute_selective_prediction_curve_on_losses(
+      losses=rebalanced_nll, uncertainty=rebalanced_y_pred_entropy))
 
   y_pred = results['y_pred']
   y_true = results['y_true']
-  rebalanced_auroc_retention_curve = compute_auc_retention_curve(
-      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
-  rebalanced_auprc_retention_curve = compute_auc_retention_curve(
-      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
+  rebalanced_auroc_selective_prediction_curve = (
+    compute_auc_selective_prediction_curve(
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc'))
+  rebalanced_auprc_selective_prediction_curve = (
+    compute_auc_selective_prediction_curve(
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc'))
 
   return {
-      'accuracy': rebalanced_accuracy_retention_curve,
-      'nll': rebalanced_nll_retention_curve,
-      'auroc': rebalanced_auroc_retention_curve,
-      'auprc': rebalanced_auprc_retention_curve
+      'accuracy': rebalanced_accuracy_selective_prediction_curve,
+      'nll': rebalanced_nll_selective_prediction_curve,
+      'auroc': rebalanced_auroc_selective_prediction_curve,
+      'auprc': rebalanced_auprc_selective_prediction_curve
   }
 
 
-def compute_rebalanced_retention_scores(results: Dict[str, Any]):
-  """Computes rebalanced retention curves, then the mean to get an AUC.
+def compute_rebalanced_selective_prediction_scores(results: Dict[str, Any]):
+  """Computes rebalanced selective prediction curves,
+  then the mean to get an AUC.
 
   Args:
     results: Dict, results for a particular dataset (must be joint to have the
       `is_ood` key, for a binary `np.ndarray`.
 
   Returns:
-    Dict, contains the AUCs of the retention curves built on various
+    Dict, contains the AUCs of the selective prediction curves built on various
       base metrics.
   """
-  rebalanced_curves = compute_rebalanced_retention_curves(results)
+  rebalanced_curves = compute_rebalanced_selective_prediction_curves(results)
   return {
       'accuracy': np.mean(rebalanced_curves['accuracy']),
       'nll': np.mean(rebalanced_curves['nll']),
@@ -896,7 +902,7 @@ def compute_rebalanced_retention_scores(results: Dict[str, Any]):
 
 
 def precompute_metric_arrs(results, compute_open_set_recognition=False):
-  """Compute retention arrays and ROC/PR curves.
+  """Compute selective prediction arrays and ROC/PR curves.
 
   Used for caching to do downstream plots and scalar metrics quickly.
 
@@ -906,7 +912,7 @@ def precompute_metric_arrs(results, compute_open_set_recognition=False):
       AUROC metrics.
 
   Returns:
-      Dict, contains retention arrays and ROC/PR curves.
+      Dict, contains selective prediction arrays and ROC/PR curves.
   """
   y_true = results['y_true']
   y_pred = results['y_pred']
@@ -934,26 +940,31 @@ def precompute_metric_arrs(results, compute_open_set_recognition=False):
      results['ood_detection_recall_arr'], _) = (
          precision_recall_curve(y_true=is_ood, probas_pred=y_pred_entropy))
 
-    # For the joint datasets, we also compute a rebalanced retention metric,
-    # in which we duplicate the OOD dataset to match the size of the in-domain
-    # dataset, and then compute the retention metrics.
-    ret_curves = compute_rebalanced_retention_curves(results)
-    results['balanced_retention_accuracy_arr'] = ret_curves['accuracy']
-    results['balanced_retention_nll_arr'] = ret_curves['nll']
-    results['balanced_retention_auroc_arr'] = ret_curves['auroc']
-    results['balanced_retention_auprc_arr'] = ret_curves['auprc']
+    # For the joint datasets, we also compute a rebalanced selective prediction
+    # metric, in which we duplicate the OOD dataset to match the size of the
+    # in-domain dataset, and then compute the selective prediction metrics.
+    sp_curves = compute_rebalanced_selective_prediction_curves(results)
+    results['balanced_selective_prediction_accuracy_arr'] = (
+      sp_curves['accuracy'])
+    results['balanced_selective_prediction_nll_arr'] = sp_curves['nll']
+    results['balanced_selective_prediction_auroc_arr'] = sp_curves['auroc']
+    results['balanced_selective_prediction_auprc_arr'] = sp_curves['auprc']
 
-  # Retention curves
+  # Selective Prediction curves
   assert 'accuracy_arr' in results
   assert 'nll_arr' in results
-  results['retention_accuracy_arr'] = compute_retention_curve_on_accuracies(
-      accuracies=results['accuracy_arr'], uncertainty=y_pred_entropy)
-  results['retention_nll_arr'] = compute_retention_curve_on_losses(
-      losses=results['nll_arr'], uncertainty=y_pred_entropy)
-  results['retention_auroc_arr'] = compute_auc_retention_curve(
-      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc')
-  results['retention_auprc_arr'] = compute_auc_retention_curve(
-      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc')
+  results['selective_prediction_accuracy_arr'] = (
+    compute_selective_prediction_curve_on_accuracies(
+      accuracies=results['accuracy_arr'], uncertainty=y_pred_entropy))
+  results['selective_prediction_nll_arr'] = (
+    compute_selective_prediction_curve_on_losses(
+      losses=results['nll_arr'], uncertainty=y_pred_entropy))
+  results['selective_prediction_auroc_arr'] = (
+    compute_auc_selective_prediction_curve(
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='roc'))
+  results['selective_prediction_auprc_arr'] = (
+    compute_auc_selective_prediction_curve(
+      y_pred=y_pred, y_true=y_true, uncertainty=y_pred_entropy, auc_str='prc'))
 
   return results
 
@@ -963,10 +974,9 @@ def compute_dataset_eval_metrics_with_precomputed_arrs(
     results,
     ece_num_bins=15,
     compute_open_set_recognition=False,
-    compute_retention_auc=False):
-  """Compute scalar metrics using cached retention and ROC/PR curves for
-
-  efficiency.
+    compute_selective_prediction_auc=False):
+  """Compute scalar metrics using cached selective prediction and ROC/PR curves
+  for efficiency.
 
   Args:
     dataset_key: str, name of dataset (prepends each metric in returned Dict).
@@ -976,8 +986,9 @@ def compute_dataset_eval_metrics_with_precomputed_arrs(
       error.
     compute_open_set_recognition: bool, if True, compute OOD detection PR and
       AUROC metrics.
-    compute_retention_auc: bool, if True, compute retention AUC metrics by
-      taking the mean of the retention arrays.
+    compute_selective_prediction_auc: bool, if True, compute selective
+      prediction AUC metrics by taking the mean of the selective prediction
+      arrays.
 
   Returns:
       Dict, scalar metrics.
@@ -1016,36 +1027,44 @@ def compute_dataset_eval_metrics_with_precomputed_arrs(
         results['ood_detection_recall_arr'],
         results['ood_detection_precision_arr'])
 
-    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = np.mean(
-        results['balanced_retention_accuracy_arr'])
-    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = np.mean(
-        results['balanced_retention_nll_arr'])
-    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = np.mean(
-        results['balanced_retention_auroc_arr'])
-    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = np.mean(
-        results['balanced_retention_auprc_arr'])
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_accuracy_auc'] = np.mean(
+        results['balanced_selective_prediction_accuracy_arr'])
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_nll_auc'] = np.mean(
+        results['balanced_selective_prediction_nll_arr'])
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_auroc_auc'] = np.mean(
+        results['balanced_selective_prediction_auroc_arr'])
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_auprc_auc'] = np.mean(
+        results['balanced_selective_prediction_auprc_arr'])
   else:
     # This is added for convenience when logging (so the entry exists
     # in tabular format)
     eval_metrics[f'{dataset_key}/ood_detection_auroc'] = None
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = None
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_accuracy_auc'] = None
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_nll_auc'] = None
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_auroc_auc'] = None
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_auprc_auc'] = None
 
-  if compute_retention_auc:
+  if compute_selective_prediction_auc:
     assert 'accuracy_arr' in results
     assert 'nll_arr' in results
 
-    eval_metrics[f'{dataset_key}/retention_accuracy_auc'] = np.mean(
-        results['retention_accuracy_arr'])
-    eval_metrics[f'{dataset_key}/retention_nll_auc'] = np.mean(
-        results['retention_nll_arr'])
-    eval_metrics[f'{dataset_key}/retention_auroc_auc'] = np.mean(
-        results['retention_auroc_arr'])
-    eval_metrics[f'{dataset_key}/retention_auprc_auc'] = np.mean(
-        results['retention_auprc_arr'])
+    eval_metrics[f'{dataset_key}/selective_prediction_accuracy_auc'] = np.mean(
+        results['selective_prediction_accuracy_arr'])
+    eval_metrics[f'{dataset_key}/selective_prediction_nll_auc'] = np.mean(
+        results['selective_prediction_nll_arr'])
+    eval_metrics[f'{dataset_key}/selective_prediction_auroc_auc'] = np.mean(
+        results['selective_prediction_auroc_arr'])
+    eval_metrics[f'{dataset_key}/selective_prediction_auprc_auc'] = np.mean(
+        results['selective_prediction_auprc_arr'])
 
   return eval_metrics
 
@@ -1055,7 +1074,7 @@ def compute_dataset_eval_metrics(
     results,
     ece_num_bins=15,
     compute_open_set_recognition=False,
-    compute_retention_auc=False,
+    compute_selective_prediction_auc=False,
 ):
   """Compute scalar metrics.
 
@@ -1066,8 +1085,9 @@ def compute_dataset_eval_metrics(
       error.
     compute_open_set_recognition: bool, if True, compute OOD detection PR and
       AUROC metrics.
-    compute_retention_auc: bool, if True, compute retention AUC metrics by
-      taking the mean of the retention arrays.
+    compute_selective_prediction_auc: bool, if True, compute selective
+      prediction AUC metrics by taking the mean of the
+      selective prediction arrays.
 
   Returns:
       Dict, scalar metrics.
@@ -1104,45 +1124,49 @@ def compute_dataset_eval_metrics(
         y_true=is_ood, probas_pred=y_pred_entropy)
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = auc(recall, precision)
 
-    # For the joint datasets, we also compute a rebalanced retention metric,
-    # in which we duplicate the OOD dataset to match the size of the in-domain
-    # dataset, and then compute the retention metrics.
-    rebal_ret_scores = compute_rebalanced_retention_scores(results)
-    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = (
-        rebal_ret_scores['accuracy'])
-    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = (
-        rebal_ret_scores['nll'])
-    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = (
-        rebal_ret_scores['auroc'])
-    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = (
-        rebal_ret_scores['auprc'])
+    # For the joint datasets, we also compute a rebalanced selective prediction
+    # metric, in which we duplicate the OOD dataset to match the size of the
+    # in-domain dataset, and then compute the selective prediction metrics.
+    rebal_sp_scores = compute_rebalanced_selective_prediction_scores(results)
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_accuracy_auc'] = (
+        rebal_sp_scores['accuracy'])
+    eval_metrics[f'{dataset_key}/balanced_selective_prediction_nll_auc'] = (
+        rebal_sp_scores['nll'])
+    eval_metrics[f'{dataset_key}/balanced_selective_prediction_auroc_auc'] = (
+        rebal_sp_scores['auroc'])
+    eval_metrics[f'{dataset_key}/balanced_selective_prediction_auprc_auc'] = (
+        rebal_sp_scores['auprc'])
   else:
     # This is added for convenience when logging (so the entry exists
     # in tabular format)
     eval_metrics[f'{dataset_key}/ood_detection_auroc'] = None
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_accuracy_auc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_nll_auc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_auroc_auc'] = None
-    eval_metrics[f'{dataset_key}/balanced_retention_auprc_auc'] = None
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_accuracy_auc'] = None
+    eval_metrics[f'{dataset_key}/balanced_selective_prediction_nll_auc'] = None
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_auroc_auc'] = None
+    eval_metrics[
+      f'{dataset_key}/balanced_selective_prediction_auprc_auc'] = None
 
-  if compute_retention_auc:
+  if compute_selective_prediction_auc:
     assert 'accuracy_arr' in results
     assert 'nll_arr' in results
-    eval_metrics[f'{dataset_key}/retention_accuracy_auc'] = np.mean(
-        compute_retention_curve_on_accuracies(
+    eval_metrics[f'{dataset_key}/selective_prediction_accuracy_auc'] = np.mean(
+        compute_selective_prediction_curve_on_accuracies(
             accuracies=results['accuracy_arr'], uncertainty=y_pred_entropy))
-    eval_metrics[f'{dataset_key}/retention_nll_auc'] = np.mean(
-        compute_retention_curve_on_losses(
+    eval_metrics[f'{dataset_key}/selective_prediction_nll_auc'] = np.mean(
+        compute_selective_prediction_curve_on_losses(
             losses=results['nll_arr'], uncertainty=y_pred_entropy))
-    eval_metrics[f'{dataset_key}/retention_auroc_auc'] = np.mean(
-        compute_auc_retention_curve(
+    eval_metrics[f'{dataset_key}/selective_prediction_auroc_auc'] = np.mean(
+        compute_auc_selective_prediction_curve(
             y_pred=y_pred,
             y_true=y_true,
             uncertainty=y_pred_entropy,
             auc_str='roc'))
-    eval_metrics[f'{dataset_key}/retention_auprc_auc'] = np.mean(
-        compute_auc_retention_curve(
+    eval_metrics[f'{dataset_key}/selective_prediction_auprc_auc'] = np.mean(
+        compute_auc_selective_prediction_curve(
             y_pred=y_pred,
             y_true=y_true,
             uncertainty=y_pred_entropy,
@@ -1168,9 +1192,9 @@ def compute_roc_curve(y_uncertainty: np.ndarray, is_ood: np.ndarray):
   return fpr, tpr, roc_auc
 
 
-def get_retention_curve_normalizer(use_oracle, n_objects):
+def get_selective_prediction_curve_normalizer(use_oracle, n_objects):
   """Obtain normalization constants for each entry of the unnormalized
-  retention curve.
+  selective prediction curve.
 
   When using an oracle, we divide by the total number of objects.
   When not, we divide by the object index (i.e., the number of objects used
@@ -1179,7 +1203,8 @@ def get_retention_curve_normalizer(use_oracle, n_objects):
   Args:
     use_oracle: Bool, if True, evaluate the combined predictive performance
       of the model and an oracle that is correct on all referred datapoints.
-    n_objects: int, number of objects used to create the retention curve.
+    n_objects: int, number of objects used to create the selective prediction
+      curve.
   """
   if use_oracle:
     return n_objects
@@ -1192,9 +1217,11 @@ def get_retention_curve_normalizer(use_oracle, n_objects):
       return normalizer[::-1]
 
 
-def compute_retention_curve_on_losses(losses, uncertainty, use_oracle=False):
-  """Computes a retention curve on a loss (where lower loss is better)
-  and corresponding per-example uncertainty values.
+def compute_selective_prediction_curve_on_losses(losses,
+                                                 uncertainty,
+                                                 use_oracle=False):
+  """Computes a selective prediction curve on a loss (where lower loss is
+  better) and corresponding per-example uncertainty values.
 
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
@@ -1208,9 +1235,8 @@ def compute_retention_curve_on_losses(losses, uncertainty, use_oracle=False):
       datapoints.
 
   Returns:
-    np.ndarray, retention curve at all possible retention thresholds,
-      including all examples retained (i.e., no referral) and no examples
-      retained (i.e., all points referred to an expert).
+    np.ndarray, selective prediction curve at all possible referral thresholds,
+      including no referral and all examples referred to an expert.
   """
   n_objects = losses.shape[0]
   uncertainty_order = uncertainty.argsort()
@@ -1225,19 +1251,19 @@ def compute_retention_curve_on_losses(losses, uncertainty, use_oracle=False):
   # Without oracle:
   # * Divide by only the number of predictions the model must make at each
   # * referral rate
-  normalizer = get_retention_curve_normalizer(use_oracle, n_objects)
+  normalizer = get_selective_prediction_curve_normalizer(use_oracle, n_objects)
   error_rates = error_rates / normalizer
 
   return error_rates
 
 
-def compute_retention_curve_on_accuracies(
+def compute_selective_prediction_curve_on_accuracies(
     accuracies,
     uncertainty,
     use_oracle=False
 ):
-  """Computes a retention curve on an accuracy (where higher accuracy is better)
-  and corresponding per-example uncertainty values.
+  """Computes a selective prediction curve on an accuracy (where higher accuracy
+  is better) and corresponding per-example uncertainty values.
 
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
@@ -1251,16 +1277,15 @@ def compute_retention_curve_on_accuracies(
       datapoints.
 
   Returns:
-    np.ndarray, retention curve at all possible retention thresholds,
-      including all examples retained (i.e., no referral) and no examples
-      retained (i.e., all points referred to an expert).
+    np.ndarray, selective prediction curve at all possible referral thresholds,
+      including no referral and all examples referred to an expert.
   """
   n_objects = accuracies.shape[0]
   uncertainty_order = uncertainty.argsort()
 
   # Per-point accuracy (binary) in order of increasing uncertainty
   accuracies = accuracies[uncertainty_order]
-  retention_arr = np.zeros(n_objects + 1)
+  selective_prediction_arr = np.zeros(n_objects + 1)
 
   for i in range(1, n_objects):
     accuracy_i = accuracies[:i].sum()
@@ -1269,31 +1294,31 @@ def compute_retention_curve_on_accuracies(
       j = n_objects - i
       accuracy_i += j
 
-    retention_arr[i] = accuracy_i
+    selective_prediction_arr[i] = accuracy_i
 
   # With oracle:
   # * Divide by total number of predictions
   # Without oracle:
   # * Divide by only the number of predictions the model must make at each
   # * referral rate
-  normalizer = get_retention_curve_normalizer(use_oracle, n_objects)
+  normalizer = get_selective_prediction_curve_normalizer(use_oracle, n_objects)
 
   # Assume perfect performance when all examples have been referred.
-  retention_arr[0] = n_objects if use_oracle else 1
-  retention_arr[-1] = accuracies.sum()
+  selective_prediction_arr[0] = n_objects if use_oracle else 1
+  selective_prediction_arr[-1] = accuracies.sum()
 
-  acc_rates = retention_arr[::-1] / normalizer
+  acc_rates = selective_prediction_arr[::-1] / normalizer
   return acc_rates
 
 
-def compute_auc_retention_curve(y_pred,
-                                y_true,
-                                uncertainty,
-                                auc_str,
-                                n_buckets=100,
-                                use_oracle=False):
-  """Computes a retention curve for AUC or AUPRC using predictions, ground
-  truths, and corresponding per-example uncertainty values.
+def compute_auc_selective_prediction_curve(y_pred,
+                                           y_true,
+                                           uncertainty,
+                                           auc_str,
+                                           n_buckets=100,
+                                           use_oracle=False):
+  """Computes a selective prediction curve for AUC or AUPRC using predictions,
+  ground truths, and corresponding per-example uncertainty values.
 
   Based on utils by Andrey Malinin, Yandex Research.
   https://github.com/yandex-research/shifts/blob/main/weather/assessment.py
@@ -1303,15 +1328,17 @@ def compute_auc_retention_curve(y_pred,
     y_true: np.ndarray, ground truth values.
     uncertainty: np.ndarray, per-example uncertainties for the same dataset,
       should follow the order of the accuracies.
-    auc_str: str, determines if we evaluate the retention AUC or AUPRC.
-    n_buckets: int, number of retention thresholds to evaluate (AUC can be
-      costly to evaluate for thousands of possible thresholds.
+    auc_str: str, determines if we evaluate the selective prediction AUC
+      or AUPRC.
+    n_buckets: int, number of selective prediction thresholds to evaluate (AUC
+      can be costly to evaluate for thousands of possible thresholds.
     use_oracle: Bool (default: False), if True, evaluate the combined predictive
       performance of the model and an oracle that is correct on all referred
       datapoints.
 
   Returns:
-    np.ndarray, AUC or AUPRC retention curve at specified number of thresholds.
+    np.ndarray, AUC or AUPRC selective prediction curve at specified number of
+      thresholds.
   """
 
   def compute_auroc(true, pred):
@@ -1336,7 +1363,7 @@ def compute_auc_retention_curve(y_pred,
   y_pred = y_pred[uncertainty_order]
   y_true = y_true[uncertainty_order]
 
-  retention_arr = np.zeros(n_buckets + 1)
+  selective_prediction_arr = np.zeros(n_buckets + 1)
 
   if use_oracle:
     # We will later divide by n_objects
@@ -1345,7 +1372,7 @@ def compute_auc_retention_curve(y_pred,
     perfect_performance = 1
 
   # Assume perfect performance when all examples have been referred.
-  retention_arr[0] = perfect_performance
+  selective_prediction_arr[0] = perfect_performance
 
   check_n_unique = True
 
@@ -1361,39 +1388,40 @@ def compute_auc_retention_curve(y_pred,
     if (check_n_unique and
         len(np.unique(y_true_curr)) == 1 and
             np.array_equal(y_pred_curr > 0.5, y_true_curr)):
-      retention_arr[i_buckets] = perfect_performance
+      selective_prediction_arr[i_buckets] = perfect_performance
     else:
       try:
         auc_val = auc_fn(true=y_true_curr, pred=y_pred_curr)
         if use_oracle:
           # Weight current AUC/AUPRC by number of objects, and
           # add weight of oracle's perfect prediction.
-          retention_arr[i_buckets] = (i_objects * auc_val) + j_objects
+          selective_prediction_arr[
+            i_buckets] = (i_objects * auc_val) + j_objects
         else:
-          retention_arr[i_buckets] = auc_val
+          selective_prediction_arr[i_buckets] = auc_val
       except ValueError:  # All of the preds are the same
         if use_oracle:
-          retention_arr[i_buckets] = j_objects
+          selective_prediction_arr[i_buckets] = j_objects
         else:
-          retention_arr[i_buckets] = 0
+          selective_prediction_arr[i_buckets] = 0
       check_n_unique = False
 
   # Handle the case when no examples have been referred.
   try:
     auc_val = auc_fn(true=y_true, pred=y_pred)
     if use_oracle:
-      retention_arr[-1] = n_objects * auc_val
+      selective_prediction_arr[-1] = n_objects * auc_val
     else:
-      retention_arr[-1] = auc_val
+      selective_prediction_arr[-1] = auc_val
   except ValueError:
-    retention_arr[-1] = 0
+    selective_prediction_arr[-1] = 0
 
   if use_oracle:
-    auc_retention = retention_arr[::-1] / n_objects
+    auc_selective_prediction = selective_prediction_arr[::-1] / n_objects
   else:
-    auc_retention = retention_arr[::-1]
+    auc_selective_prediction = selective_prediction_arr[::-1]
 
-  return auc_retention
+  return auc_selective_prediction
 
 
 def compute_ood_calibration_curve(y_pred: np.ndarray):

@@ -29,7 +29,7 @@ import utils  # local file import
 flags.DEFINE_string(
     'results_dir', None,  # eg. 'gs://drd-final-results/all-ensembles/'
     'The directory where model outputs (e.g., predictions, uncertainty '
-    'estimates, ground truth values, retention curves are stored).'
+    'estimates, ground truth values, selective prediction curves are stored).'
     'We expect that subdirectories in this dir will be named with the format '
     '{model_type}_k{k}_{tuning_domain}_mc{n_samples} where `model_type` is '
     'the method used, `k` is the size of the ensemble, `tuning_domain` '
@@ -113,7 +113,7 @@ def main(argv):
           if arr.ndim > 0 and arr.shape[0] > 1:
             dataset_to_model_results[dataset_name][key][arr_name].append(arr)
 
-  utils.plot_retention_curves(
+  utils.plot_selective_prediction_curves(
       distribution_shift_name=distribution_shift,
       dataset_to_model_results=dataset_to_model_results, plot_dir='.')
   utils.plot_roc_curves(

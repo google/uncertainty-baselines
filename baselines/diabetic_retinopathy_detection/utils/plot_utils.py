@@ -87,11 +87,11 @@ def get_colors_and_linestyle(model_name):
   return color_list[model_name], linestyle_list[model_name]
 
 
-RETENTION_ARR_TO_FULL_NAME = {
-    'retention_accuracy_arr': 'Accuracy',
-    'retention_nll_arr': 'NLL',
-    'retention_auroc_arr': 'AUROC',
-    'retention_auprc_arr': 'AUPRC'
+SELECTIVE_PREDICTION_ARR_TO_FULL_NAME = {
+    'selective_prediction_accuracy_arr': 'Accuracy',
+    'selective_prediction_nll_arr': 'NLL',
+    'selective_prediction_auroc_arr': 'AUROC',
+    'selective_prediction_auprc_arr': 'AUPRC'
 }
 
 ROC_TYPE_TO_FULL_NAME = {
@@ -133,7 +133,6 @@ def get_model_name(model_key: Tuple):
 def plot_roc_curves(distribution_shift_name, dataset_to_model_results,
                     plot_dir: str):
   """Plot ROC curves for a given distributional shift task and
-
   corresponding results.
 
   Args:
@@ -263,28 +262,28 @@ def plot_roc_curves(distribution_shift_name, dataset_to_model_results,
         # plt.show()
 
 
-def plot_retention_curves(distribution_shift_name,
-                          dataset_to_model_results,
-                          plot_dir: str,
-                          no_oracle=True,
-                          cutoff_perc=0.99):
-  """Plot retention curves for a given distributional shift task and
-
+def plot_selective_prediction_curves(distribution_shift_name,
+                                     dataset_to_model_results,
+                                     plot_dir: str,
+                                     no_oracle=True,
+                                     cutoff_perc=0.99):
+  """Plot selective prediction curves for a given distributional shift task and
   corresponding results.
 
   Args:
     distribution_shift_name: str, distribution shift used to compute results.
     dataset_to_model_results: Dict, results for each evaluation dataset.
     plot_dir: str, where to store plots.
-    no_oracle: bool, if True, converts retention array that is computed with an
-      Oracle Collaborative metric to remove the contribution of the oracle.
+    no_oracle: bool, if True, converts selective prediction array that is
+      computed with an Oracle Collaborative metric to remove the contribution
+      of the oracle.
     cutoff_perc: float, specifies at which proportion the curves should be
       cutoff.
   """
   set_matplotlib_constants()
-  retention_types = [
-      'retention_accuracy_arr', 'retention_nll_arr', 'retention_auroc_arr',
-      'retention_auprc_arr'
+  selective_prediction_types = [
+      'selective_prediction_accuracy_arr', 'selective_prediction_nll_arr',
+      'selective_prediction_auroc_arr', 'selective_prediction_auprc_arr'
   ]
 
   datasets = list(sorted(list(dataset_to_model_results.keys())))
@@ -292,14 +291,16 @@ def plot_retention_curves(distribution_shift_name,
   for dataset in datasets:
     dataset_results = dataset_to_model_results[dataset]
     for tuning_domain in ['indomain', 'joint']:
-      for retention_type in retention_types:
+      for selective_prediction_type in selective_prediction_types:
         fig, ax = plt.subplots()
         plt.subplots_adjust(left=0.20, bottom=0.20)
 
-        retention_name = RETENTION_ARR_TO_FULL_NAME[retention_type]
+        selective_prediction_name = SELECTIVE_PREDICTION_ARR_TO_FULL_NAME[
+          selective_prediction_type]
         oracle_str = 'no_oracle' if no_oracle else 'oracle'
-        plot_name = (f'retention-{distribution_shift_name}-{dataset}'
-                     f'-{tuning_domain}-{retention_name}-{oracle_str}')
+        plot_name = (f'selective_prediction-{distribution_shift_name}-{dataset}'
+                     f'-{tuning_domain}-{selective_prediction_name}-'
+                     f'{oracle_str}')
 
         model_names = []
         for ((mt, k, is_d, key_tuning_domain, n_mc),
@@ -310,32 +311,37 @@ def plot_retention_curves(distribution_shift_name,
           model_names.append(model_name)
 
           # Subsample the array to ~500 points
-          retention_arr = np.array(model_dict[retention_type])
+          selective_prediction_arr = np.array(
+            model_dict[selective_prediction_type])
 
           if no_oracle:
-            prop_expert = np.arange(
-                retention_arr.shape[1]) / retention_arr.shape[1]
+            prop_expert = (np.arange(selective_prediction_arr.shape[1]) /
+                           selective_prediction_arr.shape[1])
             prop_model = 1 - prop_expert
-            retention_arr = (retention_arr - prop_expert) / prop_model
+            selective_prediction_arr = (
+              selective_prediction_arr - prop_expert) / prop_model
 
-          if retention_arr.shape[1] > 500:
-            subsample_factor = max(2, int(retention_arr.shape[1] / 500))
-            retention_arr = retention_arr[:, ::subsample_factor]
+          if selective_prediction_arr.shape[1] > 500:
+            subsample_factor = max(
+              2, int(selective_prediction_arr.shape[1] / 500))
+            selective_prediction_arr = (
+              selective_prediction_arr[:, ::subsample_factor])
 
-          retain_percs = np.arange(
-              retention_arr.shape[1]) / retention_arr.shape[1]
-          n_seeds = retention_arr.shape[0]
-          mean = np.mean(retention_arr, axis=0)
-          std_err = np.std(retention_arr, axis=0) / np.sqrt(n_seeds)
+          sp_percs = (np.arange(selective_prediction_arr.shape[1]) /
+                          selective_prediction_arr.shape[1])
+          n_seeds = selective_prediction_arr.shape[0]
+          mean = np.mean(selective_prediction_arr, axis=0)
+          std_err = np.std(selective_prediction_arr, axis=0) / np.sqrt(n_seeds)
 
-          if cutoff_perc is not None and 'accuracy' in retention_type:
-            retain_percs = retain_percs[:-100]
+          if (cutoff_perc is not None and
+              'accuracy' in selective_prediction_type):
+            sp_percs = sp_percs[:-100]
             mean = mean[:-100]
             std_err = std_err[:-100]
 
-          if 'retention_nll_arr' == retention_type:
-            cutoff_index = int(retain_percs.shape[0] * 0.95)
-            retain_percs = retain_percs[:cutoff_index]
+          if 'selective_prediction_nll_arr' == selective_prediction_type:
+            cutoff_index = int(sp_percs.shape[0] * 0.95)
+            sp_percs = sp_percs[:cutoff_index]
             mean = mean[:cutoff_index]
             std_err = mean[:cutoff_index]
 
@@ -344,31 +350,31 @@ def plot_retention_curves(distribution_shift_name,
 
           # Visualize mean with standard error
           ax.plot(
-              retain_percs,
+              sp_percs,
               mean,
               label=model_name,
               color=color,
               linestyle=linestyle)
           ax.fill_between(
-              retain_percs,
+              sp_percs,
               mean - std_err,
               mean + std_err,
               color=color,
               alpha=0.25)
           ax.set(
               xlabel='Proportion of Cases Referred to Expert',
-              ylabel=retention_name)
+              ylabel=selective_prediction_name)
           fig.tight_layout()
 
         if isinstance(plot_dir, str):
           os.makedirs(plot_dir, exist_ok=True)
           metric_plot_path = os.path.join(plot_dir, f'{plot_name}.pdf')
           fig.savefig(metric_plot_path, transparent=True, dpi=300, format='pdf')
-          logging.info(f'Saved retention plot for distribution shift '
+          logging.info(f'Saved selective prediction plot for distribution shift '
                        f'{distribution_shift_name},'
                        f'dataset {dataset}, '
                        f'tuning domain {tuning_domain}, '
-                       f'metric {retention_type}, '
+                       f'metric {selective_prediction_type}, '
                        f'models {model_names}, '
                        f'oracle setting {oracle_str} to {metric_plot_path}.')
 

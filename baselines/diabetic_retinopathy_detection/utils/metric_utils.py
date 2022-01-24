@@ -185,10 +185,13 @@ def log_epoch_metrics(metrics, eval_results, use_tpu, dataset_splits):
   ]
   eval_metrics = [
       'negative_log_likelihood', 'accuracy', 'auprc', 'auroc', 'ece',
-      'ood_detection_auroc', 'ood_detection_auprc', 'retention_accuracy_auc',
-      'retention_nll_auc', 'retention_auroc_auc', 'retention_auprc_auc',
-      'balanced_retention_accuracy_auc', 'balanced_retention_nll_auc',
-      'balanced_retention_auroc_auc', 'balanced_retention_auprc_auc'
+      'ood_detection_auroc', 'ood_detection_auprc',
+      'selective_prediction_accuracy_auc', 'selective_prediction_nll_auc',
+      'selective_prediction_auroc_auc', 'selective_prediction_auprc_auc',
+      'balanced_selective_prediction_accuracy_auc',
+      'balanced_selective_prediction_nll_auc',
+      'balanced_selective_prediction_auroc_auc',
+      'balanced_selective_prediction_auprc_auc'
   ]
 
   eval_values = list()

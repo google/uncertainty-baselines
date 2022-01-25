@@ -45,7 +45,6 @@ def get_config():
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   # Model parameters.
-  config.model_name = 'PatchTransformerBE'
   config.model = ml_collections.ConfigDict()
   config.model.patch_size = (16, 16)
   config.model.hidden_size = 768
@@ -78,13 +77,9 @@ def get_config():
   config.disable_preemption_reproducibility = True
 
   config.batch_size = 4096  # Global batch size.
-  config.batch_size_eval = 4096  # Global batch size.
-
   config.num_epochs = 7
 
-  config.log_training_every_n_steps = 50
-  config.run_evaluation_every_n_steps = 1000
-  config.log_training_first_n_steps = 10
+  config.log_training_steps = 50
   config.log_eval_steps = 1000
 
   config.checkpoint_steps = 5000

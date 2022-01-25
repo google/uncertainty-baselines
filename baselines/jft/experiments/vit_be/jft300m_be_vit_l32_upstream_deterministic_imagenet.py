@@ -33,9 +33,7 @@ def get_config():
   config.val_split = 'validation'
   config.num_classes = 1000
 
-  BATCH_SIZE = 512  # pylint: disable=invalid-name
-  config.batch_size = BATCH_SIZE
-  config.batch_size_eval = BATCH_SIZE
+  config.batch_size = 512
   config.val_cache = False
 
   config.total_steps = 20_000
@@ -105,7 +103,6 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model_name = 'PatchTransformerBE'
   config.model.transformer.be_layers = (21, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = 0.5

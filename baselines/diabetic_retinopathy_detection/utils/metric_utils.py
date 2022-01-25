@@ -135,6 +135,57 @@ def get_diabetic_retinopathy_cpu_metrics(
   return metrics
 
 
+def log_vit_validation_metrics(eval_results):
+  """Logs ViT fine-tuning evaluation metrics.
+
+  Args:
+    eval_results: Dict, contains eval scalar metric results with key formatted
+      as {split}/{metric}.
+
+  Returns:
+    Dict, metrics for TensorBoard logging.
+  """
+  metrics_to_return = {}
+
+  # Standard evaluation, robustness, and uncertainty quantification metrics
+  eval_columns = [
+    'Eval Dataset',
+    'NLL', 'Accuracy', 'AUPRC', 'AUROC', 'ECE',
+    'OOD AUROC', 'OOD AUPRC',
+    'R-Accuracy AUC', 'R-NLL AUC', 'R-AUROC AUC', 'R-AUPRC AUC',
+    'Balanced R-Accuracy AUC', 'Balanced R-NLL AUC',
+    'Balanced R-AUROC AUC', 'Balanced R-AUPRC AUC']
+  eval_metrics = [
+    'negative_log_likelihood', 'accuracy', 'auprc', 'auroc', 'ece',
+    'ood_detection_auroc', 'ood_detection_auprc',
+    'retention_accuracy_auc', 'retention_nll_auc',
+    'retention_auroc_auc', 'retention_auprc_auc',
+    'balanced_retention_accuracy_auc', 'balanced_retention_nll_auc',
+    'balanced_retention_auroc_auc', 'balanced_retention_auprc_auc']
+
+  eval_values = list()
+  for dataset_key, results_dict in eval_results.items():
+    dataset_values = list()
+    dataset_values.append(dataset_key)
+
+    # Add all the relevant metrics from the per-dataset split results dict
+    for eval_metric in eval_metrics:
+      dataset_key_and_metric = f'{dataset_key}/{eval_metric}'
+      eval_value = results_dict[dataset_key_and_metric]
+      dataset_values.append(eval_value)
+
+      # Add to the metrics dict which we will return (for TensorBoard logging)
+      metrics_to_return[dataset_key_and_metric] = eval_value
+
+    eval_values.append(dataset_values)
+
+  eval_table = tabulate(eval_values, eval_columns,
+                        tablefmt="simple", floatfmt="8.4f")
+  print('\n')
+  print(eval_table)
+  return metrics_to_return
+
+
 def log_epoch_metrics(metrics, eval_results, use_tpu, dataset_splits):
   """Logs train, validation, and test epoch metrics.
 

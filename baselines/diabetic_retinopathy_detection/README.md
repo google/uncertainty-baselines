@@ -1,10 +1,10 @@
-# Diabetic Retinopathy Uncertainty Benchmark
+# RETINA Benchmark
 
 ## Overview
 
 Hi, good to see you here! 👋
 
-Thanks for checking out the code for the Diabetic Retinopathy Detection Benchmark, part of the Uncertainty Baselines project.
+Thanks for checking out the code for the RETINA Benchmark, part of the Uncertainty Baselines project.
 
 See our 2021 NeurIPS Datasets and Benchmarks paper introducing this benchmark in detail [here](https://openreview.net/forum?id=jyd4Lyjr2iB).
 

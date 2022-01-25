@@ -14,12 +14,13 @@
 # limitations under the License.
 
 """DRD utils."""
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.data_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.distribution_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.eval_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.loss_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.model_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.plot_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
-import *  # local file import from baselines.diabetic_retinopathy_detection.utils.uncertainty_utils
+from .data_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.data_utils
+from .distribution_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.distribution_utils
+from .eval_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.eval_utils
+from .loss_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.loss_utils
+from .metric_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
+from .model_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.model_utils
+from .plot_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.plot_utils
+from .results_storage_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+from .uncertainty_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.uncertainty_utils
+from .vit_eval_utils import *  # local file import from baselines.diabetic_retinopathy_detection.utils.vit_eval_utils

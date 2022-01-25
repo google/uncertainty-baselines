@@ -24,16 +24,8 @@ The below command is for running this script on a TPU-VM.
 Execute in `baselines/jft`:
 
 python3 active_learning.py \
-  --config="experiments/imagenet21k_vit_base16_finetune_cifar10.py" \
-  --config.model_init="gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"  \
-  --config.batch_size=256 \
-  --config.total_steps=50 \
-  --initial_training_set_size=0 \
-  --acquisition_batch_size=5 \
-  --max_training_set_size=100 \
-  --acquisition_method=uniform
-
-Note the strongly reduced total_steps.
+  --config="experiments/imagenet21k_vit_l32.py" \
+  --config.model_init="gs://ub-checkpoints/ImageNet21k_ViT-L32/1/checkpoint.npz"
 """
 # pylint: enable=line-too-long
 
@@ -61,25 +53,7 @@ import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 config_flags.DEFINE_config_file(
-    "config", None, "Training configuration.", lock_config=False)
-flags.DEFINE_enum(
-    "acquisition_method",
-    default="uniform",
-    enum_values=["uniform", "density", "margin", "entropy"],
-    help="Choose an acquisition method.")
-flags.DEFINE_integer(
-    "acquisition_batch_size",
-    default=None,
-    help="Acquisition batch size per active learning iteration.")
-flags.DEFINE_integer(
-    "max_training_set_size", default=None, help="Maximum training set size.")
-flags.DEFINE_integer(
-    "initial_training_set_size",
-    default=None,
-    help="Initial training set size.")
-flags.DEFINE_integer(
-    "early_stopping_patience", default=None, help="Early stopping patience.")
-flags.DEFINE_integer("seed", default=None, help="Random seed.")
+    "config", None, "Training configuration.", lock_config=True)
 
 FLAGS = flags.FLAGS
 
@@ -358,6 +332,10 @@ def finetune(*,
 
   best_opt_accuracy = -1
   best_step = 1
+
+  train_accuracies = []
+  val_accuracies = []
+
   for current_step, train_batch, lr_repl in zip(
       tqdm.trange(1, total_steps + 1), iter_ds, lr_iter):
     opt_repl, _, rngs_loop, _ = update_fn(opt_repl, lr_repl,
@@ -370,6 +348,9 @@ def finetune(*,
       val_accuracy = get_accuracy(
           evaluation_fn=evaluation_fn, opt_repl=opt_repl, ds=val_ds)
       print(f"Current accuracy - train:{train_accuracy}, val: {val_accuracy}")
+      train_accuracies.append((current_step, train_accuracy))
+      val_accuracies.append((current_step, val_accuracy))
+
       if val_accuracy >= best_opt_accuracy:
         best_step = current_step
         best_opt_accuracy = val_accuracy
@@ -382,7 +363,13 @@ def finetune(*,
 
   # best_opt_repl could be unassigned, but we should error out then
 
-  return best_opt_repl, rngs_loop
+  info = dict(
+      best_val_accuracy=best_opt_accuracy,
+      best_step=best_step,
+      train_accuracies=train_accuracies,
+      val_accuracies=val_accuracies)
+
+  return best_opt_repl, rngs_loop, info
 
 
 def make_init_fn(model, image_shape, local_batch_size, config):
@@ -536,12 +523,6 @@ def main(config):
   print(config)
   acquisition_method = config.get("acquisition_method")
 
-  # Keep the ID for filtering the pool set
-  keep_id = 'keep(["image", "labels", "id"])'
-  # HACK: assumes the keep is at the end
-  id_pp_eval_split = config.pp_eval.split("|")
-  id_pp_eval = "|".join(id_pp_eval_split[:-1] + [keep_id])
-
   # Download dataset
   data_builder = tfds.builder("cifar10")
   data_builder.download_and_prepare()
@@ -635,7 +616,7 @@ def main(config):
       rng=pool_ds_rng,
       process_batch_size=local_batch_size,
       preprocess_fn=preprocess_spec.parse(
-          spec=id_pp_eval, available_ops=preprocess_utils.all_ops()),
+          spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
       shuffle=False,
       drop_remainder=False,
       prefetch_size=config.get("prefetch_to_host", 2),
@@ -744,7 +725,7 @@ def main(config):
       lr_fn = lambda x: config.lr.base
 
       early_stopping_patience = config.get("early_stopping_patience", 15)
-      current_opt_repl, rngs_loop = finetune(
+      current_opt_repl, rngs_loop, _ = finetune(
           update_fn=update_fn,
           opt_repl=current_opt_repl,
           lr_fn=lr_fn,
@@ -815,12 +796,7 @@ if __name__ == "__main__":
   def _main(argv):
     del argv
     config = FLAGS.config
-    config.acquisition_method = FLAGS.acquisition_method
-    config.max_training_set_size = FLAGS.max_training_set_size
-    config.initial_training_set_size = FLAGS.initial_training_set_size
-    config.acquisition_batch_size = FLAGS.acquisition_batch_size
-    config.early_stopping_patience = FLAGS.early_stopping_patience
-    config.seed = FLAGS.seed
+
     main(config)
 
   app.run(_main)  # Ignore the returned values from `main`.

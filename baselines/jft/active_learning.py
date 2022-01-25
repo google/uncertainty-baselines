@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# pylint: disable=line-too-long
 r"""Active learning loop.
 
 This script implements a basic Active Learning loop using predictive entropy as
@@ -23,15 +24,18 @@ The below command is for running this script on a TPU-VM.
 Execute in `baselines/jft`:
 
 python3 active_learning.py \
-  --output_dir="~/cifar-10/vit-16-i21k" \
   --config="experiments/imagenet21k_vit_base16_finetune_cifar10.py" \
-  --config.model_init="gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"
-  \
+  --config.model_init="gs://ub-data/ImageNet21k_ViT-B16_ImagetNet21k_ViT-B_16_28592399.npz"  \
   --config.batch_size=256 \
-  --config.total_steps=50
+  --config.total_steps=50 \
+  --initial_training_set_size=0 \
+  --acquisition_batch_size=5 \
+  --max_training_set_size=100 \
+  --acquisition_method=uniform
 
-Note the strongly reduced total_steps
+Note the strongly reduced total_steps.
 """
+# pylint: enable=line-too-long
 
 from functools import partial  # pylint: disable=g-importing-member standard use
 import math
@@ -57,18 +61,29 @@ import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 config_flags.DEFINE_config_file(
-    "config", None, "Training configuration.", lock_config=True)
-flags.DEFINE_string("output_dir", default=None, help="Work unit directory.")
+    "config", None, "Training configuration.", lock_config=False)
 flags.DEFINE_enum(
     "acquisition_method",
     default="uniform",
     enum_values=["uniform", "density", "margin", "entropy"],
     help="Choose an acquisition method.")
+flags.DEFINE_integer(
+    "acquisition_batch_size",
+    default=None,
+    help="Acquisition batch size per active learning iteration.")
+flags.DEFINE_integer(
+    "max_training_set_size", default=None, help="Maximum training set size.")
+flags.DEFINE_integer(
+    "initial_training_set_size",
+    default=None,
+    help="Initial training set size.")
+flags.DEFINE_integer(
+    "early_stopping_patience", default=None, help="Early stopping patience.")
+flags.DEFINE_integer("seed", default=None, help="Random seed.")
 
 FLAGS = flags.FLAGS
 
-# TODO(joost,andreas): can we use float("-inf") here?
-NINF_SCORE = -100
+NINF_SCORE = float("-inf")
 
 
 def get_ids_logits_masks(*,
@@ -118,8 +133,8 @@ def get_ids_logits_masks(*,
     batch_mask = batch["mask"]
     batch_output = compute_batch_outputs(opt_repl.target, batch["image"])
 
-    # TODO(joost,andreas): if we run on multi host, this needs to be used as
-    # batch_outputs[0]
+    # TODO(joost,andreas): if we run on multi host, we need to index
+    # batch_outputs: batch_outputs[0]
     ids.append(batch_id)
     outputs.append(batch_output)
     labels.append(batch_label)
@@ -153,6 +168,8 @@ def get_entropy_scores(logits, masks):
   probs = jax.nn.softmax(logits)
 
   weighted_nats = -probs * log_probs
+  # One simple trick to avoid NaNs later on.
+  weighted_nats = jnp.where(jnp.isnan(weighted_nats), 0, weighted_nats)
   entropy = jnp.sum(weighted_nats, axis=-1, keepdims=False)
   entropy = jnp.where(masks, entropy, NINF_SCORE)
 
@@ -515,9 +532,9 @@ def make_evaluation_fn(model, config):
   return evaluation_fn
 
 
-def main(config, output_dir, acquisition_method):
-  del output_dir
+def main(config):
   print(config)
+  acquisition_method = config.get("acquisition_method")
 
   # Keep the ID for filtering the pool set
   keep_id = 'keep(["image", "labels", "id"])'
@@ -581,8 +598,8 @@ def main(config, output_dir, acquisition_method):
 
   reinit_params = config.get("model_reinit_params",
                              ("head/kernel", "head/bias"))
-  loaded_params = checkpoint_utils.load_checkpoint(tree=None,
-                                                   path=config.model_init)
+  loaded_params = checkpoint_utils.load_checkpoint(
+      tree=None, path=config.model_init)
   loaded = checkpoint_utils.restore_from_pretrained_params(
       params_cpu,
       loaded_params,
@@ -593,7 +610,8 @@ def main(config, output_dir, acquisition_method):
 
   opt_cpu = opt_cpu.replace(target=loaded)
 
-  # TODO(joost,andreas): This shouldn't be needed but opt_cpu is being donated
+  # TODO(joost,andreas): This shouldn't be needed but opt_cpu is being
+  # donated otherwise. Ensure opt_cpu is really on the cpu this way.
   opt_cpu = jax.device_get(opt_cpu)
 
   update_fn = make_update_fn(model, config)
@@ -624,22 +642,28 @@ def main(config, output_dir, acquisition_method):
       num_epochs=1,  # Don't repeat
   )
 
-  current_opt_repl = flax_utils.replicate(opt_cpu)
-  pool_ids, _, _, pool_masks = get_ids_logits_masks(
-      model=model,
-      opt_repl=current_opt_repl,
-      ds=pool_train_ds,
-  )
+  # Potentially acquire an initial training set.
+  initial_training_set_size = config.get("initial_training_set_size", 10)
 
-  rng, initial_uniform_rng = jax.random.split(rng)
-  pool_scores = get_uniform_scores(pool_masks, initial_uniform_rng)
+  if initial_training_set_size > 0:
+    current_opt_repl = flax_utils.replicate(opt_cpu)
+    pool_ids, _, _, pool_masks = get_ids_logits_masks(
+        model=model,
+        opt_repl=current_opt_repl,
+        ds=pool_train_ds,
+    )
 
-  acquisition_batch_ids, _ = select_acquisition_batch_indices(
-      acquisition_batch_size=config.get("acquisition_batch_size", 10),
-      scores=pool_scores,
-      ids=pool_ids,
-      ignored_ids=set(),
-  )
+    rng, initial_uniform_rng = jax.random.split(rng)
+    pool_scores = get_uniform_scores(pool_masks, initial_uniform_rng)
+
+    initial_training_set_batch_ids, _ = select_acquisition_batch_indices(
+        acquisition_batch_size=initial_training_set_size,
+        scores=pool_scores,
+        ids=pool_ids,
+        ignored_ids=set(),
+    )
+  else:
+    initial_training_set_batch_ids = []
 
   # NOTE: if we could `enumerate` before `filter` in `create_dataset` of CLU
   # then this dataset creation could be simplified.
@@ -648,7 +672,7 @@ def main(config, output_dir, acquisition_method):
   train_subset_data_builder = tfds.builder(
       "cifar10_subset",
       subset_ids={
-          config.train_split: set(acquisition_batch_ids),
+          config.train_split: set(initial_training_set_batch_ids),
           "test": None
       })
   train_subset_data_builder.download_and_prepare()
@@ -659,65 +683,78 @@ def main(config, output_dir, acquisition_method):
   rng, rng_loop = jax.random.split(rng)
   rngs_loop = flax_utils.replicate(rng_loop)
 
-  # NOTE: it's VITAL train_ds_rng is used for all train_ds creations
+  # TODO(joost,andreas): double check if below is still necessary
+  # (train_split is independent of this)
+  # NOTE: train_ds_rng is re-used for all train_ds creations
   rng, train_ds_rng = jax.random.split(rng)
 
-  current_train_ds_length = len(
-      train_subset_data_builder.subset_ids[config.train_split])
-  while current_train_ds_length < config.get("max_labels", 250):
+  while True:
+    current_train_ds_length = len(
+        train_subset_data_builder.subset_ids[config.train_split])
+    if current_train_ds_length >= config.get("max_training_set_size", 150):
+      break
     print(f"Training set size: {current_train_ds_length}")
 
     current_opt_repl = flax_utils.replicate(opt_cpu)
 
-    # Repeat dataset to have oversampled epochs and bootstrap more batches
-    number_of_batches = current_train_ds_length / config.batch_size
-    num_repeats = math.ceil(config.total_steps / number_of_batches)
-    print(f"Repeating dataset {num_repeats} times")
+    # Only fine-tune if there is anything to fine-tune with.
+    if current_train_ds_length > 0:
+      # Repeat dataset to have oversampled epochs and bootstrap more batches
+      number_of_batches = current_train_ds_length / config.batch_size
+      num_repeats = math.ceil(config.total_steps / number_of_batches)
+      print(f"Repeating dataset {num_repeats} times")
 
-    repeated_train_ds = input_utils.get_data(
-        dataset=train_subset_data_builder,
-        split=config.train_split,
-        rng=train_ds_rng,
-        process_batch_size=local_batch_size,
-        preprocess_fn=preprocess_spec.parse(
-            spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
-        shuffle_buffer_size=config.shuffle_buffer_size,
-        prefetch_size=config.get("prefetch_to_host", 2),
-        # TODO(joost,andreas): double check if below leads to bootstrap sampling
-        num_epochs=num_repeats,
-    )
+      # We repeat the dataset several times, such that we can obtain batches
+      # of size batch_size, even at start of training. These batches will be
+      # effectively "bootstrap" sampled, meaning they are sampled with
+      # replacement from the original training set.
+      repeated_train_ds = input_utils.get_data(
+          dataset=train_subset_data_builder,
+          split=config.train_split,
+          rng=train_ds_rng,
+          process_batch_size=local_batch_size,
+          preprocess_fn=preprocess_spec.parse(
+              spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
+          shuffle_buffer_size=config.shuffle_buffer_size,
+          prefetch_size=config.get("prefetch_to_host", 2),
+          # TODO(joost,andreas): double check if below leads to bootstrap
+          # sampling.
+          num_epochs=num_repeats,
+      )
 
-    train_eval_ds = input_utils.get_data(
-        dataset=train_subset_data_builder,
-        split=config.train_split,
-        rng=train_ds_rng,
-        process_batch_size=local_batch_size,
-        preprocess_fn=preprocess_spec.parse(
-            spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
-        shuffle=False,
-        drop_remainder=False,
-        prefetch_size=config.get("prefetch_to_host", 2),
-        num_epochs=1,
-    )
+      # We use this dataset to evaluate how well we perform on the training set.
+      # We need this to evaluate if we fit well within max_steps budget.
+      train_eval_ds = input_utils.get_data(
+          dataset=train_subset_data_builder,
+          split=config.train_split,
+          rng=train_ds_rng,
+          process_batch_size=local_batch_size,
+          preprocess_fn=preprocess_spec.parse(
+              spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
+          shuffle=False,
+          drop_remainder=False,
+          prefetch_size=config.get("prefetch_to_host", 2),
+          num_epochs=1,
+      )
 
-    # NOTE: warmup and decay are not a good fit for the small training set
-    # lr_fn = train_utils.create_learning_rate_schedule(config.total_steps,
-    #                                                   **config.get('lr', {})
-    #                                                   )
-    lr_fn = lambda x: config.lr.base
+      # NOTE: warmup and decay are not a good fit for the small training set
+      # lr_fn = train_utils.create_learning_rate_schedule(config.total_steps,
+      #                                                   **config.get('lr', {})
+      #                                                   )
+      lr_fn = lambda x: config.lr.base
 
-    esp = config.get("early_stopping_patience", 15)
-    current_opt_repl, rngs_loop = finetune(
-        update_fn=update_fn,
-        opt_repl=current_opt_repl,
-        lr_fn=lr_fn,
-        ds=repeated_train_ds,
-        rngs_loop=rngs_loop,
-        total_steps=config.total_steps,
-        train_eval_ds=train_eval_ds,
-        val_ds=val_ds,
-        evaluation_fn=evaluation_fn,
-        early_stopping_patience=esp)
+      early_stopping_patience = config.get("early_stopping_patience", 15)
+      current_opt_repl, rngs_loop = finetune(
+          update_fn=update_fn,
+          opt_repl=current_opt_repl,
+          lr_fn=lr_fn,
+          ds=repeated_train_ds,
+          rngs_loop=rngs_loop,
+          total_steps=config.total_steps,
+          train_eval_ds=train_eval_ds,
+          val_ds=val_ds,
+          evaluation_fn=evaluation_fn,
+          early_stopping_patience=early_stopping_patience)
 
     test_accuracy = get_accuracy(
         evaluation_fn=evaluation_fn, opt_repl=current_opt_repl, ds=test_ds)
@@ -741,24 +778,16 @@ def main(config, output_dir, acquisition_method):
     elif acquisition_method == "margin":
       pool_scores = get_margin_scores(pool_outputs, pool_masks)
     elif acquisition_method == "density":
-      feature_train_ds = input_utils.get_data(
-          dataset=train_subset_data_builder,
-          split=config.train_split,
-          rng=train_ds_rng,
-          process_batch_size=local_batch_size,
-          preprocess_fn=preprocess_spec.parse(
-              spec=id_pp_eval, available_ops=preprocess_utils.all_ops()),
-          shuffle=False,
-          drop_remainder=False,
-          prefetch_size=config.get("prefetch_to_host", 2),
-          num_epochs=1)
-
-      pool_scores = get_density_scores(
-          model=model,
-          opt_repl=current_opt_repl,
-          train_ds=feature_train_ds,
-          pool_pre_logits=pool_outputs,
-          pool_masks=pool_masks)
+      if current_train_ds_length > 0:
+        pool_scores = get_density_scores(
+            model=model,
+            opt_repl=current_opt_repl,
+            train_ds=train_eval_ds,
+            pool_pre_logits=pool_outputs,
+            pool_masks=pool_masks)
+      else:
+        rng, rng_loop = jax.random.split(rng, 2)
+        pool_scores = get_uniform_scores(pool_masks, rng)
     else:
       raise ValueError("Acquisition method not found.")
 
@@ -770,8 +799,6 @@ def main(config, output_dir, acquisition_method):
 
     train_subset_data_builder.subset_ids[config.train_split].update(
         acquisition_batch_ids)
-    current_train_ds_length = len(
-        train_subset_data_builder.subset_ids[config.train_split])
 
   print(f"Final acquired training ids: "
         f"{train_subset_data_builder.subset_ids[config.train_split]}"
@@ -781,14 +808,19 @@ def main(config, output_dir, acquisition_method):
   return (train_subset_data_builder.subset_ids[config.train_split],
           test_accuracies)
 
+
 if __name__ == "__main__":
   jax.config.config_with_absl()
 
   def _main(argv):
     del argv
     config = FLAGS.config
-    output_dir = FLAGS.output_dir
-    acquisition_method = FLAGS.acquisition_method
-    main(config, output_dir, acquisition_method)
+    config.acquisition_method = FLAGS.acquisition_method
+    config.max_training_set_size = FLAGS.max_training_set_size
+    config.initial_training_set_size = FLAGS.initial_training_set_size
+    config.acquisition_batch_size = FLAGS.acquisition_batch_size
+    config.early_stopping_patience = FLAGS.early_stopping_patience
+    config.seed = FLAGS.seed
+    main(config)
 
   app.run(_main)  # Ignore the returned values from `main`.

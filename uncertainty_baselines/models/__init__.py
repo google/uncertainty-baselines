@@ -37,6 +37,7 @@ from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchen
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
+from uncertainty_baselines.models.resnet50_fsvi import resnet50_fsvi
 from uncertainty_baselines.models.resnet50_het_mimo import resnet50_het_mimo
 from uncertainty_baselines.models.resnet50_het_rank1 import resnet50_het_rank1
 from uncertainty_baselines.models.resnet50_heteroscedastic import resnet50_heteroscedastic
@@ -71,9 +72,11 @@ from uncertainty_baselines.models.resnet50_fsvi import ResNet50FSVI
 try:
   # Try to import ViT models.
   from uncertainty_baselines.models import vit_batchensemble
+  from uncertainty_baselines.models import vit_batchensemble_gp
   from uncertainty_baselines.models.bit_resnet import bit_resnet
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
+  from uncertainty_baselines.models.vit_batchensemble_gp import PatchTransformerBEGP
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp
   from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
   from uncertainty_baselines.models.vit_mimo import VisionTransformerMIMO

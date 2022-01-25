@@ -14,7 +14,9 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Finetune a JFT-300M pretrained ViT-L/32 on CIFAR-10/100 and ImageNet.
+r"""Finetune a pretrained ViT-L/32 on CIFAR-10/100 and ImageNet.
+
+This config is used for models pretrained on either JFT-300M or ImageNet-21K.
 
 """
 # pylint: enable=line-too-long
@@ -91,19 +93,32 @@ def get_config():
 def get_sweep(hyper):
   """Sweeps over datasets."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-  cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
-  cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
-  cifar10_sweep = hyper.product(cifar10_sweep)
-
-  cifar100_sweep = sweep_utils.cifar100(hyper, val_split='test')
-  cifar100_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
-  cifar100_sweep = hyper.product(cifar100_sweep)
-
-  imagenet_sweep = sweep_utils.imagenet(hyper, val_split='validation')
-  imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
-  imagenet_sweep = hyper.product(imagenet_sweep)
-
+  use_jft = False  # whether to use JFT-300M or ImageNet-21K settings
   sweep_lr = False  # whether to sweep over learning rates
+  if use_jft:
+    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+    cifar10_sweep = hyper.product(cifar10_sweep)
+
+    cifar100_sweep = sweep_utils.cifar100(hyper, val_split='test')
+    cifar100_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+    cifar100_sweep = hyper.product(cifar100_sweep)
+
+    imagenet_sweep = sweep_utils.imagenet(hyper, val_split='validation')
+    imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+    imagenet_sweep = hyper.product(imagenet_sweep)
+  else:
+    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
+    cifar10_sweep = hyper.product(cifar10_sweep)
+
+    cifar100_sweep = sweep_utils.cifar100(hyper, val_split='test')
+    cifar100_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+    cifar100_sweep = hyper.product(cifar100_sweep)
+
+    imagenet_sweep = sweep_utils.imagenet(hyper, val_split='validation')
+    imagenet_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+    imagenet_sweep = hyper.product(imagenet_sweep)
   if sweep_lr:
     # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
     checkpoints = [checkpoints[0]]

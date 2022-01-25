@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Kaggle Diabetic Retinopathy Detection dataset builder."""
+"""Custom Diabetic Retinopathy Detection dataset builder,
+allows user to specify blur constant used in preprocessing.
+"""
 
 from typing import Dict, Optional
 

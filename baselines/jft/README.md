@@ -25,8 +25,7 @@ pretrained deterministic ViT and finetune a BatchEnsemble ViT.
     The job reports downstream train/validation peformance. It also includes
     certain out-of-distribution evaluations: CIFAR/ImageNet OOD detection (both
     few-shot and full dataset), CIFAR-10H, and ImageNet ReaL. To launch a
-    finetuning job in order to only perform evaluation, set `only_eval=True` and
-    potentially training step/log values to 1
+    finetuning job in order to only perform evaluation, set `only_eval=True`
     ([example](experiments/imagenet21k_vit_base16_eval_imagenet.py)).
 
     Example:

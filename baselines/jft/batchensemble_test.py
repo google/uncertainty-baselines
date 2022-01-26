@@ -57,7 +57,6 @@ def get_config(classifier, representation_size):
   config.train_split = f'full[{num_examples}:{num_examples*2}]'
   config.num_classes = 21843
 
-  config.batch_size_eval = 3
   config.prefetch_to_device = 1
   config.shuffle_buffer_size = 20
   config.val_cache = False
@@ -83,7 +82,6 @@ def get_config(classifier, representation_size):
 
   # Model section
   config.model = ml_collections.ConfigDict()
-  config.model_name = 'PatchTransformerBE'
   config.model.patch_size = (16, 16)
   config.model.hidden_size = 4
   config.model.transformer = ml_collections.ConfigDict()

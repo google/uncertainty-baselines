@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Deterministic ViT on JFT-300M."""
+"""Deterministic ViT."""
 
-from functools import partial  # pylint: disable=g-importing-member so standard
+import functools
 import itertools
 import multiprocessing
 import os
@@ -28,15 +28,13 @@ from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
 import flax
-import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
-from ml_collections.config_flags import config_flags
+import ml_collections
 import numpy as np
 import robustness_metrics as rm
 
 import tensorflow as tf
-from tensorflow.io import gfile
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
 import cifar10h_utils  # local file import from baselines.jft
@@ -48,8 +46,7 @@ import train_utils  # local file import from baselines.jft
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
 
-
-config_flags.DEFINE_config_file(
+ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
@@ -71,10 +68,10 @@ def main(config, output_dir):
   if config.get('data_dir'):
     logging.info('data_dir=%s', config.data_dir)
   logging.info('Output dir: %s', output_dir)
+  tf.io.gfile.makedirs(output_dir)
 
   save_checkpoint_path = None
   if config.get('checkpoint_steps'):
-    gfile.makedirs(output_dir)
     save_checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
 
   # Create an asynchronous multi-metric writer.
@@ -228,7 +225,7 @@ def main(config, output_dir):
       split=config.train_split,
       process_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
-  steps_per_epoch = int(ntrain_img / batch_size)
+  steps_per_epoch = ntrain_img // batch_size
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -242,14 +239,14 @@ def main(config, output_dir):
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
   write_note('Initializing model...')
-  logging.info('config.model = %s', config.get('model'))
+  logging.info('config.model = %s', config.model)
   model = ub.models.vision_transformer(
-      num_classes=config.num_classes, **config.get('model', {}))
+      num_classes=config.num_classes, **config.model)
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two
   # situations where we allocate them twice.
-  @partial(jax.jit, backend='cpu')
+  @functools.partial(jax.jit, backend='cpu')
   def init(rng):
     image_size = tuple(train_ds.element_spec['image'].shape[2:])
     logging.info('image_size = %s', image_size)
@@ -275,7 +272,7 @@ def main(config, output_dir):
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 
-  @partial(jax.pmap, axis_name='batch')
+  @functools.partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
@@ -308,7 +305,7 @@ def main(config, output_dir):
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
-  @partial(jax.pmap, axis_name='batch')
+  @functools.partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, images, labels, mask):
     logits, out = model.apply({'params': flax.core.freeze(params)},
                               images,
@@ -335,7 +332,7 @@ def main(config, output_dir):
     return ncorrect, loss, n, metric_args
 
   # Setup function for computing representation.
-  @partial(jax.pmap, axis_name='batch')
+  @functools.partial(jax.pmap, axis_name='batch')
   def representation_fn(params, images, labels, mask):
     _, outputs = model.apply({'params': flax.core.freeze(params)},
                              images,
@@ -360,20 +357,20 @@ def main(config, output_dir):
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
-  @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, lr, images, labels, rng):
     """Update step."""
 
     measurements = {}
 
-    # Get device-specific loss rng.
-    rng, rng_model = jax.random.split(rng, 2)
-    rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
+    # Split rng and return next_rng for the following step.
+    rng, next_rng = jax.random.split(rng, 2)
+    rng_local = jax.random.fold_in(rng, jax.lax.axis_index('batch'))
 
     def loss_fn(params, images, labels):
       logits, _ = model.apply(
           {'params': flax.core.freeze(params)}, images,
-          train=True, rngs={'dropout': rng_model_local})
+          train=True, rngs={'dropout': rng_local})
       label_indices = config.get('label_indices')
       if label_indices:
         logits = logits[:, label_indices]
@@ -406,21 +403,19 @@ def main(config, output_dir):
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
 
-    return opt, l, rng, measurements
+    return opt, l, next_rng, measurements
 
-  rng, train_loop_rngs = jax.random.split(rng)
   reint_params = ('head/kernel', 'head/bias')
   if config.get('only_eval', False) or not config.get('reint_head', True):
     reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
-      train_loop_rngs=train_loop_rngs,
+      train_loop_rngs=rng,
       save_checkpoint_path=save_checkpoint_path,
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=None,
       default_reinit_params=reint_params,
-      config=config,
-  )
+      config=config)
   train_loop_rngs = checkpoint_data.train_loop_rngs
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
@@ -453,7 +448,7 @@ def main(config, output_dir):
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
   write_note(f'Replicating...\n{chrono.note}')
-  opt_repl = flax_utils.replicate(opt_cpu)
+  opt_repl = flax.jax_utils.replicate(opt_cpu)
 
   write_note(f'Initializing few-shotters...\n{chrono.note}')
   fewshotter = None
@@ -545,7 +540,8 @@ def main(config, output_dir):
       writer.write_scalars(step, train_measurements)
 
     # Report validation performance
-    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+    if config.get('only_eval', False) or train_utils.itstime(
+        step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, val_ds in val_ds_splits.items():
@@ -661,7 +657,8 @@ def main(config, output_dir):
 
     if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.
-      if train_utils.itstime(step, config.fewshot.log_steps, total_steps):
+      if config.get('only_eval', False) or train_utils.itstime(
+          step, config.fewshot.log_steps, total_steps):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
@@ -680,8 +677,9 @@ def main(config, output_dir):
             make_writer_measure_fn(step), fewshot_results, best_l2)
         chrono.resume()
 
-    # End of step.
-    if config.get('testing_failure_step'):
+    if config.get('only_eval', False):
+      break
+    elif config.get('testing_failure_step'):
       # Break early to simulate infra failures in test cases.
       if config.testing_failure_step == step:
         break

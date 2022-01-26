@@ -20,6 +20,7 @@ r"""ViT + BatchEnsemble.
 # pylint: enable=line-too-long
 
 import ml_collections
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -45,7 +46,6 @@ def get_config():
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   # Model parameters.
-  config.model_name = 'PatchTransformerBE'
   config.model = ml_collections.ConfigDict()
   config.model.patch_size = (32, 32)
   config.model.hidden_size = 1024
@@ -58,7 +58,7 @@ def get_config():
   config.model.transformer.num_heads = 16
   config.model.transformer.attention_dropout_rate = 0.0
 
-  # BatchEnsemblee parameters.
+  # BatchEnsemble parameters.
   config.model.transformer.be_layers = (21, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = 0.5
@@ -67,6 +67,8 @@ def get_config():
   # Optimizer parameters.
   config.optim_name = 'Adam'
   config.optim = ml_collections.ConfigDict(dict(beta1=0.9, beta2=0.999))
+  # TODO(trandustin): Ablate difference with config.weight_decay vs
+  # config.optim.weight_decay.
   config.weight_decay = 0.1
   config.clip_grad_norm = None
 
@@ -78,8 +80,6 @@ def get_config():
   config.disable_preemption_reproducibility = True
 
   config.batch_size = 4096         # Global batch size.
-  config.batch_size_eval = 4096    # Global batch size.
-
   config.num_epochs = 7
 
   config.log_training_steps = 50
@@ -90,13 +90,22 @@ def get_config():
 
   config.prefetch_to_device = 2
   config.trial = 0
+
+  # Few-shot eval section
+  config.fewshot = common_fewshot.get_fewshot()
+  config.fewshot.log_steps = 25_000
   return config
 
 
 def get_sweep(hyper):
-  return hyper.product([
-      # Use this as a sensible sweep over other hyperparameters.
-      hyper.sweep('config.model.transformer.random_sign_init',
-                  [0.5, -.5]),
-      hyper.sweep('config.fast_weight_lr_multiplier', [1.0]),
-  ])
+  return hyper.product([])
+  # Use this as a sensible sweep over hyperparameters.
+  # return hyper.product([
+  #     hyper.sweep('config.model.transformer.ens_size', [3, 4, 8]),
+  #     # BE early in layers needs 16x16, not 8x8.
+  #     # hyper.sweep('config.model.transformer.be_layers',
+  #     #             [(1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23)]),
+  #     hyper.sweep('config.model.transformer.random_sign_init',
+  #                 [0.5, -.5]),
+  #     hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
+  # ])

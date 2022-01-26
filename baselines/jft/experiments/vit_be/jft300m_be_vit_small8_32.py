@@ -20,6 +20,7 @@ r"""ViT + BatchEnsemble.
 # pylint: enable=line-too-long
 
 import ml_collections
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -45,7 +46,6 @@ def get_config():
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   # Model section
-  config.model_name = 'PatchTransformerBE'
   config.model = ml_collections.ConfigDict()
   config.model.patch_size = (32, 32)
   config.model.hidden_size = 512
@@ -61,8 +61,8 @@ def get_config():
   # BatchEnsemble parameters.
   config.model.transformer.be_layers = (1, 3, 5, 7)
   config.model.transformer.ens_size = 4
-  config.model.transformer.random_sign_init = 0.5
-  config.fast_weight_lr_multiplier = 1.0
+  config.model.transformer.random_sign_init = -0.5
+  config.fast_weight_lr_multiplier = 2.0
 
   # Optimizer parameters.
   config.optim_name = 'Adam'
@@ -81,8 +81,6 @@ def get_config():
   config.lr.linear_end = 1e-5
 
   config.batch_size = 4096         # Global batch size.
-  config.batch_size_eval = 4096    # Global batch size.
-
   config.num_epochs = 5
 
   config.log_training_steps = 50
@@ -93,19 +91,21 @@ def get_config():
 
   config.prefetch_to_device = 2
   config.trial = 0
+
+  # Few-shot eval section
+  config.fewshot = common_fewshot.get_fewshot()
+  config.fewshot.log_steps = 25_000
   return config
 
 
 def get_sweep(hyper):
-  return hyper.product([
-      # Use this as a sensible sweep over other hyperparameters.
-      # hyper.sweep('config.seed', list(range(3))),
-      hyper.sweep('config.model.transformer.ens_size', [2, 4]),
-      # hyper.sweep('config.model.transformer.be_layers',
-      #             [(1, 3, 5, 7), (0, 1, 2, 3, 4, 5, 6, 7)]),
-      hyper.sweep('config.model.transformer.be_layers',
-                  [(1, 3, 5, 7)]),
-      hyper.sweep('config.model.transformer.random_sign_init',
-                  [-0.5, 0.5]),
-      hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-  ])
+  return hyper.product([])
+  # Use this as a sensible sweep over hyperparameters.
+  # return hyper.product([
+  #     hyper.sweep('config.model.transformer.ens_size', [2, 4]),
+  #     hyper.sweep('config.model.transformer.be_layers',
+  #                 [(1, 3, 5, 7), (0, 1, 2, 3, 4, 5, 6, 7)]),
+  #     hyper.sweep('config.model.transformer.random_sign_init',
+  #                 [-0.5, 0.5]),
+  #     hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
+  # ])

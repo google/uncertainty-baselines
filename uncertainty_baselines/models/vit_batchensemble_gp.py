@@ -31,7 +31,6 @@ from uncertainty_baselines.models import vit
 from uncertainty_baselines.models import vit_batchensemble
 
 # TODO(dusenberrymw): Open-source remaining imports.
-identity = None
 checkpoints_model = None
 
 
@@ -208,7 +207,7 @@ class PatchTransformerBEGP(nn.Module):
       raise ValueError(f"Unknown classifier: {self.classifier}")
 
     if self.representation_size is None:
-      x = identity.IdentityLayer(name="pre_logits")(x)
+      x = vit.IdentityLayer(name="pre_logits")(x)
       extra_info["pre_logits"] = x
     else:
       x = nn.Dense(self.representation_size, name="pre_logits")(x)

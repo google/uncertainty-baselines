@@ -40,9 +40,11 @@ from baselines.diabetic_retinopathy_detection.utils import (
   save_per_prediction_results, evaluate_vit_predictions)
 # local file import
 from experiments.config.imagenet21k_vit_base16_finetune import (
-  get_config as get_i21k_config)
+  get_config as get_vit16_i21k_config)
+from experiments.config.imagenet21k_vit_large32_finetune import (
+  get_config as get_vit32_i21k_config)
 from experiments.config.drd_vit_base16 import (
-  get_config as get_no_pretrain_config)
+  get_config as get_vit16_no_pretrain_config)
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -82,6 +84,10 @@ flags.DEFINE_string('lr_decay_type', 'cosine',
                     'Type of LR decay / schedule. Options: cosine, linear.')
 
 # General model flags.
+flags.DEFINE_string(
+  'vit_model_size', None,
+  'Specifies size of ViT backbone model. Options: {"B/16", "L/32"}')
+flags.mark_flag_as_required('vit_model_size')
 flags.DEFINE_integer('total_steps', 10000, 'Total steps.')
 flags.DEFINE_integer('batch_size', 128, 'Batch size.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
@@ -133,6 +139,24 @@ def accumulate_gradient_with_states(
     return (l, s), g
   else:
     return loss_and_grad_fn(params, states, images, labels)
+
+
+def get_model_config(vit_model_size, pretrain_dataset):
+  if vit_model_size == 'B/16':
+    if FLAGS.pretrain_dataset == 'imagenet21k':
+      config = get_vit16_i21k_config()
+    else:
+      config = get_vit16_no_pretrain_config()
+  elif vit_model_size == 'L/32':
+    config = get_vit32_i21k_config()
+
+  else:
+    raise NotImplementedError("ViT model size must be one of 'B/16', 'L/32'")
+
+  print(f'Using backbone transformer ViT-{vit_model_size} pretrained '
+        f'on {pretrain_dataset}.')
+
+  return config
 
 
 def main(argv):
@@ -207,15 +231,11 @@ def main(argv):
   # In a TPU runtime this will be 8 cores.
   print('Number of Jax local devices:', jax.local_devices())
 
-  if FLAGS.pretrain_dataset == 'imagenet21k':
-    config = get_i21k_config()
-  else:
-    config = get_no_pretrain_config()
+  # Get model config
+  config = get_model_config(FLAGS.vit_model_size, FLAGS.pretrain_dataset)
 
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'
-
-  # config = FLAGS.config
 
   seed = FLAGS.seed
   rng = jax.random.PRNGKey(seed)

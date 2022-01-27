@@ -118,15 +118,12 @@ except ImportError:
 except tf.errors.NotFoundError:
   logging.warning('Skipped MIMO models due to NotFoundError.', exc_info=True)
 
-# This is necessary because we cannot depend on torch internally, so the torch
-# model modules cannot be imported at all, so we cannot just wrap the imports in
-# a try/except.
-import_torch = True
-if import_torch:
-  try:
-    from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
-  except ImportError:
-    logging.warning(
-        'Skipped Torch ResNet-50 Dropout model due to ImportError.',
-        exc_info=True)
+# pylint: disable=line-too-long
+try:
+  from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
+except ImportError:
+  logging.warning(
+      'Skipped Torch ResNet-50 Dropout model due to ImportError.',
+      exc_info=True)
+# pylint: enable=line-too-long
 # pylint: enable=g-import-not-at-top

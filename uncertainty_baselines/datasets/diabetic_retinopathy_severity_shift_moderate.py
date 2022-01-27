@@ -16,15 +16,13 @@
 r"""Based on https://www.kaggle.com/c/diabetic-retinopathy-detection/data.
 
 New split of the Kaggle Diabetic Retinopathy Detection data, in which we
-perform classification on
-TODO: what decision threshold
-
-and set aside examples with underlying severity label \in {2, 3, 4}
-as out-of-distribution.
+perform classification on a moderate threshold (i.e., {0, 1} are negative
+and {2, 3, 4} are positive examples), and set aside examples with underlying
+severity label \in {3, 4} as out-of-distribution.
 
 We call this a _severity shift_.
 
-Note that this allows us to use examples with underlying labels \in {2, 3, 4}
+Note that this allows us to use examples with underlying labels \in {3, 4}
  that are listed as 'train' in the tf.data partition in the evaluation set here.
 """
 
@@ -358,13 +356,14 @@ class DiabeticRetinopathySeverityShiftModerate(tfds.core.GeneratorBasedBuilder):
   def _process_image(self, filepath):
     with tf.io.gfile.GFile(filepath, mode='rb') as image_fobj:
       if self.builder_config.name.startswith('btgraham'):
-        return _btgraham_processing(
+        return _btgraham_processing(  # pylint: disable=protected-access
             image_fobj=image_fobj,
             filepath=filepath,
             target_pixels=self.builder_config.target_pixels,
+            blur_constant=30,
             crop_to_radius=True)
       elif self.builder_config.name.startswith('blur'):
-        return _btgraham_processing(
+        return _btgraham_processing(  # pylint: disable=protected-access
             image_fobj=image_fobj,
             filepath=filepath,
             target_pixels=self.builder_config.target_pixels,

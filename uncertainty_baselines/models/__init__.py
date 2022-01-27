@@ -120,7 +120,8 @@ except tf.errors.NotFoundError:
 
 # pylint: disable=line-too-long
 try:
-  from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
+  from uncertainty_baselines.models.resnet50_dropout_torch import resnet50_dropout_torch
+  from uncertainty_baselines.models.resnet50_torch import resnet50_torch
 except ImportError:
   logging.warning(
       'Skipped Torch ResNet-50 Dropout model due to ImportError.',

@@ -30,7 +30,7 @@ from clu import preprocess_spec
 import flax
 import jax
 import jax.numpy as jnp
-import ml_collections
+import ml_collections.config_flags
 import numpy as np
 import robustness_metrics as rm
 

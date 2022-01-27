@@ -32,7 +32,7 @@ import flax.jax_utils as flax_utils
 
 import jax
 import jax.numpy as jnp
-import ml_collections
+import ml_collections.config_flags
 import numpy as np
 import robustness_metrics as rm
 

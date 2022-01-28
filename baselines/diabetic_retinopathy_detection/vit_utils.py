@@ -11,7 +11,7 @@ from experiments.config.imagenet21k_vit_large32_finetune import (
 
 import input_utils  # local file import
 import uncertainty_baselines as ub
-from eval_utils import (
+from utils.eval_utils import (
   add_joint_dicts, compute_loss_and_accuracy_arrs_for_all_datasets,
   compute_metrics_for_all_datasets)
 from experiments.config.drd_vit_base16 import (

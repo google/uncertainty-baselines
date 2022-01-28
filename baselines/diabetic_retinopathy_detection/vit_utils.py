@@ -20,7 +20,7 @@ from experiments.config.imagenet21k_vit_base16_finetune import (
   get_config as vit_b16_i21k_config)
 from experiments.config.imagenet21k_vit_base16_sngp_finetune import (
   get_config as sngp_vit_b16_i21k_config)
-from metric_utils import log_vit_validation_metrics
+from utils.metric_utils import log_vit_validation_metrics
 
 # Mapping from (model_type, vit_model_size, pretrain_dataset) to config.
 VIT_CONFIG_MAP = {

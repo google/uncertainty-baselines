@@ -33,24 +33,30 @@ import pprint
 import sys
 import time
 from typing import Any, Dict, List, Tuple
-from absl import app
-from absl import flags
-from baselines.diabetic_retinopathy_detection import utils
-from baselines.diabetic_retinopathy_detection.fsvi_utils.initializers import Initializer
-from baselines.diabetic_retinopathy_detection.fsvi_utils.initializers import OptimizerInitializer
-from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import initialize_random_keys
-from baselines.diabetic_retinopathy_detection.fsvi_utils.utils import to_one_hot
+
 import jax
-from jax import jit
-from jax import random
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 import optax
 import tensorflow as tf
-from tqdm import tqdm
 import tree
 import wandb
+from absl import app
+from absl import flags
+from jax import jit
+from jax import random
+from jax.lib import xla_bridge
 from tensorboard.plugins.hparams import api as hp
+from tqdm import tqdm
+
+# pylint: disable=line-too-long
+from utils.data_utils import load_dataset  # local file import from baselines.diabetic_retinopathy_detection.utils.data_utils
+from utils.eval_utils import evaluate_model_and_compute_metrics  # local file import from baselines.diabetic_retinopathy_detection.utils.eval_utils
+from utils.metric_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
+  get_diabetic_retinopathy_base_metrics, get_diabetic_retinopathy_cpu_metrics)
+from utils.model_utils import load_input_shape  # local file import from baselines.diabetic_retinopathy_detection.utils.model_utils
+from utils.results_storage_utils import save_per_prediction_results  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+from utils.uncertainty_utils import get_uncertainty_estimator  # local file import from baselines.diabetic_retinopathy_detection.utils.uncertainty_utils
+# pylint: enable=line-too-long
 
 tf.config.experimental.set_visible_devices([], "GPU")
 print("WARNING: TensorFlow is set to only use CPU.")
@@ -287,7 +293,7 @@ def main(argv):
   num_cores = FLAGS.num_cores
   per_core_batch_size = FLAGS.per_core_batch_size * num_cores
 
-  datasets, steps = utils.load_dataset(
+  datasets, steps = load_dataset(
       train_batch_size=per_core_batch_size,
       eval_batch_size=per_core_batch_size,
       flags=FLAGS,
@@ -300,11 +306,11 @@ def main(argv):
       if "validation" in split or "test" in split
   ]
   eval_datasets = {split: iter(datasets[split]) for split in eval_splits}
-  input_shape = [1] + utils.load_input_shape(dataset_train=datasets["train"])
+  input_shape = [1] + load_input_shape(dataset_train=datasets["train"])
   dataset_train = datasets["train"]
   train_steps_per_epoch = steps["train"]
 
-  uncertainty_estimator_fn = utils.get_uncertainty_estimator(
+  uncertainty_estimator_fn = get_uncertainty_estimator(
       "fsvi", use_ensemble=False, use_tf=False)
 
   # Initialization of model, ptimizer, prior and loss
@@ -356,7 +362,7 @@ def main(argv):
 
   # Update metrics
   use_tpu = any(["tpu" in str(d).lower() for d in jax.devices()])
-  metrics = utils.get_diabetic_retinopathy_base_metrics(
+  metrics = get_diabetic_retinopathy_base_metrics(
       use_tpu=use_tpu,
       num_bins=FLAGS.num_bins,
       use_validation=FLAGS.use_validation,
@@ -365,7 +371,7 @@ def main(argv):
   # Define metrics outside the accelerator scope for CPU eval.
   if not use_tpu:
     metrics.update(
-        utils.get_diabetic_retinopathy_cpu_metrics(
+        get_diabetic_retinopathy_cpu_metrics(
             available_splits=available_splits,
             use_validation=FLAGS.use_validation))
 
@@ -617,7 +623,7 @@ def main(argv):
     estimator_args["params"] = params
     estimator_args["state"] = state
 
-    per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
+    per_pred_results, total_results = evaluate_model_and_compute_metrics(
         strategy=None,
         eval_datasets=eval_datasets,
         steps=steps,
@@ -664,7 +670,7 @@ def main(argv):
       logging.info("Saved checkpoint to %s", chkpt_name)
 
       # Save per-prediction metrics
-      utils.save_per_prediction_results(
+      save_per_prediction_results(
           output_dir, epoch + 1, per_pred_results, verbose=False)
 
     now_t0 = time.time()
@@ -683,7 +689,7 @@ def main(argv):
   logging.info("Saved last checkpoint to %s", final_checkpoint_name)
 
   # Save per-prediction metrics
-  utils.save_per_prediction_results(
+  save_per_prediction_results(
       output_dir, FLAGS.epochs, per_pred_results, verbose=False)
 
   with summary_writer.as_default():

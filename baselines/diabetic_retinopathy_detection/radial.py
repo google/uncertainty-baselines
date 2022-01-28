@@ -35,15 +35,29 @@ import pathlib
 import pprint
 import time
 
+import tensorflow as tf
+import wandb
 from absl import app
 from absl import flags
 from absl import logging
-import tensorflow as tf
-import uncertainty_baselines as ub
-import utils  # local file import
-import wandb
 from tensorboard.plugins.hparams import api as hp
 
+# pylint: disable=line-too-long
+import uncertainty_baselines as ub
+from utils.data_utils import load_dataset  # local file import from baselines.diabetic_retinopathy_detection.utils.data_utils
+from utils.distribution_utils import init_distribution_strategy  # local file import from baselines.diabetic_retinopathy_detection.utils.distribution_utils
+from utils.eval_utils import evaluate_model_and_compute_metrics  # local file import from baselines.diabetic_retinopathy_detection.utils.eval_utils
+from utils.loss_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.loss_utils
+  get_diabetic_retinopathy_class_balance_weights,
+  get_diabetic_retinopathy_loss_fn, get_minibatch_reweighted_loss_fn)
+from utils.metric_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
+  get_diabetic_retinopathy_base_metrics, get_diabetic_retinopathy_cpu_metrics)
+from utils.model_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.model_utils
+  load_input_shape, load_keras_checkpoints, log_model_init_info)
+from utils.results_storage_utils import save_per_prediction_results  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+from utils.uncertainty_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.uncertainty_utils
+  get_uncertainty_estimator, wrap_retinopathy_estimator)
+# pylint: enable=line-too-long
 
 DEFAULT_BATCH_SIZE = 16
 DEFAULT_NUM_EPOCHS = 90
@@ -204,7 +218,7 @@ def main(argv):
   logging.info(pprint.pformat(hypers_dict))
 
   # Initialize distribution strategy on flag-specified accelerator
-  strategy = utils.init_distribution_strategy(FLAGS.force_use_cpu,
+  strategy = init_distribution_strategy(FLAGS.force_use_cpu,
                                               FLAGS.use_gpu, FLAGS.tpu)
   use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
@@ -219,12 +233,12 @@ def main(argv):
   # Reweighting loss for class imbalance
   class_reweight_mode = FLAGS.class_reweight_mode
   if class_reweight_mode == 'constant':
-    class_weights = utils.get_diabetic_retinopathy_class_balance_weights()
+    class_weights = get_diabetic_retinopathy_class_balance_weights()
   else:
     class_weights = None
 
   # Load in datasets.
-  datasets, steps = utils.load_dataset(
+  datasets, steps = load_dataset(
       train_batch_size=batch_size,
       eval_batch_size=batch_size,
       flags=FLAGS,
@@ -259,19 +273,19 @@ def main(argv):
     logging.info('Building Keras ResNet-50 Radial model.')
     model = None
     if FLAGS.load_from_checkpoint:
-      initial_epoch, model = utils.load_keras_checkpoints(
+      initial_epoch, model = load_keras_checkpoints(
           FLAGS.checkpoint_dir, load_ensemble=False, return_epoch=True)
     else:
       initial_epoch = 0
       model = ub.models.resnet50_radial(
-          input_shape=utils.load_input_shape(dataset_train),
+          input_shape=load_input_shape(dataset_train),
           num_classes=1,  # binary classification task
           prior_stddev=FLAGS.prior_stddev,
           dataset_size=train_dataset_size,
           stddev_mean_init=FLAGS.stddev_mean_init,
           stddev_stddev_init=FLAGS.stddev_stddev_init,
           tied_mean_prior=FLAGS.tied_mean_prior)
-    utils.log_model_init_info(model=model)
+    log_model_init_info(model=model)
 
     # Linearly scale learning rate and the decay epochs by vanilla settings.
     base_lr = FLAGS.base_learning_rate
@@ -287,7 +301,7 @@ def main(argv):
         warmup_epochs=FLAGS.lr_warmup_epochs)
     optimizer = tf.keras.optimizers.SGD(
         lr_schedule, momentum=1.0 - FLAGS.one_minus_momentum, nesterov=True)
-    metrics = utils.get_diabetic_retinopathy_base_metrics(
+    metrics = get_diabetic_retinopathy_base_metrics(
         use_tpu=use_tpu,
         num_bins=FLAGS.num_bins,
         use_validation=FLAGS.use_validation,
@@ -313,7 +327,7 @@ def main(argv):
   # This will cause an error on TPU.
   if not use_tpu:
     metrics.update(
-        utils.get_diabetic_retinopathy_cpu_metrics(
+        get_diabetic_retinopathy_cpu_metrics(
             available_splits=available_splits,
             use_validation=FLAGS.use_validation))
 
@@ -321,18 +335,18 @@ def main(argv):
     metrics.update({f'{test_split}/ms_per_example': tf.keras.metrics.Mean()})
 
   # Initialize loss function based on class reweighting setting
-  loss_fn = utils.get_diabetic_retinopathy_loss_fn(
+  loss_fn = get_diabetic_retinopathy_loss_fn(
       class_reweight_mode=class_reweight_mode, class_weights=class_weights)
 
   # * Prepare for Evaluation *
 
   # Get the wrapper function which will produce uncertainty estimates for
   # our choice of method and Y/N ensembling.
-  uncertainty_estimator_fn = utils.get_uncertainty_estimator(
+  uncertainty_estimator_fn = get_uncertainty_estimator(
       'radial', use_ensemble=False, use_tf=True)
 
   # Wrap our estimator to predict probabilities (apply sigmoid on logits)
-  eval_estimator = utils.wrap_retinopathy_estimator(
+  eval_estimator = wrap_retinopathy_estimator(
       model, use_mixed_precision=FLAGS.use_bfloat16, numpy_outputs=False)
 
   estimator_args = {'num_samples': FLAGS.num_mc_samples_eval}
@@ -348,7 +362,7 @@ def main(argv):
 
       # For minibatch class reweighting, initialize per-batch loss function
       if class_reweight_mode == 'minibatch':
-        batch_loss_fn = utils.get_minibatch_reweighted_loss_fn(labels=labels)
+        batch_loss_fn = get_minibatch_reweighted_loss_fn(labels=labels)
       else:
         batch_loss_fn = loss_fn
 
@@ -444,7 +458,7 @@ def main(argv):
     logging.info(message)
 
     # Run evaluation on all evaluation datasets, and compute metrics
-    per_pred_results, total_results = utils.evaluate_model_and_compute_metrics(
+    per_pred_results, total_results = evaluate_model_and_compute_metrics(
         strategy,
         eval_datasets,
         steps,
@@ -485,7 +499,7 @@ def main(argv):
       logging.info('Saved keras model to %s', keras_model_name)
 
       # Save per-prediction metrics
-      utils.save_per_prediction_results(
+      save_per_prediction_results(
           output_dir, epoch + 1, per_pred_results, verbose=False)
 
   # final_checkpoint_name = checkpoint.save(
@@ -498,7 +512,7 @@ def main(argv):
   logging.info('Saved keras model to %s', keras_model_name)
 
   # Save per-prediction metrics
-  utils.save_per_prediction_results(
+  save_per_prediction_results(
       output_dir, FLAGS.train_epochs, per_pred_results, verbose=False)
 
   with summary_writer.as_default():

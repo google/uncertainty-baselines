@@ -25,10 +25,12 @@
 # pylint: disable=missing-function-docstring
 from functools import partial
 from typing import Callable, Tuple
+
 import haiku as hk
 import jax
-from jax import jit
 import jax.numpy as jnp
+from jax import jit
+
 from uncertainty_baselines.models.resnet50_fsvi import resnet50_fsvi
 
 ACTIVATION_DICT = {"tanh": jnp.tanh, "relu": jax.nn.relu}

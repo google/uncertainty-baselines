@@ -25,16 +25,18 @@
 # pylint: disable=missing-function-docstring
 from functools import partial
 from typing import Dict, Tuple
-from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
-from baselines.diabetic_retinopathy_detection.fsvi_utils import utils_linearization
-from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import Model
-from baselines.diabetic_retinopathy_detection.utils import (
-    get_diabetic_retinopathy_class_balance_weights,)
+
 import haiku as hk
 import jax
-from jax import jit
 import jax.numpy as jnp
 import tree
+from jax import jit
+
+from baselines.diabetic_retinopathy_detection.fsvi_utils import (
+  utils, utils_linearization)
+from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import Model
+from baselines.diabetic_retinopathy_detection.utils.loss_utils import (
+  get_diabetic_retinopathy_class_balance_weights)
 
 
 class Loss:

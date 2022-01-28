@@ -26,15 +26,27 @@
 import contextlib
 import os
 import pathlib
-from absl import app
-from absl import flags
-from absl import logging
+
 import jax
 import numpy as np
 import tensorflow as tf
 import torch
-import utils  # local file import
 import wandb
+from absl import app
+from absl import flags
+from absl import logging
+
+# pylint: disable=line-too-long
+from utils.data_utils import load_dataset  # local file import from baselines.diabetic_retinopathy_detection.utils.data_utils
+from utils.distribution_utils import init_distribution_strategy  # local file import from baselines.diabetic_retinopathy_detection.utils.distribution_utils
+from utils.eval_utils import eval_model_numpy  # local file import from baselines.diabetic_retinopathy_detection.utils.eval_utils
+from utils.model_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.model_utils
+  load_fsvi_jax_checkpoints, load_keras_checkpoints)
+from utils.results_storage_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+  merge_and_store_scalar_results, save_per_prediction_results)
+from utils.uncertainty_utils import (  # local file import from baselines.diabetic_retinopathy_detection.utils.uncertainty_utils
+  get_uncertainty_estimator, wrap_retinopathy_estimator)
+# pylint: enable=line-too-long
 
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
@@ -194,7 +206,7 @@ def main(argv):
       print('Running model on CPU.')
       # device = 'cpu'
   elif FLAGS.use_distribution_strategy:
-    strategy = utils.init_distribution_strategy(FLAGS.force_use_cpu,
+    strategy = init_distribution_strategy(FLAGS.force_use_cpu,
                                                 FLAGS.use_gpu, FLAGS.tpu)
     # use_tpu = not (FLAGS.force_use_cpu or FLAGS.use_gpu)
 
@@ -204,13 +216,13 @@ def main(argv):
   # Get the wrapper function which will produce uncertainty estimates for
   # our choice of method and Y/N ensembling.
   model_type_str = 'variational_inference' if model_type == 'vi' else model_type
-  uncertainty_estimator_fn = utils.get_uncertainty_estimator(
+  uncertainty_estimator_fn = get_uncertainty_estimator(
       model_type_str,
       use_ensemble=use_ensemble,
       use_tf=FLAGS.use_distribution_strategy)
 
   # Load in evaluation datasets.
-  datasets, steps = utils.load_dataset(
+  datasets, steps = load_dataset(
       None,
       eval_batch_size,
       flags=FLAGS,
@@ -243,12 +255,12 @@ def main(argv):
       logging.info(
           f'Loading {model_str} ResNet-50 {model_type} {ensemble_str}.')
       if 'fsvi' in model_type:
-        model = utils.load_fsvi_jax_checkpoints(
+        model = load_fsvi_jax_checkpoints(
             checkpoint_dir=checkpoint_dir,
             load_ensemble=use_ensemble or single_model_multi_train_seeds,
             return_epoch=False)
       else:
-        model = utils.load_keras_checkpoints(
+        model = load_keras_checkpoints(
             checkpoint_dir=checkpoint_dir,
             load_ensemble=use_ensemble or single_model_multi_train_seeds,
             return_epoch=False)
@@ -272,7 +284,7 @@ def main(argv):
         if use_ensemble or single_model_multi_train_seeds:
           # pylint: disable=g-complex-comprehension
           estimator = [
-              utils.wrap_retinopathy_estimator(
+              wrap_retinopathy_estimator(
                   loaded_model,
                   use_mixed_precision=FLAGS.use_bfloat16,
                   numpy_outputs=not FLAGS.use_distribution_strategy)
@@ -280,7 +292,7 @@ def main(argv):
           ]
           # pylint: enable=g-complex-comprehension
         else:
-          estimator = utils.wrap_retinopathy_estimator(
+          estimator = wrap_retinopathy_estimator(
               model,
               use_mixed_precision=FLAGS.use_bfloat16,
               numpy_outputs=not FLAGS.use_distribution_strategy)
@@ -322,7 +334,7 @@ def main(argv):
     if 'fsvi' in model_type:
       estimator_args['rng_key'] = jax.random.PRNGKey(eval_seed + iter_id)
 
-    per_pred_results, scalar_results = utils.eval_model_numpy(
+    per_pred_results, scalar_results = eval_model_numpy(
         datasets,
         steps,
         estimator,
@@ -339,7 +351,7 @@ def main(argv):
 
     # Save all predictions, ground truths, uncertainty measures, etc.
     # as NumPy arrays, for use with the plotting module.
-    utils.save_per_prediction_results(
+    save_per_prediction_results(
         output_dir,
         epoch=iter_id,
         per_prediction_results=per_pred_results,
@@ -407,7 +419,7 @@ def main(argv):
       )
 
   # Scalar results stored as pd.DataFrame
-  utils.merge_and_store_scalar_results(
+  merge_and_store_scalar_results(
       scalar_results_arr,
       output_dir=output_dir,
       allow_overwrite=True,

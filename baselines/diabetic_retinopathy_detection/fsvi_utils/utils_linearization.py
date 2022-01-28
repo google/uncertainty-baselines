@@ -24,11 +24,13 @@
 # pylint: disable=logging-fstring-interpolation
 # pylint: disable=missing-function-docstring
 from typing import Callable, Tuple
-from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
+
 import haiku as hk
 import jax
-from jax import numpy as jnp
 import tree
+from jax import numpy as jnp
+
+from baselines.diabetic_retinopathy_detection.fsvi_utils import utils
 
 
 def bnn_linearized_predictive(

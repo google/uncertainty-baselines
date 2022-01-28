@@ -25,14 +25,15 @@
 # pylint: disable=missing-function-docstring
 import os
 import random as random_py
+
 import haiku as hk
 import jax
-from jax import jit
-from jax import numpy as jnp
 import numpy as np
 import tensorflow as tf
 import torch
 import tree
+from jax import jit
+from jax import numpy as jnp
 
 
 class KeyHelper:

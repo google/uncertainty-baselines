@@ -14,10 +14,12 @@
 # limitations under the License.
 
 """ViT evaluation utilities."""
-from .eval_utils import add_joint_dicts
-from .eval_utils import compute_loss_and_accuracy_arrs_for_all_datasets
-from .eval_utils import compute_metrics_for_all_datasets
-from .metric_utils import log_vit_validation_metrics
+
+from baselines.diabetic_retinopathy_detection.utils.eval_utils import (
+  add_joint_dicts, compute_loss_and_accuracy_arrs_for_all_datasets,
+  compute_metrics_for_all_datasets)
+from baselines.diabetic_retinopathy_detection.utils.metric_utils import (
+  log_vit_validation_metrics)
 
 
 def evaluate_vit_predictions(

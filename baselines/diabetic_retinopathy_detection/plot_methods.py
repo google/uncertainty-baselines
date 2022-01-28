@@ -22,7 +22,11 @@ from absl import flags
 from absl import logging
 import tensorflow as tf
 
-import utils  # local file import
+# pylint: disable=line-too-long
+from utils.plot_utils import plot_retention_curves, plot_roc_curves  # local file import from baselines.diabetic_retinopathy_detection.utils.plot_utils
+from utils.results_storage_utils import load_eval_results  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+# pylint: enable=line-too-long
+
 
 # Data load / output flags.
 # TODO(nband): update with uncertainty wrappers
@@ -106,17 +110,17 @@ def main(argv):
       seeds = sorted(seeds)
       for seed in seeds:
         key = (model_type, k, is_deterministic, tuning_domain, num_mc_samples)
-        eval_results = utils.load_eval_results(
+        eval_results = load_eval_results(
             eval_results_dir=dataset_subdir_path, epoch=seed)
 
         for arr_name, arr in eval_results.items():
           if arr.ndim > 0 and arr.shape[0] > 1:
             dataset_to_model_results[dataset_name][key][arr_name].append(arr)
 
-  utils.plot_retention_curves(
+  plot_retention_curves(
       distribution_shift_name=distribution_shift,
       dataset_to_model_results=dataset_to_model_results, plot_dir='.')
-  utils.plot_roc_curves(
+  plot_roc_curves(
       distribution_shift_name=distribution_shift,
       dataset_to_model_results=dataset_to_model_results, plot_dir='roc-plots')
 

@@ -14,6 +14,14 @@
 # limitations under the License.
 
 """Finetune SNGP."""
+import tensorflow as tf
+
+tf.config.experimental.set_visible_devices([], 'GPU')
+tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
+tf.config.experimental.set_visible_devices([], 'TPU')
+
+print(tf.config.experimental.get_visible_devices())
+
 import datetime
 import functools
 import itertools
@@ -22,6 +30,13 @@ import os
 import pathlib
 import time
 
+import flax
+import flax.jax_utils as flax_utils
+import jax
+import jax.numpy as jnp
+import ml_collections
+import numpy as np
+import wandb
 from absl import app
 from absl import flags
 from absl import logging
@@ -29,34 +44,18 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
-import flax
-import flax.jax_utils as flax_utils
-import jax
-import jax.numpy as jnp
-import ml_collections
-import numpy as np
 from scipy.stats import entropy
-import tensorflow as tf
-import wandb
 
-tf.config.experimental.set_visible_devices([], 'GPU')
-tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
-tf.config.experimental.set_visible_devices([], 'TPU')
-
-print(tf.config.experimental.get_visible_devices())
-
-# pylint: disable=g-import-not-at-top, g-bad-import-order
 import checkpoint_utils  # local file import
 import input_utils  # local file import
 import preprocess_utils  # local file import
 import train_utils  # local file import
 import uncertainty_baselines as ub
-from baselines.diabetic_retinopathy_detection.utils import save_per_prediction_results
-from baselines.diabetic_retinopathy_detection.utils import evaluate_vit_predictions
-# local file import
-from experiments.config.imagenet21k_vit_base16_sngp_finetune import (
-    get_config as get_i21k_sngp_config)
-# pylint: enable=g-import-not-at-top, g-bad-import-order
+
+from utils.results_storage_utils import save_per_prediction_results
+from vit_utils import (
+  accumulate_gradient_with_states, evaluate_vit_predictions, get_vit_config,
+  initialize_model)
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -114,6 +113,7 @@ flags.DEFINE_float('sngp_mean_field_factor', 20., 'SNGP Mean Field factor.')
 
 FLAGS = flags.FLAGS
 
+<<<<<<< Updated upstream
 
 # Utility functions.
 def accumulate_gradient_with_states(
@@ -168,6 +168,8 @@ def get_gp_kwargs(gp_config):
 
   return gp_layer_kwargs
 
+=======
+>>>>>>> Stashed changes
 
 def main(argv):
   del argv  # unused arg
@@ -242,10 +244,7 @@ def main(argv):
   # In a TPU runtime this will be 8 cores.
   print('Number of Jax local devices:', jax.local_devices())
 
-  if FLAGS.pretrain_dataset == 'imagenet21k':
-    config = get_i21k_sngp_config()
-  else:
-    raise NotImplementedError
+  config = get_vit_config('sngp', 'B/16', FLAGS.pretrain_dataset)
 
   # SNGP Flags
   # Gaussian process layer section
@@ -413,19 +412,8 @@ def main(argv):
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
 
-  # Specify Gaussian process layer configs.
-  use_gp_layer = config.get('use_gp_layer', True)
-  gp_config = config.get('gp_layer', {})
-  gp_layer_kwargs = get_gp_kwargs(gp_config)
-
-  # Process ViT backbone model configs.
-  vit_kwargs = config.get('model')
-
-  model = ub.models.vision_transformer_gp(
-      num_classes=config.num_classes,
-      use_gp_layer=use_gp_layer,
-      vit_kwargs=vit_kwargs,
-      gp_layer_kwargs=gp_layer_kwargs)
+  model_dict = initialize_model('sngp', config)
+  model, use_gp_layer = model_dict['model'], model_dict['use_gp_layer']
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two

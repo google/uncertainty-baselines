@@ -24,12 +24,14 @@
 # pylint: disable=logging-fstring-interpolation
 # pylint: disable=missing-function-docstring
 from typing import Any, Callable, List, Tuple
+
 import haiku as hk
-from jax import numpy as jnp
 import optax
-import CNN  # local file import from baselines.diabetic_retinopathy_detection.fsvi_utils.networks
-import Model  # local file import from baselines.diabetic_retinopathy_detection.fsvi_utils.networks
-import Loss  # local file import from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives
+from jax import numpy as jnp
+
+from baselines.diabetic_retinopathy_detection.fsvi_utils.networks import (
+  CNN, Model)
+from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives import Loss
 
 DEFAULT_NUM_EPOCHS = 90
 

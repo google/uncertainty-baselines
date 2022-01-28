@@ -44,8 +44,8 @@ def get_dataset_and_split_names(dist_shift):
     dataset_names['in_domain_dataset'] = 'ub_diabetic_retinopathy_detection'
     dataset_names['ood_dataset'] = 'aptos'
     split_names['train_split'] = 'train'
-    split_names['in_domain_val_split'] = 'validation'
-    split_names['ood_val_split'] = 'validation'
+    split_names['in_domain_validation_split'] = 'validation'
+    split_names['ood_validation_split'] = 'validation'
     split_names['in_domain_test_split'] = 'test'
     split_names['ood_test_split'] = 'test'
   elif dist_shift == 'severity':
@@ -54,8 +54,8 @@ def get_dataset_and_split_names(dist_shift):
     dataset_names[
       'ood_dataset'] = 'diabetic_retinopathy_severity_shift_moderate'
     split_names['train_split'] = 'train'
-    split_names['in_domain_val_split'] = 'in_domain_validation'
-    split_names['ood_val_split'] = 'ood_validation'
+    split_names['in_domain_validation_split'] = 'in_domain_validation'
+    split_names['ood_validation_split'] = 'ood_validation'
     split_names['in_domain_test_split'] = 'in_domain_test'
     split_names['ood_test_split'] = 'ood_test'
   else:

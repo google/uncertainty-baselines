@@ -39,6 +39,8 @@ flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
 flags.mark_flag_as_required('checkpoint_dir')
 
+flags.DEFINE_integer('ensemble_size', 10, 'The number of models to ensemble.')
+
 flags.DEFINE_integer(
     'total_batch_size', 256,
     'The total train (and test) batch size, split across all devices.')
@@ -186,6 +188,16 @@ def main(argv):
   # Search for checkpoints from their index file; then remove the index suffix.
   ensemble_filenames = tf.io.gfile.glob(os.path.join(FLAGS.checkpoint_dir,
                                                      '**/*.index'))
+  # Only apply ensemble on the models with the same model architecture
+  ensemble_filenames0 = [
+      filename for filename in ensemble_filenames
+      if f'use_gp_layer:{FLAGS.use_gp_layer}' in filename and
+      f'use_spec_norm:{FLAGS.use_spec_norm}' in filename
+  ]
+  np.random.seed(FLAGS.seed)
+  ensemble_filenames = np.random.choice(
+      ensemble_filenames0, FLAGS.ensemble_size, replace=True)
+
   ensemble_filenames = [filename[:-6] for filename in ensemble_filenames]
   ensemble_size = len(ensemble_filenames)
   logging.info('Ensemble size: %s', ensemble_size)

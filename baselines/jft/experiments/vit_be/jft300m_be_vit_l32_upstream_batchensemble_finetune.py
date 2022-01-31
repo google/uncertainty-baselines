@@ -57,7 +57,7 @@ def get_config():
   config.pp_eval_ood = []
   config.eval_on_cifar_10h = False
   config.pp_eval_cifar_10h = ''
-  config.eval_imagenet_real = ''
+  config.eval_on_imagenet_real = False
   config.pp_eval_imagenet_real = ''
 
   # Model section

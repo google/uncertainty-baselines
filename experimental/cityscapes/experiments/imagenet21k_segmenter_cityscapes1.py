@@ -77,6 +77,20 @@ elif DEBUG == 4:
   num_heads = 12
   num_layers = 12
   hidden_size = 768
+elif DEBUG == 5:
+  target_size =(128, 128)
+  STRIDE=32
+  batch_size=8
+  number_train_examples_debug = 16
+  number_eval_examples_debug = 16
+  num_training_epochs = 1  # ml_collections.FieldReference(100)
+  log_eval_steps = 1
+
+  mlp_dim = 4096
+  num_heads = 16
+  num_layers = 24
+  hidden_size = 1024
+
 
 
 def get_config():

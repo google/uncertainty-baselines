@@ -18,7 +18,7 @@ if [ "$(uname)" = "Darwin" ] ; then
   # --tpu=$tpu
 elif [ "$(uname)" = "Linux" ]; then
   echo "in Linux"
-  config_file='experiments/imagenet21k_segmenter_cityscapes13.py'
+  config_file='experiments/imagenet21k_segmenter_cityscapes1.py'
   output_dir="/home/ekellbuch/ub_ekb/experimental/cityscapes/outputs13"
   num_cores=8
   tpu='local'

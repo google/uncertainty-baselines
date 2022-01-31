@@ -31,6 +31,8 @@ def load_bb_config(config):
   Returns:
     restored_model_cfg: mock model config
   """
+  #TODO(kellybuchanan): calculate grid given config
+
   restored_model_cfg = ml_collections.ConfigDict()
   restored_model_cfg.patches = ml_collections.ConfigDict()
   restored_model_cfg.patches.size = [16, 16]
@@ -38,7 +40,6 @@ def load_bb_config(config):
   # if config.pretrained_backbone_configs.type == 'base':
   # restored_model_cfg.model.transformer.dropout_rate = 0.1
 
-  #TODO(kellybuchanan): calculate grid given config
   restored_model_cfg.patches.grid = [224//16, 224//16]
 
   return restored_model_cfg

@@ -531,7 +531,7 @@ def make_evaluation_fn(model, config):
   return evaluation_fn
 
 
-def main(config):
+def main(config, output_dir):
 
   logging.info(config)
 
@@ -539,7 +539,7 @@ def main(config):
 
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
-      FLAGS.output_dir, just_logging=jax.process_index() > 0)
+      output_dir, just_logging=jax.process_index() > 0)
   writer.write_hparams(dict(config))
 
   # The pool is used to perform misc operations such as logging in async way.
@@ -788,8 +788,8 @@ def main(config):
         pre_logits=acquisition_method == 'density')
 
     if acquisition_method == 'uniform':
-      rng, rng_loop = jax.random.split(rng, 2)
-      pool_scores = get_uniform_scores(pool_masks, rng)
+      rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+      pool_scores = get_uniform_scores(pool_masks, rng_acq)
     elif acquisition_method == 'entropy':
       pool_scores = get_entropy_scores(pool_outputs, pool_masks)
     elif acquisition_method == 'margin':
@@ -803,8 +803,8 @@ def main(config):
             pool_pre_logits=pool_outputs,
             pool_masks=pool_masks)
       else:
-        rng, rng_loop = jax.random.split(rng, 2)
-        pool_scores = get_uniform_scores(pool_masks, rng)
+        rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+        pool_scores = get_uniform_scores(pool_masks, rng_acq)
     else:
       raise ValueError('Acquisition method not found.')
 
@@ -818,7 +818,8 @@ def main(config):
         acquisition_batch_ids)
 
     measurements.update({'test_accuracy': test_accuracy})
-    writer.write_scalars(current_train_ds_length, measurements)
+    # FIXME(joost): measurements contains non lists
+    # writer.write_scalars(current_train_ds_length, measurements)
 
   write_note(f'Final acquired training ids: '
              f'{train_subset_data_builder.subset_ids[config.train_split]}'
@@ -838,7 +839,7 @@ if __name__ == '__main__':
   def _main(argv):
     del argv
     config = FLAGS.config
-
-    main(config)
+    output_dir = FLAGS.output_dir
+    main(config, output_dir)
 
   app.run(_main)  # Ignore the returned values from `main`.

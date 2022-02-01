@@ -148,10 +148,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(jax.nn.sigmoid(actual_logits), expected_probs)
 
   @parameterized.parameters(
-      ('token', 2, 12492.359, 11125.7217881),
-      ('token', None, 10672.909, 8519.65234375),
-      ('gap', 2, 12902.053, 12786.2899305),
-      ('gap', None, 12961.835, 12762.797743),
+      ('token', 2, 13350.85, 12320.728299),
+      ('token', None, 12024.248, 14304.993924),
+      ('gap', 2, 13562.656, 13176.437066),
+      ('gap', None, 13262.055, 12964.980469),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, classifier, representation_size,

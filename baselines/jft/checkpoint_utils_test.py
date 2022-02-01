@@ -494,12 +494,18 @@ _MODEL_TO_PARAMS_AND_KEYS = {
         dict(
             params_fn=_get_batchensemble_params,
             extra_keys=[
+                "pre_logits/fast_weight_gamma",
+                "pre_logits/fast_weight_alpha",
                 "batchensemble_head/kernel",
                 "batchensemble_head/bias",
+                "batchensemble_head/fast_weight_alpha",
+                "batchensemble_head/fast_weight_gamma",
                 f"{_MLP_PREFIX}/Dense_1/fast_weight_alpha",
                 f"{_MLP_PREFIX}/Dense_1/fast_weight_gamma",
+                f"{_MLP_PREFIX}/Dense_1/bias",
                 f"{_MLP_PREFIX}/Dense_0/fast_weight_gamma",
                 f"{_MLP_PREFIX}/Dense_0/fast_weight_alpha",
+                f"{_MLP_PREFIX}/Dense_0/bias",
             ])
 }
 

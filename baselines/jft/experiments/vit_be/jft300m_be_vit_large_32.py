@@ -59,9 +59,9 @@ def get_config():
   config.model.transformer.attention_dropout_rate = 0.0
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 23)
+  config.model.transformer.be_layers = (21, 22, 23)
   config.model.transformer.ens_size = 3
-  config.model.transformer.random_sign_init = 0.5
+  config.model.transformer.random_sign_init = -0.5
   config.fast_weight_lr_multiplier = 1.0
 
   # Optimizer parameters.
@@ -101,11 +101,7 @@ def get_sweep(hyper):
   return hyper.product([])
   # Use this as a sensible sweep over hyperparameters.
   # return hyper.product([
-  #     hyper.sweep('config.model.transformer.ens_size', [3, 4, 8]),
-  #     # BE early in layers needs 16x16, not 8x8.
-  #     # hyper.sweep('config.model.transformer.be_layers',
-  #     #             [(1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23)]),
+  #     hyper.sweep('config.model.transformer.ens_size', [3]),
   #     hyper.sweep('config.model.transformer.random_sign_init',
-  #                 [0.5, -.5]),
-  #     hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
+  #                 [-0.5, 0.5, 0.75]),
   # ])

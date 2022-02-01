@@ -48,7 +48,6 @@ class BatchEnsembleMlpBlock(nn.Module):
   out_dim: Optional[int] = None
   dropout_rate: float = 0.0
   deterministic: Optional[bool] = None
-  use_bias: bool = False
   kernel_init: InitializeFn = nn.initializers.xavier_uniform()
   bias_init: InitializeFn = nn.initializers.normal(stddev=1e-6)
 
@@ -66,7 +65,6 @@ class BatchEnsembleMlpBlock(nn.Module):
         self.mlp_dim,
         self.ens_size,
         activation=None,
-        use_ensemble_bias=self.use_bias,
         alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         kernel_init=self.kernel_init,
@@ -80,7 +78,6 @@ class BatchEnsembleMlpBlock(nn.Module):
         out_dim,
         self.ens_size,
         activation=None,
-        use_ensemble_bias=self.use_bias,
         alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
         kernel_init=self.kernel_init,
@@ -379,12 +376,26 @@ class PatchTransformerBE(nn.Module):
       x = identity.IdentityLayer(name="pre_logits")(x)
       extra_info["pre_logits"] = x
     else:
-      x = nn.Dense(self.representation_size, name="pre_logits")(x)
+      x = ed.nn.DenseBatchEnsemble(
+          self.representation_size,
+          self.transformer.get("ens_size"),
+          activation=None,
+          alpha_init=ed.nn.utils.make_sign_initializer(
+              self.transformer.get("random_sign_init")),
+          gamma_init=ed.nn.utils.make_sign_initializer(
+              self.transformer.get("random_sign_init")),
+          name="pre_logits")(x)
       extra_info["pre_logits"] = x
       x = nn.tanh(x)
 
-    x = nn.Dense(
-        self.num_classes, kernel_init=self.head_kernel_init,
-        name="batchensemble_head")(
-            x)
+    x = ed.nn.DenseBatchEnsemble(
+        self.num_classes,
+        self.transformer.get("ens_size"),
+        activation=None,
+        alpha_init=ed.nn.utils.make_sign_initializer(
+            self.transformer.get("random_sign_init")),
+        gamma_init=ed.nn.utils.make_sign_initializer(
+            self.transformer.get("random_sign_init")),
+        kernel_init=self.head_kernel_init,
+        name="batchensemble_head")(x)
     return x, extra_info

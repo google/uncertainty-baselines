@@ -405,7 +405,9 @@ def main(_):
         frozen_vars_patterns=config.get('frozen_var_patterns', None),
         fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
-  reint_params = ('batchensemble_head/bias', 'batchensemble_head/kernel')
+  reint_params = ('batchensemble_head/bias',
+                  'batchensemble_head/kernel',
+                  'batchensemble_head/fast_weight_gamma')
   if config.get('only_eval', False) or not config.get('reint_head', True):
     reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(

@@ -31,15 +31,16 @@ def load_bb_config(config):
   Returns:
     restored_model_cfg: mock model config
   """
-  #TODO(kellybuchanan): calculate grid given config
+  #TODO(kellybuchanan): we can read the grid size (pose-embedding) given config file.
+  # Current approach estimates it from the aata directly, see init_backbone_from_train_state
 
   restored_model_cfg = ml_collections.ConfigDict()
-  restored_model_cfg.patches = ml_collections.ConfigDict()
-  restored_model_cfg.patches.size = [16, 16]
+  #restored_model_cfg.patches = ml_collections.ConfigDict()
+  #restored_model_cfg.patches.size = [16, 16]
   restored_model_cfg.classifier = 'token'
   # if config.pretrained_backbone_configs.type == 'base':
   # restored_model_cfg.model.transformer.dropout_rate = 0.1
 
-  restored_model_cfg.patches.grid = [224//16, 224//16]
+  #restored_model_cfg.patches.grid = [224//16, 224//16]
 
   return restored_model_cfg

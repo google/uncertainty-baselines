@@ -94,16 +94,16 @@ class SegmenterSegmentationModel(SegmentationModel):
           self.config.dataset_configs.target_size[1] //
           self.config.patches.size[1]
       ]
-
-      # Get grid sizes of restored model:
-      if 'patches' in restored_model_cfg:
-          restored_patches_cfg = restored_model_cfg.patches
-      else:
-          restored_patches_cfg = restored_model_cfg.stem_configs.patches
-      if 'grid' in restored_patches_cfg:
+      # Find size of positional embeddings (grid size) if given as input
+      # otherwise we will take the will use the model checkpoint to estimate thiis
+      if ('patches' in restored_model_cfg) or ('stem_configs' in restored_model_cfg):
+          if ('patches' in restored_model_cfg):
+            restored_patches_cfg = restored_model_cfg.patches
+          else:
+            restored_patches_cfg = restored_model_cfg.stem_configs.patches
           gs_vit = restored_patches_cfg.grid
       else:
-          raise NotImplementedError("")
+          gs_vit = None
 
           # init_dset_meta = self.config.model.backbone.init_from.dataset_meta_data
           # gs_vit = [
@@ -228,7 +228,7 @@ def _replace_dict(model: PyTree,
       continue
     logging.info('Loading %s from checkpoint into model', m_key_str)
 
-    # fix if token
+    # resize positional embeddings given token
     if 'posembed_input' in m_key: # might need resolution change
         # the backbone should be pose segmenter
       # vit_posemb = m_params['posembed_input']['pos_embedding']
@@ -246,6 +246,9 @@ def _replace_dict(model: PyTree,
           vit_posemb = vit_posemb[0]
         logging.info('Resized variant: %s to %s', vit_posemb.shape,
                      segvit_posemb.shape)
+        if gs_vit is None:
+            gs_vit = [int(np.sqrt(vit_posemb.shape[0])), int(np.sqrt(vit_posemb.shape[0]))]
+
         assert np.prod(gs_vit) == vit_posemb.shape[0]
         assert np.prod(gs_segvit) == segvit_ntok
         if gs_vit != gs_segvit:  # we need resolution change

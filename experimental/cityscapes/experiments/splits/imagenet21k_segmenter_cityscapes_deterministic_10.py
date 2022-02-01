@@ -72,8 +72,9 @@ def get_config():
   config.dataset_configs.train_split = train_split
 
   # flags to debug scenic on mac
-  #config.dataset_configs.number_train_examples_debug = number_train_examples_debug
-  #config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
+  if DEBUG == 5:
+    config.dataset_configs.number_train_examples_debug = number_train_examples_debug
+    config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
 
   # config following scenic
   # model
@@ -114,8 +115,10 @@ def get_config():
   config.focal_loss_gamma = 0.0
 
   # learning rate
-  steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.batch_size
-  #steps_per_epoch = number_train_examples_debug // config.batch_size
+  if DEBUG == 5:
+    steps_per_epoch = number_train_examples_debug // config.batch_size
+  else:
+    steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.batch_size
 
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
   config.lr_configs = ml_collections.ConfigDict()

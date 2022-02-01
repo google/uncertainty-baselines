@@ -23,7 +23,7 @@ import ml_collections
 #import get_fewshot  # local file import
 
 _CITYSCAPES_TRAIN_SIZE = 2975
-DEBUG = 1
+DEBUG = 5
 STRIDE = 4
 
 target_size=(128, 128)
@@ -80,7 +80,7 @@ elif DEBUG == 4:
 elif DEBUG == 5:
   target_size =(128, 128)
   STRIDE=32
-  batch_size=8
+  batch_size=1
   number_train_examples_debug = 16
   number_eval_examples_debug = 16
   num_training_epochs = 1  # ml_collections.FieldReference(100)

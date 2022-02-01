@@ -8,6 +8,6 @@
 [x] add pavpu metric. <br />
 [x] calculate uncertainty metrics. <br />
 
-[] Add run with vit l-32 backbone.<br />
+[x] Add run with vit l-32 backbone.<br />
 
 

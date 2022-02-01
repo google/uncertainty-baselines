@@ -48,16 +48,6 @@ import numpy as np
 import tensorflow_datasets as tfds
 import tqdm
 import uncertainty_baselines as ub
-import checkpoint_utils  # local file import from baselines.jft
-import input_utils  # local file import from baselines.jft
-import ood_utils  # local file import from baselines.jft
-import preprocess_utils  # local file import from baselines.jft
-import train_utils  # local file import from baselines.jft
-import al_utils  # local file import from baselines.jft.active_learning
-
-import google3.learning.deepmind.xmanager2.client.google as xm
-import google3.learning.deepmind.xmanager2.client.xmanager_api as xm_api
-
 from .. import checkpoint_utils  # local file import
 from .. import input_utils  # local file import
 from .. import ood_utils  # local file import

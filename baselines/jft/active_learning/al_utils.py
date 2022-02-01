@@ -19,11 +19,11 @@ Alternative version that writes out TFRecords here:
 https://colab.research.google.com/drive/1McRC0es1ehwUL_jQQcBdC05wsPGgNWE3
 """
 
-from typing import Dict, Set
-
 import numpy as np
 import tensorflow as tf
-from tensorflow_datasets.image_classification import cifar
+import tensorflow_datasets as tfds
+
+cifar = tfds.image_classification.cifar
 
 
 def _subset_generator(dataset, subset_ids):
@@ -31,14 +31,14 @@ def _subset_generator(dataset, subset_ids):
 
   def inner():
     for record in dataset:
-      # HACK: the last 5 characters of "id" are generally the ids.
+      # HACK: the last 5 characters of 'id' are generally the ids.
       # However, the dataset info only specifies that the type of id
       # is BYTES, so we also support that.
       try:
-        int_id = np.int32(record["id"].numpy()[-5:])
+        int_id = np.int32(record['id'].numpy()[-5:])
       except ValueError:
         # ID is encoded differently, then just interpret as bytes
-        int_id = int.from_bytes(record["id"].numpy(), "big")
+        int_id = int.from_bytes(record['id'].numpy(), 'big')
         # jax prefers int32
         # https://jax.readthedocs.io/en/latest/notebooks/Common_Gotchas_in_JAX.html#double-64bit-precision
         int_id = np.int32(int_id % np.iinfo(np.int32).max)
@@ -48,7 +48,7 @@ def _subset_generator(dataset, subset_ids):
         assert all(map(lambda id: isinstance(id, int), subset_ids))
 
       if subset_ids is None or int_id in subset_ids:
-        record["id"] = tf.constant(int_id)
+        record['id'] = tf.constant(int_id)
         yield record
 
   return inner
@@ -66,16 +66,18 @@ class Cifar10Subset(cifar.Cifar10):
       A Cifar10Subset object.
   """
 
-  def __init__(self, *, subset_ids: Dict[str, Set[int]], **kwargs):
-    super().__init__(**kwargs)
+  # TODO(trandustin, wangzi): Add type annotation for subset_id that works.
+  # def __init__(self, *, subset_ids: Dict[str, Set[int]], **kwargs):
+  def __init__(self, *, subset_ids, data_dir=None, **kwargs):
+    super().__init__(data_dir=data_dir, **kwargs)
     self.subset_ids = subset_ids
 
   def _as_dataset(self, *args, split, **kwargs):
     dataset = super()._as_dataset(*args, split=split, **kwargs)
 
-    # HACK: Fix id to be an int. Assuming "label" is an int, too.
+    # HACK: Fix id to be an int. Assuming 'label' is an int, too.
     element_spec = dataset.element_spec.copy()
-    element_spec["id"] = element_spec["label"]
+    element_spec['id'] = element_spec['label']
 
     # NOTE: if this line errors out, make sure to update your
     # tensorflow-datasets package to the right version.

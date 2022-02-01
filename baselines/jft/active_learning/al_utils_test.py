@@ -17,26 +17,27 @@
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import al_utils  # pylint: disable=unused-import # to register Cifar10Subset as dataset  # local file import from baselines.jft
+# pylint: disable=unused-import # to register Cifar10Subset as dataset
+import al_utils  # local file import from baselines.jft.active_learning
 
 
 class AlUtilsTest(tf.test.TestCase):
 
   def test_cifar10_subset_has_ids(self):
     dataset_builder = tfds.builder(
-        "cifar10_subset", subset_ids={
-            "train": None,
-            "test": None
+        'cifar10_subset', subset_ids={
+            'train': None,
+            'test': None
         })
 
-    split = tfds.even_splits("train", 1)
+    split = tfds.even_splits('train', 1)
     dataset = dataset_builder.as_dataset(split)[0].batch(500)
 
     all_ids = []
     n = 0
     for example in dataset.as_numpy_iterator():
-      n += example["image"].shape[0]
-      all_ids.extend(example["id"])
+      n += example['image'].shape[0]
+      all_ids.extend(example['id'])
 
     all_ids.sort()
 
@@ -48,23 +49,23 @@ class AlUtilsTest(tf.test.TestCase):
     test_ids = [3, 4, 5]
 
     dataset_builder = tfds.builder(
-        "cifar10_subset", subset_ids={
-            "train": train_ids,
-            "test": test_ids
+        'cifar10_subset', subset_ids={
+            'train': train_ids,
+            'test': test_ids
         })
 
-    for split, ids in zip(["train", "test"], [train_ids, test_ids]):
+    for split, ids in zip(['train', 'test'], [train_ids, test_ids]):
       split = tfds.even_splits(split, 1)
       dataset = dataset_builder.as_dataset(split)[0].batch(1)
 
       ds_ids = []
       for example in dataset.as_numpy_iterator():
-        ds_ids.extend(example["id"])
+        ds_ids.extend(example['id'])
 
       ds_ids.sort()
 
       self.assertEqual(ds_ids, ids)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   tf.test.main()

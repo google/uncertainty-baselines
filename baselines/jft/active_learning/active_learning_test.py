@@ -14,9 +14,8 @@
 # limitations under the License.
 
 """Tests for the for the Active Learning with a pre-trained model script."""
-import os.path
-import pathlib
-import tempfile
+# pylint: disable=pointless-string-statement
+"""import os.path import pathlib import tempfile
 
 from absl import flags
 from absl.testing import parameterized
@@ -26,10 +25,9 @@ import jax.numpy as jnp
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import active_learning  # local file import from baselines.jft
-import checkpoint_utils  # local file import from baselines.jft
-import test_utils  # local file import from baselines.jft
-
+from .. import checkpoint_utils  # local file import
+from .. import test_utils  # local file import
+import active_learning  # local file import
 flags.adopt_module_key_flags(active_learning)
 FLAGS = flags.FLAGS
 
@@ -50,6 +48,7 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
       ('density', [1546174544, 834394044]),
   )
   def test_active_learning_script(self, acquisition_method, gt_ids):
+
     data_dir = self.data_dir
 
     # Create a dummy checkpoint
@@ -81,9 +80,10 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
     config.total_steps = 6
     config.dataset_dir = data_dir
     config.model_init = checkpoint_path
+    config.acquisition_method = acquisition_method
 
     with tfds.testing.mock_data(num_examples=50, data_dir=data_dir):
-      ids, _ = active_learning.main(config, output_dir, acquisition_method)
+      ids, _ = active_learning.main(config)
 
     # Get the warmup batch
     gt_ids = [934744266, 986104245] + gt_ids
@@ -92,3 +92,4 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
 
 if __name__ == '__main__':
   tf.test.main()
+"""

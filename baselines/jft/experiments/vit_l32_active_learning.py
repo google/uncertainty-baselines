@@ -17,6 +17,7 @@
 r"""Active learn a pretrained ViT-L/32 on CIFAR-10.
 
 Based on: vit_l32_finetune.py and sweep_utils.py
+
 """
 # pylint: enable=line-too-long
 
@@ -93,3 +94,10 @@ def get_config():
   # config.lr.warmup_steps = 0
   # config.lr.decay_type = 'cosine'
   return config
+
+
+def get_sweep(hyper):
+  """Sweeps over datasets."""
+  # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
+  return hyper.product(
+      [hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])])

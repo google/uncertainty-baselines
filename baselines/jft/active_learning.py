@@ -24,7 +24,7 @@ The below command is for running this script on a TPU-VM.
 Execute in `baselines/jft`:
 
 python3 active_learning.py \
-  --config='experiments/vit_l32_al_cifar10.py' \
+  --config='experiments/vit_l32_active_learning.py' \
   --config.model_init='gs://ub-checkpoints/ImageNet21k_ViT-L32/1/checkpoint.npz'
 """
 # pylint: enable=line-too-long
@@ -48,12 +48,13 @@ import numpy as np
 import tensorflow_datasets as tfds
 import tqdm
 import uncertainty_baselines as ub
-from .. import checkpoint_utils  # local file import
-from .. import input_utils  # local file import
-from .. import ood_utils  # local file import
-from .. import preprocess_utils  # local file import
-from .. import train_utils  # local file import
-import al_utils  # local file import
+
+import al_utils  # local file import from baselines.jft
+import checkpoint_utils  # local file import from baselines.jft
+import input_utils  # local file import from baselines.jft
+import ood_utils  # local file import from baselines.jft
+import preprocess_utils  # local file import from baselines.jft
+import train_utils  # local file import from baselines.jft
 
 config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
@@ -344,8 +345,7 @@ def finetune(*,
   best_opt_accuracy = -1
   best_step = 1
 
-  train_accuracies = []
-  val_accuracies = []
+  train_val_accuracies = []
 
   for current_step, train_batch, lr_repl in zip(
       tqdm.trange(1, total_steps + 1), iter_ds, lr_iter):
@@ -360,8 +360,7 @@ def finetune(*,
           evaluation_fn=evaluation_fn, opt_repl=opt_repl, ds=val_ds)
       logging.info(
           msg=f'Current accuracy - train:{train_accuracy}, val: {val_accuracy}')
-      train_accuracies.append((current_step, train_accuracy))
-      val_accuracies.append((current_step, val_accuracy))
+      train_val_accuracies.append((current_step, train_accuracy, val_accuracy))
 
       if val_accuracy >= best_opt_accuracy:
         best_step = current_step
@@ -380,8 +379,7 @@ def finetune(*,
   info = dict(
       best_val_accuracy=best_opt_accuracy,
       best_step=best_step,
-      train_accuracies=train_accuracies,
-      val_accuracies=val_accuracies)
+      train_val_accuracies=train_val_accuracies)
 
   return best_opt_repl, rngs_loop, info
 
@@ -697,6 +695,7 @@ def main(config):
   rng, train_ds_rng = jax.random.split(rng)
 
   measurements = {}
+  accumulated_steps = 0
   while True:
     current_train_ds_length = len(
         train_subset_data_builder.subset_ids[config.train_split])
@@ -764,6 +763,15 @@ def main(config):
           val_ds=val_ds,
           evaluation_fn=evaluation_fn,
           early_stopping_patience=early_stopping_patience)
+      train_val_accuracies = measurements.pop('train_val_accuracies')
+      current_steps = 0
+      for step, train_acc, val_acc in train_val_accuracies:
+        writer.write_scalars(accumulated_steps + step, {
+            'train_accuracy': train_acc,
+            'val_accuracy': val_acc
+        })
+        current_steps = step
+      accumulated_steps += current_steps + 10
 
     test_accuracy = get_accuracy(
         evaluation_fn=evaluation_fn, opt_repl=current_opt_repl, ds=test_ds)

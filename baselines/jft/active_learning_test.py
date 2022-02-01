@@ -14,6 +14,8 @@
 # limitations under the License.
 
 """Tests for the for the Active Learning with a pre-trained model script."""
+# TODO(joost,andreas): Refactor active_learning.py and use this test for smaller
+# components including acquisition functions and other utility functions.
 # pylint: disable=pointless-string-statement
 """import os.path import pathlib import tempfile
 

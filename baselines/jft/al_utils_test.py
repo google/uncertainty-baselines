@@ -18,7 +18,7 @@
 import tensorflow as tf
 import tensorflow_datasets as tfds
 # pylint: disable=unused-import # to register Cifar10Subset as dataset
-import al_utils  # local file import from baselines.jft.active_learning
+import al_utils  # local file import from baselines.jft
 
 
 class AlUtilsTest(tf.test.TestCase):

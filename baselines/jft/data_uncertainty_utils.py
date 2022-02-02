@@ -15,7 +15,9 @@
 
 """Utilities for CIFAR-10H."""
 
+import json
 import os
+from typing import Callable, Tuple
 
 from absl import logging
 import numpy as np
@@ -79,6 +81,86 @@ def create_cifar10_to_cifar10h_fn(data_dir=None):
   return convert
 
 
+def _load_imagenet_real_labels() -> Tuple[
+    tf.lookup.StaticHashTable, tf.Tensor, tf.Tensor]:
+  """Load raw ratings ReaL labels are derived from."""
+  # raters.npz from github.com/google-research/reassessed-imagenet
+  raters_file = None
+  with tf.compat.v1.io.gfile.GFile(raters_file, 'rb') as f:
+    data = np.load(f)
+
+  summed_ratings = np.sum(data['tensor'], axis=0)
+  averaged_ratings = summed_ratings / np.expand_dims(
+      np.sum(summed_ratings, axis=-1), -1)
+  yes_prob = averaged_ratings[:, 2]
+
+  # convert raw ratings into soft labels
+  num_labels = 1000
+  soft_labels = {}
+  for idx, (file_name, label_id) in enumerate(data['info']):
+    if file_name not in soft_labels:
+      soft_labels[file_name] = np.zeros(num_labels)
+    added_label = np.zeros(num_labels)
+    added_label[int(label_id)] = yes_prob[idx]
+    soft_labels[file_name] = soft_labels[file_name] + added_label
+
+  # real.json from github.com/google-research/reassessed-imagenet
+  real_file = None
+
+  # load ImageNet ReaL labels
+  new_real_labels = {}
+  with tf.compat.v1.io.gfile.GFile(real_file, 'rb') as f:
+    real_labels = json.load(f)
+    for idx, label in enumerate(real_labels):
+      key = 'ILSVRC2012_val_'
+      key += (8 - len(str(idx + 1))) * '0' + str(idx + 1) + '.JPEG'
+      if len(label) == 1:
+        one_hot_label = np.zeros(num_labels)
+        one_hot_label[label[0]] = 1.0
+        new_real_labels[key] = (one_hot_label, 1.0)
+      else:
+        new_real_labels[key] = (np.zeros(num_labels), 0.0)
+
+  # merge soft and hard labels
+  for key, soft_label in soft_labels.items():
+    count = np.sum(soft_label, axis=-1)
+    if count > 0.0:
+      # if raw ratings available replace ReaL label with soft raw label
+      new_real_labels[key] = (soft_label / np.expand_dims(count, axis=-1), 1.0)
+
+  string_ids, indices, probs, weights = [], [], [], []
+  for idx, (string_id, (soft_label, weight)) in enumerate(
+      new_real_labels.items()):
+    string_ids.append(string_id)
+    indices.append(idx)
+    probs.append(soft_label)
+    weights.append(weight)
+
+  id_mappings = tf.lookup.StaticHashTable(
+      tf.lookup.KeyValueTensorInitializer(string_ids, indices),
+      default_value=-1)
+
+  return id_mappings, tf.cast(weights, tf.float32), tf.cast(probs, tf.float32)
+
+
+def create_imagenet_to_real_fn() -> Callable[[tf.Tensor], tf.Tensor]:
+  """Creates a function that maps ImageNet labels to ReaL labels."""
+  idx_map, real_weights, real_probs = _load_imagenet_real_labels()
+
+  def convert(example: tf.Tensor) -> tf.Tensor:
+    idx = idx_map.lookup(example['file_name'])
+    if idx == -1:
+      logging.warn('Index -1 encountered in the ImageNet real dataset.')
+      example['labels'] = tf.zeros_like(tf.gather(real_probs, 0))
+      example['mask'] = tf.zeros_like(tf.gather(real_weights, 0))
+    else:
+      example['labels'] = tf.gather(real_probs, idx)
+      example['mask'] = tf.gather(real_weights, idx)
+    return example
+
+  return convert
+
+
 def generalized_energy_distance(labels, predictions, num_classes):
   """Compute generalized energy distance.
 
@@ -104,5 +186,5 @@ def generalized_energy_distance(labels, predictions, num_classes):
       non_diag * y * tf.transpose(y, perm=[0, 2, 1]), -1), -1)
   sample_diversity = tf.reduce_sum(tf.reduce_sum(
       non_diag * y_hat * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
-  ged = tf.reduce_mean(2 * distance - label_diversity - sample_diversity)
+  ged = 2 * distance - label_diversity - sample_diversity
   return label_diversity, sample_diversity, ged

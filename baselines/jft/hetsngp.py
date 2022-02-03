@@ -63,45 +63,6 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 
-# Utility functions.
-def accumulate_gradient_with_states(
-    loss_and_grad_fn,
-    params,
-    states,  # Allows for states.
-    images,
-    labels,
-    accum_steps):
-  """Improved version of `train_utils.accumulate_gradient()` that allows for states."""
-  # This function handles the `loss_and_grad_fn` function which takes a state
-  # argument and returns ((losses, states), grads).
-  if accum_steps and accum_steps > 1:
-    assert images.shape[0] % accum_steps == 0, (
-        f'Bad accum_steps {accum_steps} for batch size {images.shape[0]}')
-    step_size = images.shape[0] // accum_steps
-
-    # Run the first step.
-    (l, s), g = loss_and_grad_fn(params, states, images[:step_size],
-                                 labels[:step_size])
-
-    # Run the rest of the steps.
-    def acc_grad_and_loss(i, l_s_g):
-      # Extract data for current step.
-      imgs = jax.lax.dynamic_slice(images, (i * step_size, 0, 0, 0),
-                                   (step_size,) + images.shape[1:])
-      lbls = jax.lax.dynamic_slice(labels, (i * step_size, 0),
-                                   (step_size, labels.shape[1]))
-      # Update state and accumulate gradient.
-      l, s, g = l_s_g
-      (li, si), gi = loss_and_grad_fn(params, s, imgs, lbls)
-      return (l + li, si, jax.tree_multimap(lambda x, y: x + y, g, gi))
-
-    l, s, g = jax.lax.fori_loop(1, accum_steps, acc_grad_and_loss, (l, s, g))
-    l, g = jax.tree_map(lambda x: x / accum_steps, (l, g))
-    return (l, s), g
-  else:
-    return loss_and_grad_fn(params, states, images, labels)
-
-
 def get_gp_kwargs(gp_config):
   """Extract keyword argument parameters for the Gaussian process layer."""
   covmat_momentum = gp_config.get('covmat_momentum', 0.999)
@@ -489,7 +450,7 @@ def main(argv):
 
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
-    (l, s), g = accumulate_gradient_with_states(
+    (l, s), g = train_utils.accumulate_gradient_with_states(
         jax.value_and_grad(loss_fn, has_aux=True), opt.target, states, images,
         labels, config.get('grad_accum_steps'))
     l, g = jax.lax.pmean((l, g), axis_name='batch')

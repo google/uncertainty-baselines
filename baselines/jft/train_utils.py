@@ -78,6 +78,44 @@ def accumulate_gradient(loss_and_grad_fn, params, images, labels, accum_steps):
     return loss_and_grad_fn(params, images, labels)
 
 
+def accumulate_gradient_with_states(
+    loss_and_grad_fn,
+    params,
+    states,  # Allows for states.
+    images,
+    labels,
+    accum_steps):
+  """Improved version of `train_utils.accumulate_gradient()` that allows for states."""
+  # This function handles the `loss_and_grad_fn` function which takes a state
+  # argument and returns ((losses, states), grads).
+  if accum_steps and accum_steps > 1:
+    assert images.shape[0] % accum_steps == 0, (
+        f"Bad accum_steps {accum_steps} for batch size {images.shape[0]}")
+    step_size = images.shape[0] // accum_steps
+
+    # Run the first step.
+    (l, s), g = loss_and_grad_fn(params, states, images[:step_size],
+                                 labels[:step_size])
+
+    # Run the rest of the steps.
+    def acc_grad_and_loss(i, l_s_g):
+      # Extract data for current step.
+      imgs = jax.lax.dynamic_slice(images, (i * step_size, 0, 0, 0),
+                                   (step_size,) + images.shape[1:])
+      lbls = jax.lax.dynamic_slice(labels, (i * step_size, 0),
+                                   (step_size, labels.shape[1]))
+      # Update state and accumulate gradient.
+      l, s, g = l_s_g
+      (li, si), gi = loss_and_grad_fn(params, s, imgs, lbls)
+      return (l + li, si, jax.tree_multimap(lambda x, y: x + y, g, gi))
+
+    l, s, g = jax.lax.fori_loop(1, accum_steps, acc_grad_and_loss, (l, s, g))
+    l, g = jax.tree_map(lambda x: x / accum_steps, (l, g))
+    return (l, s), g
+  else:
+    return loss_and_grad_fn(params, states, images, labels)
+
+
 def create_learning_rate_schedule(total_steps,
                                   base=0.,
                                   decay_type="linear",

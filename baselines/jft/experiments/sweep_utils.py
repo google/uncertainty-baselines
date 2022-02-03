@@ -41,7 +41,7 @@ def cifar10(hyper, val_split, size=384, steps=10_000, warmup=500):
   n_cls = 10
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({n_cls}, key="label", key_result="labels")'
-  pp_common += '|keep(["image", "labels"])'
+  pp_common += '|keep(["image", "labels", "id"])'
   pp_train = f'decode|inception_crop({size})|flip_lr' + pp_common
   pp_eval = f'decode|resize({size})' + pp_common
 

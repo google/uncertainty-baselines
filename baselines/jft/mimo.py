@@ -40,7 +40,7 @@ from tensorflow.io import gfile
 import uncertainty_baselines as ub
 import batchensemble_utils  # local file import from baselines.jft
 import checkpoint_utils  # local file import from baselines.jft
-import cifar10h_utils  # local file import from baselines.jft
+import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
@@ -228,8 +228,9 @@ def main(config, output_dir):
   }
 
   if config.get('eval_on_cifar_10h'):
-    cifar10_to_cifar10h_fn = cifar10h_utils.create_cifar10_to_cifar10h_fn(
-        config.get('data_dir', None))
+    cifar10_to_cifar10h_fn = (
+        data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
+            config.get('data_dir', None)))
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
     pp_eval = lambda ex: preprocess_fn(cifar10_to_cifar10h_fn(ex))
@@ -688,8 +689,9 @@ def main(config, output_dir):
 
               if val_name == 'cifar_10h':
                 (batch_label_diversity, batch_sample_diversity,
-                 batch_ged) = cifar10h_utils.generalized_energy_distance(
-                     label[m], p[m, :], 10)
+                 batch_ged) = (
+                     data_uncertainty_utils.generalized_energy_distance(
+                         label[m], p[m, :], 10))
                 label_diversity.update_state(batch_label_diversity)
                 sample_diversity.update_state(batch_sample_diversity)
                 ged.update_state(batch_ged)

@@ -39,7 +39,7 @@ import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
-import cifar10h_utils  # local file import from baselines.jft
+import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
@@ -175,7 +175,7 @@ def main(config, output_dir):
   }
 
   if config.get('eval_on_cifar_10h'):
-    cifar10_to_cifar10h_fn = cifar10h_utils.create_cifar10_to_cifar10h_fn(
+    cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
         config.get('data_dir', None))
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
@@ -186,22 +186,11 @@ def main(config, output_dir):
         pp_eval=pp_eval,
         data_dir=config.get('data_dir'))
   elif config.get('eval_on_imagenet_real'):
-
-    def avg_label(example):
-      real_label = example['real_label']
-      if tf.shape(real_label)[0] > 0:
-        one_hot = tf.one_hot(real_label, 1000)
-        example['labels'] = tf.reduce_mean(one_hot, axis=0)
-        example['mask'] = tf.identity(1.)
-      else:
-        example['labels'] = tf.zeros([1000])
-        example['mask'] = tf.identity(0.)
-      return example
-
+    imagenet_to_real_fn = data_uncertainty_utils.create_imagenet_to_real_fn()
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(avg_label(ex))
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
     val_iter_imagenet_real, val_steps = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',
@@ -616,10 +605,9 @@ def main(config, output_dir):
               oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
               oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-              if val_name == 'cifar_10h':
-                (batch_label_diversity, batch_sample_diversity,
-                 batch_ged) = cifar10h_utils.generalized_energy_distance(
-                     label[m], p[m, :], 10)
+              if val_name == 'cifar_10h' or val_name == 'imagenet_real':
+                batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
+                    label[m], p[m, :], config.num_classes)
                 label_diversity.update_state(batch_label_diversity)
                 sample_diversity.update_state(batch_sample_diversity)
                 ged.update_state(batch_ged)
@@ -643,7 +631,7 @@ def main(config, output_dir):
               'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
-        if val_name == 'cifar_10h':
+        if val_name == 'cifar_10h' or val_name == 'imagenet_real':
           cifar_10h_measurements = {
               f'{val_name}_label_diversity': label_diversity.result(),
               f'{val_name}_sample_diversity': sample_diversity.result(),

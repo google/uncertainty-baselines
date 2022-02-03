@@ -47,13 +47,10 @@ from scipy.stats import entropy
 import checkpoint_utils  # local file import
 import input_utils  # local file import
 import preprocess_utils  # local file import
+import results_storage_utils  # local file import
 import train_utils  # local file import
 import uncertainty_baselines as ub
-
-from utils.results_storage_utils import save_per_prediction_results
-from utils.vit_utils import (
-  evaluate_vit_predictions, get_dataset_and_split_names, get_vit_config,
-  init_evaluation_datasets, initialize_model, maybe_setup_wandb, write_note)
+import vit_utils  # local file import
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -128,14 +125,14 @@ def main(argv):
   del argv  # unused arg
 
   # Wandb and Checkpointing Setup
-  wandb_run, output_dir = maybe_setup_wandb(FLAGS)
+  wandb_run, output_dir = vit_utils.maybe_setup_wandb(FLAGS)
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
 
   # Dataset Split Flags
   dist_shift = FLAGS.distribution_shift
   print(f'Distribution Shift: {dist_shift}.')
-  dataset_names, split_names = get_dataset_and_split_names(dist_shift)
+  dataset_names, split_names = vit_utils.get_dataset_and_split_names(dist_shift)
 
   # LR / Optimization Flags
   batch_size = FLAGS.batch_size
@@ -168,7 +165,7 @@ def main(argv):
   print('Number of Jax local devices:', jax.local_devices())
 
   # Get model config
-  config = get_vit_config(
+  config = vit_utils.get_vit_config(
     'deterministic', FLAGS.vit_model_size, FLAGS.pretrain_dataset)
 
   # TODO(nband): fix sigmoid loss issues.
@@ -194,7 +191,7 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  write_note('Initializing...')
+  vit_utils.write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
@@ -218,12 +215,12 @@ def main(argv):
       jax.local_device_count(), jax.device_count(),
       local_batch_size // jax.local_device_count())
 
-  write_note('Initializing preprocessing function...')
+  vit_utils.write_note('Initializing preprocessing function...')
   # Same preprocessing function for training and evaluation
   preproc_fn = preprocess_spec.parse(
       spec=config.pp_train, available_ops=preprocess_utils.all_ops())
 
-  write_note('Initializing train dataset...')
+  vit_utils.write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
   train_base_dataset = ub.datasets.get(
@@ -245,12 +242,12 @@ def main(argv):
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
 
-  write_note('Initializing val dataset(s)...')
+  vit_utils.write_note('Initializing val dataset(s)...')
 
   # Load in-domain and OOD validation and/or test datasets.
   # Please specify the desired shift (Country Shift or Severity Shift)
   # in the config.
-  eval_iter_splits = init_evaluation_datasets(
+  eval_iter_splits = vit_utils.init_evaluation_datasets(
     use_validation=FLAGS.use_validation,
     use_test=FLAGS.use_test,
     dataset_names=dataset_names,
@@ -278,8 +275,8 @@ def main(argv):
       'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
-  write_note('Initializing model...')
-  model_dict = initialize_model('deterministic', config)
+  vit_utils.write_note('Initializing model...')
+  model_dict = vit_utils.initialize_model('deterministic', config)
   model = model_dict['model']
 
   # We want all parameters to be created in host RAM, not on any device, they'll
@@ -331,7 +328,7 @@ def main(argv):
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
-  write_note(f'Initializing {opt_name} optimizer...')
+  vit_utils.write_note(f'Initializing {opt_name} optimizer...')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
 
   # We jit this, such that the arrays that are created are created on the same
@@ -417,13 +414,13 @@ def main(argv):
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  write_note('Adapting the checkpoint model...')
+  vit_utils.write_note('Adapting the checkpoint model...')
   adapted_params = checkpoint_utils.adapt_upstream_architecture(
       init_params=params_cpu,
       loaded_params=opt_cpu.target)
   opt_cpu = opt_cpu.replace(target=adapted_params)
 
-  write_note('Kicking off misc stuff...')
+  vit_utils.write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
@@ -446,7 +443,7 @@ def main(argv):
   lr_iter = train_utils.prefetch_scalar(
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
-  write_note(f'Replicating...\n{chrono.note}')
+  vit_utils.write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
 
   checkpoint_writer = None
@@ -457,12 +454,13 @@ def main(argv):
   # val_loss = -jnp.inf
   # results = {'dummy': {(0, 1): -jnp.inf}}
 
-  write_note(f'First step compilations...\n{chrono.note}')
+  vit_utils.write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
   if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
+    vit_utils.write_note(
+      'Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
 
@@ -486,7 +484,7 @@ def main(argv):
     # Checkpoint saving
     if not FLAGS.only_eval and train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
-      write_note('Checkpointing...')
+      vit_utils.write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
@@ -500,7 +498,7 @@ def main(argv):
       copy_step = None
       if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
                              total_steps):
-        write_note('Keeping a checkpoint copy...')
+        vit_utils.write_note('Keeping a checkpoint copy...')
         copy_step = step
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
@@ -518,10 +516,10 @@ def main(argv):
     # Report training progress
     if not FLAGS.only_eval and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
-      write_note('Reporting training progress...')
+      vit_utils.write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
-      write_note(note)
+      vit_utils.write_note(note)
       train_measurements = {}
       train_measurements.update({
           'learning_rate': lr_repl[0],
@@ -533,7 +531,7 @@ def main(argv):
 
     # Report validation performance
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
-      write_note('Evaluating on the validation set...')
+      vit_utils.write_note('Evaluating on the validation set...')
       chrono.pause()
 
       all_eval_results = {}
@@ -589,7 +587,7 @@ def main(argv):
 
         all_eval_results[eval_name] = results_arrs
 
-      per_pred_results, total_results = evaluate_vit_predictions(
+      per_pred_results, total_results = vit_utils.evaluate_vit_predictions(
           dataset_split_to_containers=all_eval_results,
           is_deterministic=True,
           num_bins=15,
@@ -601,7 +599,7 @@ def main(argv):
         wandb.log(total_results, step=step)
 
       # Save per-prediction metrics
-      save_per_prediction_results(
+      results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
 
       chrono.resume()
@@ -612,7 +610,7 @@ def main(argv):
       if config.testing_failure_step == step:
         break
 
-  write_note(f'Done!\n{chrono.note}')
+  vit_utils.write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
   writer.close()

@@ -27,10 +27,7 @@ import numpy as np
 import wandb
 from absl import logging
 
-import eval_utils  # local file import
 import input_utils  # local file import
-import metric_utils  # local file import
-import results_storage_utils  # local file import
 import uncertainty_baselines as ub
 from experiments.config.drd_vit_base16 import (
   get_config as vit_b16_no_pretrain_config)
@@ -38,6 +35,9 @@ from experiments.config.imagenet21k_vit_base16_finetune import (
   get_config as vit_b16_i21k_config)
 from experiments.config.imagenet21k_vit_base16_sngp_finetune import (
   get_config as sngp_vit_b16_i21k_config)
+from . import eval_utils  # local file import
+from . import metric_utils  # local file import
+from . import results_storage_utils  # local file import
 
 # Mapping from (model_type, vit_model_size, pretrain_dataset) to config.
 VIT_CONFIG_MAP = {

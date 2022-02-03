@@ -38,6 +38,8 @@ import numbers
 from absl import app
 from absl import flags
 from clu import metric_writers
+from clu import parameter_overview
+from clu import periodic_actions
 from clu import preprocess_spec
 import flax
 import flax.jax_utils as flax_utils
@@ -318,7 +320,8 @@ def finetune(*,
              val_ds,
              evaluation_fn,
              early_stopping_patience,
-             prefetch_to_device=1):
+             prefetch_to_device=1,
+             profiler=None):
   """Finetunes a model on a dataset.
 
   Args:
@@ -333,6 +336,7 @@ def finetune(*,
     evaluation_fn: function used for evaluation on validation set.
     early_stopping_patience: number of steps to wait before stopping training.
     prefetch_to_device: number of batches to prefetc (default: 1).
+    profiler: periodic_actions.Profile.
 
   Returns:
     The optimizer with updated parameters and the updated rng.
@@ -351,7 +355,8 @@ def finetune(*,
     opt_repl, _, rngs_loop, _ = update_fn(opt_repl, lr_repl,
                                           train_batch['image'],
                                           train_batch['labels'], rngs_loop)
-
+    if jax.process_index() == 0 and profiler is not None:
+      profiler(current_step)
     if current_step % 5 == 0:
       train_accuracy = get_accuracy(
           evaluation_fn=evaluation_fn, opt_repl=opt_repl, ds=train_eval_ds)
@@ -531,6 +536,12 @@ def make_evaluation_fn(model, config):
 
 
 def main(config, output_dir):
+  # Note: switch to ProfileAllHosts() if you need to profile all hosts.
+  # (Xprof data become much larger and take longer to load for analysis)
+  profiler = periodic_actions.Profile(
+      # Create profile after every restart to analyze pre-emption related
+      # problems and assure we get similar performance in every run.
+      logdir=output_dir, first_profile=10)
 
   logging.info(config)
 
@@ -595,6 +606,11 @@ def main(config, output_dir):
 
   rng, rng_init = jax.random.split(rng)
   params_cpu = init(rng_init)
+
+  if jax.process_index() == 0:
+    num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
+    parameter_overview.log_parameter_overview(params_cpu)
+    writer.write_scalars(step=0, scalars={'num_params': num_params})
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
@@ -761,7 +777,8 @@ def main(config, output_dir):
           train_eval_ds=train_eval_ds,
           val_ds=val_ds,
           evaluation_fn=evaluation_fn,
-          early_stopping_patience=early_stopping_patience)
+          early_stopping_patience=early_stopping_patience,
+          profiler=profiler)
       train_val_accuracies = measurements.pop('train_val_accuracies')
       current_steps = 0
       for step, train_acc, val_acc in train_val_accuracies:

@@ -26,8 +26,8 @@
 import collections
 import time
 from typing import Any, Dict
-from absl import logging
 
+from absl import logging
 import numpy as np
 import robustness_metrics as rm
 from sklearn.metrics import accuracy_score
@@ -40,9 +40,9 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.utils import check_array
 from sklearn.utils import check_consistent_length
 import tensorflow as tf
-import log_epoch_metrics  # local file import from baselines.diabetic_retinopathy_detection.utils.metric_utils
-import add_joint_dicts  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
-import load_dataframe_gfile  # local file import from baselines.diabetic_retinopathy_detection.utils.results_storage_utils
+
+from . import metric_utils  # local file import
+from . import results_storage_utils  # local file import
 
 
 @tf.function
@@ -268,7 +268,7 @@ def evaluate_model_on_datasets(strategy,
         'float64')
 
   # Add Joint Dicts
-  dataset_split_to_containers = add_joint_dicts(
+  dataset_split_to_containers = results_storage_utils.add_joint_dicts(
       dataset_split_to_containers, is_deterministic=is_deterministic)
 
   return dataset_split_to_containers
@@ -363,7 +363,7 @@ def evaluate_model_and_compute_metrics(
       verbose=False)
 
   # Log metrics
-  metrics_results = log_epoch_metrics(
+  metrics_results = metric_utils.log_epoch_metrics(
       metrics=metrics,
       eval_results=metrics_results,
       use_tpu=use_tpu,
@@ -486,7 +486,7 @@ def evaluate_model_on_datasets_np(
           np.concatenate(y_epistemic_uncert).flatten())
 
   # Add Joint Dicts
-  dataset_split_to_containers = add_joint_dicts(
+  dataset_split_to_containers = results_storage_utils.add_joint_dicts(
       dataset_split_to_containers, is_deterministic=is_deterministic)
 
   return dataset_split_to_containers
@@ -567,7 +567,7 @@ def eval_model_numpy(datasets,
 
   # Log metrics
   available_splits = [split for split in eval_results.keys()]
-  metrics_results = log_epoch_metrics(
+  metrics_results = metric_utils.log_epoch_metrics(
       metrics=None,
       eval_results=metrics_results,
       use_tpu=False,
@@ -771,7 +771,7 @@ def compute_rebalanced_aptos_dataset(aptos_dataset,
   }
 
   # Load in APTOS metadata
-  aptos_metadata_df = load_dataframe_gfile(
+  aptos_metadata_df = results_storage_utils.load_dataframe_gfile(
       file_path=aptos_metadata_path, sep=',')
   name_to_diagnosis = dict(
       zip(aptos_metadata_df['id_code'], aptos_metadata_df['diagnosis']))

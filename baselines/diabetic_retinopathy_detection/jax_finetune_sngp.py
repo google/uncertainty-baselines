@@ -14,12 +14,10 @@
 # limitations under the License.
 
 """Finetune SNGP."""
-import datetime
 import functools
 import itertools
 import multiprocessing
 import os
-import pathlib
 import time
 
 from absl import app
@@ -37,26 +35,23 @@ import ml_collections
 import numpy as np
 from scipy.stats import entropy
 import tensorflow as tf
-import wandb
 
 tf.config.experimental.set_visible_devices([], 'GPU')
 tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
 tf.config.experimental.set_visible_devices([], 'TPU')
 
-print(tf.config.experimental.get_visible_devices())
+logging.info(tf.config.experimental.get_visible_devices())
 
-# pylint: disable=g-import-not-at-top, g-bad-import-order
-import checkpoint_utils  # local file import
-import input_utils  # local file import
-import preprocess_utils  # local file import
-import train_utils  # local file import
+# pylint: disable=g-import-not-at-top,line-too-long
 import uncertainty_baselines as ub
-from baselines.diabetic_retinopathy_detection.utils import save_per_prediction_results
-from baselines.diabetic_retinopathy_detection.utils import evaluate_vit_predictions
-# local file import
-from experiments.config.imagenet21k_vit_base16_sngp_finetune import (
-    get_config as get_i21k_sngp_config)
-# pylint: enable=g-import-not-at-top, g-bad-import-order
+import checkpoint_utils  # local file import from baselines.diabetic_retinopathy_detection
+import input_utils  # local file import from baselines.diabetic_retinopathy_detection
+import preprocess_utils  # local file import from baselines.diabetic_retinopathy_detection
+import train_utils  # local file import from baselines.diabetic_retinopathy_detection
+from utils import results_storage_utils
+from utils import vit_utils
+import wandb
+# pylint: enable=g-import-not-at-top,line-too-long
 
 DEFAULT_NUM_EPOCHS = 90
 
@@ -79,6 +74,11 @@ flags.mark_flag_as_required('distribution_shift')
 flags.DEFINE_string(
     'pretrain_dataset', 'imagenet21k',
     'Dataset for model pretraining. Specifies the config to use.')
+flags.DEFINE_string(
+    'resume_checkpoint_path', None,
+    'If provided, resume training and/or conduct evaluation using this '
+    'checkpoint. Will only be used if the output_dir does not already '
+    'contain a checkpointed model. See checkpoint_utils.py.')
 
 # Logging and hyperparameter tuning.
 flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
@@ -96,6 +96,10 @@ flags.DEFINE_string('lr_decay_type', 'cosine',
                     'Type of LR decay / schedule. Options: cosine, linear.')
 
 # General model flags.
+flags.DEFINE_string(
+    'vit_model_size', None,
+    'Specifies size of ViT backbone model. Options: {"B/16", "L/32"}')
+flags.mark_flag_as_required('vit_model_size')
 flags.DEFINE_integer('total_steps', 10000, 'Total steps.')
 flags.DEFINE_integer('batch_size', 128, 'Batch size.')
 flags.DEFINE_integer('seed', 0, 'Random seed.')
@@ -112,46 +116,14 @@ flags.DEFINE_float('sngp_ridge_penalty', 1., 'SNGP ridge penalty.')
 flags.DEFINE_float('sngp_covmat_momentum', -1., 'SNGP covmat momentum.')
 flags.DEFINE_float('sngp_mean_field_factor', 20., 'SNGP Mean Field factor.')
 
+# Evaluation flags.
+flags.DEFINE_bool('only_eval', False,
+                  'Disables training, only evaluates the model.')
+flags.DEFINE_bool('use_validation', True,
+                  'Whether to use a validation split.')
+flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
+
 FLAGS = flags.FLAGS
-
-
-# Utility functions.
-def accumulate_gradient_with_states(
-    loss_and_grad_fn,
-    params,
-    states,  # Allows for states.
-    images,
-    labels,
-    accum_steps):
-  """Improved version of `train_utils.accumulate_gradient()` that allows for states."""
-  # This function handles the `loss_and_grad_fn` function which takes a state
-  # argument and returns ((losses, states), grads).
-  if accum_steps and accum_steps > 1:
-    assert images.shape[0] % accum_steps == 0, (
-        f'Bad accum_steps {accum_steps} for batch size {images.shape[0]}')
-    step_size = images.shape[0] // accum_steps
-
-    # Run the first step.
-    (l, s), g = loss_and_grad_fn(params, states, images[:step_size],
-                                 labels[:step_size])
-
-    # Run the rest of the steps.
-    def acc_grad_and_loss(i, l_s_g):
-      # Extract data for current step.
-      imgs = jax.lax.dynamic_slice(images, (i * step_size, 0, 0, 0),
-                                   (step_size,) + images.shape[1:])
-      lbls = jax.lax.dynamic_slice(labels, (i * step_size, 0),
-                                   (step_size, labels.shape[1]))
-      # Update state and accumulate gradient.
-      l, s, g = l_s_g
-      (li, si), gi = loss_and_grad_fn(params, s, imgs, lbls)
-      return (l + li, si, jax.tree_multimap(lambda x, y: x + y, g, gi))
-
-    l, s, g = jax.lax.fori_loop(1, accum_steps, acc_grad_and_loss, (l, s, g))
-    l, g = jax.tree_map(lambda x: x / accum_steps, (l, g))
-    return (l, s), g
-  else:
-    return loss_and_grad_fn(params, states, images, labels)
 
 
 def get_gp_kwargs(gp_config):
@@ -172,45 +144,15 @@ def get_gp_kwargs(gp_config):
 def main(argv):
   del argv  # unused arg
 
-  # Wandb Setup
-  if FLAGS.use_wandb:
-    pathlib.Path(FLAGS.wandb_dir).mkdir(parents=True, exist_ok=True)
-    wandb_args = dict(
-        project=FLAGS.project,
-        entity='uncertainty-baselines',
-        dir=FLAGS.wandb_dir,
-        reinit=True,
-        name=FLAGS.exp_name,
-        group=FLAGS.exp_group)
-    wandb_run = wandb.init(**wandb_args)
-    wandb.config.update(FLAGS, allow_val_change=True)
-    output_dir = str(os.path.join(
-        FLAGS.output_dir,
-        datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
-  else:
-    wandb_run = None
-    output_dir = FLAGS.output_dir
-
+  # Wandb and Checkpointing Setup
+  wandb_run, output_dir = vit_utils.maybe_setup_wandb(FLAGS)
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
 
   # Dataset Split Flags
   dist_shift = FLAGS.distribution_shift
   print(f'Distribution Shift: {dist_shift}.')
-  if dist_shift == 'aptos':
-    in_domain_dataset = 'ub_diabetic_retinopathy_detection'
-    ood_dataset = 'aptos'
-    train_split = 'train'
-    in_domain_val_split = 'validation'
-    ood_val_split = 'validation'
-  elif dist_shift == 'severity':
-    in_domain_dataset = 'diabetic_retinopathy_severity_shift_moderate'
-    ood_dataset = 'diabetic_retinopathy_severity_shift_moderate'
-    train_split = 'train'
-    in_domain_val_split = 'in_domain_validation'
-    ood_val_split = 'ood_validation'
-  else:
-    raise NotImplementedError
+  dataset_names, split_names = vit_utils.get_dataset_and_split_names(dist_shift)
 
   # LR / Optimization Flags
   batch_size = FLAGS.batch_size
@@ -242,10 +184,8 @@ def main(argv):
   # In a TPU runtime this will be 8 cores.
   print('Number of Jax local devices:', jax.local_devices())
 
-  if FLAGS.pretrain_dataset == 'imagenet21k':
-    config = get_i21k_sngp_config()
-  else:
-    raise NotImplementedError
+  config = vit_utils.get_vit_config(
+      'sngp', FLAGS.vit_model_size, FLAGS.pretrain_dataset)
 
   # SNGP Flags
   # Gaussian process layer section
@@ -283,10 +223,7 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  def write_note(note):
-    if jax.process_index() == 0:
-      logging.info('NOTE: %s', note)
-  write_note('Initializing...')
+  vit_utils.write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
@@ -310,21 +247,22 @@ def main(argv):
       jax.process_count(), local_batch_size, jax.local_device_count(),
       jax.device_count(), local_batch_size // jax.local_device_count())
 
-  write_note('Initializing preprocessing function...')
+  vit_utils.write_note('Initializing preprocessing function...')
   # Same preprocessing function for training and evaluation
   preproc_fn = preprocess_spec.parse(
       spec=config.pp_train, available_ops=preprocess_utils.all_ops())
 
-  write_note('Initializing train dataset...')
+  vit_utils.write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
   train_base_dataset = ub.datasets.get(
-      in_domain_dataset, split=train_split,
+      dataset_names['in_domain_dataset'],
+      split=split_names['train_split'],
       data_dir=config.get('data_dir'))
   train_dataset_builder = train_base_dataset._dataset_builder  # pylint: disable=protected-access
   train_ds = input_utils.get_data(
       dataset=train_dataset_builder,
-      split=train_split,
+      split=split_names['train_split'],
       rng=train_ds_rng,
       process_batch_size=local_batch_size,
       preprocess_fn=preproc_fn,
@@ -337,64 +275,24 @@ def main(argv):
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
 
-  write_note('Initializing val dataset(s)...')
+  vit_utils.write_note('Initializing val dataset(s)...')
 
-  def _get_val_split(dataset, split, pp_eval, data_dir=None):
-    del pp_eval  # Same as pp_train for Diabetic Retinopathy.
-
-    # We do ceil rounding such that we include the last incomplete batch.
-    nval_img = input_utils.get_num_examples(
-        dataset,
-        split=split,
-        process_batch_size=local_batch_size_eval,
-        drop_remainder=False,
-        data_dir=data_dir)
-    val_steps = int(np.ceil(nval_img / batch_size_eval))
-    logging.info('Running validation for %d steps for %s, %s', val_steps,
-                 dataset, split)
-    val_ds = input_utils.get_data(
-        dataset=dataset,
-        split=split,
-        rng=None,
-        process_batch_size=local_batch_size_eval,
-        preprocess_fn=preproc_fn,
-        cache=False,
-        repeat_after_batching=True,
-        shuffle=False,
-        prefetch_size=config.get('prefetch_to_host', 2),
-        drop_remainder=False,
-        data_dir=data_dir)
-    val_iter = input_utils.start_input_pipeline(
-        val_ds, config.get('prefetch_to_device', 1))
-    return val_iter, val_steps
-
-  # Load in-domain and OOD validation datasets.
+  # Load in-domain and OOD validation and/or test datasets.
   # Please specify the desired shift (Country Shift or Severity Shift)
   # in the config.
-  in_domain_val_base_dataset = ub.datasets.get(
-      in_domain_dataset, split=in_domain_val_split,
-      data_dir=config.get('data_dir'))
-  in_domain_val_dataset_builder = in_domain_val_base_dataset._dataset_builder  # pylint: disable=protected-access
-  ood_val_base_dataset = ub.datasets.get(
-      ood_dataset, split=ood_val_split,
-      data_dir=config.get('data_dir'))
-  ood_val_dataset_builder = ood_val_base_dataset._dataset_builder  # pylint: disable=protected-access
-  val_iter_splits = {
-      'in_domain_validation': _get_val_split(
-          in_domain_val_dataset_builder,
-          in_domain_val_split,
-          pp_eval=config.pp_eval,
-          data_dir=config.get('data_dir')),
-      'ood_validation': _get_val_split(
-          ood_val_dataset_builder,
-          ood_val_split,
-          pp_eval=config.pp_eval,
-          data_dir=config.get('data_dir'))
-  }
+  eval_iter_splits = vit_utils.init_evaluation_datasets(
+      use_validation=FLAGS.use_validation,
+      use_test=FLAGS.use_test,
+      dataset_names=dataset_names,
+      split_names=split_names,
+      config=config,
+      preproc_fn=preproc_fn,
+      batch_size_eval=batch_size_eval,
+      local_batch_size_eval=local_batch_size_eval)
 
   ntrain_img = input_utils.get_num_examples(
       train_dataset_builder,
-      split=train_split,
+      split=split_names['train_split'],
       process_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
   steps_per_epoch = ntrain_img / batch_size
@@ -410,22 +308,13 @@ def main(argv):
       'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
-  write_note('Initializing model...')
+  vit_utils.write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
 
   # Specify Gaussian process layer configs.
-  use_gp_layer = config.get('use_gp_layer', True)
   gp_config = config.get('gp_layer', {})
-  gp_layer_kwargs = get_gp_kwargs(gp_config)
-
-  # Process ViT backbone model configs.
-  vit_kwargs = config.get('model')
-
-  model = ub.models.vision_transformer_gp(
-      num_classes=config.num_classes,
-      use_gp_layer=use_gp_layer,
-      vit_kwargs=vit_kwargs,
-      gp_layer_kwargs=gp_layer_kwargs)
+  model_dict = vit_utils.initialize_model('sngp', config)
+  model, use_gp_layer = model_dict['model'], model_dict['use_gp_layer']
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two
@@ -485,7 +374,7 @@ def main(argv):
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
-  write_note(f'Initializing {opt_name} optimizer...')
+  vit_utils.write_note(f'Initializing {opt_name} optimizer...')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
 
   # We jit this, such that the arrays that are created are created on the same
@@ -541,7 +430,7 @@ def main(argv):
 
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
-    (l, s), g = accumulate_gradient_with_states(
+    (l, s), g = vit_utils.accumulate_gradient_with_states(
         jax.value_and_grad(loss_fn, has_aux=True), opt.target, states, images,
         labels, config.get('grad_accum_steps'))
     l, g = jax.lax.pmean((l, g), axis_name='batch')
@@ -567,6 +456,10 @@ def main(argv):
 
     return opt, s, l, rng, measurements
 
+  # Set config checkpoint resume path, if provided in args.
+  if FLAGS.resume_checkpoint_path is not None:
+    config.resume = FLAGS.resume_checkpoint_path
+
   default_reinit_params = ('head/output_layer/kernel', 'head/output_layer/bias',
                            'head/kernel', 'head/bias')
   rng, train_loop_rngs = jax.random.split(rng)
@@ -583,13 +476,13 @@ def main(argv):
   states_cpu = checkpoint_data.fixed_model_states
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  write_note('Adapting the checkpoint model...')
+  vit_utils.write_note('Adapting the checkpoint model...')
   adapted_params = checkpoint_utils.adapt_upstream_architecture(
       init_params=params_cpu,
       loaded_params=opt_cpu.target)
   opt_cpu = opt_cpu.replace(target=adapted_params)
 
-  write_note('Kicking off misc stuff...')
+  vit_utils.write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
@@ -616,7 +509,7 @@ def main(argv):
       map(reset_covmat_fn, range(first_step, total_steps)),
       nprefetch=config.get('prefetch_to_device', 1))
 
-  write_note(f'Replicating...\n{chrono.note}')
+  vit_utils.write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
   states_repl = flax_utils.replicate(states_cpu)
 
@@ -628,7 +521,7 @@ def main(argv):
   # val_loss = -jnp.inf
   # results = {'dummy': {(0, 1): -jnp.inf}}
 
-  write_note(f'First step compilations...\n{chrono.note}')
+  vit_utils.write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
@@ -638,7 +531,8 @@ def main(argv):
   # when eval takes place.
   log_eval_steps = steps_per_epoch
   if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
+    vit_utils.write_note(
+        'Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
 
@@ -666,7 +560,7 @@ def main(argv):
     # Checkpoint saving
     if train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
-      write_note('Checkpointing...')
+      vit_utils.write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
@@ -685,7 +579,7 @@ def main(argv):
       copy_step = None
       if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
                              total_steps):
-        write_note('Keeping a checkpoint copy...')
+        vit_utils.write_note('Keeping a checkpoint copy...')
         copy_step = step
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
@@ -703,10 +597,10 @@ def main(argv):
     # Report training progress
     if train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
-      write_note('Reporting training progress...')
+      vit_utils.write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
-      write_note(note)
+      vit_utils.write_note(note)
       train_measurements = {}
       train_measurements.update({
           'learning_rate': lr_repl[0],
@@ -718,12 +612,12 @@ def main(argv):
 
     # Report validation performance
     if train_utils.itstime(step, log_eval_steps, total_steps):
-      write_note('Evaluating on the validation set...')
+      vit_utils.write_note('Evaluating on the validation set...')
       chrono.pause()
 
-      all_val_results = {}
+      all_eval_results = {}
 
-      for val_name, (val_iter, val_steps) in val_iter_splits.items():
+      for eval_name, (eval_iter, eval_steps) in eval_iter_splits.items():
         start_time = time.time()
 
         # Runs evaluation loop.
@@ -733,7 +627,7 @@ def main(argv):
             'y_pred_entropy': []
         }
 
-        for _, batch in zip(range(val_steps), val_iter):
+        for _, batch in zip(range(eval_steps), eval_iter):
           batch_ncorrect, batch_losses, batch_n, batch_metric_args = (  # pylint: disable=unused-variable
               evaluation_fn(
                   opt_repl.target, states_repl, batch['image'],
@@ -770,12 +664,12 @@ def main(argv):
 
         time_elapsed = time.time() - start_time
         results_arrs['total_ms_elapsed'] = time_elapsed * 1e3
-        results_arrs['dataset_size'] = val_steps * batch_size_eval
+        results_arrs['dataset_size'] = eval_steps * batch_size_eval
 
-        all_val_results[val_name] = results_arrs
+        all_eval_results[eval_name] = results_arrs
 
-      per_pred_results, total_results = evaluate_vit_predictions(
-          dataset_split_to_containers=all_val_results,
+      per_pred_results, total_results = vit_utils.evaluate_vit_predictions(
+          dataset_split_to_containers=all_eval_results,
           is_deterministic=True,
           num_bins=15,
           return_per_pred_results=True
@@ -786,7 +680,7 @@ def main(argv):
         wandb.log(total_results, step=step)
 
       # Save per-prediction metrics
-      save_per_prediction_results(
+      results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
 
       chrono.resume()
@@ -797,7 +691,7 @@ def main(argv):
       if config.testing_failure_step == step:
         break
 
-  write_note(f'Done!\n{chrono.note}')
+  vit_utils.write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
   writer.close()

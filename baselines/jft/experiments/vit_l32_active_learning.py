@@ -22,6 +22,7 @@ Based on: vit_l32_finetune.py and sweep_utils.py
 # pylint: enable=line-too-long
 
 import ml_collections
+import sweep_utils  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -91,13 +92,48 @@ def get_config():
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 0.003
   # Turned off for active learning:
-  # config.lr.warmup_steps = 0
-  # config.lr.decay_type = 'cosine'
+  config.lr.warmup_steps = 0
+  config.lr.decay_type = 'cosine'
+  config.eval_on_cifar_10h = False
+  # OOD evaluation. Not used but needed for sweep_utils.
+  config.ood_datasets = []
+  config.ood_num_classes = []
+  config.ood_split = ''
+  config.ood_methods = []
+  config.pp_eval_ood = []
+  config.eval_on_cifar_10h = False
+  config.pp_eval_cifar_10h = ''
+  config.eval_on_imagenet_real = False
+  config.pp_eval_imagenet_real = ''
+
   return config
 
 
 def get_sweep(hyper):
   """Sweeps over datasets."""
-  # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
-  return hyper.product(
-      [hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])])
+  # Adapted the sweep over checkpoints from vit_l32_finetune.py.
+  checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+  use_jft = True  # whether to use JFT-300M or ImageNet-21K settings
+  sweep_lr = True  # whether to sweep over learning rates
+  acquisition_methods = ['uniform', 'entropy', 'margin', 'density']
+  if use_jft:
+    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+    cifar10_sweep = hyper.product(cifar10_sweep)
+  else:
+    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
+    cifar10_sweep = hyper.product(cifar10_sweep)
+  if sweep_lr:
+    # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
+    checkpoints = [checkpoints[0]]
+    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='train[98%:]')
+    cifar10_sweep.append(
+        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
+    cifar10_sweep = hyper.product(cifar10_sweep)
+
+  return hyper.product([
+      cifar10_sweep,
+      hyper.sweep('config.model_init', checkpoints),
+      hyper.sweep('config.acquisition_method', acquisition_methods),
+  ])

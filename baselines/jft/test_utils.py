@@ -72,7 +72,8 @@ def get_config(
     label_key = '"labels"'
   pp_common += (
       f'|onehot({config.num_classes}, key={label_key}, key_result="labels")')
-  pp_common += '|keep(["image", "labels"])'
+  pp_common += '|keep(["image", "labels", "id"])'
+  # id is needed for active learning
   # TODO(dusenberrymw): Mocking doesn't seem to encode into jpeg format.
   # config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
   config.pp_train = 'decode|inception_crop(224)|flip_lr' + pp_common

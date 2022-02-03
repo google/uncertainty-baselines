@@ -17,7 +17,10 @@
 # TODO(joost,andreas): Refactor active_learning.py and use this test for smaller
 # components including acquisition functions and other utility functions.
 # pylint: disable=pointless-string-statement
-"""import os.path import pathlib import tempfile
+"""
+import os.path
+import pathlib
+import tempfile
 
 from absl import flags
 from absl.testing import parameterized
@@ -27,9 +30,10 @@ import jax.numpy as jnp
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-from .. import checkpoint_utils  # local file import
-from .. import test_utils  # local file import
-import active_learning  # local file import
+import active_learning  # local file import from baselines.jft
+import checkpoint_utils  # local file import from baselines.jft
+import test_utils  # local file import from baselines.jft
+
 flags.adopt_module_key_flags(active_learning)
 FLAGS = flags.FLAGS
 
@@ -43,11 +47,11 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
   @parameterized.parameters(
-      ('uniform', [840763837, 1167338319]),
-      # NOTE: ideally margin and entropy don't have matching ids for test
-      ('margin', [809552352, 758271112]),
-      ('entropy', [809552352, 758271112]),
-      ('density', [1546174544, 834394044]),
+      # First acquisition batch (2 elements) is same for uniform and density.
+      ('uniform', [1829114898, 2022464325, 808104751, 1167338319]),
+      ('density', [1829114898, 2022464325, 298464138, 934744266]),
+      ('margin', [1321476171, 1943658980, 1452077357, 1019530438]),
+      ('entropy', [506568176, 1321476171, 1943658980, 809552352]),
   )
   def test_active_learning_script(self, acquisition_method, gt_ids):
 
@@ -72,23 +76,25 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
     checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
     checkpoint_utils.save_checkpoint(params, checkpoint_path)
 
-    # Active Learn on CIFAR-10
     config.dataset = 'cifar10'
     config.val_split = 'train[98%:]'
     config.train_split = 'train[:98%]'
     config.batch_size = 8
-    config.max_labels = 4
-    config.acquisition_batch_size = 2
     config.total_steps = 6
     config.dataset_dir = data_dir
     config.model_init = checkpoint_path
+
+    # Active learning settings
     config.acquisition_method = acquisition_method
+    config.max_training_set_size = 4
+    config.initial_training_set_size = 0
+    config.acquisition_batch_size = 2
+    config.early_stopping_patience = 6  # not tested yet
 
     with tfds.testing.mock_data(num_examples=50, data_dir=data_dir):
-      ids, _ = active_learning.main(config)
+      ids, _ = active_learning.main(config, output_dir)
 
     # Get the warmup batch
-    gt_ids = [934744266, 986104245] + gt_ids
     self.assertEqual(ids, set(gt_ids))
 
 

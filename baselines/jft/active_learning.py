@@ -55,7 +55,6 @@ import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
-
 config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
@@ -531,7 +530,7 @@ def make_evaluation_fn(model, config):
   return evaluation_fn
 
 
-def main(config):
+def main(config, output_dir):
 
   logging.info(config)
 
@@ -539,7 +538,7 @@ def main(config):
 
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
-      FLAGS.output_dir, just_logging=jax.process_index() > 0)
+      output_dir, just_logging=jax.process_index() > 0)
   writer.write_hparams(dict(config))
 
   # The pool is used to perform misc operations such as logging in async way.
@@ -788,8 +787,8 @@ def main(config):
         pre_logits=acquisition_method == 'density')
 
     if acquisition_method == 'uniform':
-      rng, rng_loop = jax.random.split(rng, 2)
-      pool_scores = get_uniform_scores(pool_masks, rng)
+      rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+      pool_scores = get_uniform_scores(pool_masks, rng_acq)
     elif acquisition_method == 'entropy':
       pool_scores = get_entropy_scores(pool_outputs, pool_masks)
     elif acquisition_method == 'margin':
@@ -803,8 +802,8 @@ def main(config):
             pool_pre_logits=pool_outputs,
             pool_masks=pool_masks)
       else:
-        rng, rng_loop = jax.random.split(rng, 2)
-        pool_scores = get_uniform_scores(pool_masks, rng)
+        rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+        pool_scores = get_uniform_scores(pool_masks, rng_acq)
     else:
       raise ValueError('Acquisition method not found.')
 
@@ -837,8 +836,5 @@ if __name__ == '__main__':
 
   def _main(argv):
     del argv
-    config = FLAGS.config
-
-    main(config)
-
+    main(FLAGS.config, FLAGS.output_dir)
   app.run(_main)  # Ignore the returned values from `main`.

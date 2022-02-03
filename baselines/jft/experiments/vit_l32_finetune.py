@@ -31,6 +31,7 @@ def get_config():
 
   config.model_init = ''  # set in sweep
   config.dataset = ''  # set in sweep
+  config.test_split = ''  # set in sweep
   config.val_split = ''  # set in sweep
   config.train_split = ''  # set in sweep
   config.num_classes = None  # set in sweep
@@ -108,36 +109,33 @@ def get_sweep(hyper):
     imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
     imagenet_sweep = hyper.product(imagenet_sweep)
   else:
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
     cifar10_sweep = hyper.product(cifar10_sweep)
 
-    cifar100_sweep = sweep_utils.cifar100(hyper, val_split='test')
+    cifar100_sweep = sweep_utils.cifar100(hyper)
     cifar100_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     cifar100_sweep = hyper.product(cifar100_sweep)
 
-    imagenet_sweep = sweep_utils.imagenet(hyper, val_split='validation')
+    imagenet_sweep = sweep_utils.imagenet(hyper)
     imagenet_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     imagenet_sweep = hyper.product(imagenet_sweep)
   if sweep_lr:
     # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
     checkpoints = [checkpoints[0]]
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='train[98%:]')
+    cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])
-    )
+        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
     cifar10_sweep = hyper.product(cifar10_sweep)
 
-    cifar100_sweep = sweep_utils.cifar100(hyper, val_split='train[98%:]')
+    cifar100_sweep = sweep_utils.cifar100(hyper)
     cifar100_sweep.append(
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])
-    )
+        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
     cifar100_sweep = hyper.product(cifar100_sweep)
 
-    imagenet_sweep = sweep_utils.imagenet(hyper, val_split='train[99%:]')
+    imagenet_sweep = sweep_utils.imagenet(hyper)
     imagenet_sweep.append(
-        hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003])
-    )
+        hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]))
     imagenet_sweep = hyper.product(imagenet_sweep)
 
   return hyper.product([

@@ -35,7 +35,7 @@ def fixed(hyper, config):
   return [hyper.fixed(f'config.{k}', v, length=1) for k, v in config.items()]
 
 
-def cifar10(hyper, val_split, size=384, steps=10_000, warmup=500):
+def cifar10(hyper, size=384, steps=10_000, warmup=500):
   """A fixed sweep for CIFAR-10 specific settings."""
   name = 'cifar10'
   n_cls = 10
@@ -50,7 +50,8 @@ def cifar10(hyper, val_split, size=384, steps=10_000, warmup=500):
   config.train_split = 'train[:98%]'
   config.pp_train = pp_train
   # TODO(trandustin): Add support for multiple validation splits.
-  config.val_split = val_split
+  config.val_split = 'train[98%:]'
+  config.test_split = 'test'
   config.pp_eval = pp_eval
   config.num_classes = n_cls
   config.lr = ml_collections.ConfigDict()
@@ -83,7 +84,7 @@ def cifar10(hyper, val_split, size=384, steps=10_000, warmup=500):
   return fixed(hyper, config)
 
 
-def cifar100(hyper, val_split, size=384, steps=10_000, warmup=500):
+def cifar100(hyper, size=384, steps=10_000, warmup=500):
   """A fixed sweep for CIFAR-100 specific settings."""
   name = 'cifar100'
   n_cls = 100
@@ -98,7 +99,8 @@ def cifar100(hyper, val_split, size=384, steps=10_000, warmup=500):
   config.train_split = 'train[:98%]'
   config.pp_train = pp_train
   # TODO(trandustin): Add ability to support multiple validation splits.
-  config.val_split = val_split
+  config.val_split = 'train[98%:]'
+  config.test_split = 'test'
   config.pp_eval = pp_eval
   config.num_classes = n_cls
   config.lr = ml_collections.ConfigDict()
@@ -127,7 +129,7 @@ def cifar100(hyper, val_split, size=384, steps=10_000, warmup=500):
   return fixed(hyper, config)
 
 
-def imagenet(hyper, val_split, size=384, steps=20_000, warmup=500):
+def imagenet(hyper, size=384, steps=20_000, warmup=500):
   """A fixed sweep for ImageNet specific settings."""
   name = 'imagenet2012'
   n_cls = 1000
@@ -143,7 +145,8 @@ def imagenet(hyper, val_split, size=384, steps=20_000, warmup=500):
   config.train_split = 'train[:99%]'
   config.pp_train = pp_train
   # TODO(trandustin): Add ability to support multiple validation splits.
-  config.val_split = val_split
+  config.val_split = 'train[99%:]'
+  config.test_split = 'validation'
   config.pp_eval = pp_eval
   config.num_classes = n_cls
   config.lr = ml_collections.ConfigDict()

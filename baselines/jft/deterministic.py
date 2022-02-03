@@ -170,6 +170,16 @@ def main(config, output_dir):
               data_dir=config.get('data_dir'))
   }
 
+  if config.get('test_split'):
+    val_ds_splits.update({
+        'test':
+            _get_val_split(
+                config.dataset,
+                split=config.test_split,
+                pp_eval=config.pp_eval,
+                data_dir=config.get('data_dir'))
+    })
+
   if config.get('eval_on_cifar_10h'):
     cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
         config.get('data_dir', None))

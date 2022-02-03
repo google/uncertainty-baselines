@@ -31,6 +31,7 @@ def get_config():
   config.dataset = ''  # set in sweep
   config.val_split = ''  # set in sweep
   config.train_split = ''  # set in sweep
+  config.test_split = ''  # set in sweep
   config.num_classes = None  # set in sweep
 
   config.batch_size = 512
@@ -79,7 +80,7 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 23)
+  config.model.transformer.be_layers = (21, 22, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = 0.5
   config.fast_weight_lr_multiplier = 1.0
@@ -104,29 +105,33 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
-  cifar10_sweep = sweep_utils.cifar10(hyper, val_split='train[:98%]')
+  cifar10_sweep = sweep_utils.cifar10(hyper)
   cifar10_sweep.append(
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])
-  )
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
   cifar10_sweep = hyper.product(cifar10_sweep)
 
-  cifar100_sweep = sweep_utils.cifar100(hyper, val_split='train[98%:]')
+  cifar100_sweep = sweep_utils.cifar100(hyper)
   cifar100_sweep.append(
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])
-  )
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
   cifar100_sweep = hyper.product(cifar100_sweep)
 
-  imagenet_sweep = sweep_utils.imagenet(hyper, val_split='train[99%:]')
-  imagenet_sweep.append(
-      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003])
-  )
-  imagenet_sweep = hyper.product(imagenet_sweep)
+  # imagenet_sweep = hyper.product(sweep_utils.imagenet(hyper))
+  imagenet_sweep = hyper.chainit([
+      hyper.product(sweep_utils.imagenet(
+          hyper, steps=int(20_000 * s), warmup=int(500 * s)))
+      for s in [0.5, 1.0, 1.5, 2.0]
+  ])
+  imagenet_sweep = hyper.product([
+      imagenet_sweep,
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+  ])
 
   return hyper.product([
       hyper.chainit([
-          cifar10_sweep,
-          cifar100_sweep,
-          imagenet_sweep]),
+          # cifar10_sweep,
+          # cifar100_sweep,
+          imagenet_sweep
+      ]),
       hyper.product([  # BE Hyperparameters.
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
       ])

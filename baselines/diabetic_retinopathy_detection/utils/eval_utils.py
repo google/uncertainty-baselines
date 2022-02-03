@@ -41,8 +41,8 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.utils import check_array
 from sklearn.utils import check_consistent_length
 
-import metric_utils  # local file import
-import results_storage_utils  # local file import
+from . import metric_utils  # local file import
+from . import results_storage_utils  # local file import
 
 
 @tf.function

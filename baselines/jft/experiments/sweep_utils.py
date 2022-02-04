@@ -63,7 +63,7 @@ def cifar10(hyper, size=384, steps=10_000, warmup=500):
   config.ood_datasets = ['cifar100', 'svhn_cropped']
   config.ood_num_classes = [100, 10]
   config.ood_split = 'test'
-  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
+  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha', 'mlogit']
   pp_eval_ood = []
   for num_classes in config.ood_num_classes:
     if num_classes > config.num_classes:
@@ -112,7 +112,7 @@ def cifar100(hyper, size=384, steps=10_000, warmup=500):
   config.ood_datasets = ['cifar10', 'svhn_cropped']
   config.ood_num_classes = [10, 10]
   config.ood_split = 'test'
-  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
+  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha', 'mlogit']
   pp_eval_ood = []
   for num_classes in config.ood_num_classes:
     if num_classes > config.num_classes:
@@ -129,7 +129,7 @@ def cifar100(hyper, size=384, steps=10_000, warmup=500):
   return fixed(hyper, config)
 
 
-def imagenet(hyper, size=384, steps=20_000, warmup=500):
+def imagenet(hyper, size=384, steps=20_000, warmup=500, include_ood_maha=False):
   """A fixed sweep for ImageNet specific settings."""
   name = 'imagenet2012'
   n_cls = 1000
@@ -154,6 +154,28 @@ def imagenet(hyper, size=384, steps=20_000, warmup=500):
   config.total_steps = steps
 
   # OOD evaluation
+  # ood_split is the data split for both the ood_dataset and the dataset.
+  config.ood_datasets = ['places365_small']
+  config.ood_num_classes = [365]
+  # Num of samples in Imagenet2012: 50,000; Places365: 36,500. Comparable
+  config.ood_split = 'validation'
+  config.ood_methods = ['msp', 'entropy', 'mlogit']
+  if include_ood_maha:
+    config.ood_methods += ['maha', 'rmaha']
+  pp_eval_ood = []
+  for num_classes in config.ood_num_classes:
+    if num_classes > config.num_classes:
+      # Note that evaluation_fn ignores the entries with all zero labels for
+      # evaluation. When num_classes > n_cls, we should use onehot{num_classes},
+      # otherwise the labels that are greater than n_cls will be encoded with
+      # all zeros and then be ignored.
+      pp_eval_ood.append(
+          config.pp_eval.replace(f'onehot({config.num_classes}',
+                                 f'onehot({num_classes}'))
+    else:
+      pp_eval_ood.append(config.pp_eval)
+  config.pp_eval_ood = pp_eval_ood
+
   config.eval_on_imagenet_real = True
   config.pp_eval_imagenet_real = f'decode|resize({size})|value_range(-1, 1)|keep(["image", "labels"])'  # pylint: disable=line-too-long
   return fixed(hyper, config)

@@ -14,6 +14,12 @@
 # limitations under the License.
 
 """Finetuning."""
+import tensorflow as tf
+
+tf.config.experimental.set_visible_devices([], 'GPU')
+tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
+tf.config.experimental.set_visible_devices([], 'TPU')
+
 import functools
 import itertools
 import multiprocessing
@@ -21,6 +27,12 @@ import numbers
 import os
 import time
 
+import flax
+import flax.jax_utils as flax_utils
+import jax
+import jax.numpy as jnp
+import numpy as np
+import wandb
 from absl import app
 from absl import flags
 from absl import logging
@@ -28,133 +40,56 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
-import flax
-import flax.jax_utils as flax_utils
-import jax
-import jax.numpy as jnp
-import numpy as np
+from ml_collections.config_flags import config_flags
 from scipy.stats import entropy
-import tensorflow as tf
-
-tf.config.experimental.set_visible_devices([], 'GPU')
-tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
-tf.config.experimental.set_visible_devices([], 'TPU')
-
-logging.info(tf.config.experimental.get_visible_devices())
 
 # pylint: disable=g-import-not-at-top,line-too-long
-import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.diabetic_retinopathy_detection
 import input_utils  # local file import from baselines.diabetic_retinopathy_detection
 import preprocess_utils  # local file import from baselines.diabetic_retinopathy_detection
 import train_utils  # local file import from baselines.diabetic_retinopathy_detection
+import uncertainty_baselines as ub
 from utils import results_storage_utils
 from utils import vit_utils
-import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
-DEFAULT_NUM_EPOCHS = 90
+logging.info(tf.config.experimental.get_visible_devices())
 
-# Data load / output flags.
-flags.DEFINE_string(
-    'output_dir',
-    '/tmp/diabetic_retinopathy_detection/vit-16-i21k/deterministic',
-    'The directory where the model weights and training/evaluation summaries '
-    'are stored. If you aim to use these as trained models for ensemble.py, '
-    'you should specify an output_dir name that includes the random seed to '
-    'avoid overwriting.')
-flags.DEFINE_string(
-    'distribution_shift', None,
-    'Specifies distribution shift to use, if any.'
-    'aptos: loads APTOS (India) OOD validation and test datasets. '
-    '  Kaggle/EyePACS in-domain datasets are unchanged.'
-    'severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision '
-    '  of the Kaggle/EyePACS dataset to hold out clinical severity labels '
-    '  as OOD.')
-flags.mark_flag_as_required('distribution_shift')
-flags.DEFINE_string(
-    'pretrain_dataset', 'imagenet21k',
-    'Dataset for model pretraining. Specifies the config to use.')
-flags.DEFINE_string(
-    'resume_checkpoint_path', None,
-    'If provided, resume training and/or conduct evaluation using this '
-    'checkpoint. Will only be used if the output_dir does not already '
-    'contain a checkpointed model. See checkpoint_utils.py.')
-
-# Logging and hyperparameter tuning.
-flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
-flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
-flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
-flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
-flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
-
-# Learning rate / SGD flags.
-flags.DEFINE_float('grad_clip_norm', 20.0, 'Gradient clipping threshold.')
-flags.DEFINE_float('weight_decay', None, 'Gradient clipping threshold.')
-flags.DEFINE_float('lr_base', 0.1, 'Base learning rate.')
-flags.DEFINE_integer('lr_warmup_steps', 500, 'Number of LR warmup steps.')
-flags.DEFINE_string('lr_decay_type', 'cosine',
-                    'Type of LR decay / schedule. Options: cosine, linear.')
-
-# General model flags.
-flags.DEFINE_string(
-    'vit_model_size', None,
-    'Specifies size of ViT backbone model. Options: {"B/16", "L/32"}')
-flags.mark_flag_as_required('vit_model_size')
-flags.DEFINE_integer('total_steps', 10000, 'Total steps.')
-flags.DEFINE_integer('batch_size', 128, 'Batch size.')
-flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_string(
-    'class_reweight_mode', None,
-    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, '
-    'val, test respectively). `None` (default) will not perform any loss '
-    'reweighting. `constant` will use the train proportions to reweight the '
-    'binary cross entropy loss. `minibatch` will use the proportions of each '
-    'minibatch to reweight the loss.')
-
-# Evaluation flags.
-flags.DEFINE_bool('only_eval', False,
-                  'Disables training, only evaluates the model.')
-flags.DEFINE_bool('use_validation', True,
-                  'Whether to use a validation split.')
-flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
-
+config_flags.DEFINE_config_file(
+    'config', None, 'Training configuration.', lock_config=True)
 FLAGS = flags.FLAGS
 
 
 def main(argv):
   del argv  # unused arg
 
+  config = FLAGS.config
+
   # Wandb and Checkpointing Setup
-  wandb_run, output_dir = vit_utils.maybe_setup_wandb(FLAGS)
+  wandb_run, output_dir = vit_utils.maybe_setup_wandb(config)
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
 
   # Dataset Split Flags
-  dist_shift = FLAGS.distribution_shift
+  dist_shift = config.distribution_shift
   print(f'Distribution Shift: {dist_shift}.')
   dataset_names, split_names = vit_utils.get_dataset_and_split_names(dist_shift)
 
   # LR / Optimization Flags
-  batch_size = FLAGS.batch_size
-  grad_clip_norm = FLAGS.grad_clip_norm
-  weight_decay = FLAGS.weight_decay
-  lr_dict = {
-      'base': FLAGS.lr_base,
-      'warmup_steps': FLAGS.lr_warmup_steps,
-      'decay_type': FLAGS.lr_decay_type
-  }
+  batch_size = config.batch_size
+  grad_clip_norm = config.grad_clip_norm
+  weight_decay = config.weight_decay
   print('wandb hyperparameters:')
   print({
       'batch_size': batch_size,
       'grad_clip_norm': grad_clip_norm,
       'weight_decay': weight_decay,
-      'total_steps': FLAGS.total_steps,
-      'lr': lr_dict
+      'total_steps': config.total_steps,
+      'lr': config.lr
   })
 
   # Reweighting loss for class imbalance
-  # class_reweight_mode = FLAGS.class_reweight_mode
+  # class_reweight_mode = config.class_reweight_mode
   # if class_reweight_mode == 'constant':
   #   class_weights = utils.get_diabetic_retinopathy_class_balance_weights()
   # else:
@@ -167,12 +102,12 @@ def main(argv):
 
   # Get model config
   config = vit_utils.get_vit_config(
-      'deterministic', FLAGS.vit_model_size, FLAGS.pretrain_dataset)
+      'deterministic', config.vit_model_size, config.pretrain_dataset)
 
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'
 
-  seed = FLAGS.seed
+  seed = config.seed
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
@@ -249,8 +184,8 @@ def main(argv):
   # Please specify the desired shift (Country Shift or Severity Shift)
   # in the config.
   eval_iter_splits = vit_utils.init_evaluation_datasets(
-      use_validation=FLAGS.use_validation,
-      use_test=FLAGS.use_test,
+      use_validation=config.use_validation,
+      use_test=config.use_test,
       dataset_names=dataset_names,
       split_names=split_names,
       config=config,
@@ -269,7 +204,7 @@ def main(argv):
     total_steps = int(config.num_epochs * steps_per_epoch)
     assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
   else:
-    total_steps = FLAGS.total_steps
+    total_steps = config.total_steps
 
   logging.info('Total train data points: %d', ntrain_img)
   logging.info(
@@ -378,7 +313,7 @@ def main(argv):
       decay_rules = [('.*kernel.*', decay_rules)]
     # sched_m = lr / config.lr.base if config.get(
     #   'weight_decay_decouple') else lr
-    sched_m = lr / FLAGS.lr_base if config.get(
+    sched_m = lr / config.lr_base if config.get(
         'weight_decay_decouple') else lr
 
     def decay_fn(v, wd):
@@ -395,12 +330,12 @@ def main(argv):
     return opt, l, rng, measurements
 
   # Set config checkpoint resume path, if provided in args.
-  if FLAGS.resume_checkpoint_path is not None:
-    config.resume = FLAGS.resume_checkpoint_path
+  if config.resume_checkpoint_path is not None:
+    config.resume = config.resume_checkpoint_path
 
   rng, train_loop_rngs = jax.random.split(rng)
   reint_params = ('head/kernel', 'head/bias')
-  if FLAGS.only_eval or not config.get('reint_head', True):
+  if config.only_eval or not config.get('reint_head', True):
     reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,
@@ -435,9 +370,8 @@ def main(argv):
       logdir=output_dir, first_profile=first_step + 10)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  # lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-  #                                                   **config.get('lr', {}))
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps, **lr_dict)
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
 
   # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
   # necessary for TPUs.
@@ -451,7 +385,7 @@ def main(argv):
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
-  train_loss = -jnp.inf
+  # train_loss = -jnp.inf
   # val_loss = -jnp.inf
   # results = {'dummy': {(0, 1): -jnp.inf}}
 
@@ -471,7 +405,7 @@ def main(argv):
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
 
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
-      if not FLAGS.only_eval:
+      if not config.only_eval:
         opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
             lr_repl,
@@ -483,7 +417,7 @@ def main(argv):
       profiler(step)
 
     # Checkpoint saving
-    if not FLAGS.only_eval and train_utils.itstime(
+    if not config.only_eval and train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
       vit_utils.write_note('Checkpointing...')
       chrono.pause()
@@ -515,7 +449,7 @@ def main(argv):
       chrono.resume()
 
     # Report training progress
-    if not FLAGS.only_eval and train_utils.itstime(
+    if not config.only_eval and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       vit_utils.write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
@@ -596,7 +530,7 @@ def main(argv):
       )
 
       # Optionally log to wandb
-      if FLAGS.use_wandb:
+      if config.use_wandb:
         wandb.log(total_results, step=step)
 
       # Save per-prediction metrics

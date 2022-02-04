@@ -77,25 +77,25 @@ def get_dataset_and_split_names(dist_shift):
   return dataset_names, split_names
 
 
-def maybe_setup_wandb(flags):
+def maybe_setup_wandb(config):
   """Potentially setup wandb."""
-  if flags.use_wandb:
-    pathlib.Path(flags.wandb_dir).mkdir(parents=True, exist_ok=True)
+  if config.use_wandb:
+    pathlib.Path(config.wandb_dir).mkdir(parents=True, exist_ok=True)
     wandb_args = dict(
-        project=flags.project,
+        project=config.project,
         entity='uncertainty-baselines',
-        dir=flags.wandb_dir,
+        dir=config.wandb_dir,
         reinit=True,
-        name=flags.exp_name,
-        group=flags.exp_group)
+        name=config.exp_name,
+        group=config.exp_group)
     wandb_run = wandb.init(**wandb_args)
-    wandb.config.update(flags, allow_val_change=True)
+    wandb.config.update(config, allow_val_change=True)
     output_dir = str(os.path.join(
-        flags.output_dir,
+        config.output_dir,
         datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
   else:
     wandb_run = None
-    output_dir = flags.output_dir
+    output_dir = config.output_dir
 
   return wandb_run, output_dir
 

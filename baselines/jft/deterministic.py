@@ -373,15 +373,17 @@ def main(config, output_dir):
       label_indices = config.get('label_indices')
       if label_indices:
         logits = logits[:, label_indices]
-      return getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
+      loss = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
           logits=logits, labels=labels)
+      return loss, logits
 
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
-    l, g = train_utils.accumulate_gradient(
-        jax.value_and_grad(loss_fn), opt.target, images, labels,
+    (l, logits), g = train_utils.accumulate_gradient(
+        jax.value_and_grad(loss_fn, has_aux=True), opt.target, images, labels,
         config.get('grad_accum_steps'))
     l, g = jax.lax.pmean((l, g), axis_name='batch')
+    measurements['training_loss'] = l
 
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
@@ -402,7 +404,12 @@ def main(config, output_dir):
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
 
-    return opt, l, next_rng, measurements
+    top1_idx = jnp.argmax(logits, axis=1)
+    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
+    prec1 = jax.lax.psum(jnp.sum(top1_correct), axis_name='batch') / batch_size
+    measurements['training_prec@1'] = prec1
+    measurements['learning_rate'] = lr
+    return opt, next_rng, measurements
 
   reint_params = ('head/kernel', 'head/bias')
   if config.get('only_eval', False) or not config.get('reint_head', True):
@@ -480,7 +487,7 @@ def main(config, output_dir):
 
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
       if not config.get('only_eval', False):
-        opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
+        opt_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
             lr_repl,
             train_batch['image'],
@@ -526,17 +533,14 @@ def main(config, output_dir):
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
-      train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
-      train_measurements.update({
-          'learning_rate': lr_repl[0],
-          'training_loss': train_loss,
-      })
       train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
+      # Keep train_loss to return for reproducibility tests.
+      train_loss = train_measurements['training_loss']
 
     # Report validation performance
     if config.get('only_eval', False) or train_utils.itstime(

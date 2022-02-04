@@ -170,8 +170,7 @@ def main(argv):
         batch_size=batch_size, strategy=strategy)
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   with strategy.scope():
 

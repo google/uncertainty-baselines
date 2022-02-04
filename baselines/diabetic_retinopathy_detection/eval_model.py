@@ -222,8 +222,7 @@ def main(argv):
   }
 
   if FLAGS.use_bfloat16 and not use_torch:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   # * Load Checkpoints *
   ensemble_str = 'ensemble' if use_ensemble else 'model'

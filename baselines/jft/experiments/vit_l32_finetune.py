@@ -97,15 +97,15 @@ def get_sweep(hyper):
   use_jft = False  # whether to use JFT-300M or ImageNet-21K settings
   sweep_lr = False  # whether to sweep over learning rates
   if use_jft:
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     cifar10_sweep = hyper.product(cifar10_sweep)
 
-    cifar100_sweep = sweep_utils.cifar100(hyper, val_split='test')
+    cifar100_sweep = sweep_utils.cifar100(hyper)
     cifar100_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
     cifar100_sweep = hyper.product(cifar100_sweep)
 
-    imagenet_sweep = sweep_utils.imagenet(hyper, val_split='validation')
+    imagenet_sweep = sweep_utils.imagenet(hyper)
     imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
     imagenet_sweep = hyper.product(imagenet_sweep)
   else:

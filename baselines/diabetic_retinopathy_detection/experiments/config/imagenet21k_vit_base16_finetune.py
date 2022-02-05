@@ -31,17 +31,14 @@ def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
 
-  # * Data load / output flags. *
+  # Data load / output flags
 
   # The directory where the model weights and training/evaluation summaries
   #   are stored.
   config.output_dir = (
     '/tmp/diabetic_retinopathy_detection/vit-16-i21k/deterministic')
 
-  # Dataset for model pretraining. Specifies the config to use.
-  config.pretrain_dataset = 'imagenet21k'
-
-  # Fine-tuning dataset.
+  # Fine-tuning dataset
   config.data_dir = 'gs://ub-data/retinopathy'
 
   # REQUIRED: distribution shift.
@@ -59,7 +56,7 @@ def get_config():
   config.prefetch_to_device = 2
   config.trial = 0
 
-  # * Logging and hyperparameter tuning. *
+  # Logging and hyperparameter tuning
 
   config.use_wandb = False  # Use wandb for logging.
   config.wandb_dir = 'wandb'  # Directory where wandb logs go.
@@ -67,13 +64,10 @@ def get_config():
   config.exp_name = None  # Give experiment a name.
   config.exp_group = None  # Give experiment a group name.
 
-  # * Model Flags. *
+  # Model Flags
 
   # TODO(nband): fix issue with sigmoid loss.
   config.num_classes = 2
-
-  # REQUIRED: Specifies size of ViT backbone model. Options: {"B/16", "L/32"}.
-  config.vit_model_size = 'B/16'
 
   # pre-trained model ckpt file
   # !!!  The below section should be modified per experiment
@@ -96,7 +90,7 @@ def get_config():
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None
 
-  # * Preprocessing. *
+  # Preprocessing
 
   # Input resolution of each retina image. (Default: 512)
   config.pp_input_res = 512  # pylint: disable=invalid-name
@@ -106,12 +100,12 @@ def get_config():
   config.pp_eval = (
       f'diabetic_retinopathy_preprocess({config.pp_input_res})' + pp_common)
 
-  # * Training Misc. *
+  # Training Misc
   config.batch_size = 512  # using TPUv3-64
   config.seed = 0  # Random seed.
   config.shuffle_buffer_size = 15_000  # Per host, so small-ish is ok.
 
-  # * Optimization. *
+  # Optimization
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
@@ -130,12 +124,12 @@ def get_config():
   # 'minibatch' will use the proportions of each minibatch to reweight the loss.
   config.class_reweight_mode = None
 
-  # * Evaluation Misc. *
-  config.only_eval = False  # Disables training, only evaluates the model.
-  config.use_validation = True  # Whether to use a validation split.
-  config.use_test = True  # Whether to use a test split.
+  # Evaluation Misc
+  config.only_eval = False  # Disables training, only evaluates the model
+  config.use_validation = True  # Whether to use a validation split
+  config.use_test = True  # Whether to use a test split
 
-  # * Step Counts. *
+  # Step Counts
   config.total_steps = 10_000
   config.log_training_steps = 100
   config.log_eval_steps = 1000
@@ -145,32 +139,3 @@ def get_config():
 
   config.args = {}
   return config
-
-def get_sweep(hyper):
-  """Sweeps over datasets."""
-  # Adapted the sweep over checkpoints from vit_l32_finetune.py.
-  checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-  use_jft = True  # whether to use JFT-300M or ImageNet-21K settings
-  sweep_lr = True  # whether to sweep over learning rates
-  acquisition_methods = ['uniform', 'entropy', 'margin', 'density']
-  if use_jft:
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
-    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
-    cifar10_sweep = hyper.product(cifar10_sweep)
-  else:
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
-    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
-    cifar10_sweep = hyper.product(cifar10_sweep)
-  if sweep_lr:
-    # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
-    checkpoints = [checkpoints[0]]
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='train[98%:]')
-    cifar10_sweep.append(
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
-    cifar10_sweep = hyper.product(cifar10_sweep)
-
-  return hyper.product([
-      cifar10_sweep,
-      hyper.sweep('config.model_init', checkpoints),
-      hyper.sweep('config.acquisition_method', acquisition_methods),
-  ])

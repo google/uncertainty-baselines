@@ -40,13 +40,6 @@ from . import metric_utils  # local file import
 from . import results_storage_utils  # local file import
 import wandb
 
-# Mapping from (model_type, vit_model_size, pretrain_dataset) to config.
-VIT_CONFIG_MAP = {
-    ('deterministic', 'B/16', 'imagenet21k'): vit_b16_i21k_config,
-    ('deterministic', 'B/16', None): vit_b16_no_pretrain_config,
-    ('sngp', 'B/16', 'imagenet21k'): sngp_vit_b16_i21k_config
-}
-
 
 def get_dataset_and_split_names(dist_shift):
   """Gets dataset and split names."""
@@ -103,15 +96,6 @@ def maybe_setup_wandb(config):
 def write_note(note):
   if jax.process_index() == 0:
     logging.info('NOTE: %s', note)
-
-
-def get_vit_config(model_type, vit_model_size, pretrain_dataset):
-  config_key = (model_type, vit_model_size, pretrain_dataset)
-  if config_key not in VIT_CONFIG_MAP:
-    raise NotImplementedError(f'No config found for key: {config_key}')
-
-  write_note(f'Retrieving ViT config with key: {config_key}')
-  return VIT_CONFIG_MAP[config_key]()
 
 
 # Utility functions.

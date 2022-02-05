@@ -40,7 +40,7 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
-from ml_collections.config_flags import config_flags
+import ml_collections.config_flags
 from scipy.stats import entropy
 
 # pylint: disable=g-import-not-at-top,line-too-long
@@ -55,7 +55,7 @@ from utils import vit_utils
 
 logging.info(tf.config.experimental.get_visible_devices())
 
-config_flags.DEFINE_config_file(
+ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 FLAGS = flags.FLAGS
 
@@ -99,10 +99,6 @@ def main(argv):
   # In a CPU/GPU runtime this will be a single device.
   # In a TPU runtime this will be 8 cores.
   print('Number of Jax local devices:', jax.local_devices())
-
-  # Get model config
-  config = vit_utils.get_vit_config(
-      'deterministic', config.vit_model_size, config.pretrain_dataset)
 
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'

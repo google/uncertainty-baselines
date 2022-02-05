@@ -66,7 +66,8 @@ def main(argv):
   config = FLAGS.config
 
   # Unpack total and warmup steps
-  total_steps, warmup_steps = config.total_and_warmup_steps
+  total_steps = config.total_and_warmup_steps[0]
+  warmup_steps = config.total_and_warmup_steps[1]
   del config.total_and_warmup_steps
   config.total_steps = total_steps
   config.lr.warmup_steps = warmup_steps

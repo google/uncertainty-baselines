@@ -49,7 +49,7 @@ def get_config():
   #   Kaggle/EyePACS in-domain datasets are unchanged.
   # 'severity': uses DiabeticRetinopathySeverityShift dataset, a subdivision
   #   of the Kaggle/EyePACS dataset to hold out clinical severity labels as OOD.
-  config.distribution_shift = ''
+  config.distribution_shift = 'aptos'
 
   # If provided, resume training and/or conduct evaluation using this
   #   checkpoint. Will only be used if the output_dir does not already
@@ -73,7 +73,7 @@ def get_config():
   config.num_classes = 2
 
   # REQUIRED: Specifies size of ViT backbone model. Options: {"B/16", "L/32"}.
-  config.vit_model_size = ''
+  config.vit_model_size = 'B/16'
 
   # pre-trained model ckpt file
   # !!!  The below section should be modified per experiment

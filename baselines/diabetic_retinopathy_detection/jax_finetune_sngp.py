@@ -55,7 +55,7 @@ from utils import vit_utils
 logging.info(tf.config.experimental.get_visible_devices())
 
 ml_collections.config_flags.DEFINE_config_file(
-    'config', None, 'Training configuration.', lock_config=True)
+    'config', None, 'Training configuration.', lock_config=False)
 
 FLAGS = flags.FLAGS
 
@@ -64,6 +64,12 @@ def main(argv):
   del argv  # unused arg
 
   config = FLAGS.config
+
+  # Unpack total and warmup steps
+  total_steps, warmup_steps = config.total_and_warmup_steps
+  del config.total_and_warmup_steps
+  config.total_steps = total_steps
+  config.lr.warmup_steps = warmup_steps
 
   # Wandb and Checkpointing Setup
   wandb_run, output_dir = vit_utils.maybe_setup_wandb(config)

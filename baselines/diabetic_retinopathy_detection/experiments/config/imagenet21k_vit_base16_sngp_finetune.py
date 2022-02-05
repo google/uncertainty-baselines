@@ -122,7 +122,6 @@ def get_config():
   config.grad_clip_norm = 1.0  # Gradient clipping threshold.
   config.weight_decay = None  # No explicit weight decay.
   config.lr.base = 0.0005
-  config.lr.warmup_steps = 500
   config.lr.decay_type = 'linear'
 
   # The dataset is imbalanced (e.g., in Country Shift, we have 19.6%, 18.8%,
@@ -139,7 +138,10 @@ def get_config():
   config.use_test = True  # Whether to use a test split
 
   # Step Counts
-  config.total_steps = 10_000
+
+  # Varied together for wandb sweep compatibility.
+  config.total_and_warmup_steps = (10_000, 500)
+
   config.log_training_steps = 100
   config.log_eval_steps = 1000
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.

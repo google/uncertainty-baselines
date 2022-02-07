@@ -302,9 +302,25 @@ def eval_ood_metrics(ood_ds,
                      ood_ds_names,
                      ood_methods,
                      evaluation_fn,
-                     opt_repl,
+                     opt_target_repl,
                      n_prefetch=1):
-  """Evaluate the model for OOD detection and record metrics."""
+  """Evaluate the model for OOD detection and record metrics.
+
+  Args:
+    ood_ds: A dictionary with dataset label as the key and dataset as the value.
+    ood_ds_names: List of strings of the in- and out-of-distribution datasets.
+      Generally corresponds to the keys of `ood_ds` but keeps a specific order
+      to satisfy dependency constraints across the metrics.
+    ood_methods: List of strings of the methods used for OOD detection.
+      The strings are in ['msp', 'entropy', 'maha', 'rmaha', 'mlogit'].
+    evaluation_fn: Function to evaluate the model with the parameters provided
+      in `opt_target_repl`.
+    opt_target_repl: The target of the replicated optmizer (`opt_repl.target`).
+    n_prefetch: Number of points to pre-fectch in the dataset iterators.
+
+  Returns:
+    Dictionary of measurements of the OOD detection tasks.
+  """
   # MSP stands for maximum softmax probability, max(softmax(logits)).
   # MSP can be used as confidence score.
   # Maha stands for Mahalanobis distance between the test input and
@@ -338,7 +354,7 @@ def eval_ood_metrics(ood_ds,
     for batch in val_iter:
       batch_scores = {}
       batch_ncorrect, batch_losses, batch_n, batch_metric_args = evaluation_fn(
-          opt_repl.target, batch['image'], batch['labels'], batch['mask'])
+          opt_target_repl, batch['image'], batch['labels'], batch['mask'])
       ncorrect += np.sum(np.array(batch_ncorrect[0]))
       loss += np.sum(np.array(batch_losses[0]))
       nseen += np.sum(np.array(batch_n[0]))

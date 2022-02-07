@@ -652,7 +652,7 @@ def main(_):
             ood_ds_names,
             config.ood_methods,
             evaluation_fn,
-            opt_repl,
+            opt_repl.target,
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
       chrono.resume()

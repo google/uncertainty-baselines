@@ -757,7 +757,7 @@ def main(argv):
             ood_ds_names,
             config.ood_methods,
             make_sngp_eval_fn(states_repl),
-            opt_repl,
+            opt_repl.target,
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
 

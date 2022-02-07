@@ -29,23 +29,10 @@ import numpy as np
 
 import uncertainty_baselines as ub
 import input_utils  # local file import from baselines.diabetic_retinopathy_detection
-from experiments.config.drd_vit_base16 import (
-    get_config as vit_b16_no_pretrain_config)
-from experiments.config.imagenet21k_vit_base16_finetune import (
-    get_config as vit_b16_i21k_config)
-from experiments.config.imagenet21k_vit_base16_sngp_finetune import (
-    get_config as sngp_vit_b16_i21k_config)
 from . import eval_utils  # local file import
 from . import metric_utils  # local file import
 from . import results_storage_utils  # local file import
 import wandb
-
-# Mapping from (model_type, vit_model_size, pretrain_dataset) to config.
-VIT_CONFIG_MAP = {
-    ('deterministic', 'B/16', 'imagenet21k'): vit_b16_i21k_config,
-    ('deterministic', 'B/16', None): vit_b16_no_pretrain_config,
-    ('sngp', 'B/16', 'imagenet21k'): sngp_vit_b16_i21k_config
-}
 
 
 def get_dataset_and_split_names(dist_shift):
@@ -77,25 +64,25 @@ def get_dataset_and_split_names(dist_shift):
   return dataset_names, split_names
 
 
-def maybe_setup_wandb(flags):
+def maybe_setup_wandb(config):
   """Potentially setup wandb."""
-  if flags.use_wandb:
-    pathlib.Path(flags.wandb_dir).mkdir(parents=True, exist_ok=True)
+  if config.use_wandb:
+    pathlib.Path(config.wandb_dir).mkdir(parents=True, exist_ok=True)
     wandb_args = dict(
-        project=flags.project,
+        project=config.project,
         entity='uncertainty-baselines',
-        dir=flags.wandb_dir,
+        dir=config.wandb_dir,
         reinit=True,
-        name=flags.exp_name,
-        group=flags.exp_group)
+        name=config.exp_name,
+        group=config.exp_group)
     wandb_run = wandb.init(**wandb_args)
-    wandb.config.update(flags, allow_val_change=True)
+    wandb.config.update(config, allow_val_change=True)
     output_dir = str(os.path.join(
-        flags.output_dir,
+        config.output_dir,
         datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
   else:
     wandb_run = None
-    output_dir = flags.output_dir
+    output_dir = config.output_dir
 
   return wandb_run, output_dir
 
@@ -103,15 +90,6 @@ def maybe_setup_wandb(flags):
 def write_note(note):
   if jax.process_index() == 0:
     logging.info('NOTE: %s', note)
-
-
-def get_vit_config(model_type, vit_model_size, pretrain_dataset):
-  config_key = (model_type, vit_model_size, pretrain_dataset)
-  if config_key not in VIT_CONFIG_MAP:
-    raise NotImplementedError(f'No config found for key: {config_key}')
-
-  write_note(f'Retrieving ViT config with key: {config_key}')
-  return VIT_CONFIG_MAP[config_key]()
 
 
 # Utility functions.

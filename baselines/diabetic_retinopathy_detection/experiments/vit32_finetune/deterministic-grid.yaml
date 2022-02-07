@@ -18,12 +18,12 @@ parameters:
   config.use_wandb:
     value: True
   config.batch_size:
-    values: [512]
+    values: [128]
   config.total_and_warmup_steps:
-    values: ["(5_000, 250)", "(10_000, 500)", "(15_000, 750)", "(20_000, 1000)"]
+    values: ["(10_000, 500)", "(15_000, 750)", "(20_000, 1000)", "(25_000, 1250)"]
   config.lr.base:
-    values: [0.03, 0.01, 0.003, 0.001]
+    values: [0.05, 0.03, 0.01, 0.005]
   config.lr.decay_type:
     values: ['cosine', 'linear']
   config.seed:
-    values: [0, 1, 2, 3, 4]
+    values: [0]

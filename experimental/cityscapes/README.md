@@ -8,6 +8,6 @@
 [x] add pavpu metric. <br />
 [x] calculate uncertainty metrics. <br />
 
-[x] Add run with vit l-32 backbone.<br />
-
+[x] add run with vit l-32 backbone: run_l32_splits_vm.sh <br /> 
+[x] add eval for vit l-32 models: run_deterministic_eval_l32.sh <br />
 

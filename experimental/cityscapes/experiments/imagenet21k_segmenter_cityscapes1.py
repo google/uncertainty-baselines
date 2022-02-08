@@ -23,16 +23,16 @@ import ml_collections
 #import get_fewshot  # local file import
 
 _CITYSCAPES_TRAIN_SIZE = 2975
-DEBUG = 5
+DEBUG = 1
 STRIDE = 4
 
 target_size=(128, 128)
-
+train_split='train'
 # debug on mac
 if DEBUG == 1:
   batch_size = 1
-  number_train_examples_debug = 10
-  number_eval_examples_debug = 10
+  number_train_examples_debug = 29
+  number_eval_examples_debug = 29
   num_training_epochs = 1 # ml_collections.FieldReference(100)
   log_eval_steps = 1
 
@@ -41,6 +41,7 @@ if DEBUG == 1:
   num_layers = 1
   hidden_size = 1
 # debug on v3-8: 1 epoch/16 samples/small vit
+  train_split='train[:1%]'
 elif DEBUG == 2:
   batch_size=8
   number_train_examples_debug = 16
@@ -102,10 +103,10 @@ def get_config():
   config.dataset_name = 'cityscapes'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
-  config.dataset_configs.train_split='train'
+  config.dataset_configs.train_split=train_split
   # flags to debug scenic on mac
   config.dataset_configs.number_train_examples_debug = number_train_examples_debug
-  config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
+  #config.dataset_configs.number_eval_examples_debug = number_train_examples_debug
 
   # config following scenic
   config.num_classes = 19
@@ -143,6 +144,7 @@ def get_config():
   steps_per_epoch = number_train_examples_debug // config.batch_size
 
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
+  config.steps_per_epoch = steps_per_epoch
   config.lr_configs = ml_collections.ConfigDict()
   config.lr_configs.learning_rate_schedule = 'compound'
   config.lr_configs.factors = 'constant' # * cosine_decay * linear_warmup'

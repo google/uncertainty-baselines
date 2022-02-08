@@ -10,4 +10,6 @@
 
 [x] Add run with vit l-32 backbone.<br />
 
+[] Eval ensemble of vit models. <br />
+
 

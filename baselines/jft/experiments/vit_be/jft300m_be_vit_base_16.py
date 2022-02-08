@@ -67,7 +67,7 @@ def get_config():
   config.optim_name = 'Adam'
   config.optim = ml_collections.ConfigDict(dict(beta1=0.9, beta2=0.999))
   config.weight_decay = 0.1
-  config.clip_grad_norm = None
+  config.grad_clip_norm = None
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 8e-4  # LR likely has to be lower for larger models!

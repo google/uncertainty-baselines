@@ -72,7 +72,7 @@ def get_config():
   # to original BE and ghassen's BE ViT code.
   # config.weight_decay = [0.1]
   # config.weight_decay_pattern = [".*/kernel"]  # Does not decay fast-weights.
-  config.clip_grad_norm = None
+  config.grad_clip_norm = None
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 1e-3  # LR likely has to be lower for larger models!

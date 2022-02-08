@@ -70,7 +70,7 @@ def get_config():
   # TODO(trandustin): Ablate difference with config.weight_decay vs
   # config.optim.weight_decay.
   config.weight_decay = 0.1
-  config.clip_grad_norm = None
+  config.grad_clip_norm = None
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 6e-4  # LR likely has to be lower for larger models!

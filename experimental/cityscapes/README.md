@@ -11,3 +11,9 @@
 [x] add run with vit l-32 backbone: run_l32_splits_vm.sh <br /> 
 [x] add eval for vit l-32 models: run_deterministic_eval_l32.sh <br />
 
+Under development (no tpu compatibility)
+[x] add run to train ensemble models: run_ensemble.sh <br />
+[] Eval ensemble models: run_ensemble_eval <br />
+[] wandb integration . <br />
+
+

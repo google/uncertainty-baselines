@@ -7,7 +7,7 @@
 if [ "$(uname)" = "Darwin" ] ; then
   # Do something under Mac OS X platform
   config_file='experiments/imagenet21k_segmenter_cityscapes1.py'
-  config_file='experiments/splits_l32/imagenet21k_segmenter_cityscapes_deterministic_10.py'
+  #config_file='experiments/splits_l32/imagenet21k_segmenter_cityscapes_deterministic_10.py'
   #config_file='experiments/splits/imagenet21k_segmenter_cityscapes_deterministic_10.py'
 
   output_dir="/Users/ekellbuch/Projects/ood_segmentation/ub_ekb/experimental/cityscapes/outputs"

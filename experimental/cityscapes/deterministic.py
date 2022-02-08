@@ -131,14 +131,16 @@ def main(config, output_dir):
 
   # Wandb Setup
   if config.use_wandb:
-      pathlib.Path(config.wandb_dir).mkdir(parents=True, exist_ok=True)
+      #pathlib.Path(config.wandb_dir).mkdir(parents=True, exist_ok=True)
+      gfile.makedirs(config.wandb_dir)
       wandb_args = dict(
           project=config.wandb_project,
           entity='ub_rdl_big_paper',
           dir=config.wandb_dir,
           reinit=True,
           name=config.wandb_exp_name,
-          group=config.wandb_exp_group)
+          group=config.wandb_exp_group,
+          sync_tensorboard=True)
       wandb_run = wandb.init(**wandb_args)
       wandb.config.update(FLAGS, allow_val_change=True)
       output_dir = str(
@@ -162,11 +164,6 @@ def main(config, output_dir):
                                                       workdir=output_dir, writer=summary_writer)
 
   print(train_summary)
-  #import pdb; pdb.set_trace()
-  if config.use_wandb:
-      epoch = int(train_state.global_step)
-      wandb.log(train_summary, step=epoch)
-      wandb.log(eval_summary, step=epoch)
 
   if wandb_run is not None:
     wandb_run.finish()

@@ -39,6 +39,10 @@ from scenic.train_lib import train_utils
 
 # import train_utils  # local file import
 
+import wandb
+import pathlib
+import datetime
+
 #%%
 config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
@@ -125,6 +129,25 @@ def main(config, output_dir):
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
+  # Wandb Setup
+  if config.use_wandb:
+      pathlib.Path(config.wandb_dir).mkdir(parents=True, exist_ok=True)
+      wandb_args = dict(
+          project=config.wandb_project,
+          entity='ub_rdl_big_paper',
+          dir=config.wandb_dir,
+          reinit=True,
+          name=config.wandb_exp_name,
+          group=config.wandb_exp_group)
+      wandb_run = wandb.init(**wandb_args)
+      wandb.config.update(FLAGS, allow_val_change=True)
+      output_dir = str(
+          os.path.join(output_dir,
+                       datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
+  else:
+      wandb_run = None
+      #output_dir = FLAGS.output_dir
+
   print('workdir ', output_dir)
   rng, model_cls, dataset, config, workdir, summary_writer = run(config, output_dir)
   print('workdir ', workdir)
@@ -139,6 +162,14 @@ def main(config, output_dir):
                                                       workdir=output_dir, writer=summary_writer)
 
   print(train_summary)
+  #import pdb; pdb.set_trace()
+  if config.use_wandb:
+      epoch = int(train_state.global_step)
+      wandb.log(train_summary, step=epoch)
+      wandb.log(eval_summary, step=epoch)
+
+  if wandb_run is not None:
+    wandb_run.finish()
   return
 
 

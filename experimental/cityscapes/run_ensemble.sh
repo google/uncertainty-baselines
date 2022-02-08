@@ -13,20 +13,27 @@ declare CITYSCAPES_TRAIN_SIZE=(
   ["100"]="2975"
   )
 
+# Debug on Mac OS X platform
+use_gpu=False
 if [ "$(uname)" = "Darwin" ] ; then
-  # Do something under Mac OS X platform
-for split in 1
+tpu=False
+num_cores=0
+batch_size=1
+elif [ "$(uname)" = "Linux" ]; then
+tpu='local'
+num_cores=8
+batch_size=8
+fi
+
+for split in 10
 do
 for model_type in "scratch"
 #for model_type in "deterministic"
 do
-for rng_seed in 0 1 2
+for rng_seed in 0 # 1 2
 do
-  config_file="experiments/imagenet21k_segmenter_cityscapes2.py"
+  config_file="experiments/imagenet21k_segmenter_cityscapes3.py"
   output_dir="${base_output_dir}/${model_type}_split${split}_seed${rng_seed}"
-  num_cores=0
-  tpu=False
-  use_gpu=False
   train_split="train[:${split}%]"
   num_train_examples=${CITYSCAPES_TRAIN_SIZE[$split]}
   python deterministic.py \
@@ -37,23 +44,10 @@ do
   --config.rng_seed=${rng_seed}  \
   --config.dataset_configs.train_split=${train_split} \
   --config.dataset_configs.number_train_examples_debug=${num_train_examples} \
-  #--config.batch_size=8 \
+  --config.batch_size=${batch_size} \
+  --tpu=${tpu} \
   #--config.upstream_model=${model_type} \
-  #
 
 done
 done
 done
-elif [ "$(uname)" = "Linux" ]; then
-  echo "in Linux"
-  config_file='experiments/imagenet21k_segmenter_cityscapes1.py'
-  output_dir="/home/ekellbuch/ub_ekb/experimental/cityscapes/outputs13"
-  num_cores=8
-  tpu='local'
-  use_gpu=False
-  python3 deterministic.py --output_dir=${output_dir} \
-  --num_cores=$num_cores \
-  --use_gpu=$use_gpu \
-  --config=${config_file} \
-  --tpu=$tpu
-fi

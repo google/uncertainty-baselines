@@ -13,7 +13,8 @@
 
 Under development (no tpu compatibility)
 [x] add run to train ensemble models: run_ensemble.sh <br />
+[x] wandb integration: run_ensemble.sh (limited to final step logging) <br />
+
 [] Eval ensemble models: run_ensemble_eval <br />
-[] wandb integration . <br />
 
 

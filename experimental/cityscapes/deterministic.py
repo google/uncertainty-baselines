@@ -15,10 +15,7 @@
 
 """
 Train vit model on cityscapes.
-
-Step 1: aim to train model on cityscapes for 1 step
-# Runs with
-
+See run_pretrained.sh for an example
 """
 
 import os

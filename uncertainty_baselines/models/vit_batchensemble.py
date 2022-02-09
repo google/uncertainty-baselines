@@ -221,11 +221,9 @@ class PatchTransformerBE(nn.Module):
   """Patch transformer with BE layers in the encoder.
 
   You must specify either the vertical and horizontal resolution of the patches
-  (patch_size), or the number of vertical and horizontal divisions of the input
-  image (patch_grid).
+  (patch_size).
   """
-  patch_size: Optional[Tuple[int, int]] = None
-  patch_grid: Optional[Tuple[int, int]] = None
+  patches: Any
   num_classes: int = 1000
   train: Optional[bool] = None
   hidden_size: int = 1024
@@ -311,18 +309,10 @@ class PatchTransformerBE(nn.Module):
 
     return flax.core.freeze(restored_params)
 
-  def patches(self,
-              images: jnp.ndarray,
-              hidden_size: int,
-              patch_size: Optional[Tuple[int, int]] = None,
-              patch_grid: Optional[Tuple[int, int]] = None) -> jnp.ndarray:
-    n, h, w, _ = images.shape
-    if patch_size is None == patch_grid is None:
-      raise ValueError(
-          "You must specify either patch_size or patch_grid, and not both "
-          f"(patch_size = {patch_size}, patch_grid = {patch_grid})")
-    elif patch_size is None:
-      patch_size = (h // patch_grid[0], w // patch_grid[1])
+  def embed(self,
+            images: jnp.ndarray,
+            hidden_size: int,
+            patch_size: Tuple[int, int]) -> jnp.ndarray:
     x = nn.Conv(
         hidden_size,
         patch_size,
@@ -330,14 +320,16 @@ class PatchTransformerBE(nn.Module):
         padding="VALID",
         name="embedding")(
             images)
-    return jnp.reshape(x, [n, -1, hidden_size])
+    n, h, w, c = x.shape
+    x = jnp.reshape(x, [n, h * w, c])
+    return x
 
   @nn.compact
   def __call__(self, images: jnp.ndarray, train: Optional[bool] = None):
     train = nn.module.merge_param("train", self.train, train)
     transformer = self.transformer or {}
     # Convert images to patches.
-    x = self.patches(images, self.hidden_size, self.patch_size, self.patch_grid)
+    x = self.embed(images, self.hidden_size, self.patches.size)
     # Add "class" token if necessary.
     n, _, c = x.shape
     if self.classifier == "token":

@@ -375,11 +375,6 @@ def _get_batchensemble_params():
   config.model.transformer.ens_size = 3
   config.model.transformer.be_layers = (0,)
   config.model.transformer.random_sign_init = .5
-  del config.model.patches
-  config.model.patch_size = (
-      16,
-      16,
-  )
   model = ub.models.vit_batchensemble.PatchTransformerBE(
       num_classes=config.num_classes, **config.model)
   return _init_model(key, model)

@@ -90,7 +90,8 @@ def get_config():
   config.model_init = '/path/to/pretrained_model_ckpt.npz'
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
-  config.model.patch_size = [16, 16]
+  config.model.patches = ml_collections.ConfigDict()
+  config.model.patches.size = [16, 16]
   config.model.hidden_size = 768
   config.model.transformer = ml_collections.ConfigDict()
   config.model.transformer.attention_dropout_rate = 0.

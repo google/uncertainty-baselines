@@ -24,7 +24,7 @@ import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
-  """Config for training on JFT300M. Batch size 4096 fits on DF4x4."""
+  """Config."""
   config = ml_collections.ConfigDict()
 
   config.seed = 0
@@ -47,7 +47,8 @@ def get_config():
 
   # Model parameters.
   config.model = ml_collections.ConfigDict()
-  config.model.patch_size = (32, 32)
+  config.model.patches = ml_collections.ConfigDict()
+  config.model.patches.size = [32, 32]
   config.model.hidden_size = 1024
   config.model.representation_size = 1024
   config.model.classifier = 'token'

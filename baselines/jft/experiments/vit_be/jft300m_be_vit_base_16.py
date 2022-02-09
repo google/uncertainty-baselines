@@ -46,7 +46,8 @@ def get_config():
 
   # Model parameters.
   config.model = ml_collections.ConfigDict()
-  config.model.patch_size = (16, 16)
+  config.model.patches = ml_collections.ConfigDict()
+  config.model.patches.size = [16, 16]
   config.model.hidden_size = 768
   config.model.representation_size = 768
   config.model.classifier = 'token'

@@ -69,7 +69,8 @@ def get_config():
 
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
-  config.model.patch_size = [32, 32]
+  config.model.patches = ml_collections.ConfigDict()
+  config.model.patches.size = [32, 32]
   config.model.hidden_size = 1024
   config.model.transformer = ml_collections.ConfigDict()
   config.model.transformer.attention_dropout_rate = 0.

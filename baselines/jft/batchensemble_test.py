@@ -36,7 +36,7 @@ FLAGS = flags.FLAGS
 
 
 def get_config(classifier, representation_size):
-  """Config for training a patch-transformer on JFT."""
+  """Config."""
   config = ml_collections.ConfigDict()
   config.seed = 0
 
@@ -82,7 +82,8 @@ def get_config(classifier, representation_size):
 
   # Model section
   config.model = ml_collections.ConfigDict()
-  config.model.patch_size = (16, 16)
+  config.model.patches = ml_collections.ConfigDict()
+  config.model.patches.size = [16, 16]
   config.model.hidden_size = 4
   config.model.transformer = ml_collections.ConfigDict()
   config.model.transformer.attention_dropout_rate = 0.

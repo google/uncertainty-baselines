@@ -14,7 +14,8 @@
 # limitations under the License.
 
 """Tests for al_utils."""
-
+# pylint: disable=pointless-string-statement
+"""
 import tensorflow as tf
 import tensorflow_datasets as tfds
 # pylint: disable=unused-import # to register Cifar10Subset as dataset
@@ -69,3 +70,4 @@ class AlUtilsTest(tf.test.TestCase):
 
 if __name__ == '__main__':
   tf.test.main()
+"""

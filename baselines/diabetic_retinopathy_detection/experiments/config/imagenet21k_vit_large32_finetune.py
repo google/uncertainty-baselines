@@ -111,7 +111,7 @@ def get_config():
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
   config.lr = ml_collections.ConfigDict()
   config.grad_clip_norm = 1.0  # Gradient clipping threshold.
-  config.weight_decay = None  # No explicit weight decay.
+  config.weight_decay = 0  # No explicit weight decay.
   config.lr.base = 0.003
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'linear'

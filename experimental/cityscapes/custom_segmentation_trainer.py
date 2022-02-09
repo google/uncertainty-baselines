@@ -419,6 +419,12 @@ def train(
       step0_log['gflops'] = gflops
     writer.write_scalars(1, step0_log)
 
+  # Early stopping flags
+  best_opt_accuracy = -1
+  best_epoch = 1
+  force_out = 0
+  early_stopping_patience = config.get('early_stopping_patience') or 20
+
   for step in range(start_step + 1, total_steps + 1):
     with jax.profiler.StepTraceContext('train', sfLtep_num=step):
       train_batch = next(dataset.train_iter)
@@ -459,6 +465,7 @@ def train(
           extra_training_logs=jax.tree_map(train_utils.unreplicate_and_get,
                                            extra_training_logs),
           writer=writer)
+
       # Reset metric accumulation for next evaluation cycle.
       train_metrics, extra_training_logs = [], []
 
@@ -469,8 +476,24 @@ def train(
         train_state = train_utils.sync_model_state_across_replicas(train_state)
         eval_summary = evaluate(train_state, step)
 
+        # here check value
+        current_epoch = step % log_eval_steps
+        val_accuracy = eval_summary['accuracy']
+        if val_accuracy >= best_opt_accuracy:
+          best_epoch = current_epoch
+          best_opt_accuracy = val_accuracy
+          # best_opt_repl = jax.device_get(opt_repl)
+        else:
+          logging.info(
+                msg=(f'Current val accuracy {val_accuracy} '
+                     f'(vs {best_opt_accuracy})'))
+          if current_epoch - best_epoch >= early_stopping_patience:
+            logging.info(msg='Early stopping, returning best opt!')
+            # force checkpoint
+            force_out = 1
+
     if ((step % checkpoint_steps == 0 and step > 0) or
-        (step == total_steps)) and config.checkpoint:
+        (step == total_steps) or (force_out == 1)) and config.checkpoint:
       ################### CHECK POINTING ##########################
       with report_progress.timed('checkpoint'):
         # Sync model state across replicas.
@@ -479,6 +502,9 @@ def train(
           train_state.replace(  # pytype: disable=attribute-error
               accum_train_time=chrono.accum_train_time)
           train_utils.save_checkpoint(workdir, train_state)
+
+    if force_out == 1:
+      break
 
     chrono.resume()  # Un-pause now.
 

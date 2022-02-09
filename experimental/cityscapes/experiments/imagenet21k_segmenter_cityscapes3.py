@@ -122,6 +122,7 @@ def get_config():
   config.wandb_exp_name = None  # Give experiment a name.
   config.wandb_exp_group = None  # Give experiment a group name.
 
+  config.early_stopping_patience = 3  # number of epochs to wait before stopping training
   return config
 
 

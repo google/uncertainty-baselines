@@ -49,7 +49,6 @@ def cifar10(hyper, size=384, steps=10_000, warmup=500):
   config.dataset = name
   config.train_split = 'train[:98%]'
   config.pp_train = pp_train
-  # TODO(trandustin): Add support for multiple validation splits.
   config.val_split = 'train[98%:]'
   config.test_split = 'test'
   config.pp_eval = pp_eval
@@ -98,7 +97,6 @@ def cifar100(hyper, size=384, steps=10_000, warmup=500):
   config.dataset = name
   config.train_split = 'train[:98%]'
   config.pp_train = pp_train
-  # TODO(trandustin): Add ability to support multiple validation splits.
   config.val_split = 'train[98%:]'
   config.test_split = 'test'
   config.pp_eval = pp_eval
@@ -144,7 +142,6 @@ def imagenet(hyper, size=384, steps=20_000, warmup=500, include_ood_maha=False):
   config.dataset = name
   config.train_split = 'train[:99%]'
   config.pp_train = pp_train
-  # TODO(trandustin): Add ability to support multiple validation splits.
   config.val_split = 'train[99%:]'
   config.test_split = 'validation'
   config.pp_eval = pp_eval

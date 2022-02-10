@@ -1,8 +1,30 @@
 #!/bin/bash
 
-# Run deterministic
+# debug for run_ensemble
+# train segmenter model on cityscapes using different pretrained backbones for different splits
 
-base_output_dir="outputs/ensemble"
+# debug for model
+DEBUG=1
+
+
+function get_config()
+{
+  #local config_file_name="experiments/splits_l32/imagenet21k_segmenter_cityscapes_$1.py"
+  local config_file_name="experiments/imagenet21k_segmenter_cityscapes3.py"
+
+  echo "$config_file_name"
+}
+
+function get_pretrained_backbone_path()
+{
+  local checkpoint_path="gs://ub-checkpoints/ImageNet21k_ViT-L32/$1/checkpoint.npz"
+  echo "$checkpoint_path"
+}
+
+# base_output_dir="outputs/ensemble"
+
+#base_output_dir="gs://ub-ekb/segmenter/cityscapes/run_splits_vitl32/checkpoints"
+base_output_dir='gs://ub-ekb/segmenter/cityscapes/run_splits_debug/checkpoints'
 
 declare CITYSCAPES_TRAIN_SIZE=(
   ["1"]="29"
@@ -24,16 +46,20 @@ tpu='local'
 num_cores=8
 batch_size=8
 fi
-
-for split in 10
+for num_training_epochs in 5 #30 50 150
 do
-for model_type in "scratch"
-#for model_type in "deterministic"
+for lr in "0.0001" # "0.03" "0.01" "0.003" "0.001"
 do
-for rng_seed in 0 # 1 2
+for rng_seed in 1
 do
-  config_file="experiments/imagenet21k_segmenter_cityscapes3.py"
-  output_dir="${base_output_dir}/${model_type}_split${split}_seed${rng_seed}"
+for model_type in "deterministic"
+do
+for split in 1
+do
+  config_file=$(get_config $model_type)
+  learning_rate=$( echo "$lr" | bc )
+  run_name="${model_type}_split${split}_seed${rng_seed}_lr${learning_rate}_step${num_training_epochs}"
+  output_dir="${base_output_dir}/${run_name}"
   train_split="train[:${split}%]"
   num_train_examples=${CITYSCAPES_TRAIN_SIZE[$split]}
   python deterministic.py \
@@ -46,8 +72,13 @@ do
   --config.dataset_configs.number_train_examples_debug=${num_train_examples} \
   --config.batch_size=${batch_size} \
   --tpu=${tpu} \
+	--config.lr_configs.base_learning_rate=${learning_rate} \
+	--config.num_training_epochs=${num_training_epochs} \
   #--config.upstream_model=${model_type} \
+  #	--config.pretrained_backbone_configs.checkpoint_path=${pretrained_backbone} \
 
+done
+done
 done
 done
 done

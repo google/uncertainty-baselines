@@ -41,7 +41,7 @@ for num_training_epochs in 50 #30 50 150
 do
 for lr in "0.0001" # "0.03" "0.01" "0.003" "0.001"
 do
-for rng_seed in 0 # 1 2
+for rng_seed in 0 1 2
 do
 for model_type in "deterministic"
 do

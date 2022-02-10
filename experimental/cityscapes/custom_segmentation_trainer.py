@@ -422,6 +422,7 @@ def train(
   # Early stopping flags
   best_opt_accuracy = -1
   best_epoch = 1
+  current_epoch=1
   force_out = 0
   early_stopping_patience = config.get('early_stopping_patience') or 20
 
@@ -444,6 +445,7 @@ def train(
     for h in hooks:
       h(step)
     chrono.pause()  # Below are once-in-a-while ops -> pause.
+
     if step % log_summary_steps == 0 or (step == total_steps):
       ############### LOG TRAIN SUMMARY ###############
       if lead_host:
@@ -477,7 +479,7 @@ def train(
         eval_summary = evaluate(train_state, step)
 
         # here check value
-        current_epoch = step % log_eval_steps
+        #current_epoch = int(step // log_eval_steps)
         val_accuracy = eval_summary['accuracy']
         if val_accuracy >= best_opt_accuracy:
           best_epoch = current_epoch
@@ -491,6 +493,7 @@ def train(
             logging.info(msg='Early stopping, returning best opt!')
             # force checkpoint
             force_out = 1
+        current_epoch+=1
 
     if ((step % checkpoint_steps == 0 and step > 0) or
         (step == total_steps) or (force_out == 1)) and config.checkpoint:
@@ -504,6 +507,7 @@ def train(
           train_utils.save_checkpoint(workdir, train_state)
 
     if force_out == 1:
+      # flag turned on due to early stopping
       break
 
     chrono.resume()  # Un-pause now.

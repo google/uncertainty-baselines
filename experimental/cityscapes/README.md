@@ -18,3 +18,12 @@ Under development (no tpu compatibility)
 [] Eval ensemble models: run_ensemble_eval <br />
 
 
+Code to run
+[] Vanilla deterministic upstream + deterministic downstream.  <br />
+[] Ensemble (ensemble upstream + ensemble downstream).  <br />
+[] Ensemble (ensemble upstream + deterministic downstream).  <br />
+[] Ensemble (BatchEnsemble upstream + deterministic downstream). <br />
+
+
+Debug code
+[] Run ensemble models:

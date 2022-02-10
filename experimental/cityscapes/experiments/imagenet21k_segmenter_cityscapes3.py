@@ -107,7 +107,7 @@ def get_config():
   #logging
   config.write_summary = True  # write TB and/or XM summary
   config.write_xm_measurements = True  # write XM measurements
-  #config.xprof = False  # Profile using xprof
+  config.xprof = False  # Profile using xprof
   config.checkpoint = True  # do checkpointing
   config.checkpoint_steps = 5 * config.get_ref('steps_per_epoch')
 

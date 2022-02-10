@@ -129,7 +129,7 @@ class Resize:
   def __call__(self, features: Features) -> Features:
     image = features[self.key]
     resize_size = _maybe_repeat(self.resize_size, 2)
-    resized_image = tf.cast(tf.image.resize(image, resize_size), image.dtype)
+    resized_image = tf.cast(tf.image.resize(image, resize_size), image.dtype)  # pytype: disable=attribute-error
     features[self.key_result or self.key] = resized_image
     return features
 
@@ -204,7 +204,7 @@ class InceptionCrop:
     crop = tf.slice(image, begin, size)
     # Unfortunately, the above operation loses the depth-dimension. So we need
     # to restore it the manual way.
-    crop.set_shape([None, None, image.shape[-1]])
+    crop.set_shape([None, None, image.shape[-1]])  # pytype: disable=attribute-error
     if self.resize_size:
       crop = Resize([self.resize_size, self.resize_size])({
           "image": crop
@@ -292,7 +292,7 @@ class RandomCrop:
     rng = features[self.rng_key]
     crop_size = _maybe_repeat(self.crop_size, 2)
     cropped_image = tf.image.stateless_random_crop(
-        image, [crop_size[0], crop_size[1], image.shape[-1]], seed=rng)
+        image, [crop_size[0], crop_size[1], image.shape[-1]], seed=rng)  # pytype: disable=attribute-error
     features[self.key_result or self.key] = cropped_image
     return features
 
@@ -412,7 +412,7 @@ class Onehot:
     # When there's more than one label, this is significantly more efficient
     # than using tf.one_hot followed by tf.reduce_max; we tested.
     labels = features[self.key]
-    if labels.shape.rank > 0 and self.multi:
+    if labels.shape.rank > 0 and self.multi:  # pytype: disable=attribute-error
       x = tf.scatter_nd(labels[:, None], tf.ones(tf.shape(labels)[0]),
                         (self.depth,))
       x = tf.clip_by_value(x, 0, 1) * (self.on - self.off) + self.off

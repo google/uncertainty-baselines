@@ -21,6 +21,9 @@ include wandb parameters
 # pylint: enable=line-too-long
 
 import ml_collections
+import os.path
+import datetime
+
 #import get_fewshot  # local file import
 
 _CITYSCAPES_TRAIN_SIZE = 2975
@@ -116,10 +119,14 @@ def get_config():
   config.log_eval_steps = 1 * config.get_ref('steps_per_epoch')
 
   # wabdb
-  config.use_wandb=True
-  config.wandb_dir= 'wandb'
+  config.use_wandb =True
+  config.wandb_dir = 'wandb'
   config.wandb_project = 'rdl-visual'  # Wandb project name.
-  config.wandb_exp_name = None  # Give experiment a name.
+  config.wandb_entity = 'ub_rdl_big_paper'
+  #config.wandb_exp_name = None  # Give experiment a name.
+  config.wandb_exp_name = (
+      os.path.splitext(os.path.basename(__file__))[0] + '_' +
+      datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   config.wandb_exp_group = None  # Give experiment a group name.
 
   config.early_stopping_patience = 3  # number of epochs to wait before stopping training

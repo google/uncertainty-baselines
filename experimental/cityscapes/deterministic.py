@@ -135,7 +135,7 @@ def main(config, output_dir):
       gfile.makedirs(config.wandb_dir)
       wandb_args = dict(
           project=config.wandb_project,
-          entity='ub_rdl_big_paper',
+          entity=config.get('wandb_entity', 'ub_rdl_big_paper'),
           dir=config.wandb_dir,
           reinit=True,
           name=config.wandb_exp_name,
@@ -145,7 +145,8 @@ def main(config, output_dir):
       wandb.config.update(FLAGS, allow_val_change=True)
       output_dir = str(
           os.path.join(output_dir,
-                       datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')))
+                       config.wandb_exp_name
+                       ))
   else:
       wandb_run = None
       #output_dir = FLAGS.output_dir

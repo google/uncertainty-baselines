@@ -1,0 +1,43 @@
+name: vit-imagenet21k_segmenter_deterministic
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+  config.rng_seed:
+    values: [0, 1, 2, 3]
+  config.dataset_configs.train_split:
+    value: train
+  config.dataset_configs.number_train_examples_debug:
+    value: 2975
+  config.lr_configs.base_learning_rate:
+    values: [0.0001, 0.003, 0.01, 0.001]
+  config.batch_size:
+    value: 8
+  config.num_training_epochs:
+    values: [50, 100, 30, 75]
+
+
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "experiments/sweep_vit32/imagenet21k_segmenter_cityscapes_deterministic.py"
+  - "--output_dir"
+  - "gs://ub-ekb/segmenter/cityscapes/run_vitl32_split100/checkpoints"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

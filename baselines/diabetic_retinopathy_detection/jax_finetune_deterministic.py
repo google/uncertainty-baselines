@@ -71,7 +71,7 @@ def main(argv):
 
   # Wandb and Checkpointing Setup
   output_dir = FLAGS.output_dir
-  wandb_run, output_dir = vit_utils.maybe_setup_wandb(FLAGS)
+  wandb_run, output_dir = vit_utils.maybe_setup_wandb(config)
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
 

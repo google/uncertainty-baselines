@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -74,7 +74,9 @@ class _GlueDataset(base.BaseDataset):
       num_parallel_parser_calls: int = 64,
       try_gcs: bool = False,
       download_data: bool = False,
-      is_training: Optional[bool] = None):
+      data_dir: Optional[str] = None,
+      is_training: Optional[bool] = None,
+  ):
     """Create a GLUE tf.data.Dataset builder.
 
     Args:
@@ -90,12 +92,15 @@ class _GlueDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
+      data_dir: Directory to read/write data, that is passed to the
+              tfds dataset_builder as a data_dir parameter.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
     """
     tfds_name = 'glue/' + name
-    dataset_builder = tfds.builder(tfds_name, try_gcs=try_gcs)
+    dataset_builder = tfds.builder(
+        tfds_name, try_gcs=try_gcs, data_dir=data_dir)
     super().__init__(
         name=tfds_name,
         dataset_builder=dataset_builder,

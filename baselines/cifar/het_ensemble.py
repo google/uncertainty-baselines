@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.cifar
 
 flags.DEFINE_string('checkpoint_dir', None,
                     'The directory where the model weights are stored.')
@@ -74,9 +74,11 @@ def main(argv):
   steps_per_eval = ds_info.splits['test'].num_examples // batch_size
   num_classes = ds_info.features['label'].num_classes
 
+  data_dir = FLAGS.data_dir
   dataset = ub.datasets.get(
       FLAGS.dataset,
       download_data=FLAGS.download_data,
+      data_dir=data_dir,
       split=tfds.Split.TEST).load(batch_size=batch_size)
   test_datasets = {'clean': dataset}
   if FLAGS.dataset == 'cifar100':

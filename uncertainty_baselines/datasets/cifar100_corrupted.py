@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -180,9 +180,10 @@ class Cifar100CorruptedDataset(base.BaseDataset):
       split: str,
       num_parallel_parser_calls: int = 64,
       drop_remainder: bool = True,
-      data_dir: Optional[str] = None,
       normalize: bool = True,
-      download_data: bool = False):
+      download_data: bool = False,
+      data_dir: Optional[str] = None,
+  ):
     """Create a CIFAR100-C tf.data.Dataset builder.
 
     Args:
@@ -196,12 +197,12 @@ class Cifar100CorruptedDataset(base.BaseDataset):
       drop_remainder: whether or not to drop the last batch of data if the
         number of points is not exactly equal to the batch size. This option
         needs to be True for running on TPUs.
-      data_dir: path to a directory containing the CIFAR dataset, with
-        filenames '{corruption_name}_{corruption_severity}.tfrecords'.
       normalize: whether or not to normalize each image by the CIFAR dataset
         mean and stddev.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      data_dir: Path to a directory containing the CIFAR dataset, with
+        filenames '{corruption_name}_{corruption_severity}.tfrecords'.
     """
     self._normalize = normalize
     dataset_builder = _Cifar100CorruptedDatasetBuilder(

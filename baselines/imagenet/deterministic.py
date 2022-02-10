@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -110,6 +110,7 @@ def main(argv):
 
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -135,11 +136,11 @@ def main(argv):
       use_bfloat16=FLAGS.use_bfloat16,
       one_hot=True,
       mixup_params=mixup_params,
-      validation_percent=1.0 - FLAGS.train_proportion)
+      validation_percent=1.0 - FLAGS.train_proportion,
+      data_dir=data_dir)
   steps_per_epoch = train_builder.num_examples // batch_size
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16)
+      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_dataset = test_builder.load(batch_size=batch_size, strategy=strategy)
   steps_per_test_eval = IMAGENET_VALIDATION_IMAGES // batch_size
@@ -151,7 +152,8 @@ def main(argv):
         split=tfds.Split.VALIDATION,
         use_bfloat16=FLAGS.use_bfloat16,
         mixup_params=mixup_params,
-        validation_percent=1.0 - FLAGS.train_proportion)
+        validation_percent=1.0 - FLAGS.train_proportion,
+        data_dir=data_dir)
     validation_dataset = validation_builder.load(
         batch_size=batch_size, strategy=strategy)
     steps_per_validation_eval = validation_builder.num_examples // batch_size
@@ -162,13 +164,13 @@ def main(argv):
     imagenet_train_no_mixup = ub.datasets.ImageNetDataset(
         split=tfds.Split.TRAIN,
         use_bfloat16=FLAGS.use_bfloat16,
-        one_hot=True)
+        one_hot=True,
+        data_dir=data_dir)
     tr_data_no_mixup = imagenet_train_no_mixup.load(
         batch_size=batch_size, strategy=strategy)
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   with strategy.scope():
 

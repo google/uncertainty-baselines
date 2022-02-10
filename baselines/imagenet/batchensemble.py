@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('ensemble_size', 4, 'Size of ensemble.')
@@ -92,6 +92,7 @@ def main(argv):
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -114,11 +115,11 @@ def main(argv):
       one_hot=(FLAGS.mixup_alpha > 0),
       use_bfloat16=FLAGS.use_bfloat16,
       mixup_params=mixup_params,
-      ensemble_size=FLAGS.ensemble_size)
+      ensemble_size=FLAGS.ensemble_size,
+      data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
-      use_bfloat16=FLAGS.use_bfloat16)
+      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
@@ -128,7 +129,8 @@ def main(argv):
     validation_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
         run_mixup=True,
-        use_bfloat16=FLAGS.use_bfloat16)
+        use_bfloat16=FLAGS.use_bfloat16,
+        data_dir=data_dir)
     imagenet_confidence_dataset = validation_builder.load(
         batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores,
         strategy=strategy)
@@ -146,8 +148,7 @@ def main(argv):
             strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))
@@ -433,7 +434,8 @@ def main(argv):
           split=tfds.Split.TRAIN,
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
-          mixup_params=mixup_params)
+          mixup_params=mixup_params,
+          data_dir=data_dir)
       train_dataset = train_builder.load(
           batch_size=batch_size, strategy=strategy)
       train_iterator = iter(train_dataset)

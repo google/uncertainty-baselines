@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ flags.DEFINE_bool('download_data', False,
                   'Whether to download data locally when initializing a '
                   'dataset.')
 flags.DEFINE_bool(
-    'drop_remainder_for_eval', False,
+    'drop_remainder_for_eval', True,
     'Whether to drop the last batch in the case it has fewer than batch_size '
     'elements. If your use TPU and XLA which requires data to have a '
     'statically known shape, you should use drop_remainder=True.')

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,17 +24,17 @@ from uncertainty_baselines.datasets import base
 class MovieLensDataset(base.BaseDataset):
   """MovieLens dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      validation_percent: float = 0.0,
-      test_percent: float = 0.2,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      normalize: bool = True,
-      try_gcs: bool = False,
-      download_data: bool = False,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               split: str,
+               validation_percent: float = 0.0,
+               test_percent: float = 0.2,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               normalize: bool = True,
+               try_gcs: bool = False,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None):
     """Create a MovieLens tf.data.Dataset builder.
 
     Args:
@@ -53,6 +53,8 @@ class MovieLensDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
+      data_dir: Directory to read/write data, that is passed to the
+              tfds dataset_builder as a data_dir parameter.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -92,7 +94,7 @@ class MovieLensDataset(base.BaseDataset):
           'train', from_=-num_test_examples, unit='abs')
 
     name = 'movie_lens/1m-ratings'
-    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     super().__init__(
         name=name,
         dataset_builder=dataset_builder,
@@ -126,5 +128,3 @@ class MovieLensDataset(base.BaseDataset):
       return parsed_example
 
     return _example_parser
-
-

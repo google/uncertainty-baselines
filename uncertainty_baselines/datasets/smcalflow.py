@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -210,7 +210,7 @@ class _SMCalflowDataset(base.BaseDataset):
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
-      data_dir: path to a directory containing the Criteo datasets, with
+      data_dir: Path to a directory containing the Criteo datasets, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       max_seq_length: the maximum sequence length for the input and target of an
         example.

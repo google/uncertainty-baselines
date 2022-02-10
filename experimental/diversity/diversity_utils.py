@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@
 
 import functools
 import tensorflow.compat.v2 as tf
-import be_utils  # local file import
-import diversity_metrics  # local file import
+import be_utils  # local file import from experimental.diversity
+import diversity_metrics  # local file import from experimental.diversity
 
 
 def fast_weights_similarity(trainable_variables, similarity_metric, dpp_kernel):

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ import functools
 from typing import Any, Dict, Iterable, Optional
 import tensorflow as tf
 
-import util as models_util  # local file import
+import util as models_util  # local file import from experimental.single_model_uncertainty.models
 # pylint: disable=invalid-name
 
 BatchNormalization = functools.partial(

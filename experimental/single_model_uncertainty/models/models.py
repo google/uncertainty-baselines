@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import logging
 from typing import List
 
 import tensorflow as tf
-import genomics_cnn  # local file import
-import wide_resnet  # local file import
+import genomics_cnn  # local file import from experimental.single_model_uncertainty.models
+import wide_resnet  # local file import from experimental.single_model_uncertainty.models
 from uncertainty_baselines.models import bert
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import resnet20

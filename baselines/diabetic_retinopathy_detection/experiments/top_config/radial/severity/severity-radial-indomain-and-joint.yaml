@@ -1,0 +1,55 @@
+"""
+Top hyperparameter configuration of the
+Radial baseline for Diabetic Retinopathy Detection.
+Tuning on either in-domain validation AUC or balanced joint R-Accuracy curve,
+the same configuration performed best.
+Evaluated on the Severity Shift with moderate decision threshold.
+"""
+name: severity-radial-indomain
+program: baselines/diabetic_retinopathy_detection/radial.py
+method: grid
+project: severity-radial-indomain
+entity: uncertainty-baselines
+
+parameters:
+  # Fixed
+  tpu:
+    value: 'read-from-file'
+  batch_size:
+    value: 16 # v2-8, with 1 train sample
+  num_mc_samples_train:
+    value: 1
+  num_mc_samples_eval:
+    value: 5
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'severity'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-radial-severity-finetune/indomain'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+
+  use_wandb:
+    value: True
+
+  base_learning_rate:
+    value: 0.20617
+  stddev_stddev_init:
+    value: 0.037535
+  stddev_mean_init:
+    value: 0.012607
+  l2:
+    value: 0.00084192
+  one_minus_momentum:
+    value: 0.027963
+  seed:
+    values: [42, 43, 44, 45, 46, 47]

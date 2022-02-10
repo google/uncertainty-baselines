@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,6 +81,7 @@ def main(argv):
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -99,14 +100,16 @@ def main(argv):
       use_bfloat16=FLAGS.use_bfloat16,
       image_size=input_image_size,
       normalize_input=True,
-      one_hot=True)
+      one_hot=True,
+      data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TEST,
       use_bfloat16=FLAGS.use_bfloat16,
       image_size=input_image_size,
       normalize_input=True,
-      one_hot=True)
+      one_hot=True,
+      data_dir=data_dir)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
@@ -116,8 +119,7 @@ def main(argv):
   test_iterator = iter(test_datasets['clean'])
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,9 +26,9 @@ import jax
 # import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import checkpoint_utils  # local file import
-import heteroscedastic  # local file import
-import test_utils  # local file import
+import checkpoint_utils  # local file import from baselines.jft
+import heteroscedastic  # local file import from baselines.jft
+import test_utils  # local file import from baselines.jft
 
 FLAGS = flags.FLAGS
 
@@ -41,12 +41,12 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 670.56195, 592.604492, 0.18, False),
-      ('imagenet2012', 'token', 2, 670.56195, 592.604492, 0.18, True),
-      # ('imagenet2012', 'token', None, 17691.684, 13866.16232638, 0.16, False),
-      ('imagenet2012', 'gap', 2, 681.64264, 660.940186, 0.17, False),
-      ('imagenet2012', 'gap', None, 689.7084, 643.398709, 0.25, False),
-      ('imagenet2012', 'gap', None, 689.7084, 643.398709, 0.25, True),
+      ('imagenet2012', 'token', 2, 796.28296, 714.6410047743055, 0.78, False),
+      ('imagenet2012', 'token', 2, 796.28296, 714.6410047743055, 0.78, True),
+      ('imagenet2012', 'token', None, 607.0116, 526.2057562934028, 1.11, False),
+      ('imagenet2012', 'gap', 2, 668.09924, 645.5431043836805, 0.67, False),
+      ('imagenet2012', 'gap', None, 663.7328, 638.9838460286459, 1.11, False),
+      ('imagenet2012', 'gap', None, 663.7328, 638.9838460286459, 1.11, True),
   )
   @flagsaver.flagsaver
   def test_heteroscedastic_script(self, dataset_name, classifier,
@@ -60,10 +60,11 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
         representation_size=representation_size)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = data_dir
+    num_examples = config.batch_size * config.total_steps
 
     if not simulate_failure:
       # Check for any errors.
-      with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
         train_loss, val_loss, fewshot_results = heteroscedastic.main(
             config, output_dir)
     else:
@@ -74,7 +75,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
       config.testing_failure_step = config.total_steps - 1
       config.checkpoint_steps = config.testing_failure_step
       config.keep_checkpoint_steps = config.checkpoint_steps
-      with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
         heteroscedastic.main(config, output_dir)
 
       checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
@@ -86,7 +87,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
 
       # This should resume from the failed step.
       del config.testing_failure_step
-      with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
         train_loss, val_loss, fewshot_results = heteroscedastic.main(
             config, output_dir)
 
@@ -98,7 +99,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(val_loss['val'], correct_val_loss)
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 548.9606, 517.419963, 0.10, 'imagenet'),
+      ('imagenet2012', 'token', 2, 519.76855, 401.4379611, 0.55, 'imagenet'),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, dataset_name, classifier,
@@ -112,10 +113,11 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
         representation_size=representation_size)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = data_dir
+    num_examples = config.batch_size * config.total_steps
 
     # Run to save a checkpoint, then use that as a pretrained model.
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
       heteroscedastic.main(config, output_dir)
 
     checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
@@ -126,26 +128,26 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     config.model.representation_size = None
     if finetune_dataset_name == 'cifar':
       config.dataset = 'cifar10'
-      config.val_split = 'train[:9]'
-      config.train_split = 'train[30:60]'
+      config.val_split = f'train[:{num_examples}]'
+      config.train_split = f'train[{num_examples}:{num_examples*2}]'
       config.num_classes = 10
       config.ood_datasets = ['cifar100']
-      config.ood_split = 'test[10:20]'
-      config.ood_methods = ['maha', 'entropy', 'rmaha', 'msp']
       config.ood_num_classes = [100]
+      config.ood_split = f'test[{num_examples*2}:{num_examples*3}]'
+      config.ood_methods = ['maha', 'entropy', 'rmaha', 'msp']
       config.eval_on_cifar_10h = True
-      config.cifar_10h_split = 'test[:9]'
+      config.cifar_10h_split = f'test[:{num_examples}]'
       config.pp_eval_cifar_10h = (
-          'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')  # pylint: disable=line-too-long
+          'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
     elif finetune_dataset_name == 'imagenet':
       config.dataset = 'imagenet2012'
-      config.val_split = 'train[:9]'
-      config.train_split = 'train[30:60]'
+      config.val_split = f'train[:{num_examples}]'
+      config.train_split = f'train[{num_examples}:{num_examples*2}]'
       config.num_classes = 1000
       config.eval_on_imagenet_real = True
-      config.imagenet_real_split = 'validation[:9]'
+      config.imagenet_real_split = f'validation[:{num_examples}]'
       config.pp_eval_imagenet_real = (
-          'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')  # pylint: disable=line-too-long
+          'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
     pp_common += '|keep(["image", "labels"])'
@@ -161,13 +163,14 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
                                    f'onehot({num_classes}'))
       config.pp_eval_ood = pp_eval_ood
 
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
       train_loss, val_loss, fewshot_results = heteroscedastic.main(
           config, output_dir)
 
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
+    # TODO(dusenberrymw,jjren): Add a reproducibility test for OOD eval.
     self.assertAllClose(train_loss, correct_train_loss)
     self.assertAllClose(val_loss['val'], correct_val_loss)
 

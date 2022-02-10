@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import utils  # local file import
+import utils  # local file import from baselines.drug_cardiotoxicity
 
 
 class UtilsTest(tf.test.TestCase, parameterized.TestCase):

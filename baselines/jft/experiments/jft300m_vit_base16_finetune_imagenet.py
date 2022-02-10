@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -92,6 +92,9 @@ def get_config():
   # This is "no head" fine-tuning, which we use by default
   config.model.representation_size = None
 
+  # set reint_head = False to re-use the head parameters of the upstream model
+  config.reint_head = True
+
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
@@ -103,6 +106,4 @@ def get_config():
   config.lr.base = 0.06
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-
-  config.args = {}
   return config

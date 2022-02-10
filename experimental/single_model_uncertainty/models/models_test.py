@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 """Tests for single_model_uncertainty.models.get()."""
 
 import tensorflow as tf
-import models  # local file import
+import models  # local file import from experimental.single_model_uncertainty.models
 
 
 class ModelsTest(tf.test.TestCase):

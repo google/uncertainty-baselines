@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ sequence classification.
 from typing import Any, Dict, Optional
 from absl import logging
 import tensorflow as tf
-import util as models_util  # local file import
+import util as models_util  # local file import from experimental.single_model_uncertainty.models
 
 
 VOCAB_SIZE = 4  # DNA sequences are composed of {A, C, G, T}

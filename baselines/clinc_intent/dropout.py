@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ from absl import logging
 import robustness_metrics as rm
 import tensorflow as tf
 import uncertainty_baselines as ub
-import bert_utils  # local file import
+import bert_utils  # local file import from baselines.clinc_intent
 from tensorboard.plugins.hparams import api as hp
 
 # Data flags
@@ -188,8 +188,7 @@ def main(argv):
         dataset_builder.num_examples // FLAGS.eval_batch_size)
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))

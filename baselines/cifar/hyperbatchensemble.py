@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.cifar
 from uncertainty_baselines.models import hyperbatchensemble_e_factory as e_factory
 from uncertainty_baselines.models import HyperBatchEnsembleLambdaConfig as LambdaConfig
 from uncertainty_baselines.models import wide_resnet_hyperbatchensemble

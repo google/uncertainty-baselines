@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,9 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utils for Radial BNNs."""
+"""Utils for Radial BNNs.
+
+Important Note: the entropy and Kullback-Leibler methods below are correct
+  only up to a constant, and should be used for optimization only.
+"""
 import math
-from absl import logging
 
 from edward2.tensorflow import constraints
 from edward2.tensorflow import generated_random_variables
@@ -228,8 +231,8 @@ class Radial(tfp.distributions.Distribution):
     return self._loc + self.scale * direction * distance
 
   def entropy(self):
-    logging.warning(
-        'Entropy is correct only up to a constant, for optimization only.')
+    # Note that the entropy is correct only up to a constant,
+    # this should be used for optimization only.
     return tf.math.log(tf.math.reduce_sum(self.scale))
 
   def mean(self):
@@ -273,8 +276,8 @@ def kl_radial_normal(p, q, n_samples=10, name=None):
           'KL-divergence between Radial and Multivariate Normals with'
           'different event shapes cannot be computed.')
 
-    logging.warning(
-        'KL is correct only up to a constant, for optimization only.')
+    # Note that the KL is correct only up to a constant,
+    # this should be used for optimization only.
 
     # KL = Cross-Entropy - Entropy
     # We find cross-entropy by MC estimation

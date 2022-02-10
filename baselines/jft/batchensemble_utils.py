@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,6 +39,25 @@ PmapEvaluationFn = Callable[
     EvaluationOutput]
 
 
+# TODO(dusenberrymw,zmariet): Clean up and generalize these log marginal probs.
+def log_average_softmax_probs(logits: jnp.ndarray) -> jnp.ndarray:
+  # TODO(zmariet): dedicated eval loss function.
+  ens_size, _, _ = logits.shape
+  log_p = jax.nn.log_softmax(logits)  # (ensemble_size, batch_size, num_classes)
+  log_p = jax.nn.logsumexp(log_p, axis=0) - jnp.log(ens_size)
+  return log_p
+
+
+def log_average_sigmoid_probs(logits: jnp.ndarray) -> jnp.ndarray:
+  ens_size, _, _ = logits.shape
+  log_p = jax.nn.log_sigmoid(logits)  # (ensemble_size, batch_size, num_classes)
+  log_p = jax.nn.logsumexp(log_p, axis=0) - jnp.log(ens_size)
+  log_not_p = jax.nn.log_sigmoid(-logits)
+  log_not_p = jax.nn.logsumexp(log_not_p, axis=0) - jnp.log(ens_size)
+  log_p = log_p - log_not_p
+  return log_p
+
+
 def tree_count_infs_nans(tree, psum_axis_name=None):
   leaves = jax.tree_leaves(tree)
   num_infs = sum(jnp.sum(jnp.isinf(x)) for x in leaves)
@@ -57,7 +76,7 @@ def update_fn_be(
     labels: jnp.ndarray,
     batch_loss_fn: Callable[..., jnp.ndarray],
     weight_decay_fn: Optional[Callable[[Any, float], Any]],
-    plot_grad_norm_name_fn: Callable[[str], bool],
+    plot_grad_norm_name_fn: Optional[Callable[[str], bool]],
     plot_grads_nan_inf: bool,
     max_grad_norm_global: Optional[float],
     frozen_vars_patterns: Optional[Sequence[str]],
@@ -142,5 +161,6 @@ def update_fn_be(
   opt = opt.apply_gradient(grads, learning_rate=lr)
 
   if weight_decay_fn:
-    opt = opt.replace(target=weight_decay_fn(opt.target, lr))
+    params = weight_decay_fn(opt.target, lr)
+    opt = opt.replace(target=params)
   return opt, next_rngs, loss, aux

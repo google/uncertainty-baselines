@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -204,6 +204,7 @@ def wide_resnet_sngp(input_shape, batch_size, depth, width_multiplier,
       normalize_input=gp_input_normalization,
       gp_cov_momentum=gp_cov_discount_factor,
       gp_cov_ridge_penalty=gp_cov_ridge_penalty,
+      scale_random_features=False,
       use_custom_random_features=True,
       custom_random_features_initializer=make_random_feature_initializer(
           gp_random_feature_type)

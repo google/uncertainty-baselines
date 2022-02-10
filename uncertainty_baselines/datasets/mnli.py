@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -48,15 +48,15 @@ from uncertainty_baselines.datasets import base
 class MnliDataset(base.BaseDataset):
   """Multi-NLI dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      mode: str = 'matched',
-      try_gcs: bool = False,
-      download_data: bool = False,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               split: str,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               mode: str = 'matched',
+               try_gcs: bool = False,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None):
     """Create an Genomics OOD tf.data.Dataset builder.
 
     Args:
@@ -74,6 +74,8 @@ class MnliDataset(base.BaseDataset):
         files. Currently unsupported.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      data_dir: Directory to read/write data, that is passed to the
+              tfds dataset_builder as a data_dir parameter.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -93,7 +95,7 @@ class MnliDataset(base.BaseDataset):
       split = 'test_' + mode
 
     name = 'glue/mnli'
-    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     super().__init__(
         name=name,
         dataset_builder=dataset_builder,

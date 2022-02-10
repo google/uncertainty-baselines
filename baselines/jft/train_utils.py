@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,14 +20,22 @@ https://github.com/google-research/vision_transformer.
 """
 
 import multiprocessing
+import numbers
 import re
 import time
+
+from typing import Callable, List, Tuple, Union
 
 from absl import logging
 import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+import checkpoint_utils  # local file import from baselines.jft
+
+# TODO(zmariet, dusenberrymw): create separate typing module.
+Params = checkpoint_utils.Params
 
 
 def sigmoid_xent(*, logits, labels, reduction=True):
@@ -70,6 +78,44 @@ def accumulate_gradient(loss_and_grad_fn, params, images, labels, accum_steps):
     return loss_and_grad_fn(params, images, labels)
 
 
+def accumulate_gradient_with_states(
+    loss_and_grad_fn,
+    params,
+    states,  # Allows for states.
+    images,
+    labels,
+    accum_steps):
+  """Improved version of `train_utils.accumulate_gradient()` that allows for states."""
+  # This function handles the `loss_and_grad_fn` function which takes a state
+  # argument and returns ((losses, states), grads).
+  if accum_steps and accum_steps > 1:
+    assert images.shape[0] % accum_steps == 0, (
+        f"Bad accum_steps {accum_steps} for batch size {images.shape[0]}")
+    step_size = images.shape[0] // accum_steps
+
+    # Run the first step.
+    (l, s), g = loss_and_grad_fn(params, states, images[:step_size],
+                                 labels[:step_size])
+
+    # Run the rest of the steps.
+    def acc_grad_and_loss(i, l_s_g):
+      # Extract data for current step.
+      imgs = jax.lax.dynamic_slice(images, (i * step_size, 0, 0, 0),
+                                   (step_size,) + images.shape[1:])
+      lbls = jax.lax.dynamic_slice(labels, (i * step_size, 0),
+                                   (step_size, labels.shape[1]))
+      # Update state and accumulate gradient.
+      l, s, g = l_s_g
+      (li, si), gi = loss_and_grad_fn(params, s, imgs, lbls)
+      return (l + li, si, jax.tree_multimap(lambda x, y: x + y, g, gi))
+
+    l, s, g = jax.lax.fori_loop(1, accum_steps, acc_grad_and_loss, (l, s, g))
+    l, g = jax.tree_map(lambda x: x / accum_steps, (l, g))
+    return (l, s), g
+  else:
+    return loss_and_grad_fn(params, states, images, labels)
+
+
 def create_learning_rate_schedule(total_steps,
                                   base=0.,
                                   decay_type="linear",
@@ -110,6 +156,36 @@ def create_learning_rate_schedule(total_steps,
     return jnp.asarray(lr, dtype=jnp.float32)
 
   return step_fn
+
+
+def get_weight_decay_fn(
+    weight_decay_rules: Union[float, List[Tuple[str, float]]],
+    rescale_value: float) -> Callable[[Params, float], Params]:
+  """Returns a custom weight-decay function for the learning rate.
+
+  Args:
+    weight_decay_rules: either a scalar indicating the strength of the weight
+      decay, or a list of tuples of the form (parameter_regex, weight_decay)
+      mapping specific variables to the respective weight decay strength. For
+      example, `[('.*kernel.*', 0.5), ('.*fast_weight.*', 0.1)]` will decay the
+      BatchEnsemble slow and fast weights at different rates.
+    rescale_value: scalar indicating by how much the initial learning rate needs
+      to be scaled before applying the weight decay.
+
+  Returns:
+    A function mapping a pytree of parameters and a learning rate to an updated
+      pytree of the same structure with weight decayed values.
+  """
+  if isinstance(weight_decay_rules, numbers.Number):
+    # Append weight decay factor to variable name patterns it applies to.
+    weight_decay_rules = [(".*kernel.*", weight_decay_rules)]
+
+  def weight_decay_fn(params, lr):
+    return tree_map_with_regex(
+        lambda params, wd: (1.0 - lr / rescale_value * wd) * params,
+        params, weight_decay_rules)
+
+  return weight_decay_fn
 
 
 def tree_map_with_regex(f, tree, regex_rules):
@@ -163,13 +239,18 @@ def checkpointing_timeout(writer, timeout):
           "bottleneck, you can configure `checkpoint_timeout` parameter")
 
 
-def itstime(step, every_n_steps, total_steps, host=None, last=True, first=True):
+def itstime(step,
+            every_n_steps,
+            total_steps,
+            process=None,
+            last=True,
+            first=True):
   """Determines whether or not it is time to trigger an action."""
-  is_host = host is None or jax.process_index() == host
+  is_process = process is None or jax.process_index() == process
   is_step = every_n_steps and (step % every_n_steps == 0)
   is_last = every_n_steps and step == total_steps
   is_first = every_n_steps and step == 1
-  return is_host and (is_step or (last and is_last) or (first and is_first))
+  return is_process and (is_step or (last and is_last) or (first and is_first))
 
 
 class Chrono:

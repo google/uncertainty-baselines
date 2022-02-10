@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -156,7 +156,7 @@ class GenomicsOodDataset(base.BaseDataset):
       eval_filter_class_id: evalulate inputs from a particular class only.
       data_mode: either 'ind' or 'ood' to decide whether to read in-distribution
         data or out-of-domain data.
-      data_dir: path to a directory containing the Genomics OOD dataset, with
+      data_dir: Path to a directory containing the Genomics OOD dataset, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',

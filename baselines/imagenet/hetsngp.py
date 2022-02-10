@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import utils  # local file import
+import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
@@ -180,6 +180,7 @@ def main(argv):
   steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
+  data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
     logging.info('Use GPU')
     strategy = tf.distribute.MirroredStrategy()
@@ -194,17 +195,20 @@ def main(argv):
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
-      validation_percent=1.-FLAGS.train_proportion)
+      validation_percent=1. - FLAGS.train_proportion,
+      data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   if FLAGS.train_proportion != 1.:
     test_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.VALIDATION,
         use_bfloat16=FLAGS.use_bfloat16,
-        validation_percent=1.-FLAGS.train_proportion)
+        validation_percent=1. - FLAGS.train_proportion,
+        data_dir=data_dir)
   else:
     test_builder = ub.datasets.ImageNetDataset(
         split=tfds.Split.TEST,
-        use_bfloat16=FLAGS.use_bfloat16)
+        use_bfloat16=FLAGS.use_bfloat16,
+        data_dir=data_dir)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
@@ -224,8 +228,7 @@ def main(argv):
             strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   with strategy.scope():
     logging.info('Building Keras HetSNGP ResNet-50 model')

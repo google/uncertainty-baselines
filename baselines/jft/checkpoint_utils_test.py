@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import ml_collections
 import tensorflow as tf
 import uncertainty_baselines as ub
-import checkpoint_utils  # local file import
+import checkpoint_utils  # local file import from baselines.jft
 
 
 def _get_config(num_classes=21843, representation_size=2):
@@ -50,16 +50,26 @@ def _get_config(num_classes=21843, representation_size=2):
 
 
 def _make_deterministic_model(num_classes=21843, representation_size=2):
-  config = _get_config(num_classes=num_classes,
-                       representation_size=representation_size)
+  config = _get_config(
+      num_classes=num_classes, representation_size=representation_size)
   model = ub.models.vision_transformer(
       num_classes=config.num_classes, **config.get("model", {}))
   return model, config
 
 
-def _init_model(key, model, input_shape=(2, 224, 224, 3)):
+def _init_model(key, model, input_shape=(2, 224, 224, 3),
+                rand_normal_head_kernel=False):
   dummy_input = jnp.zeros(input_shape, jnp.float32)
   params = model.init(key, dummy_input, train=False)["params"]
+  if rand_normal_head_kernel:
+    # By default, ViT has its head initialized to zeroes.
+    # To test non-trivial predictions, we sometimes need to set the params of
+    # the head to non-zero values (here from a normal distribution).
+    _, rand_normal_key = jax.random.split(key, 2)
+    shape = params["head"]["kernel"].shape
+    params = flax.core.unfreeze(params)
+    params["head"]["kernel"] = jax.random.normal(rand_normal_key, shape)
+    params = flax.core.freeze(params)
   return params
 
 
@@ -83,9 +93,10 @@ def _make_pytree(key):
 
 def _reset_head_kernel(params, value):
   params = flax.core.unfreeze(params)
-  params["head"]["kernel"] = value * jnp.ones_like(
-      params["head"]["kernel"])
+  params["head"]["kernel"] = value * jnp.ones_like(params["head"]["kernel"])
   return flax.core.freeze(params)
+
+
 
 
 class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
@@ -113,8 +124,8 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
            parent_key="abc",
            expected_dict={"abc:x:y": 2, "abc:x:z:t": 3, "abc:u": 4}),
   )
-  def test_flatten_jax_params_dict(
-      self, input_dict, sep, parent_key, expected_dict):
+  def test_flatten_jax_params_dict(self, input_dict, sep, parent_key,
+                                   expected_dict):
     actual_dict = checkpoint_utils._flatten_jax_params_dict(
         input_dict, parent_key=parent_key, sep=sep)
     self.assertDictEqual(actual_dict, expected_dict)
@@ -244,8 +255,7 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
       (["head/kernel"], True),
       ([], False),
   )
-  def test_checkpointing_reinitialize(
-      self, reinit_params, expect_new_head):
+  def test_checkpointing_reinitialize(self, reinit_params, expect_new_head):
     key = jax.random.PRNGKey(42)
     init_head_val = 1.
     ckpt_head_val = 0.
@@ -296,8 +306,8 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
     expected_head_val = init_head_val if expect_new_head else ckpt_head_val
     actual_head = checkpoint_data.optimizer.target["head"]["kernel"]
-    self.assertAllClose(
-        actual_head, jnp.ones_like(actual_head) * expected_head_val)
+    self.assertAllClose(actual_head,
+                        jnp.ones_like(actual_head) * expected_head_val)
 
   def test_checkpointing_no_loading(self):
     key = jax.random.PRNGKey(42)
@@ -359,6 +369,17 @@ def _get_sngp_params():
   return _init_model(key, model)
 
 
+def _get_batchensemble_params():
+  key = jax.random.PRNGKey(42)
+  config = _get_config()
+  config.model.transformer.ens_size = 3
+  config.model.transformer.be_layers = (0,)
+  config.model.transformer.random_sign_init = .5
+  model = ub.models.vit_batchensemble.PatchTransformerBE(
+      num_classes=config.num_classes, **config.model)
+  return _init_model(key, model)
+
+
 def _get_heteroscedastic_params():
   key = jax.random.PRNGKey(42)
 
@@ -372,9 +393,11 @@ def _get_heteroscedastic_params():
       num_classes=config.num_classes, **config.get("model", {}))
 
   key, diag_key, noise_key = jax.random.split(key, 3)
-  rng = {"params": key,
-         "diag_noise_samples": diag_key,
-         "standard_norm_noise_samples": noise_key}
+  rng = {
+      "params": key,
+      "diag_noise_samples": diag_key,
+      "standard_norm_noise_samples": noise_key
+  }
   return _init_model(rng, model)
 
 
@@ -404,47 +427,93 @@ def _get_hetsngp_params():
       param_efficient=het_kwargs.param_efficient)
 
   key, diag_key, noise_key = jax.random.split(key, 3)
-  rng = {"params": key,
-         "diag_noise_samples": diag_key,
-         "standard_norm_noise_samples": noise_key}
+  rng = {
+      "params": key,
+      "diag_noise_samples": diag_key,
+      "standard_norm_noise_samples": noise_key
+  }
   return _init_model(rng, model)
 
 
+_MLP_PREFIX = "Transformer/encoderblock_0/MlpBlock_3"
 _MODEL_TO_PARAMS_AND_KEYS = {
-    "deterministic": dict(
-        params_fn=_get_deterministic_params,
-        extra_keys=["head/kernel", "head/bias"]),
-    "sngp": dict(
-        params_fn=_get_sngp_params,
-        extra_keys=["head/output_layer/kernel", "head/output_layer/bias"]),
-    "heteroscedastic": dict(
-        params_fn=_get_heteroscedastic_params,
-        extra_keys=["head/diag_layer/kernel",
-                    "head/diag_layer/bias",
-                    "head/loc_layer/kernel",
-                    "head/loc_layer/bias",
-                    "head/scale_layer_homoscedastic/kernel",
-                    "head/scale_layer_homoscedastic/bias",
-                    "head/scale_layer_heteroscedastic/kernel",
-                    "head/scale_layer_heteroscedastic/bias",]),
-    "hetsngp": dict(
-        params_fn=_get_hetsngp_params,
-        extra_keys=["head/loc_layer/output_layer/kernel",
-                    "head/loc_layer/output_layer/bias",
-                    "head/scale_layer_homoscedastic/kernel",
-                    "head/scale_layer_homoscedastic/bias",
-                    "head/scale_layer_heteroscedastic/bias",
-                    "head/scale_layer_heteroscedastic/kernel",
-                    "head/diag_layer/kernel",
-                    "head/diag_layer/bias",]),
+    "deterministic":
+        dict(
+            params_fn=_get_deterministic_params,
+            extra_keys=[
+                "head/kernel",
+                "head/bias",
+                f"{_MLP_PREFIX}/Dense_0/bias",
+                f"{_MLP_PREFIX}/Dense_1/bias",
+            ]),
+    "sngp":
+        dict(
+            params_fn=_get_sngp_params,
+            extra_keys=[
+                "head/output_layer/kernel",
+                "head/output_layer/bias",
+                f"{_MLP_PREFIX}/Dense_0/bias",
+                f"{_MLP_PREFIX}/Dense_1/bias",
+            ]),
+    "heteroscedastic":
+        dict(
+            params_fn=_get_heteroscedastic_params,
+            extra_keys=[
+                "head/diag_layer/kernel",
+                "head/diag_layer/bias",
+                "head/loc_layer/kernel",
+                "head/loc_layer/bias",
+                "head/scale_layer_homoscedastic/kernel",
+                "head/scale_layer_homoscedastic/bias",
+                "head/scale_layer_heteroscedastic/kernel",
+                "head/scale_layer_heteroscedastic/bias",
+                f"{_MLP_PREFIX}/Dense_0/bias",
+                f"{_MLP_PREFIX}/Dense_1/bias",
+            ]),
+    "hetsngp":
+        dict(
+            params_fn=_get_hetsngp_params,
+            extra_keys=[
+                "head/loc_layer/output_layer/kernel",
+                "head/loc_layer/output_layer/bias",
+                "head/scale_layer_homoscedastic/kernel",
+                "head/scale_layer_homoscedastic/bias",
+                "head/scale_layer_heteroscedastic/bias",
+                "head/scale_layer_heteroscedastic/kernel",
+                "head/diag_layer/kernel",
+                "head/diag_layer/bias",
+                f"{_MLP_PREFIX}/Dense_0/bias",
+                f"{_MLP_PREFIX}/Dense_1/bias",
+            ]),
+    "batchensemble":
+        dict(
+            params_fn=_get_batchensemble_params,
+            extra_keys=[
+                "pre_logits/fast_weight_gamma",
+                "pre_logits/fast_weight_alpha",
+                "batchensemble_head/kernel",
+                "batchensemble_head/bias",
+                "batchensemble_head/fast_weight_alpha",
+                "batchensemble_head/fast_weight_gamma",
+                f"{_MLP_PREFIX}/Dense_1/fast_weight_alpha",
+                f"{_MLP_PREFIX}/Dense_1/fast_weight_gamma",
+                f"{_MLP_PREFIX}/Dense_1/bias",
+                f"{_MLP_PREFIX}/Dense_0/fast_weight_gamma",
+                f"{_MLP_PREFIX}/Dense_0/fast_weight_alpha",
+                f"{_MLP_PREFIX}/Dense_0/bias",
+            ])
 }
 
 
 class AdaptUpstreamModelTest(parameterized.TestCase, tf.test.TestCase):
 
   @parameterized.product(
-      upstream_model=["deterministic", "sngp", "heteroscedastic", "hetsngp"],
-      downstream_model=["deterministic", "sngp", "heteroscedastic", "hetsngp"],
+      upstream_model=[
+          "deterministic", "sngp", "heteroscedastic", "hetsngp", "batchensemble"
+      ],
+      downstream_model=[
+          "deterministic", "sngp", "heteroscedastic", "hetsngp", "batchensemble"
+      ],
   )
   def test_adapt_upstream_architecture(self, upstream_model, downstream_model):
 

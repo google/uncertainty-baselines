@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,12 +20,14 @@ r"""ViT-S/32.
 # pylint: enable=line-too-long
 
 import ml_collections
-import common_fewshot  # local file import
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
+
+  config.seed = 0
 
   # Directory for the version de-dup'd from BiT downstream test-sets.
   config.dataset = 'jft/entity:1.0.0'
@@ -84,10 +86,11 @@ def get_config():
   # Few-shot eval section
   config.fewshot = common_fewshot.get_fewshot()
   config.fewshot.log_steps = 25_000
-
-  config.args = {}
   return config
 
 
 def get_sweep(hyper):
-  return hyper.product([])
+  return hyper.product([
+      # Use this for the experiments that use four seeds.
+      # hyper.sweep('config.seed', list(range(4))),
+  ])

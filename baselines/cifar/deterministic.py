@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,8 +30,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import ood_utils  # local file import
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
 

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ r"""Heteroscedastic ViT-L/32.
 
 import ml_collections
 # TODO(dusenberrymw): Open-source remaining imports.
-import common_fewshot  # local file import
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -65,7 +65,7 @@ def get_config():
   config.model.transformer.num_heads = 16
   config.model.transformer.num_layers = 24
   config.model.classifier = 'token'  # Or 'gap'
-  config.model.representation_size = None
+  config.model.representation_size = 1024
 
   # Heteroscedastic
   config.model.multiclass = False
@@ -93,8 +93,6 @@ def get_config():
   # Few-shot eval section
   config.fewshot = common_fewshot.get_fewshot()
   config.fewshot.log_steps = 25_000
-
-  config.args = {}
   return config
 
 

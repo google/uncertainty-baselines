@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ r"""ViT-SNGP B/16.
 # pylint: enable=line-too-long
 
 import ml_collections
-import common_fewshot  # local file import
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -96,8 +96,6 @@ def get_config():
   # Few-shot eval section
   config.fewshot = common_fewshot.get_fewshot()
   config.fewshot.log_steps = 25_000
-
-  config.args = {}
   return config
 
 

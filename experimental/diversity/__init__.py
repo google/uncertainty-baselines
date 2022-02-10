@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
 
 """Diversity metrics and utils."""
 
-import dpp_negative_logdet  # local file import
-import pairwise_cosine_similarity  # local file import
-import pairwise_euclidean_distances  # local file import
-import ExponentialDecay  # local file import
-import fast_weights_similarity  # local file import
-import LinearAnnealing  # local file import
-import outputs_similarity  # local file import
-import scaled_similarity_loss  # local file import
+import dpp_negative_logdet  # local file import from experimental.diversity.diversity_metrics
+import pairwise_cosine_similarity  # local file import from experimental.diversity.diversity_metrics
+import pairwise_euclidean_distances  # local file import from experimental.diversity.diversity_metrics
+import ExponentialDecay  # local file import from experimental.diversity.diversity_utils
+import fast_weights_similarity  # local file import from experimental.diversity.diversity_utils
+import LinearAnnealing  # local file import from experimental.diversity.diversity_utils
+import outputs_similarity  # local file import from experimental.diversity.diversity_utils
+import scaled_similarity_loss  # local file import from experimental.diversity.diversity_utils

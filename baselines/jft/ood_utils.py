@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,8 +30,10 @@ import numpy as np
 import scipy
 import sklearn.metrics
 
+import input_utils  # local file import from baselines.jft
 
-SUPPORTED_OOD_METHODS = ('msp', 'entropy', 'maha', 'rmaha')
+
+SUPPORTED_OOD_METHODS = ('msp', 'entropy', 'maha', 'rmaha', 'mlogit')
 
 
 # TODO(dusenberrymw): Move it to robustness metrics.
@@ -126,6 +128,12 @@ class OODMetric:
         raise KeyError(
             ('The variable probs is needed for computing MSP OOD score. ',
              'But it is not found in the dict.'))
+    elif self.method_name == 'mlogit':
+      if 'logits' in scores:
+        ood_scores = 1 - np.max(scores['logits'], axis=-1)
+      else:
+        raise KeyError(('The variable logits is needed for computing MaxLogits',
+                        ' OOD score. But it is not found in the dict.'))
     elif self.method_name == 'entropy':
       if 'entropy' in scores:
         ood_scores = scores['entropy']
@@ -175,11 +183,11 @@ def compute_mean_and_cov(embeds, labels):
     cov: The shared covariance mmatrix of the size [n_dim, n_dim].
   """
   n_dim = embeds.shape[1]
-  n_class = int(np.max(labels)) + 1
+  class_ids = np.unique(labels)
   mean_list = []
   cov = np.zeros((n_dim, n_dim))
 
-  for class_id in range(n_class):
+  for class_id in class_ids:
     data = embeds[labels == class_id]
     data_mean = np.mean(data, axis=0)
     cov += np.dot((data - data_mean).T, (data - data_mean))
@@ -249,13 +257,11 @@ def load_ood_datasets(
       'maha', 'rmaha'.
     train_split: The split of the training in-distribution dataset.
     data_dir: The data directory.
-    get_data_fn: A function for generates a tuple of (data iterator, num_steps)
-      given a dataset name or builder, split, preprocessing function, and
-      optional data_dir.
+    get_data_fn: A function that generates a tf.data.Dataset given a dataset
+      name or builder, split, preprocessing function, and optional data_dir.
 
   Returns:
-    ood_ds: A dictionary with dataset label as the key and dataset iterator as
-    the value.
+    ood_ds: A dictionary with dataset label as the key and dataset as the value.
     ood_ds_names: A list of dataset labels.
   """
   ood_ds = {}
@@ -291,9 +297,30 @@ def load_ood_datasets(
   return ood_ds, ood_ds_names
 
 
-def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
-                     opt_repl):
-  """Evaluate the model for OOD detection and record metrics."""
+# TODO(dusenberrymw,jjren): Add a test case.
+def eval_ood_metrics(ood_ds,
+                     ood_ds_names,
+                     ood_methods,
+                     evaluation_fn,
+                     opt_target_repl,
+                     n_prefetch=1):
+  """Evaluate the model for OOD detection and record metrics.
+
+  Args:
+    ood_ds: A dictionary with dataset label as the key and dataset as the value.
+    ood_ds_names: List of strings of the in- and out-of-distribution datasets.
+      Generally corresponds to the keys of `ood_ds` but keeps a specific order
+      to satisfy dependency constraints across the metrics.
+    ood_methods: List of strings of the methods used for OOD detection.
+      The strings are in ['msp', 'entropy', 'maha', 'rmaha', 'mlogit'].
+    evaluation_fn: Function to evaluate the model with the parameters provided
+      in `opt_target_repl`.
+    opt_target_repl: The target of the replicated optmizer (`opt_repl.target`).
+    n_prefetch: Number of points to pre-fectch in the dataset iterators.
+
+  Returns:
+    Dictionary of measurements of the OOD detection tasks.
+  """
   # MSP stands for maximum softmax probability, max(softmax(logits)).
   # MSP can be used as confidence score.
   # Maha stands for Mahalanobis distance between the test input and
@@ -320,13 +347,14 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
     # The dataset train_maha must come before ind and ood
     # because the train_maha will be used to esimate the class conditional
     # mean and shared covariance.
-    val_iter, val_steps = ood_ds[ood_ds_name]
+    val_ds = ood_ds[ood_ds_name]
+    val_iter = input_utils.start_input_pipeline(val_ds, n_prefetch)
     ncorrect, loss, nseen = 0, 0, 0
     pre_logits_list, labels_list = [], []
-    for _, batch in zip(range(val_steps), val_iter):
+    for batch in val_iter:
       batch_scores = {}
       batch_ncorrect, batch_losses, batch_n, batch_metric_args = evaluation_fn(
-          opt_repl.target, batch['image'], batch['labels'], batch['mask'])
+          opt_target_repl, batch['image'], batch['labels'], batch['mask'])
       ncorrect += np.sum(np.array(batch_ncorrect[0]))
       loss += np.sum(np.array(batch_losses[0]))
       nseen += np.sum(np.array(batch_n[0]))
@@ -357,6 +385,7 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
         # Computes Maximum softmax probability (MSP)
         probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
         batch_scores['probs'] = probs
+        batch_scores['logits'] = logits[0][masks_bool]
 
         # Compute Entropy
         batch_scores['entropy'] = np.array(

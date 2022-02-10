@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ File consists of:
 from typing import List
 
 import tensorflow as tf
-import psl_model  # local file import
+import psl_model  # local file import from experimental.language_structure.psl
 
 
 def satisfy_weights(model, data: tf.Tensor, labels: tf.Tensor,

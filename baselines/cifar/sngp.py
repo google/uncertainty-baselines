@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +22,8 @@ with a Gaussian process layer.
 
 ## Reproducibility Instruction for CIFAR-100:
 
-When running this script on CIFAR-100, set base_learning_rate=0.08 and
-gp_mean_field_factor=12.5 to reproduce the benchmark result.
+When running this script on CIFAR-100, set base_learning_rate=0.04 and
+gp_mean_field_factor=7.5 to reproduce the benchmark result.
 
 ## Combining with MC Dropout:
 
@@ -79,8 +79,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import ood_utils  # local file import
-import utils  # local file import
+import ood_utils  # local file import from baselines.cifar
+import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer(
@@ -135,7 +135,7 @@ flags.DEFINE_float(
     'gp_scale', 1.,
     'The length-scale parameter for the RBF kernel of the GP layer.')
 flags.DEFINE_integer(
-    'gp_input_dim', 128,
+    'gp_input_dim', -1,
     'The dimension to reduce the neural network input for the GP layer '
     '(via random Gaussian projection which preserves distance by the '
     ' Johnson-Lindenstrauss lemma). If -1, no dimension reduction.')
@@ -144,7 +144,7 @@ flags.DEFINE_integer(
     'The hidden dimension of the GP layer, which corresponds to the number of '
     'random features used for the approximation.')
 flags.DEFINE_bool(
-    'gp_input_normalization', True,
+    'gp_input_normalization', False,
     'Whether to normalize the input using LayerNorm for GP layer.'
     'This is similar to automatic relevance determination (ARD) in the classic '
     'GP learning.')
@@ -160,7 +160,7 @@ flags.DEFINE_float(
     'across epochs. If -1 then compute the exact precision matrix within the '
     'latest epoch.')
 flags.DEFINE_float(
-    'gp_mean_field_factor', 25.,
+    'gp_mean_field_factor', 20.,
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
@@ -169,16 +169,16 @@ flags.DEFINE_float(
 flags.DEFINE_bool(
     'eval_only', False,
     'Whether to run only eval and (maybe) OOD steps.')
-flags.DEFINE_bool('eval_on_ood', False,
+flags.DEFINE_bool('eval_on_ood', True,
                   'Whether to run OOD evaluation on specified OOD datasets.')
-flags.DEFINE_list('ood_dataset', 'cifar100,svhn_cropped',
+flags.DEFINE_list('ood_dataset', 'cifar10,svhn_cropped',
                   'list of OOD datasets to evaluate on.')
 flags.DEFINE_integer(
-    'ood_interval', -1, 'Number of epochs between evaluating on OOD metrics.'
+    'ood_interval', 25, 'Number of epochs between evaluating on OOD metrics.'
     ' Use -1 to never evaluate.')
 flags.DEFINE_string('saved_model_dir', None,
                     'Directory containing the saved model checkpoints.')
-flags.DEFINE_bool('dempster_shafer_ood', False,
+flags.DEFINE_bool('dempster_shafer_ood', True,
                   'Wheter to use DempsterShafer Uncertainty score.')
 flags.DEFINE_list(
     'ood_tpr_threshold', ['0.8', '0.95'],
@@ -186,7 +186,7 @@ flags.DEFINE_list(
 
 
 # Redefining default values
-flags.FLAGS.set_default('base_learning_rate', 0.1)
+flags.FLAGS.set_default('base_learning_rate', 0.08)
 flags.FLAGS.set_default('l2', 3e-4)
 flags.FLAGS.set_default('train_epochs', 250)
 FLAGS = flags.FLAGS
@@ -302,8 +302,7 @@ def main(argv):
             strategy.experimental_distribute_dataset(dataset))
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))

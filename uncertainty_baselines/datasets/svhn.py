@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,17 +25,17 @@ from uncertainty_baselines.datasets import base
 class SvhnDataset(base.BaseDataset):
   """SVHN dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      validation_percent: float = 0.0,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      drop_remainder: bool = True,
-      try_gcs: bool = False,
-      download_data: bool = False,
-      normalize_by_cifar: bool = False,
-      is_training: Optional[bool] = None):
+  def __init__(self,
+               split: str,
+               validation_percent: float = 0.0,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               drop_remainder: bool = True,
+               try_gcs: bool = False,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               normalize_by_cifar: bool = False,
+               is_training: Optional[bool] = None):
     """Create an SVHN tf.data.Dataset builder.
 
     Args:
@@ -54,6 +54,8 @@ class SvhnDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
+      data_dir: Directory to read/write data, that is passed to the
+              tfds dataset_builder as a data_dir parameter.
       normalize_by_cifar: whether or not to normalize each image by the CIFAR
         dataset mean and stddev.
       is_training: Whether or not the given `split` is the training split. Only
@@ -62,7 +64,7 @@ class SvhnDataset(base.BaseDataset):
     """
     self._normalize_by_cifar = normalize_by_cifar
     name = 'svhn_cropped'
-    dataset_builder = tfds.builder(name, try_gcs=try_gcs)
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
     new_split = base.get_validation_percent_split(

@@ -1,0 +1,70 @@
+"""
+Radial baseline for Diabetic Retinopathy Detection,
+evaluated on the Country Shift with moderate decision threshold.
+"""
+name: aptos-radial-moderate
+program: baselines/diabetic_retinopathy_detection/radial.py
+method: random
+project: aptos-radial-moderate
+entity: uncertainty-baselines
+
+parameters:
+  # Fixed
+  tpu:
+    value: 'read-from-file'
+  batch_size:
+    value: 32
+  num_mc_samples_train:
+    value: 1
+  num_mc_samples_eval:
+    value: 5
+  train_epochs:
+    value: 90
+  num_cores:
+    value: 8
+  class_reweight_mode:
+    value: 'minibatch'
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'aptos'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-radial-aptos-results'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+
+
+  # Random Search intervals
+  base_learning_rate:
+    distribution: log_uniform
+    # Values fall in exp(min) and exp(max)
+    # Take log to provide bounds
+#   hyper.loguniform('base_learning_rate', hyper.interval(0.15, 1.0)),
+    min: -1.8971199848858813
+    max: 0.0
+
+  one_minus_momentum:
+    distribution: log_uniform
+#      hyper.loguniform('one_minus_momentum', hyper.interval(1e-2, 0.05)),
+    min: -4.605170185988091
+    max: -2.995732273553991
+
+  l2:
+    distribution: log_uniform
+#      hyper.loguniform('l2', hyper.interval(1e-4, 1e-3)),
+    min: -9.210340371976182
+    max: -6.907755278982137
+
+  stddev_mean_init:
+    distribution: log_uniform
+#      hyper.loguniform('stddev_mean_init', hyper.interval(1e-5, 2e-2)),
+    min: -11.512925464970229
+    max: -3.912023005428146
+
+  stddev_stddev_init:
+    distribution: log_uniform
+#      hyper.loguniform('stddev_stddev_init', hyper.interval(1e-2, 0.2)),
+    min: -4.605170185988091
+    max: -1.6094379124341003

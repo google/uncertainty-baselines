@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,12 +15,13 @@
 
 """Data loader for the Drug Cardiotoxicity dataset.
 
-Drug Cardiotoxicity dataset [1] is a molecule classification task to detect
+Drug Cardiotoxicity dataset [1-2] is a molecule classification task to detect
 cardiotoxicity caused by binding hERG target, a protein associated with heart
 beat rhythm. The data covers over 9000 molecules with hERG activity
 (active/inactive).
 
 Note:
+
 1. The data is split into train-validation-test ratio of roughly 8:2:1.
 
 2. The dataset is stored in TFRecord format. Each molecule is represented as
@@ -33,20 +34,24 @@ Note:
 [1]: Vishal B. S. et al. Critical Assessment of Artificial Intelligence Methods
 for Prediction of hERG Channel Inhibition in the Big Data Era.
      JCIM, 2020. https://pubs.acs.org/doi/10.1021/acs.jcim.0c00884
+
+[2]: K. Han et al. Reliable Graph Neural Networks for Drug Discovery Under
+Distributional Shift.
+    NeurIPS DistShift Workshop 2021. https://arxiv.org/abs/2111.12951
 """
 import os.path
+from typing import Dict, Optional, Tuple
 
-from typing import Dict, Tuple, Optional
-
+from absl import logging
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 # filenames for datasets
-_FILENAME_TRAIN = 'vishal_herg_train_*.tfrecords*'
-_FILENAME_VAL = 'vishal_herg_val.tfrecords'
-_FILENAME_TEST = 'test1_herg.tfrecords'
-_FILENAME_TEST2 = 'test2a_herg.tfrecords'
+_FILENAME_TRAIN = 'cardiotox-train.tfrecord*'
+_FILENAME_VAL = 'cardiotox-validation.tfrecord*'
+_FILENAME_TEST = 'cardiotox-test.tfrecord*'
+_FILENAME_TEST2 = 'cardiotox-test2.tfrecord*'
 
 _NUM_TRAIN = 6523
 _NUM_VAL = 1631
@@ -58,6 +63,7 @@ _NODES_FEATURE_NAME = 'atoms'
 _EDGES_FEATURE_NAME = 'pairs'
 _NODE_MASK_FEATURE_NAME = 'atom_mask'
 _EDGE_MASK_FEATURE_NAME = 'pair_mask'
+_DISTANCE_TO_TRAIN_NAME = 'dist2topk_nbs'
 _EXAMPLE_NAME = 'molecule_id'
 
 _MAX_NODES = 60
@@ -86,6 +92,8 @@ def _make_features_spec() -> Dict[str, tf.io.FixedLenFeature]:
           tf.io.FixedLenFeature([_MAX_NODES], tf.float32),
       _EDGE_MASK_FEATURE_NAME:
           tf.io.FixedLenFeature([_MAX_NODES, _MAX_NODES], tf.float32),
+      _DISTANCE_TO_TRAIN_NAME:
+            tf.io.FixedLenFeature(shape=[1], dtype=tf.float32),
       _EXAMPLE_NAME:
           tf.io.FixedLenFeature([], tf.string)
   }
@@ -110,12 +118,19 @@ def _get_num_examples_and_filenames() -> Tuple[Dict[str, int], Dict[str, str]]:
 
 
 _CITATION = """
-Vishal B. S. et al. Critical Assessment of Artificial Intelligence Methods
-for Prediction of hERG Channel Inhibition in the Big Data Era.
-     JCIM, 2020. https://pubs.acs.org/doi/10.1021/acs.jcim.0c00884
+@ARTICLE{Han2021-tu,
+  title         = "Reliable Graph Neural Networks for Drug Discovery Under
+                   Distributional Shift",
+  author        = "Han, Kehang and Lakshminarayanan, Balaji and Liu, Jeremiah",
+  month         =  nov,
+  year          =  2021,
+  archivePrefix = "arXiv",
+  primaryClass  = "cs.LG",
+  eprint        = "2111.12951"
+}
 """
 _DESCRIPTION = (
-    'Drug Cardiotoxicity dataset [1] is a molecule classification task to '
+    'Drug Cardiotoxicity dataset [1-2] is a molecule classification task to '
     'detect cardiotoxicity caused by binding hERG target, a protein associated '
     'with heart beat rhythm.')
 
@@ -185,6 +200,8 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
         _EDGE_MASK_FEATURE_NAME:
             tfds.features.Tensor(
                 shape=[_MAX_NODES, _MAX_NODES], dtype=tf.float32),
+        _DISTANCE_TO_TRAIN_NAME:
+            tfds.features.Tensor(shape=[1], dtype=tf.float32),
         _EXAMPLE_NAME:
             tfds.features.Tensor(shape=[], dtype=tf.string),
     }
@@ -192,7 +209,7 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
         builder=self,
         description=_DESCRIPTION,
         features=tfds.features.FeaturesDict(features),
-        homepage='https://github.com/ncats/herg-ml/tree/master/data/train_valid',
+        homepage='https://www.tensorflow.org/datasets/catalog/cardiotox',
         citation=_CITATION,
         # Note that while metadata seems to be the most appropriate way to store
         # arbitrary info, it will not be printed when printing out the dataset
@@ -234,15 +251,14 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
 class DrugCardiotoxicityDataset(base.BaseDataset):
   """Drug Cardiotoxicity dataset builder class."""
 
-  def __init__(
-      self,
-      split: str,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = 64,
-      data_dir: Optional[str] = None,
-      download_data: bool = False,
-      is_training: Optional[bool] = None,
-      drop_remainder: bool = False):
+  def __init__(self,
+               split: str,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = 64,
+               download_data: bool = False,
+               data_dir: Optional[str] = None,
+               is_training: Optional[bool] = None,
+               drop_remainder: bool = False):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -253,10 +269,10 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      data_dir: path to a directory containing the tfrecord datasets, with
-        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
+      data_dir: Path to a directory containing the tfrecord datasets, with
+        filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -264,6 +280,10 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
         number of points is not exactly equal to the batch size. This option
         needs to be True for running on TPUs.
     """
+    if data_dir is None:
+      builder = tfds.builder('cardiotox')
+      data_dir = builder.data_dir
+    logging.info('CardioTox data dir: %s', data_dir)
 
     super().__init__(
         name='drug_cardiotoxicity',

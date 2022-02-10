@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,8 +31,8 @@ from tensorflow_addons import losses as tfa_losses
 from tensorflow_addons import metrics as tfa_metrics
 
 import uncertainty_baselines as ub
-import metrics as tc_metrics  # local file import
-import utils  # local file import
+import metrics as tc_metrics  # local file import from baselines.toxic_comments
+import utils  # local file import from baselines.toxic_comments
 from uncertainty_baselines.datasets import toxic_comments as ds
 from tensorboard.plugins.hparams import api as hp
 
@@ -246,8 +246,7 @@ def main(argv):
           utils.NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
 
   if FLAGS.use_bfloat16:
-    policy = tf.keras.mixed_precision.experimental.Policy('mixed_bfloat16')
-    tf.keras.mixed_precision.experimental.set_policy(policy)
+    tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(FLAGS.output_dir, 'summaries'))

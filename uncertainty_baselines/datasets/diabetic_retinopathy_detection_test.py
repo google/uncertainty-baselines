@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ class DiabeticRetinopathyDetectionDatasetTest(ub.datasets.DatasetTest):
 
   def testDatasetSize(self):
     super()._testDatasetSize(
-        ub.datasets.DiabeticRetinopathyDetectionDataset,
+        ub.datasets.UBDiabeticRetinopathyDetectionDataset,
         image_size=(512, 512, 3))
 
 

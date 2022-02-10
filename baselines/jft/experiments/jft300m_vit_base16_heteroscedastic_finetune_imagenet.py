@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -90,7 +90,10 @@ def get_config():
   config.model.fix_base_model = False
 
   # This is "no head" fine-tuning, which we use by default
-  config.model.representation_size = None
+  config.model.representation_size = 768
+
+  # set reint_head = False to re-use the head parameters of the upstream model
+  config.reint_head = True
 
   # Heteroscedastic
   config.model.multiclass = True
@@ -98,7 +101,7 @@ def get_config():
   config.model.mc_samples = 5000
   config.model.num_factors = 15
   config.model.param_efficient = True
-  config.model.return_locs = True  # set True to fine-tune a homoscedastic model
+  config.model.return_locs = False  # True -> fine-tune a homoscedastic model
 
   # Optimizer section
   config.optim_name = 'Momentum'
@@ -111,6 +114,4 @@ def get_config():
   config.lr.base = 0.003
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
-
-  config.args = {}
   return config

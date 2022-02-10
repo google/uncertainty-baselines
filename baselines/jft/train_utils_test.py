@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,12 +15,14 @@
 
 """Tests for training utilities used in the ViT experiments."""
 
+from absl.testing import parameterized
+
 import jax
 import tensorflow as tf
-import train_utils  # local file import
+import train_utils  # local file import from baselines.jft
 
 
-class TrainUtilsTest(tf.test.TestCase):
+class TrainUtilsTest(tf.test.TestCase, parameterized.TestCase):
 
   def test_sigmoid_xent(self):
     key = jax.random.PRNGKey(42)
@@ -72,6 +74,36 @@ class TrainUtilsTest(tf.test.TestCase):
     expected_lrs = [0., 0.05, 0.1, 0.087513, 0.075025]
     actual_lrs = [float(lr_fn(i)) for i in range(5)]
     self.assertAllClose(actual_lrs, expected_lrs)
+
+  @parameterized.parameters(
+      dict(weight_decay_rules=[],
+           rescale_value=1.,
+           learning_rate=1.,
+           input_params={"bias": 1., "kernel": 2.},
+           expected_decayed_params={"bias": 1., "kernel": 2.}),
+      dict(weight_decay_rules=1.,
+           rescale_value=1.,
+           learning_rate=.5,
+           input_params={"bias": 1., "kernel": 2.},
+           expected_decayed_params={"bias": 1., "kernel": 1.}),
+      dict(weight_decay_rules=[(".*b.*", .5)],
+           rescale_value=1.,
+           learning_rate=1.,
+           input_params={"bias": 1., "kernel": 2.},
+           expected_decayed_params={"bias": 0.5, "kernel": 2.}),
+      dict(weight_decay_rules=[(".*kernel.*", .5), (".*bias.*", 2.)],
+           rescale_value=2.,
+           learning_rate=1.,
+           input_params={"bias": 1., "kernel": 2.},
+           expected_decayed_params={"bias": 0., "kernel": 1.5}),
+  )
+  def test_get_weight_decay_fn(
+      self, weight_decay_rules, rescale_value, learning_rate,
+      input_params, expected_decayed_params):
+    weight_decay_fn = train_utils.get_weight_decay_fn(
+        weight_decay_rules, rescale_value)
+    actual_decayed_params = weight_decay_fn(input_params, learning_rate)
+    self.assertAllClose(actual_decayed_params, expected_decayed_params)
 
   def test_tree_map_with_regex(self):
     d = {"this": 1, "that": {"another": 2, "wow": 3, "cool": {"neat": 4}}}

@@ -62,6 +62,7 @@ do
   output_dir="${base_output_dir}/${run_name}"
   train_split="train[:${split}%]"
   num_train_examples=${CITYSCAPES_TRAIN_SIZE[$split]}
+  pretrained_backbone=$(get_pretrained_backbone_path $rng_seed)
   python deterministic.py \
   --output_dir=${output_dir} \
   --num_cores=$num_cores \

@@ -179,6 +179,11 @@ def eval_step(
   }
   (logits, _) = flax_model.apply(
       variables, batch['inputs'], train=False, mutable=False, debug=debug)
+  # upscale the targets
+
+  #     labels = jnp.tile(labels, (ens_size, 1))
+  # https://github.com/google/uncertainty-baselines/blob/main/baselines/jft/batchensemble.py#L391
+  #     loss_fn = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
   metrics = metrics_fn(logits, batch)
 
   confusion_matrix = get_confusion_matrix(
@@ -259,7 +264,7 @@ def train(
   if start_step == 0 and config.get('load_pretrained_backbone', False):
     # TODO(kellybuchanan): check out partial loader in
     # https://github.com/google/uncertainty-baselines/commit/083b1dcc52bb1964f8917d15552ece8848d582ae#
-
+    import pdb; pdb.set_trace()
     bb_checkpoint_path = config.pretrained_backbone_configs.get('checkpoint_path')
     checkpoint_format = config.pretrained_backbone_configs.get('checkpoint_format', 'ub')
     # bb_model_cfg_file = config.pretrained_backbone_configs.get('checkpoint_cfg')

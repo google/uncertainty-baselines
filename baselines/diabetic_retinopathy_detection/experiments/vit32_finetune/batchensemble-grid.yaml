@@ -34,5 +34,5 @@ parameters:
     values: [0]
 
   # Batch Ensemble parameters
-  config.fast_weight_lr_parameter:
+  config.fast_weight_lr_multiplier:
     values: [0.5, 1.0, 2.0]

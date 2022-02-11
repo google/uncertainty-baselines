@@ -110,7 +110,7 @@ def get_config():
   config.optim = ml_collections.ConfigDict()
   config.loss = 'softmax_xent'  # or 'sigmoid_xent'
   config.grad_clip_norm = 1.0
-  config.weight_decay = None  # No explicit weight decay
+  config.weight_decay = 0.  # No explicit weight decay
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 1e-3  # Set in sweep.

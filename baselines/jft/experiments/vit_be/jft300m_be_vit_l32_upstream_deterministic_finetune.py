@@ -106,25 +106,39 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
-  cifar10_sweep = sweep_utils.cifar10(hyper)
-  cifar10_sweep.append(
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
-  cifar10_sweep = hyper.product(cifar10_sweep)
+  cifar10_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.cifar10(
+              hyper, steps=int(10_000 * s), warmup=int(500 * s)))
+          for s in [0.5, 1.0, 1.5, 2.0]
+      ]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+  ])
 
-  cifar100_sweep = sweep_utils.cifar100(hyper)
-  cifar100_sweep.append(
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
-  cifar100_sweep = hyper.product(cifar100_sweep)
+  cifar100_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.cifar100(
+              hyper, steps=int(10_000 * s), warmup=int(500 * s)))
+          for s in [0.5, 1.0, 1.5, 2.0]
+      ]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+  ])
 
-  imagenet_sweep = sweep_utils.imagenet(hyper)
-  imagenet_sweep.append(
-      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]))
-  imagenet_sweep = hyper.product(imagenet_sweep)
-
-  # TODO(zmariet): Add sweep over warmup and total steps.
+  imagenet_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet(
+              hyper, steps=int(20_000 * s), warmup=int(500 * s)))
+          for s in [0.5, 1.0, 1.5, 2.0]
+      ]),
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+  ])
   return hyper.product([
-      hyper.chainit([cifar10_sweep, cifar100_sweep, imagenet_sweep]),
-      hyper.product([  # BE Hyperparameters.
+      hyper.chainit([
+          cifar10_sweep,
+          cifar100_sweep,
+          imagenet_sweep
+      ]),
+      hyper.product([
           hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
       ])

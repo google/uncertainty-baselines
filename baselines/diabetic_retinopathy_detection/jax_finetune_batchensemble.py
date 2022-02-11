@@ -93,7 +93,7 @@ def main(_):
       'weight_decay': config.weight_decay,
       'total_steps': config.total_steps,
       'lr': config.lr,
-      'fast_weight_lr_parameter': config.fast_weight_lr_parameter
+      'fast_weight_lr_multiplier': config.fast_weight_lr_multiplier
   })
 
   # Reweighting loss for class imbalance

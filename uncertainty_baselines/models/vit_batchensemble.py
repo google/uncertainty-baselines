@@ -39,6 +39,14 @@ InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
 Params = Mapping[str, Any]
 
 
+class IdentityLayer(nn.Module):
+  """Identity layer, convenient for giving a name to an array."""
+
+  @nn.compact
+  def __call__(self, x):
+    return x
+
+
 class BatchEnsembleMlpBlock(nn.Module):
   """Transformer MLP / feed-forward block with BatchEnsemble layers."""
   mlp_dim: int
@@ -365,7 +373,7 @@ class PatchTransformerBE(nn.Module):
       raise ValueError(f"Unknown classifier: {self.classifier}")
 
     if self.representation_size is None:
-      x = identity.IdentityLayer(name="pre_logits")(x)
+      x = IdentityLayer(name="pre_logits")(x)
       extra_info["pre_logits"] = x
     else:
       x = ed.nn.DenseBatchEnsemble(

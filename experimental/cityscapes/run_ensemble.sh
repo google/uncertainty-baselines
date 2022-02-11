@@ -4,7 +4,7 @@
 
 function get_config()
 {
-  local config_file_name="experiments/splits_l32/imagenet21k_segmenter_cityscapes_$1.py"
+  local config_file_name="experiments/sweep_vit32/imagenet21k_segmenter_cityscapes_$1.py"
   echo "$config_file_name"
 }
 

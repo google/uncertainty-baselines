@@ -26,6 +26,7 @@ import flax.traverse_util
 import jax
 import jax.numpy as jnp
 import numpy as np
+import train_utils  # local file import from baselines.jft
 
 
 EvaluationOutput = Tuple[jnp.ndarray, ...]
@@ -199,3 +200,37 @@ def update_fn_be(
     params = weight_decay_fn(opt.target, lr)
     opt = opt.replace(target=params)
   return opt, next_rngs, loss, aux
+
+
+def make_update_fn(model, config):
+  """Make the update function.
+
+  Args:
+    model: The model to be used in updates.
+    config: The config of the experiment.
+
+  Returns:
+    The function that updates the model for one step.
+  """
+
+  def batch_loss_fn(params, images, labels, rngs):
+    logits, _ = model.apply(
+        {'params': flax.core.freeze(params)}, images,
+        train=True, rngs=rngs)
+    labels = jnp.tile(labels, (config.model.transformer.ens_size, 1))
+    loss_fn = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
+    loss = jnp.mean(loss_fn(logits=logits, labels=labels))
+    return loss, dict()
+
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
+  def update_fn(opt, lr, images, labels, rngs):
+    return update_fn_be(
+        opt=opt, rngs=rngs, lr=lr, images=images, labels=labels,
+        batch_loss_fn=batch_loss_fn,
+        weight_decay_fn=train_utils.get_weight_decay_fn(
+            weight_decay_rules=config.get('weight_decay', []) or [],
+            rescale_value=config.lr.base
+            if config.get('weight_decay_decouple') else 1.),
+        max_grad_norm_global=config.get('grad_clip_norm', None),
+        fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
+  return update_fn

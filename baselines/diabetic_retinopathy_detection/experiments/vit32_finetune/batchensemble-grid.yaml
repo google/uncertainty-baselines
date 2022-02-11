@@ -1,0 +1,38 @@
+# BatchEnsemble fine-tuning of the BatchEnsemble ViT-L/32 model pretrained on ImageNet-21K.
+# Fine-tuning dataset and distributional shift:
+# Diabetic Retinopathy Detection, both Country and Severity Shifts.
+# Grid search.
+name: vit32-finetune-batchensemble-grid
+program: baselines/diabetic_retinopathy_detection/jax_finetune_batchensemble.py
+method: grid
+project: vit32-finetune-batchensemble-grid
+entity: uncertainty-baselines
+
+parameters:
+  config:
+    value: 'baselines/diabetic_retinopathy_detection/experiments/config/imagenet21k_vit_large32_be_finetune.py'
+  config.output_dir:
+    value: 'gs://ub-vit-tuning/vit32-finetune-batchensemble-grid'
+  config.model_init_and_random_sign_init:
+    values: ["('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/1/checkpoint.npz', -0.75)",
+             "('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/2/checkpoint.npz', -0.5)",
+             "('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/3/checkpoint.npz', 0.5)",
+             "('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/4/checkpoint.npz', 0.75)"]
+  config.distribution_shift:
+    values: ['aptos', 'severity']
+  config.use_wandb:
+    value: True
+  config.batch_size:
+    values: [128]
+  config.total_and_warmup_steps:
+    values: ["(10_000, 500)", "(15_000, 750)", "(20_000, 1000)", "(25_000, 1250)"]
+  config.lr.base:
+    values: [0.03, 0.01, 0.003, 0.001]
+  config.lr.decay_type:
+    values: ['cosine', 'linear']
+  config.seed:
+    values: [0]
+
+  # Batch Ensemble parameters
+  config.fast_weight_lr_parameter:
+    values: [0.5, 1.0, 2.0]

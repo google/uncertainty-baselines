@@ -91,6 +91,11 @@ def maybe_setup_wandb(config):
   return wandb_run, output_dir
 
 
+def write_note(note):
+  if jax.process_index() == 0:
+    logging.info('NOTE: %s', note)
+
+
 def accumulate_gradient_with_states(
     loss_and_grad_fn,
     params,
@@ -195,9 +200,21 @@ def initialize_sngp_model(config):
       'use_gp_layer': use_gp_layer
   }
 
+
+def initialize_batchensemble_model(config):
+  """Initialize BatchEnsemble model."""
+  model = ub.models.PatchTransformerBE(
+      num_classes=config.num_classes, **config.model)
+  return {
+    'model': model,
+    'ens_size': config.model.transformer.ens_size
+  }
+
+
 VIT_MODEL_INIT_MAP = {
     'deterministic': initialize_deterministic_model,
-    'sngp': initialize_sngp_model
+    'sngp': initialize_sngp_model,
+    'batchensemble': initialize_batchensemble_model
 }
 
 

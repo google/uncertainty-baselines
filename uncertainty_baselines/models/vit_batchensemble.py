@@ -102,6 +102,26 @@ class Encoder1DBlock(nn.Module):
   dtype: Optional[DType] = None
   dropout_rate: float = 0.0
   attention_dropout_rate: float = 0.0
+  stochastic_depth: float = 0.0
+
+  def get_stochastic_depth_mask(self, x: jnp.ndarray,
+                                deterministic: bool) -> jnp.ndarray:
+    """Generate the stochastic depth mask in order to apply layer-drop.
+
+    Args:
+      x: Input tensor.
+      deterministic: Weather we are in the deterministic mode (e.g inference
+        time) or not.
+
+    Returns:
+      Stochastic depth mask.
+    """
+    if not deterministic and self.stochastic_depth:
+      shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+      return jax.random.bernoulli(
+          self.make_rng('dropout'), self.stochastic_depth, shape)
+    else:
+      return 0.0
 
   @nn.compact
   def __call__(self,
@@ -121,13 +141,13 @@ class Encoder1DBlock(nn.Module):
         num_heads=self.num_heads,
         dropout_rate=self.attention_dropout_rate)(x, x)
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
-    x = x + inputs
+    x = x * (1.0 - self.get_stochastic_depth_mask(x, deterministic)) + inputs
 
     # MLP block.
     y = nn.LayerNorm(dtype=self.dtype, name="LayerNorm_2")(x)
     y = self.mlp_class(name="MlpBlock_3")(y, deterministic=deterministic)
 
-    return x + y
+    return y * (1.0 - self.get_stochastic_depth_mask(x, deterministic)) + x
 
 
 class BatchEnsembleEncoder(nn.Module):
@@ -146,6 +166,11 @@ class BatchEnsembleEncoder(nn.Module):
     train: True if the module is used for training.
     be_layers: Sequence of layers where BE MLPs are included. If None, use BE
       MLP blocks in every other layer (1, 3, 5, ...). First layer is 0.
+    stochastic_depth: probability of dropping a layer linearly grows from 0 to
+    the provided value. Our implementation of stochastic depth follows timm
+    library, which does per-example layer dropping and uses independent
+    dropping patterns for each skip-connection.
+
   """
   num_layers: int
   mlp_dim: int
@@ -157,6 +182,7 @@ class BatchEnsembleEncoder(nn.Module):
   attention_dropout_rate: float = 0.0
   train: Optional[bool] = None
   be_layers: Optional[Sequence[int]] = None
+  stochastic_depth: float = 0.0
 
   @nn.compact
   def __call__(self,
@@ -203,6 +229,8 @@ class BatchEnsembleEncoder(nn.Module):
           dtype=dtype,
           dropout_rate=self.dropout_rate,
           attention_dropout_rate=self.attention_dropout_rate,
+          stochastic_depth=(lyr / max(self.num_layers - 1, 1)) *
+                           self.stochastic_depth,
           name=f"encoderblock_{lyr}")
       if lyr in be_layers:
         # We need to tile inputs before the first BE layer.

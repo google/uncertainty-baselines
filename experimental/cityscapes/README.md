@@ -75,6 +75,10 @@ python -m unittest -v uncertainty_baselines/models/vit_batchensemble_test.py
 
 ```
 
+To debug segmenter BE model run:
+```
+python -m unittest -v uncertainty_baselines/models/segmenter_be_test.py
 
+```
 
 

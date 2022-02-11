@@ -98,6 +98,16 @@ except tf.errors.NotFoundError:
                   exc_info=True)
 
 try:
+  # Try to import Segmenter models.
+  from uncertainty_baselines.models.segmenter_be import segmenter_be_transformer
+except ImportError:
+  logging.warning('Skipped Segmenter BE model due to ImportError.', exc_info=True)
+except tf.errors.NotFoundError:
+  logging.warning('Skipped Segmenter BE model due to NotFoundError.',
+                  exc_info=True)
+
+
+try:
   # Try to import models depending on tensorflow_models.official.nlp.
   from uncertainty_baselines.models import bert
   from uncertainty_baselines.models.bert import bert_model

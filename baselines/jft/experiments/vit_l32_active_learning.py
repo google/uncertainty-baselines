@@ -29,33 +29,27 @@ def get_config():
   """Config for finetuning."""
   config = ml_collections.ConfigDict()
 
-  config.model_init = ''  # pass as parameter to script
   config.seed = 0
 
-  n_cls = 10
-  size = 384
-
-  # AL section:
-  config.acquisition_method = 'uniform'
+  # Active learning section
+  config.acquisition_method = ''  # set in sweep
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
   config.acquisition_batch_size = 10
   config.early_stopping_patience = 64
 
-  # Dataset section:
-  config.dataset = 'cifar10'
-  config.val_split = 'train[98%:]'
-  config.train_split = 'train[:98%]'
-  config.num_classes = n_cls
+  # Dataset section
+  config.dataset = ''  # set in sweep
+  config.test_split = ''  # set in sweep
+  config.val_split = ''  # set in sweep
+  config.train_split = ''  # set in sweep
+  config.num_classes = None  # set in swee
 
   config.batch_size = 256  # half of config's 512 - due to memory issues
-  config.total_steps = 1024
+  config.total_steps = None  # set in sweep
 
-  pp_common = '|value_range(-1, 1)'
-  pp_common += f'|onehot({n_cls}, key="label", key_result="labels")'
-  pp_common += '|keep(["image", "labels", "id"])'
-  config.pp_train = f'decode|inception_crop({size})|flip_lr' + pp_common
-  config.pp_eval = f'decode|resize({size})' + pp_common
+  config.pp_train = ''  # set in sweep
+  config.pp_eval = ''  # set in sweep
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
@@ -68,6 +62,7 @@ def get_config():
   config.trial = 0
 
   # Model section
+  config.model_init = ''  # set in sweep
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [32, 32]
@@ -90,7 +85,7 @@ def get_config():
   config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 0.003
+  config.lr.base = 0.003  # set in sweep
   # Turned off for active learning:
   config.lr.warmup_steps = 0
   config.lr.decay_type = 'cosine'
@@ -117,20 +112,24 @@ def get_sweep(hyper):
   sweep_lr = True  # whether to sweep over learning rates
   acquisition_methods = ['uniform', 'entropy', 'margin', 'density']
   if use_jft:
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     cifar10_sweep = hyper.product(cifar10_sweep)
   else:
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='test')
+    cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
     cifar10_sweep = hyper.product(cifar10_sweep)
   if sweep_lr:
     # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
     checkpoints = [checkpoints[0]]
-    cifar10_sweep = sweep_utils.cifar10(hyper, val_split='train[98%:]')
-    cifar10_sweep.append(
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
-    cifar10_sweep = hyper.product(cifar10_sweep)
+    cifar10_sweep = hyper.chainit([
+        hyper.product(sweep_utils.cifar10(
+            hyper, steps=int(10_000 * s), warmup=int(500 * s)))
+        for s in [0.5, 1.0, 1.5, 2.0]
+    ])
+    cifar10_sweep = hyper.product([
+        cifar10_sweep,
+        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])])
 
   return hyper.product([
       cifar10_sweep,

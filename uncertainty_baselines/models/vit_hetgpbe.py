@@ -20,7 +20,6 @@ import edward2.jax as ed
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import ml_collections
 import uncertainty_baselines.models.vit as vit
 import uncertainty_baselines.models.vit_batchensemble as vit_batchensemble
 
@@ -52,17 +51,14 @@ class VisionTransformerHetGPBE(nn.Module):
 
   num_classes: int
   patches: Any
+  # BatchEnsemble's hparams appear in transformer.
   transformer: Any
   hidden_size: int
   representation_size: Optional[int] = None
   classifier: str = 'token'
   fix_base_model: bool = False
 
-  # BatchEnsemble. Most of its hparams appear in transformer if use_be=True.
-  use_be: bool = True
-
   # Heteroscedastic
-  use_het: bool = True
   multiclass: bool = False  # also used for BatchEnsemble
   temperature: float = 1.0
   mc_samples: int = 1000
@@ -109,17 +105,8 @@ class VisionTransformerHetGPBE(nn.Module):
       cls = jnp.tile(cls, [n, 1, 1])
       x = jnp.concatenate([cls, x], axis=1)
 
-    if self.use_be:
-      x, _ = vit_batchensemble.BatchEnsembleEncoder(
-          name='Transformer', **self.transformer)(x, train=train)
-    else:
-      # Remove BatchEnsemble config settings to pass to a vanilla encoder.
-      transformer = dict(self.transformer)
-      transformer.pop('be_layers')
-      transformer.pop('ens_size')
-      transformer.pop('random_sign_init')
-      transformer = ml_collections.ConfigDict(transformer)
-      x = vit.Encoder(name='Transformer', **transformer)(x, train=train)
+    x, _ = vit_batchensemble.BatchEnsembleEncoder(
+        name='Transformer', **self.transformer)(x, train=train)
     out['transformed'] = x
 
     if self.classifier == 'token':
@@ -132,7 +119,15 @@ class VisionTransformerHetGPBE(nn.Module):
     out['head_input'] = x
 
     if self.representation_size is not None:
-      x = nn.Dense(features=self.representation_size, name='pre_logits')(x)
+      x = ed.nn.DenseBatchEnsemble(
+          self.representation_size,
+          self.transformer.get('ens_size'),
+          activation=None,
+          alpha_init=ed.nn.utils.make_sign_initializer(
+              self.transformer.get('random_sign_init')),
+          gamma_init=ed.nn.utils.make_sign_initializer(
+              self.transformer.get('random_sign_init')),
+          name='pre_logits')(x)
       out['pre_logits'] = x
       x = nn.tanh(x)
     else:
@@ -143,7 +138,7 @@ class VisionTransformerHetGPBE(nn.Module):
     if self.fix_base_model:
       x = jax.lax.stop_gradient(x)
 
-    if self.use_het and self.use_gp:
+    if self.use_gp:
       if self.covmat_momentum < 0.:
         gp_layer_kwargs = {'covmat_kwargs': {'momentum': None}}
       else:
@@ -152,11 +147,14 @@ class VisionTransformerHetGPBE(nn.Module):
       if self.multiclass:
         raise NotImplementedError('Multi-class HetSNGP layer not available.')
       else:
-        gp_layer = ed.nn.MCSigmoidDenseFASNGP(
-            num_outputs=self.num_classes, num_factors=self.num_factors,
+        gp_layer = ed.nn.MCSigmoidDenseFASNGPBE(
+            num_outputs=self.num_classes,
+            num_factors=self.num_factors,
             temperature=self.temperature,
             parameter_efficient=self.param_efficient,
-            train_mc_samples=self.mc_samples, test_mc_samples=self.mc_samples,
+            train_mc_samples=self.mc_samples,
+            test_mc_samples=self.mc_samples,
+            ens_size=self.transformer.get('ens_size'),
             logits_only=True, name='head', **gp_layer_kwargs)
       x_gp = gp_layer(x, training=train, **kwargs)
 
@@ -166,64 +164,42 @@ class VisionTransformerHetGPBE(nn.Module):
       out['covmat'] = x_gp[1]
 
       logits = x_gp[0]
-    elif self.use_het and not self.use_gp:
+    else:
+      # Note we're using non-BE layers.
       if self.multiclass:
         output_layer = ed.nn.MCSoftmaxDenseFA(
-            self.num_classes, self.num_factors, self.temperature,
-            self.param_efficient, self.mc_samples,
-            self.mc_samples, logits_only=True, return_locs=self.return_locs,
+            self.num_classes,
+            self.num_factors,
+            self.temperature,
+            self.param_efficient,
+            self.mc_samples,
+            self.mc_samples,
+            logits_only=True, return_locs=self.return_locs,
             name='head')
       else:
         output_layer = ed.nn.MCSigmoidDenseFA(
-            self.num_classes, self.num_factors, self.temperature,
-            self.param_efficient, self.mc_samples, self.mc_samples,
+            num_outputs=self.num_classes,
+            num_factors=self.num_factors,
+            temperature=self.temperature,
+            parameter_efficient=self.param_efficient,
+            train_mc_samples=self.mc_samples,
+            test_mc_samples=self.mc_samples,
             logits_only=True, return_locs=self.return_locs, name='head')
       logits = output_layer(x)
       out['logits'] = logits
-    elif not self.use_het and self.use_gp:
-      if self.covmat_momentum < 0.:
-        gp_layer_kwargs = {'covmat_kwargs': {'momentum': None}}
-      else:
-        gp_layer_kwargs = {'covmat_kwargs': {'momentum': self.covmat_momentum}}
 
-      gp_layer = ed.nn.RandomFeatureGaussianProcess(
-          features=self.num_classes, name='head', **gp_layer_kwargs)
-      x_gp = gp_layer(x, **kwargs)
-
-      # Gaussian process layer output: a tuple of logits, covmat, and optionally
-      # random features.
-      out['logits'] = x_gp[0]
-      out['covmat'] = x_gp[1]
-      if len(x_gp) > 2:
-        out['random_features'] = x_gp[2]
-
-      if not train:
-        # During inference, compute posterior mean by adjusting the original
-        # logits with predictive uncertainty.
-        logits = ed.nn.utils.mean_field_logits(
-            logits=x_gp[0],
-            covmat=x_gp[1],
-            mean_field_factor=self.mean_field_factor)
-      else:
-        logits = x_gp[0]
-    else:
-      logits = nn.Dense(
-          features=self.num_classes,
-          name='head',
-          kernel_init=nn.initializers.zeros)(x)
-      out['logits'] = logits
-
-    if self.use_be and not train:
-      # TODO(dusenberrymw,zmariet): Clean up and generalize this.
+    if not train:
       if self.multiclass:
         logits = log_average_softmax_probs(
             jnp.asarray(jnp.split(logits, self.transformer.get('ens_size'))))
+        out['pre_ens_logits'] = out['pre_logits']
         out['pre_logits'] = log_average_softmax_probs(
             jnp.asarray(jnp.split(out['pre_logits'],
                                   self.transformer.get('ens_size'))))
       else:
         logits = log_average_sigmoid_probs(
             jnp.asarray(jnp.split(logits, self.transformer.get('ens_size'))))
+        out['pre_ens_logits'] = out['pre_logits']
         out['pre_logits'] = log_average_sigmoid_probs(
             jnp.asarray(jnp.split(out['pre_logits'],
                                   self.transformer.get('ens_size'))))

@@ -29,12 +29,10 @@ from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
 import flax
-import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
 import ml_collections.config_flags
 import numpy as np
-from scipy.stats import entropy
 import tensorflow as tf
 
 tf.config.experimental.set_visible_devices([], 'GPU')
@@ -56,6 +54,13 @@ import wandb
 
 ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
+flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
+flags.DEFINE_integer(
+    'num_cores', default=None, help='Unused. How many devices being used.')
+flags.DEFINE_boolean(
+    'use_gpu', default=None, help='Unused. Whether or not running on GPU.')
+flags.DEFINE_string('tpu', None,
+                    'Unused. Name of the TPU. Only used if use_gpu is False.')
 FLAGS = flags.FLAGS
 
 
@@ -65,6 +70,7 @@ def main(argv):
   config = FLAGS.config
 
   # Wandb and Checkpointing Setup
+  output_dir = FLAGS.output_dir
   wandb_run, output_dir = vit_utils.maybe_setup_wandb(config)
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
@@ -102,17 +108,17 @@ def main(argv):
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'
 
-  seed = config.seed
+  seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
   if config.get('data_dir'):
     logging.info('data_dir=%s', config.data_dir)
   logging.info('Output dir: %s', output_dir)
+  tf.io.gfile.makedirs(output_dir)
 
   save_checkpoint_path = None
   if config.get('checkpoint_steps'):
-    tf.io.gfile.makedirs(output_dir)
     save_checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
 
   # Create an asynchronous multi-metric writer.
@@ -122,7 +128,11 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  vit_utils.write_note('Initializing...')
+  def write_note(note):
+    if jax.process_index() == 0:
+      logging.info('NOTE: %s', note)
+
+  write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
@@ -146,19 +156,19 @@ def main(argv):
       jax.local_device_count(), jax.device_count(),
       local_batch_size // jax.local_device_count())
 
-  vit_utils.write_note('Initializing preprocessing function...')
+  write_note('Initializing preprocessing function...')
   # Same preprocessing function for training and evaluation
   preproc_fn = preprocess_spec.parse(
       spec=config.pp_train, available_ops=preprocess_utils.all_ops())
 
-  vit_utils.write_note('Initializing train dataset...')
+  write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
   train_base_dataset = ub.datasets.get(
       dataset_names['in_domain_dataset'],
       split=split_names['train_split'],
       data_dir=config.get('data_dir'))
-  train_dataset_builder = train_base_dataset._dataset_builder  # pylint:disable=protected-access
+  train_dataset_builder = train_base_dataset._dataset_builder  # pylint: disable=protected-access
   train_ds = input_utils.get_data(
       dataset=train_dataset_builder,
       split=split_names['train_split'],
@@ -173,7 +183,7 @@ def main(argv):
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
 
-  vit_utils.write_note('Initializing val dataset(s)...')
+  write_note('Initializing val dataset(s)...')
 
   # Load in-domain and OOD validation and/or test datasets.
   # Please specify the desired shift (Country Shift or Severity Shift)
@@ -193,7 +203,7 @@ def main(argv):
       split=split_names['train_split'],
       process_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
-  steps_per_epoch = ntrain_img / batch_size
+  steps_per_epoch = ntrain_img // batch_size
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -206,7 +216,7 @@ def main(argv):
       'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
-  vit_utils.write_note('Initializing model...')
+  write_note('Initializing model...')
   model_dict = vit_utils.initialize_model('deterministic', config)
   model = model_dict['model']
 
@@ -259,7 +269,7 @@ def main(argv):
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
-  vit_utils.write_note(f'Initializing {opt_name} optimizer...')
+  write_note(f'Initializing {opt_name} optimizer...')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
 
   # We jit this, such that the arrays that are created are created on the same
@@ -306,9 +316,7 @@ def main(argv):
     decay_rules = weight_decay or []
     if isinstance(decay_rules, numbers.Number):
       decay_rules = [('.*kernel.*', decay_rules)]
-    # sched_m = lr / config.lr.base if config.get(
-    #   'weight_decay_decouple') else lr
-    sched_m = lr / config.lr_base if config.get(
+    sched_m = lr / config.lr.base if config.get(
         'weight_decay_decouple') else lr
 
     def decay_fn(v, wd):
@@ -330,7 +338,7 @@ def main(argv):
 
   rng, train_loop_rngs = jax.random.split(rng)
   reint_params = ('head/kernel', 'head/bias')
-  if config.only_eval or not config.get('reint_head', True):
+  if config.get('only_eval', False) or not config.get('reint_head', True):
     reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,
@@ -345,13 +353,13 @@ def main(argv):
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  vit_utils.write_note('Adapting the checkpoint model...')
+  write_note('Adapting the checkpoint model...')
   adapted_params = checkpoint_utils.adapt_upstream_architecture(
       init_params=params_cpu,
       loaded_params=opt_cpu.target)
   opt_cpu = opt_cpu.replace(target=adapted_params)
 
-  vit_utils.write_note('Kicking off misc stuff...')
+  write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
@@ -373,8 +381,8 @@ def main(argv):
   lr_iter = train_utils.prefetch_scalar(
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
-  vit_utils.write_note(f'Replicating...\n{chrono.note}')
-  opt_repl = flax_utils.replicate(opt_cpu)
+  write_note(f'Replicating...\n{chrono.note}')
+  opt_repl = flax.jax_utils.replicate(opt_cpu)
 
   checkpoint_writer = None
 
@@ -384,13 +392,12 @@ def main(argv):
   # val_loss = -jnp.inf
   # results = {'dummy': {(0, 1): -jnp.inf}}
 
-  vit_utils.write_note(f'First step compilations...\n{chrono.note}')
+  write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
   if first_step > 0:
-    vit_utils.write_note(
-        'Advancing iterators after resuming from a checkpoint...')
+    write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
 
@@ -400,7 +407,7 @@ def main(argv):
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
 
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
-      if not config.only_eval:
+      if not config.get('only_eval', False):
         opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
             lr_repl,
@@ -412,9 +419,9 @@ def main(argv):
       profiler(step)
 
     # Checkpoint saving
-    if not config.only_eval and train_utils.itstime(
+    if not config.get('only_eval', False) and train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
-      vit_utils.write_note('Checkpointing...')
+      write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
@@ -428,7 +435,7 @@ def main(argv):
       copy_step = None
       if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
                              total_steps):
-        vit_utils.write_note('Keeping a checkpoint copy...')
+        write_note('Keeping a checkpoint copy...')
         copy_step = step
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
@@ -444,12 +451,12 @@ def main(argv):
       chrono.resume()
 
     # Report training progress
-    if not config.only_eval and train_utils.itstime(
+    if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
-      vit_utils.write_note('Reporting training progress...')
+      write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
-      vit_utils.write_note(note)
+      write_note(note)
       train_measurements = {}
       train_measurements.update({
           'learning_rate': lr_repl[0],
@@ -461,7 +468,7 @@ def main(argv):
 
     # Report validation performance
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
-      vit_utils.write_note('Evaluating on the validation set...')
+      write_note('Evaluating on the validation set...')
       chrono.pause()
 
       all_eval_results = {}
@@ -477,7 +484,7 @@ def main(argv):
         }
 
         for _, batch in zip(range(eval_steps), eval_iter):
-          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (  # pylint:disable=unused-variable
+          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (  # pylint: disable=unused-variable
               evaluation_fn(
                   opt_repl.target, batch['image'], batch['labels']))
 
@@ -508,7 +515,7 @@ def main(argv):
         results_arrs['y_true'] = np.concatenate(results_arrs['y_true'], axis=0)
         results_arrs['y_pred'] = np.concatenate(
             results_arrs['y_pred'], axis=0).astype('float64')
-        results_arrs['y_pred_entropy'] = entropy(
+        results_arrs['y_pred_entropy'] = vit_utils.entropy(
             np.concatenate(results_arrs['y_pred_entropy'], axis=0), axis=-1)
 
         time_elapsed = time.time() - start_time
@@ -517,21 +524,30 @@ def main(argv):
 
         all_eval_results[eval_name] = results_arrs
 
-      per_pred_results, total_results = vit_utils.evaluate_vit_predictions(
+      per_pred_results, metrics_results = vit_utils.evaluate_vit_predictions(  # pylint: disable=unused-variable
           dataset_split_to_containers=all_eval_results,
           is_deterministic=True,
           num_bins=15,
           return_per_pred_results=True
       )
 
+      # `metrics_results` is a dict of {str: jnp.ndarray} dicts, one for each
+      # dataset. Flatten this dict so we can pass to the writer and remove empty
+      # entries.
+      flattened_metric_results = {}
+      for dic in metrics_results.values():
+        for key, value in dic.items():
+          if value is not None:
+            flattened_metric_results[key] = value
+      writer.write_scalars(step, flattened_metric_results)
+
       # Optionally log to wandb
       if config.use_wandb:
-        wandb.log(total_results, step=step)
+        wandb.log(metrics_results, step=step)
 
-      # Save per-prediction metrics
+      Save per-prediction metrics
       results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
-
       chrono.resume()
 
     # End of step.
@@ -540,7 +556,7 @@ def main(argv):
       if config.testing_failure_step == step:
         break
 
-  vit_utils.write_note(f'Done!\n{chrono.note}')
+  write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
   writer.close()
@@ -555,4 +571,6 @@ def main(argv):
 
 
 if __name__ == '__main__':
+  # Adds jax flags to the program.
+  jax.config.config_with_absl()
   app.run(main)

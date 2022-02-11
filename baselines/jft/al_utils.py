@@ -18,7 +18,8 @@
 Alternative version that writes out TFRecords here:
 https://colab.research.google.com/drive/1McRC0es1ehwUL_jQQcBdC05wsPGgNWE3
 """
-
+import logging
+import jax
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -77,6 +78,8 @@ class Cifar10Subset(cifar.Cifar10):
 
     # HACK: Fix id to be an int. Assuming 'label' is an int, too.
     element_spec = dataset.element_spec.copy()
+    logging.info(msg=f'element_spec = {element_spec}; '
+                 f'type = {jax.tree_map(type, element_spec)}')
     element_spec['id'] = element_spec['label']
 
     # NOTE: if this line errors out, make sure to update your

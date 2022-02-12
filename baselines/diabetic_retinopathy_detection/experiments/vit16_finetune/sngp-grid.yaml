@@ -18,7 +18,7 @@ parameters:
   config.use_wandb:
     value: True
   config.batch_size:
-    values: [512]
+    values: [128]
   config.total_and_warmup_steps:
     values: ["(5_000, 250)", "(10_000, 500)", "(15_000, 750)", "(20_000, 1000)"]
   config.lr.base:

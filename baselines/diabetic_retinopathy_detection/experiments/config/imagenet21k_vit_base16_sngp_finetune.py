@@ -110,7 +110,7 @@ def get_config():
       f'diabetic_retinopathy_preprocess({config.pp_input_res})' + pp_common)
 
   # Training Misc
-  config.batch_size = 512  # using TPUv3-64
+  config.batch_size = 128  # using TPUv3-8
   config.seed = 0  # Random seed.
   config.shuffle_buffer_size = 15_000  # Per host, so small-ish is ok.
 

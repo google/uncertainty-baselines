@@ -52,6 +52,10 @@ class GraphAugment:
       perturbation augmentation when True. Uses original dropped edge features
       when False. Ignored when perturb_edge_features=False or
       drop_edges_only=True.
+    mask_mean: Float of mean of random normal distribution used to generate
+      mask features.
+    mask_stddev: Float of standard deviation of random normal distribution used
+      to generate mask features.
   """
 
   # TODO(jihyeonlee): Allow user to specify different aug_ratios for different
@@ -63,10 +67,13 @@ class GraphAugment:
                perturb_node_features: bool = False,
                drop_edges_only: bool = False,
                perturb_edge_features: bool = False,
-               initialize_edge_features_randomly: bool = False):
+               initialize_edge_features_randomly: bool = False,
+               mask_mean: float = 0.5,
+               mask_stddev: float = 0.5):
     self.augmentations_available = {
         'drop_nodes': self.drop_nodes,
-        'perturb_edges': self.perturb_edges
+        'perturb_edges': self.perturb_edges,
+        'mask_node_features': self.mask_node_features
     }
     for augmentation in augmentations_to_use:
       if augmentation not in self.augmentations_available:
@@ -77,9 +84,12 @@ class GraphAugment:
       self.drop_edges_only = drop_edges_only
       self.perturb_edge_features = perturb_edge_features
       self.initialize_edge_features_randomly = initialize_edge_features_randomly
+    if 'mask_node_features' in augmentations_to_use:
+      self.mask_mean = mask_mean
+      self.mask_stddev = mask_stddev
     self.augmentations_to_use = augmentations_to_use
-    self.aug_ratio = aug_ratio
-    self.aug_prob = aug_prob
+    self.aug_ratio = tf.constant(aug_ratio, dtype=tf.float32)
+    self.aug_prob = tf.constant(aug_prob, dtype=tf.float32)
 
   def augment(self, input_graph: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
     """Randomly selects and performs an augmentation from all possible.
@@ -99,6 +109,16 @@ class GraphAugment:
     augmented_graph, _ = self.augmentations_available[aug_function_name](
         input_graph)
     return augmented_graph
+
+  def _sample_nodes(self, atom_mask: tf.Tensor) -> tf.Tensor:
+    nodes = tf.where(tf.equal(atom_mask, 1.))
+    total_num_nodes = tf.shape(nodes)[0]
+    sample_size = tf.math.ceil(
+        tf.math.multiply(self.aug_ratio,
+                         tf.cast(total_num_nodes, dtype=self.aug_ratio.dtype)))
+    idx_sample = tf.gather(
+        tf.random.shuffle(nodes), tf.range(sample_size, dtype=tf.int64))
+    return idx_sample
 
   def drop_nodes(
       self, input_graph: Dict[str, tf.Tensor]
@@ -126,16 +146,9 @@ class GraphAugment:
       atoms, atom_mask, pairs, pair_mask = features
 
       # Select nodes to drop.
-      nodes = tf.where(tf.equal(atom_mask, 1.))
-      total_num_nodes = tf.shape(nodes)[0]
-      drop_num = tf.math.ceil(
-          tf.math.multiply(self.aug_ratio,
-                           tf.cast(total_num_nodes, dtype=tf.float32)))
-      if tf.math.equal(drop_num, 0):
+      idx_drop = self._sample_nodes(atom_mask)
+      if tf.math.equal(tf.shape(idx_drop)[0], 0):
         return features
-      # idx_drop shape: [[idx1], [idx2], ...].
-      idx_drop = tf.gather(
-          tf.random.shuffle(nodes), tf.range(drop_num, dtype=tf.int64))
       idx_dropped_nodes.append(tf.squeeze(idx_drop))
 
       # Drop selected nodes.
@@ -229,8 +242,9 @@ class GraphAugment:
       edges_of_valid_nodes = tf.where(tf.equal(pair_mask, 1.))
       num_edges_of_valid_nodes = tf.shape(edges_of_valid_nodes)[0]
       num_edges_to_drop = tf.math.ceil(
-          tf.math.multiply(self.aug_ratio,
-                           tf.cast(num_edges_of_valid_nodes, dtype=tf.float32)))
+          tf.math.multiply(
+              self.aug_ratio,
+              tf.cast(num_edges_of_valid_nodes, dtype=self.aug_ratio.dtype)))
       num_edges_to_drop = tf.cast(num_edges_to_drop, dtype=tf.int64)
       if tf.math.equal(num_edges_to_drop, 0):
         return features
@@ -320,3 +334,54 @@ class GraphAugment:
     }
     return augmented_graph, (idx_dropped_edges, idx_added_edges)
 
+  def mask_node_features(
+      self, input_graph: Dict[str, tf.Tensor]
+  ) -> Tuple[Dict[str, tf.Tensor], List[tf.Tensor]]:
+    """Randomly selects node features to mask (i.e., re-initialize randomly).
+
+    Attribute masking prompts models to recover masked vertex attributes using
+    their context information, i.e., the remaining attributes. The underlying
+    assumption is that missing partial vertex attributes does not affect the
+    model predictions much.
+
+    Args:
+      input_graph: Graph to be augmented.
+
+    Returns:
+      A 2-tuple containing the augmented graph and list of indicies of masked
+        nodes.
+    """
+    idx_masked_nodes = []
+
+    def _mask_nodes_helper(
+        features: Tuple[tf.Tensor, tf.Tensor]) -> Tuple[tf.Tensor, tf.Tensor]:
+      """Performs batch-wise operation to mask node features."""
+      atoms, atom_mask = features
+
+      # Select nodes to mask.
+      idx_mask = self._sample_nodes(atom_mask)
+      if tf.math.equal(tf.shape(idx_mask)[0], 0):
+        return features
+      idx_masked_nodes.append(tf.squeeze(idx_mask))
+
+      masked_features = tf.random.normal(
+          (tf.shape(idx_mask)[0], tf.shape(atoms)[1]),
+          mean=self.mask_mean,
+          stddev=self.mask_stddev)
+
+      # Mask the selected features.
+      aug_atoms = tf.tensor_scatter_nd_update(atoms, idx_mask, masked_features)
+      return aug_atoms, atom_mask
+
+    # Replace features with augmented versions.
+    aug_atoms, _ = tf.map_fn(
+        _mask_nodes_helper,
+        (input_graph['atoms'], input_graph['atom_mask']))
+    augmented_graph = {
+        'atoms': aug_atoms,
+        'atom_mask': input_graph['atom_mask'],
+        'pairs': input_graph['pairs'],
+        'pair_mask': input_graph['pair_mask'],
+        'molecule_id': input_graph['molecule_id']
+    }
+    return augmented_graph, idx_masked_nodes

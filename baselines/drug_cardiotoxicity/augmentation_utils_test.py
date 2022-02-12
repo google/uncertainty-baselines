@@ -28,7 +28,9 @@ from google3.testing.pybase import googletest
 NUM_MOLECULES = 3
 AUG_RATIO = 0.5
 AUG_PROB = 1.
-AUGMENTATIONS = ['drop_nodes', 'perturb_edges']
+AUGMENTATIONS = [
+    'drop_nodes', 'perturb_edges', 'mask_node_features'
+]
 VALID_NODES = [0, 2, 3, 5]
 
 
@@ -281,6 +283,17 @@ class AugmentationUtilsTest(googletest.TestCase):
           self.valid_graph['atoms'][molecule_idx],
           augmented_graph_with_unperturbed_features['atoms'][molecule_idx])
 
+  def test_mask_nodes(self):
+    # Mask 50% of nodes == 15 nodes.
+    augmented_graph, idx_masked_nodes = self.graph_augmenter_perturb_features.mask_node_features(
+        self.valid_graph)
+    for molecule_idx in range(NUM_MOLECULES):
+      masked_nodes = idx_masked_nodes[molecule_idx]
+      for node in masked_nodes:
+        augmented_features = augmented_graph['atoms'][molecule_idx][node]
+        original_features = self.valid_graph['atoms'][molecule_idx][node]
+        self.assertFalse(np.array_equal(augmented_features, original_features))
+
   def test_perturb_edges(self):
     # Set random seed so that the following calls of drop_nodes will drop
     # the same nodes to test for equality. Test does NOT rely on seed value.
@@ -448,6 +461,11 @@ class AugmentationUtilsTest(googletest.TestCase):
     # Check that returned arrays of perturbed edge indices are empty.
     self.assertEmpty(idx_dropped_edges)
     self.assertEmpty(idx_added_edges)
+
+    _, idx_masked_nodes = self.graph_augmenter_perturb_features.mask_node_features(
+        self.empty_graph)
+    # Check that returned arrays of dropped node indices are empty.
+    self.assertEmpty(idx_masked_nodes)
 
 
 if __name__ == '__main__':

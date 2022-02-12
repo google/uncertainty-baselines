@@ -68,7 +68,7 @@ flags.DEFINE_float(
 flags.DEFINE_multi_enum(
     'augmentations',
     default=[],
-    enum_values=['drop_nodes', 'perturb_edges'],
+    enum_values=['drop_nodes', 'perturb_edges', 'mask_node_features'],
     help='Types of augmentations to perform on graphs. If an empty list is '
     'provided, then no augmentation will be applied to the data.')
 
@@ -93,6 +93,14 @@ flags.DEFINE_boolean('initialize_edge_features_randomly', False,
                      'When True, initializes the features of newly added edges '
                      'from a random uniform distribution. When False, uses the '
                      'features of dropped edges for the newly added ones.')
+
+# Flags for mask_node_features
+flags.DEFINE_float(
+    'mask_mean', 0.5, 'Mean of random normal distribution used to generate '
+    'features of mask.')
+flags.DEFINE_float(
+    'mask_stddev', 0.5, 'Standard deviation of random normal distribution used '
+    'to generate features of mask.')
 
 # Loss type.
 flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
@@ -295,7 +303,8 @@ def main(argv: Sequence[str]):
     graph_augmenter = augmentation_utils.GraphAugment(
         FLAGS.augmentations, FLAGS.aug_ratio, FLAGS.aug_prob,
         FLAGS.perturb_node_features, FLAGS.drop_edges_only,
-        FLAGS.perturb_edge_features, FLAGS.initialize_edge_features_randomly)
+        FLAGS.perturb_edge_features, FLAGS.initialize_edge_features_randomly,
+        FLAGS.mask_mean, FLAGS.mask_stddev)
 
   params = utils.ModelParameters(
       num_heads=FLAGS.num_heads,

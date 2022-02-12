@@ -22,8 +22,7 @@ parameters:
   config.model_init_and_random_sign_init:
     values: ["('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/1/checkpoint.npz', -0.75)",
              "('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/2/checkpoint.npz', -0.5)",
-             "('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/3/checkpoint.npz', 0.5)",
-             "('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/4/checkpoint.npz', 0.75)"]
+             "('gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/3/checkpoint.npz', 0.5)"]
   config.distribution_shift:
     value: 'aptos'
   config.use_wandb:

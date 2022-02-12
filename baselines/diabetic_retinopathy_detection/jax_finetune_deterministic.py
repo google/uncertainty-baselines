@@ -54,8 +54,6 @@ from utils import vit_utils
 import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
-logging.info(tf.config.experimental.get_visible_devices())
-
 ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=False)
 FLAGS = flags.FLAGS
@@ -111,17 +109,17 @@ def main(argv):
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'
 
-  seed = config.seed
+  seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
   if config.get('data_dir'):
     logging.info('data_dir=%s', config.data_dir)
   logging.info('Output dir: %s', output_dir)
+  tf.io.gfile.makedirs(output_dir)
 
   save_checkpoint_path = None
   if config.get('checkpoint_steps'):
-    tf.io.gfile.makedirs(output_dir)
     save_checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
 
   # Create an asynchronous multi-metric writer.
@@ -167,7 +165,7 @@ def main(argv):
       dataset_names['in_domain_dataset'],
       split=split_names['train_split'],
       data_dir=config.get('data_dir'))
-  train_dataset_builder = train_base_dataset._dataset_builder  # pylint:disable=protected-access
+  train_dataset_builder = train_base_dataset._dataset_builder  # pylint: disable=protected-access
   train_ds = input_utils.get_data(
       dataset=train_dataset_builder,
       split=split_names['train_split'],
@@ -202,7 +200,7 @@ def main(argv):
       split=split_names['train_split'],
       process_batch_size=local_batch_size,
       data_dir=config.get('data_dir'))
-  steps_per_epoch = ntrain_img / batch_size
+  steps_per_epoch = ntrain_img // batch_size
 
   if config.get('num_epochs'):
     total_steps = int(config.num_epochs * steps_per_epoch)
@@ -315,9 +313,7 @@ def main(argv):
     decay_rules = weight_decay or []
     if isinstance(decay_rules, numbers.Number):
       decay_rules = [('.*kernel.*', decay_rules)]
-    # sched_m = lr / config.lr.base if config.get(
-    #   'weight_decay_decouple') else lr
-    sched_m = lr / config.lr_base if config.get(
+    sched_m = lr / config.lr.base if config.get(
         'weight_decay_decouple') else lr
 
     def decay_fn(v, wd):
@@ -339,7 +335,7 @@ def main(argv):
 
   rng, train_loop_rngs = jax.random.split(rng)
   reint_params = ('head/kernel', 'head/bias')
-  if config.only_eval or not config.get('reint_head', True):
+  if config.get('only_eval', False) or not config.get('reint_head', True):
     reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,
@@ -409,7 +405,7 @@ def main(argv):
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
 
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
-      if not config.only_eval:
+      if not config.get('only_eval', False):
         opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
             lr_repl,
@@ -421,7 +417,7 @@ def main(argv):
       profiler(step)
 
     # Checkpoint saving
-    if not config.only_eval and train_utils.itstime(
+    if not config.get('only_eval', False) and train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
       vit_utils.write_note('Checkpointing...')
       chrono.pause()
@@ -453,7 +449,7 @@ def main(argv):
       chrono.resume()
 
     # Report training progress
-    if not config.only_eval and train_utils.itstime(
+    if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       vit_utils.write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
@@ -486,7 +482,7 @@ def main(argv):
         }
 
         for _, batch in zip(range(eval_steps), eval_iter):
-          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (  # pylint:disable=unused-variable
+          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (  # pylint: disable=unused-variable
               evaluation_fn(
                   opt_repl.target, batch['image'], batch['labels']))
 
@@ -526,21 +522,30 @@ def main(argv):
 
         all_eval_results[eval_name] = results_arrs
 
-      per_pred_results, total_results = vit_utils.evaluate_vit_predictions(
+      per_pred_results, metrics_results = vit_utils.evaluate_vit_predictions(  # pylint: disable=unused-variable
           dataset_split_to_containers=all_eval_results,
           is_deterministic=True,
           num_bins=15,
           return_per_pred_results=True
       )
 
+      # `metrics_results` is a dict of {str: jnp.ndarray} dicts, one for each
+      # dataset. Flatten this dict so we can pass to the writer and remove empty
+      # entries.
+      flattened_metric_results = {}
+      for dic in metrics_results.values():
+        for key, value in dic.items():
+          if value is not None:
+            flattened_metric_results[key] = value
+      writer.write_scalars(step, flattened_metric_results)
+
       # Optionally log to wandb
       if config.use_wandb:
-        wandb.log(total_results, step=step)
+        wandb.log(metrics_results, step=step)
 
       # Save per-prediction metrics
       results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
-
       chrono.resume()
 
     # End of step.
@@ -564,4 +569,6 @@ def main(argv):
 
 
 if __name__ == '__main__':
+  # Adds jax flags to the program.
+  jax.config.config_with_absl()
   app.run(main)

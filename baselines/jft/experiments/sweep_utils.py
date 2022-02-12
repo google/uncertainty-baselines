@@ -49,7 +49,6 @@ def cifar10(hyper, size=384, steps=10_000, warmup=500):
   config.dataset = name
   config.train_split = 'train[:98%]'
   config.pp_train = pp_train
-  # TODO(trandustin): Add support for multiple validation splits.
   config.val_split = 'train[98%:]'
   config.test_split = 'test'
   config.pp_eval = pp_eval
@@ -90,7 +89,7 @@ def cifar100(hyper, size=384, steps=10_000, warmup=500):
   n_cls = 100
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({n_cls}, key="label", key_result="labels")'
-  pp_common += '|keep(["image", "labels"])'
+  pp_common += '|keep(["image", "labels", "id"])'
   pp_train = f'decode|inception_crop({size})|flip_lr' + pp_common
   pp_eval = f'decode|resize({size})' + pp_common
 
@@ -98,7 +97,6 @@ def cifar100(hyper, size=384, steps=10_000, warmup=500):
   config.dataset = name
   config.train_split = 'train[:98%]'
   config.pp_train = pp_train
-  # TODO(trandustin): Add ability to support multiple validation splits.
   config.val_split = 'train[98%:]'
   config.test_split = 'test'
   config.pp_eval = pp_eval
@@ -135,7 +133,7 @@ def imagenet(hyper, size=384, steps=20_000, warmup=500, include_ood_maha=False):
   n_cls = 1000
   pp_common = '|value_range(-1, 1)'
   pp_common += '|onehot(1000, key="{lbl}", key_result="labels")'
-  pp_common += '|keep(["image", "labels"])'
+  pp_common += '|keep(["image", "labels", "id"])'
   pp_train = f'decode_jpeg_and_inception_crop({size})|flip_lr'
   pp_train += pp_common.format(lbl='label')
   pp_eval = f'decode|resize({size})' + pp_common.format(lbl='label')
@@ -144,7 +142,6 @@ def imagenet(hyper, size=384, steps=20_000, warmup=500, include_ood_maha=False):
   config.dataset = name
   config.train_split = 'train[:99%]'
   config.pp_train = pp_train
-  # TODO(trandustin): Add ability to support multiple validation splits.
   config.val_split = 'train[99%:]'
   config.test_split = 'validation'
   config.pp_eval = pp_eval

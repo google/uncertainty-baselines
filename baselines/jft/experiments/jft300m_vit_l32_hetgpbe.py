@@ -20,8 +20,7 @@ r"""Heteroscedastic GP BatchEnsemble L/32.
 # pylint: enable=line-too-long
 
 import ml_collections
-# Turn off few-shot to speed up training a bit.
-# import common_fewshot  # local file import from baselines.jft.experiments
+import common_fewshot  # local file import from baselines.jft.experiments
 
 
 def get_config():
@@ -47,10 +46,9 @@ def get_config():
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
-  # Set logging somewhat infrequently to make training potentially faster.
-  config.log_training_steps = 10000
-  config.log_eval_steps = 50000
-  config.checkpoint_steps = 17250
+  config.log_training_steps = 5000
+  config.log_eval_steps = 10000
+  config.checkpoint_steps = 15000
   config.checkpoint_timeout = 10
 
   # Model section
@@ -68,21 +66,19 @@ def get_config():
   config.model.representation_size = 1024
 
   # Heteroscedastic
-  config.model.use_het = True
   config.model.multiclass = False
   config.model.temperature = 0.2
-  config.model.mc_samples = 1000
+  config.model.mc_samples = 100
   config.model.num_factors = 50
   config.model.param_efficient = True
 
   # BatchEnsemble
-  config.model.use_be = True
-  config.model.transformer.be_layers = (21, 23)
+  config.model.transformer.be_layers = (21, 22, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = -0.5
 
   # GP
-  config.model.use_gp = True
+  config.model.use_gp = False
   # Use momentum-based (i.e., non-exact) covariance update for pre-training.
   # This is because the exact covariance update can be unstable for pretraining,
   # since it involves inverting a precision matrix accumulated over 300M data.
@@ -98,8 +94,7 @@ def get_config():
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
   config.weight_decay = None  # No explicit weight decay
-  config.grad_clip_norm = 2.5  # inherited from heteroscedastic sweep
-  # TODO(lbeyer): make a mini-language like preprocessings.
+  config.grad_clip_norm = 1.0  # setting from mark's rec
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 6e-4  # LR has to be lower for larger models!
   config.lr.warmup_steps = 10_000
@@ -107,23 +102,29 @@ def get_config():
   config.lr.linear_end = 1e-5
 
   # Few-shot eval section
-  # config.fewshot = common_fewshot.get_fewshot()
-  # config.fewshot.log_steps = 100_000
+  config.fewshot = common_fewshot.get_fewshot()
+  config.fewshot.representation_layer = 'pre_ens_logits'
+  config.fewshot.log_steps = 100_000
   return config
 
 
-def get_sweep(hyper):  # total is 1*3*1*2*3*1*1=18 jobs
+def get_sweep(hyper):
   return hyper.product([
-      # base hparams
-      hyper.sweep('config.grad_clip_norm', [2.5]),  # should we vary this?
-      hyper.sweep('config.lr.base', [3e-4, 4e-4, 6e-4]),
-      # batchensemble hparams
-      hyper.sweep('config.model.transformer.ens_size', [3]),  # 4 ooms with het
-      hyper.sweep('config.model.transformer.random_sign_init',
-                  [0.5, -0.5]),  # maybe try 0.75 instead of -0.5
-      # het hparams
-      hyper.sweep('config.model.temperature', [0.35, 1.0, 2.0]),
-      # gp hparams
-      hyper.sweep('config.model.ridge_penalty', [1.0]),
-      hyper.sweep('config.model.covmat_momentum', [.999]),
+      hyper.chainit([
+          hyper.product([
+              hyper.sweep('config.model.use_gp', [False]),
+              hyper.sweep('config.model.transformer.random_sign_init',
+                          [0.5, -0.5]),
+              hyper.sweep('config.model.mc_samples', [100, 500]),
+              hyper.sweep('config.grad_clip_norm', [1.0, 2.5]),
+              hyper.sweep('config.model.temperature', [0.2, 0.35, 1.0]),
+          ]),
+          # hyper.product([
+          #     hyper.sweep('config.model.use_gp', [True]),
+          #     hyper.sweep('config.lr.base', [3e-4, 4e-4, 6e-4]),
+          #     hyper.sweep('config.model.transformer.random_sign_init',
+          #                 [0.5, -0.5]),
+          #     hyper.sweep('config.model.temperature', [0.2, 0.35, 1.0]),
+          # ]),
+      ])
   ])

@@ -31,7 +31,6 @@ def get_config():
 
   config.model_init = ''  # set in sweep
   config.dataset = ''  # set in sweep
-  config.test_split = ''  # set in sweep
   config.val_split = ''  # set in sweep
   config.test_split = ''  # set in sweep
   config.train_split = ''  # set in sweep

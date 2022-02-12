@@ -36,7 +36,7 @@ def get_config():
   # The directory where the model weights and training/evaluation summaries
   #   are stored.
   config.output_dir = (
-    '/tmp/diabetic_retinopathy_detection/vit-16-i21k/deterministic')
+      '/tmp/diabetic_retinopathy_detection/vit-16-i21k/deterministic')
 
   # Fine-tuning dataset
   config.data_dir = 'gs://ub-data/retinopathy'

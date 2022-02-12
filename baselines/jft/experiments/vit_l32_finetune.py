@@ -96,6 +96,7 @@ def get_sweep(hyper):
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
   use_jft = False  # whether to use JFT-300M or ImageNet-21K settings
   sweep_lr = False  # whether to sweep over learning rates
+
   if use_jft:
     cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
@@ -120,23 +121,38 @@ def get_sweep(hyper):
     imagenet_sweep = sweep_utils.imagenet(hyper)
     imagenet_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     imagenet_sweep = hyper.product(imagenet_sweep)
+
   if sweep_lr:
-    # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
+    # Sweep over learning rates following Table 4 of Vision Transformer paper
+    # and training steps following E^3 paper.
     checkpoints = [checkpoints[0]]
-    cifar10_sweep = sweep_utils.cifar10(hyper)
-    cifar10_sweep.append(
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
-    cifar10_sweep = hyper.product(cifar10_sweep)
 
-    cifar100_sweep = sweep_utils.cifar100(hyper)
-    cifar100_sweep.append(
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]))
-    cifar100_sweep = hyper.product(cifar100_sweep)
+    cifar10_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.cifar10(
+                hyper, steps=int(10_000 * s), warmup=int(500 * s)))
+            for s in [0.5, 1.0, 1.5, 2.0]
+        ]),
+        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+    ])
 
-    imagenet_sweep = sweep_utils.imagenet(hyper)
-    imagenet_sweep.append(
-        hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]))
-    imagenet_sweep = hyper.product(imagenet_sweep)
+    cifar100_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.cifar100(
+                hyper, steps=int(10_000 * s), warmup=int(500 * s)))
+            for s in [0.5, 1.0, 1.5, 2.0]
+        ]),
+        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+    ])
+
+    imagenet_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.imagenet(
+                hyper, steps=int(20_000 * s), warmup=int(500 * s)))
+            for s in [0.5, 1.0, 1.5, 2.0]
+        ]),
+        hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+    ])
 
   return hyper.product([
       hyper.chainit([

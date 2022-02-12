@@ -20,25 +20,23 @@ import functools
 import logging
 import os
 import pathlib
+from typing import Any, Dict, Tuple, Union
 
 from absl import logging
 import flax
 import jax
 import jax.numpy as jnp
 import numpy as np
+import scipy
 
 import uncertainty_baselines as ub
 import input_utils  # local file import from baselines.diabetic_retinopathy_detection
-from experiments.config.drd_vit_base16 import (
-    get_config as vit_b16_no_pretrain_config)
-from experiments.config.imagenet21k_vit_base16_finetune import (
-    get_config as vit_b16_i21k_config)
-from experiments.config.imagenet21k_vit_base16_sngp_finetune import (
-    get_config as sngp_vit_b16_i21k_config)
 from . import eval_utils  # local file import
 from . import metric_utils  # local file import
 from . import results_storage_utils  # local file import
 import wandb
+
+Array = Any
 
 
 def get_dataset_and_split_names(dist_shift):
@@ -93,12 +91,6 @@ def maybe_setup_wandb(config):
   return wandb_run, output_dir
 
 
-def write_note(note):
-  if jax.process_index() == 0:
-    logging.info('NOTE: %s', note)
-
-
-# Utility functions.
 def accumulate_gradient_with_states(
     loss_and_grad_fn,
     params,
@@ -232,29 +224,29 @@ def get_gp_kwargs(gp_config):
 
 
 def evaluate_vit_predictions(
-    dataset_split_to_containers,
-    is_deterministic,
-    num_bins=15,
-    return_per_pred_results=False
-):
+    dataset_split_to_containers: Dict[str, Dict[str, Array]],
+    is_deterministic: bool,
+    num_bins: int = 15,
+    return_per_pred_results: bool = False
+) -> Union[Dict[str, Dict[str, Array]],
+           Tuple[Dict[str, Dict[str, Array]], Dict[str, Dict[str, Array]]]]:
   """Compute evaluation metrics given ViT predictions.
 
   Args:
-    dataset_split_to_containers: Dict, for each dataset, contains `np.array`
-      predictions, ground truth, and uncertainty estimates.
-    is_deterministic: bool, is the model a single deterministic network.
+    dataset_split_to_containers: Dictionary where each dataset is a dictionary
+      with array-like predictions, ground truth, and uncertainty estimates.
+    is_deterministic: Whether the model is a single deterministic network.
       In this case, we cannot capture epistemic uncertainty.
-    num_bins: int, number of bins to use with expected calibration error.
-    return_per_pred_results: bool.
+    num_bins: Number of bins to use with expected calibration error.
+    return_per_pred_results: Whether to return per-prediction results.
 
   Returns:
-    Union[Tuple[Dict, Dict], Dict]
-      If return_per_pred_results, return two Dicts. Else return only the second.
+    Tuple of dicts if return_per_pred_results else only the second.
       first Dict:
         for each dataset, per-prediction results (e.g., each prediction,
         ground-truth, loss, retention arrays).
       second Dict:
-        for each dataset, contains `np.array` predictions, ground truth,
+        for each dataset, `np.array` predictions, ground truth,
         and uncertainty estimates.
   """
   eval_results = results_storage_utils.add_joint_dicts(
@@ -369,7 +361,6 @@ def init_evaluation_datasets(use_validation,
 
   datasets = {}
   if use_validation:
-    write_note('Initializing val dataset(s)...')
     datasets['in_domain_validation'] = get_dataset(
         dataset_name=dataset_names['in_domain_dataset'],
         split_name=split_names['in_domain_validation_split'])
@@ -377,7 +368,6 @@ def init_evaluation_datasets(use_validation,
         dataset_name=dataset_names['ood_dataset'],
         split_name=split_names['ood_validation_split'])
   if use_test:
-    write_note('Initializing test dataset(s)...')
     datasets['in_domain_test'] = get_dataset(
         dataset_name=dataset_names['in_domain_dataset'],
         split_name=split_names['in_domain_test_split'])
@@ -386,3 +376,45 @@ def init_evaluation_datasets(use_validation,
         split_name=split_names['ood_test_split'])
 
   return datasets
+
+
+def entropy(pk, qk=None, base=None, axis=0):
+  """Calculate the entropy of a distribution for given probability values.
+
+  If only probabilities `pk` are given, the entropy is calculated as
+  ``S = -sum(pk * log(pk), axis=axis)``.
+  If `qk` is not None, then compute the Kullback-Leibler divergence
+  ``S = sum(pk * log(pk / qk), axis=axis)``.
+  This routine will normalize `pk` and `qk` if they don't sum to 1.
+
+  Args:
+    pk: sequence
+        Defines the (discrete) distribution. ``pk[i]`` is the (possibly
+        unnormalized) probability of event ``i``.
+    qk: sequence, optional
+        Sequence against which the relative entropy is computed. Should be in
+        the same format as `pk`.
+    base: float, optional
+        The logarithmic base to use, defaults to ``e`` (natural logarithm).
+    axis: int, optional
+        The axis along which the entropy is calculated. Default is 0.
+
+  Returns:
+    The calculated entropy.
+  """
+  if base is not None and base <= 0:
+    raise ValueError('`base` must be a positive number or `None`.')
+
+  pk = np.asarray(pk)
+  pk = 1.0*pk / np.sum(pk, axis=axis, keepdims=True)
+  if qk is None:
+    vec = scipy.special.entr(pk)
+  else:
+    qk = np.asarray(qk)
+    pk, qk = np.broadcast_arrays(pk, qk)
+    qk = 1.0*qk / np.sum(qk, axis=axis, keepdims=True)
+    vec = scipy.special.rel_entr(pk, qk)
+  s = np.sum(vec, axis=axis)
+  if base is not None:
+    s /= np.log(base)
+  return s

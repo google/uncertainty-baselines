@@ -401,7 +401,7 @@ def main(_):
         weight_decay_fn=weight_decay_fn,
         plot_grad_norm_name_fn=None,
         plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
-        max_grad_norm_global=config.get('clip_grad_norm', None),
+        max_grad_norm_global=config.get('grad_clip_norm', None),
         frozen_vars_patterns=config.get('frozen_var_patterns', None),
         fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
@@ -652,7 +652,7 @@ def main(_):
             ood_ds_names,
             config.ood_methods,
             evaluation_fn,
-            opt_repl,
+            opt_repl.target,
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
       chrono.resume()

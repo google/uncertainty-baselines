@@ -14,25 +14,12 @@
 # limitations under the License.
 
 """Finetune SNGP."""
-import tensorflow as tf
-
-tf.config.experimental.set_visible_devices([], 'GPU')
-tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
-tf.config.experimental.set_visible_devices([], 'TPU')
-
 import functools
 import itertools
 import multiprocessing
 import os
 import time
 
-import flax
-import flax.jax_utils as flax_utils
-import jax
-import jax.numpy as jnp
-import ml_collections.config_flags
-import numpy as np
-import wandb
 from absl import app
 from absl import flags
 from absl import logging
@@ -40,16 +27,30 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
+import flax
+import flax.jax_utils as flax_utils
+import jax
+import jax.numpy as jnp
+import ml_collections.config_flags
+import numpy as np
 from scipy.stats import entropy
+import tensorflow as tf
+
+tf.config.experimental.set_visible_devices([], 'GPU')
+tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
+tf.config.experimental.set_visible_devices([], 'TPU')
+
+logging.info(tf.config.experimental.get_visible_devices())
 
 # pylint: disable=g-import-not-at-top,line-too-long
+import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.diabetic_retinopathy_detection
 import input_utils  # local file import from baselines.diabetic_retinopathy_detection
 import preprocess_utils  # local file import from baselines.diabetic_retinopathy_detection
 import train_utils  # local file import from baselines.diabetic_retinopathy_detection
-import uncertainty_baselines as ub
 from utils import results_storage_utils
 from utils import vit_utils
+import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
 logging.info(tf.config.experimental.get_visible_devices())

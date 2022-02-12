@@ -91,6 +91,7 @@ except tf.errors.NotFoundError:
 try:
   # Try to import Segmenter models.
   from uncertainty_baselines.models.segmenter import segmenter_transformer
+  from uncertainty_baselines.models.segmenter_be import segmenter_be_transformer
 except ImportError:
   logging.warning('Skipped Segmenter models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:

@@ -314,10 +314,7 @@ def main(_):
         opt=opt, rngs=rngs, lr=lr, images=images, labels=labels,
         batch_loss_fn=batch_loss_fn,
         weight_decay_fn=weight_decay_fn,
-        plot_grad_norm_name_fn=None,
-        plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
         max_grad_norm_global=config.get('grad_clip_norm', None),
-        frozen_vars_patterns=config.get('frozen_var_patterns', None),
         fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
   # Set config checkpoint resume path, if provided in args.

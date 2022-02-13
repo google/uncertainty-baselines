@@ -334,7 +334,7 @@ def main(_):
       init_fixed_model_states=None,
       default_reinit_params=reint_params,
       config=config)
-  train_loop_rngs = {'params': checkpoint_data.train_loop_rngs}
+  train_loop_rngs = {'dropout': checkpoint_data.train_loop_rngs}
   opt_cpu = checkpoint_data.optimizer
 
   accumulated_train_time = checkpoint_data.accumulated_train_time

@@ -50,16 +50,6 @@ parameters:
   config.seed:
     values: [0, 1, 2, 3, 4]
 
-  # Also tune dropout rates
-  config.model.transformer.attention_dropout_rate:
-    distribution: uniform
-    min: 0.0
-    max: 0.2
-  config.model.transformer.dropout_rate:
-    distribution: uniform
-    min: 0.0
-    max: 0.2
-
   # Batch Ensemble parameters
   config.fast_weight_lr_multiplier:
     values: [0.5, 1.0, 2.0]

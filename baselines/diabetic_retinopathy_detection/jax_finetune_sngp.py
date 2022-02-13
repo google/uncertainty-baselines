@@ -134,7 +134,11 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  vit_utils.write_note('Initializing...')
+  def write_note(note):
+    if jax.process_index() == 0:
+      logging.info('NOTE: %s', note)
+
+  write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
@@ -158,12 +162,12 @@ def main(argv):
       jax.process_count(), local_batch_size, jax.local_device_count(),
       jax.device_count(), local_batch_size // jax.local_device_count())
 
-  vit_utils.write_note('Initializing preprocessing function...')
+  write_note('Initializing preprocessing function...')
   # Same preprocessing function for training and evaluation
   preproc_fn = preprocess_spec.parse(
       spec=config.pp_train, available_ops=preprocess_utils.all_ops())
 
-  vit_utils.write_note('Initializing train dataset...')
+  write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
   train_base_dataset = ub.datasets.get(
@@ -186,7 +190,7 @@ def main(argv):
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
 
-  vit_utils.write_note('Initializing val dataset(s)...')
+  write_note('Initializing val dataset(s)...')
 
   # Load in-domain and OOD validation and/or test datasets.
   # Please specify the desired shift (Country Shift or Severity Shift)
@@ -219,7 +223,7 @@ def main(argv):
       'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
-  vit_utils.write_note('Initializing model...')
+  write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
 
   # Specify Gaussian process layer configs.
@@ -285,7 +289,7 @@ def main(argv):
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
-  vit_utils.write_note(f'Initializing {opt_name} optimizer...')
+  write_note(f'Initializing {opt_name} optimizer...')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
 
   # We jit this, such that the arrays that are created are created on the same
@@ -387,13 +391,13 @@ def main(argv):
   states_cpu = checkpoint_data.fixed_model_states
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  vit_utils.write_note('Adapting the checkpoint model...')
+  write_note('Adapting the checkpoint model...')
   adapted_params = checkpoint_utils.adapt_upstream_architecture(
       init_params=params_cpu,
       loaded_params=opt_cpu.target)
   opt_cpu = opt_cpu.replace(target=adapted_params)
 
-  vit_utils.write_note('Kicking off misc stuff...')
+  write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
@@ -421,7 +425,7 @@ def main(argv):
       map(reset_covmat_fn, range(first_step, total_steps)),
       nprefetch=config.get('prefetch_to_device', 1))
 
-  vit_utils.write_note(f'Replicating...\n{chrono.note}')
+  write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
   states_repl = flax_utils.replicate(states_cpu)
 
@@ -433,7 +437,7 @@ def main(argv):
   # val_loss = -jnp.inf
   # results = {'dummy': {(0, 1): -jnp.inf}}
 
-  vit_utils.write_note(f'First step compilations...\n{chrono.note}')
+  write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
@@ -443,7 +447,7 @@ def main(argv):
   # when eval takes place.
   log_eval_steps = steps_per_epoch
   if first_step > 0:
-    vit_utils.write_note(
+    write_note(
         'Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
@@ -472,7 +476,7 @@ def main(argv):
     # Checkpoint saving
     if train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
-      vit_utils.write_note('Checkpointing...')
+      write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
@@ -491,7 +495,7 @@ def main(argv):
       copy_step = None
       if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
                              total_steps):
-        vit_utils.write_note('Keeping a checkpoint copy...')
+        write_note('Keeping a checkpoint copy...')
         copy_step = step
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
@@ -509,10 +513,10 @@ def main(argv):
     # Report training progress
     if train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
-      vit_utils.write_note('Reporting training progress...')
+      write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
-      vit_utils.write_note(note)
+      write_note(note)
       train_measurements = {}
       train_measurements.update({
           'learning_rate': lr_repl[0],
@@ -524,7 +528,7 @@ def main(argv):
 
     # Report validation performance
     if train_utils.itstime(step, log_eval_steps, total_steps):
-      vit_utils.write_note('Evaluating on the validation set...')
+      write_note('Evaluating on the validation set...')
       chrono.pause()
 
       all_eval_results = {}
@@ -603,7 +607,7 @@ def main(argv):
       if config.testing_failure_step == step:
         break
 
-  vit_utils.write_note(f'Done!\n{chrono.note}')
+  write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
   writer.close()

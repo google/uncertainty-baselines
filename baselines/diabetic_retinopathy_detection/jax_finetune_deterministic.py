@@ -54,6 +54,7 @@ from utils import vit_utils
 import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
+# TODO(nband): lock config after separating total and warmup steps arguments.
 ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=False)
 FLAGS = flags.FLAGS
@@ -65,6 +66,7 @@ def main(argv):
   config = FLAGS.config
 
   # Unpack total and warmup steps
+  # TODO(nband): revert this to separate arguments.
   total_steps = config.total_and_warmup_steps[0]
   warmup_steps = config.total_and_warmup_steps[1]
   del config.total_and_warmup_steps

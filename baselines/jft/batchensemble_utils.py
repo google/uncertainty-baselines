@@ -15,9 +15,9 @@
 
 """JAX BatchEnsemble training related functions."""
 
+import dataclasses
 import functools
-import re
-from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Mapping, Optional, Tuple
 
 from clu import metric_writers
 import flax.optim
@@ -25,9 +25,7 @@ import flax.struct
 import flax.traverse_util
 import jax
 import jax.numpy as jnp
-
-# TODO(dusenberrymw): Open-source remaining imports.
-core = None
+import numpy as np
 
 
 EvaluationOutput = Tuple[jnp.ndarray, ...]
@@ -58,14 +56,84 @@ def log_average_sigmoid_probs(logits: jnp.ndarray) -> jnp.ndarray:
   return log_p
 
 
-def tree_count_infs_nans(tree, psum_axis_name=None):
-  leaves = jax.tree_leaves(tree)
-  num_infs = sum(jnp.sum(jnp.isinf(x)) for x in leaves)
-  num_nans = sum(jnp.sum(jnp.isnan(x)) for x in leaves)
-  if psum_axis_name:
-    num_infs, num_nans = jax.lax.psum((num_infs, num_nans),
-                                      axis_name=psum_axis_name)
-  return num_infs, num_nans
+def tree_clip_norm_global_pmax(tree, max_norm, axis_name):
+  """Global norm clipping, with pmax of global norm before clipping."""
+  global_norm = jnp.sqrt(sum(jnp.vdot(x, x) for x in jax.tree_leaves(tree)))
+  global_norm = jax.lax.pmax(global_norm, axis_name=axis_name)
+  factor = jnp.minimum(1.0, max_norm / global_norm)
+  return jax.tree_map(lambda x: factor * x, tree), global_norm
+
+
+def _traverse_with_names(tree):
+  """Traverses nested dicts/dataclasses and emits (leaf_name, leaf_val)."""
+  if dataclasses.is_dataclass(tree):
+    tree = flax.serialization.to_state_dict(tree)
+  if isinstance(tree, (dict, flax.core.FrozenDict)):
+    keys = sorted(tree.keys())
+    for key in keys:
+      for path, v in _traverse_with_names(tree[key]):
+        yield (key + '/' + path).rstrip('/'), v
+  else:
+    yield '', tree
+
+
+def tree_flatten_with_names(tree):
+  """Populates tree_flatten with leaf names.
+
+  This function populates output of tree_flatten with leaf names, using a
+  custom traversal that produces names if provided. The custom traversal does
+  NOT have to traverse tree in the same order as jax, as we take care of
+  automatically aligning jax' and custom traversals.
+
+  Args:
+    tree: python tree.
+
+  Returns:
+    A list of values with names: [(name, value), ...].
+    A PyTreeDef tree definition object.
+  """
+  vals, tree_def = jax.tree_flatten(tree)
+
+  # "Fake" token tree that is use to track jax internal tree traversal and
+  # adjust our custom tree traversal to be compatible with it.
+  tokens = range(len(vals))
+  token_tree = tree_def.unflatten(tokens)
+  val_names, perm = zip(*_traverse_with_names(token_tree))
+  inv_perm = np.argsort(perm)
+
+  # Custom traverasal should visit the same number of leaves.
+  if len(val_names) != len(vals):
+    raise ValueError(f'Pytree traversal detected {len(val_names)} names, '
+                     f'but {len(vals)} leafs.\nTreeDef is:\n{tree_def}')
+
+  return [(val_names[i], v) for i, v in zip(inv_perm, vals)], tree_def
+
+
+def tree_map_with_names(f, param_tree, match_name_fn=lambda name: True):
+  """Like jax.tree_map but with a filter on the leaf path name.
+
+  Args:
+    f: The function to be applied to each parameter in `param_tree`.
+    param_tree: The tree of parameters `f` should be applied to.
+    match_name_fn: This function is called with each tree leave's path name,
+      which has a path-like format ("a/b/c"), and decides whether `f` should
+      be applied to that leaf or the leaf should be kept as-is.
+
+  Returns:
+    A tree identical in structure to `param_tree` but with the leaves the
+    result of calling `f` on them in the cases where `match_name_fn` returns
+    True for that leaf's path name.
+  """
+  names_and_vals, tree_def = tree_flatten_with_names(param_tree)
+  vals = [f(v) if match_name_fn(name) else v for name, v in names_and_vals]
+  return tree_def.unflatten(vals)
+
+
+def tree_rngs_split(rngs, num_splits=2):
+  """Splits a PyTree of PRNGKeys into num_splits PyTrees."""
+  rngs = jax.tree_map(lambda rng: jax.random.split(rng, num_splits), rngs)
+  slice_rngs = lambda rngs, i: jax.tree_map(lambda rng: rng[i], rngs)
+  return tuple(slice_rngs(rngs, i) for i in range(num_splits))
 
 
 def update_fn_be(
@@ -76,10 +144,7 @@ def update_fn_be(
     labels: jnp.ndarray,
     batch_loss_fn: Callable[..., jnp.ndarray],
     weight_decay_fn: Optional[Callable[[Any, float], Any]],
-    plot_grad_norm_name_fn: Optional[Callable[[str], bool]],
-    plot_grads_nan_inf: bool,
     max_grad_norm_global: Optional[float],
-    frozen_vars_patterns: Optional[Sequence[str]],
     fast_weight_lr_multiplier: float):
   """Updates a model on the given inputs for one step.
 
@@ -93,17 +158,10 @@ def update_fn_be(
       inputs and produces the loss value for an entire batch.
     weight_decay_fn: Function that takes a parameter and returns a new parameter
       with weight decay applied. Use None to avoid any weight decay.
-    plot_grad_norm_name_fn: Function that takes a string and returns True/False
-      denoting whether to plot the gradient of the params with matching name.
-      Use None to not produce any plot.
-    plot_grads_nan_inf: Boolean denoting whether to plot the number of NaNs or
-      Infs in the gradients.
     max_grad_norm_global: Float (or None) denoting the maximum norm of the
       gradients allowed for before clipping. If the norm is larger than this,
       the gradients are scaled to have this norm. Use None to avoid any norm
       clipping.
-    frozen_vars_patterns: List of regex patterns corresponding to variables
-      which should be removed from gradients.
     fast_weight_lr_multiplier: the ratio of the fast weights LR to the slow
       weights one.
 
@@ -115,40 +173,17 @@ def update_fn_be(
   """
 
   # If rng is provided: split rng, and return next_rng for the following step.
-  rngs, next_rngs = core.tree_rngs_split(rngs, num_splits=2)
+  rngs, next_rngs = tree_rngs_split(rngs, num_splits=2)
   (loss, aux), grads = jax.value_and_grad(
       batch_loss_fn, has_aux=True)(opt.target, images, labels, rngs=rngs)
 
   # Average gradients.
   grads = jax.lax.pmean(grads, axis_name='batch')
-
-  # TODO(basilm, jpuigcerver): Find better ways to freeze/clip gradients.
-  if frozen_vars_patterns:
-    regexes = [re.compile(ptn) for ptn in frozen_vars_patterns]
-    match_fn = lambda name: any([regex.search(name) for regex in regexes])
-    grads = core.tree_map_with_names(jnp.zeros_like, grads, match_fn)
-
   loss = jax.lax.pmean(loss, axis_name='batch')
-
-  if plot_grads_nan_inf:
-    # If you think that this is heavily affecting your training speed, use
-    # `config.plot_grads_nan_inf = False` in the config file.
-    num_infs, num_nans = tree_count_infs_nans(
-        grads, psum_axis_name='batch')
-    aux['debug/num_infs'] = num_infs
-    aux['debug/num_nans'] = num_nans
-
-  if plot_grad_norm_name_fn:
-    # Compute norm of selected parameters and add them as auxiliary metrics.
-    aux.update({
-        f'grads_norm/{name}': jnp.sqrt(jnp.vdot(grad, grad))
-        for name, grad in core.tree_flatten_with_names(grads)[0]
-        if plot_grad_norm_name_fn(name)
-    })
 
   if max_grad_norm_global and max_grad_norm_global > 0.0:
     # Normalize by 'global' norm (i.e. flatten all parameters).
-    grads, global_norm = core.tree_clip_norm_global_pmax(
+    grads, global_norm = tree_clip_norm_global_pmax(
         grads, max_grad_norm_global, axis_name='batch')
     aux['grad_norm_global'] = global_norm
 
@@ -156,7 +191,7 @@ def update_fn_be(
     fast_weights_lr_fn = lambda x: x * fast_weight_lr_multiplier
     match_fn = lambda name: ('fast_weight_alpha' in name or 'fast_weight_gamma'  # pylint: disable=g-long-lambda
                              in name)
-    grads = core.tree_map_with_names(fast_weights_lr_fn, grads, match_fn)
+    grads = tree_map_with_names(fast_weights_lr_fn, grads, match_fn)
 
   opt = opt.apply_gradient(grads, learning_rate=lr)
 

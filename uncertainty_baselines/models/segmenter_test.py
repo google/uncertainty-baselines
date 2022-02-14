@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for the segmenter ViT model."""
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -25,8 +24,7 @@ import uncertainty_baselines as ub
 class SegVitTest(parameterized.TestCase):
 
   @parameterized.parameters(
-      (2, 16, 224, 224),
-  )
+      (2, 16, 224, 224),)
   def test_segmenter_transformer(self, num_classes, hidden_size, img_h, img_w):
     # VisionTransformer.
     config = ml_collections.ConfigDict()
@@ -51,7 +49,7 @@ class SegVitTest(parameterized.TestCase):
 
     num_examples = 2
     inputs = jnp.ones([num_examples, img_h, img_w, 3], jnp.float32)
-    model = ub.models.segmenter_transformer(**config)
+    model = ub.models.SegVit(**config)
     key = jax.random.PRNGKey(0)
     variables = model.init(key, inputs, train=False)
 
@@ -59,8 +57,7 @@ class SegVitTest(parameterized.TestCase):
 
     self.assertEqual(logits.shape, (num_examples, img_h, img_w, num_classes))
     self.assertEqual(
-        set(outputs.keys()),
-        set(('stem', 'transformed', 'logits')))
+        set(outputs.keys()), set(('stem', 'transformed', 'logits')))
 
 
 if __name__ == '__main__':

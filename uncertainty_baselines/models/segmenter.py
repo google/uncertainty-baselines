@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Segmenter Vision Transformer (ViT) model.
 
 Based on scenic library implementation.
@@ -76,13 +75,14 @@ class ViTBackbone(nn.Module):
       cls = jnp.tile(cls, [n, 1, 1])
       x = jnp.concatenate([cls, x], axis=1)
 
-    x = vit.Encoder(name='Transformer',
-                mlp_dim=self.mlp_dim,
-                num_layers=self.num_layers,
-                num_heads=self.num_heads,
-                dropout_rate=self.dropout_rate,
-                attention_dropout_rate=self.attention_dropout_rate,
-                )(x, train=train)
+    x = vit.Encoder(
+        name='Transformer',
+        mlp_dim=self.mlp_dim,
+        num_layers=self.num_layers,
+        num_heads=self.num_heads,
+        dropout_rate=self.dropout_rate,
+        attention_dropout_rate=self.attention_dropout_rate,
+    )(x, train=train)
 
     out['transformed'] = x
 
@@ -142,19 +142,3 @@ class SegVit(nn.Module):
         x.shape[:-1])
 
     return x, out
-
-
-def segmenter_transformer(num_classes: int,
-                          patches: Any,
-                          backbone_configs: Any,
-                          decoder_configs: Any
-                          ):
-  """Builds a Vision Transformer (ViT) model."""
-  # TODO(dusenberrymw): Add API docs once config dict in VisionTransformer is
-  # cleaned up.
-  return SegVit(
-      num_classes=num_classes,
-      patches=patches,
-      backbone_configs=backbone_configs,
-      decoder_configs=decoder_configs,
-    )

@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Tests for the segmenter ViT model."""
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -25,12 +24,13 @@ import uncertainty_baselines as ub
 class SegVitBETest(parameterized.TestCase):
 
   @parameterized.parameters(
-    (2, 16, 224, 224, 'vit', 'linear', 1),
-    (2, 16, 224, 224, 'vit_be', 'linear', 3),
-    (2, 16, 224, 224, 'vit_be', 'linear_be', 3),
+      (2, 16, 224, 224, 'vit', 'linear', 1),
+      (2, 16, 224, 224, 'vit_be', 'linear', 3),
+      (2, 16, 224, 224, 'vit_be', 'linear_be', 3),
   )
-  def test_segmenter_be_transformer(self, num_classes, hidden_size, img_h, img_w,
-                                 encoder_type, decoder_type, ens_size):
+  def test_segmenter_be_transformer(self, num_classes, hidden_size, img_h,
+                                    img_w, encoder_type, decoder_type,
+                                    ens_size):
     # VisionTransformer.
     config = ml_collections.ConfigDict()
 
@@ -59,17 +59,17 @@ class SegVitBETest(parameterized.TestCase):
 
     num_examples = 2
     inputs = jnp.ones([num_examples, img_h, img_w, 3], jnp.float32)
-    model = ub.models.segmenter_be_transformer(**config)
+    model = ub.models.SegVitBE(**config)
     key = jax.random.PRNGKey(0)
     variables = model.init(key, inputs, train=False)
 
     logits, outputs = model.apply(variables, inputs, train=False)
 
-    self.assertEqual(logits.shape, (num_examples*ens_size, img_h, img_w, num_classes))
+    self.assertEqual(logits.shape,
+                     (num_examples * ens_size, img_h, img_w, num_classes))
 
     self.assertEqual(
-        set(outputs.keys()),
-        set(('stem', 'transformed', 'logits')))
+        set(outputs.keys()), set(('stem', 'transformed', 'logits')))
 
 
 if __name__ == '__main__':

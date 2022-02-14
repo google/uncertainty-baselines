@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Segmenter Vision Transformer (ViT) model.
 
 Based on scenic library implementation.
@@ -32,6 +31,7 @@ Shape = Tuple[int]
 DType = type(jnp.float32)
 
 InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
+
 
 class ViTBackboneBE(nn.Module):
   """Vision Transformer model backbone (everything except the head).
@@ -92,7 +92,8 @@ class ViTBackboneBE(nn.Module):
         random_sign_init=self.random_sign_init,
         be_layers=self.be_layers,
         train=train,
-    )(x)
+    )(
+        x)
 
     out.update(extra_info)
     out['transformed'] = x
@@ -121,10 +122,12 @@ class SegVitBE(nn.Module):
       assert self.backbone_configs.ens_size == 1
 
     if self.backbone_configs.type == 'vit' and self.decoder_configs.type == 'linear_be':
-      raise NotImplementedError('Configuration with encoder {} and decoder {} is not implemented'.format(
-          self.backbone_configs.type,
-          self.decoder_configs.type,
-      ))
+      raise NotImplementedError(
+          'Configuration with encoder {} and decoder {} is not implemented'
+          .format(
+              self.backbone_configs.type,
+              self.decoder_configs.type,
+          ))
 
     if self.backbone_configs.type == 'vit':
       x, out = segmenter.ViTBackbone(
@@ -139,7 +142,6 @@ class SegVitBE(nn.Module):
           name='backbone')(
               x, train=train)
     elif self.backbone_configs.type == 'vit_be':
-      # import pdb; pdb.set_trace()
       x, out = ViTBackboneBE(
           mlp_dim=self.backbone_configs.mlp_dim,
           num_layers=self.backbone_configs.num_layers,
@@ -159,9 +161,9 @@ class SegVitBE(nn.Module):
 
     if self.decoder_configs.type == 'linear':
       output_projection = nn.Dense(
-        self.num_classes,
-        kernel_init=nn.initializers.zeros,
-        name='output_projection')
+          self.num_classes,
+          kernel_init=self.head_kernel_init,
+          name='output_projection')
     elif self.decoder_configs.type == 'linear_be':
       output_projection = ed.nn.DenseBatchEnsemble(
           self.num_classes,
@@ -181,31 +183,18 @@ class SegVitBE(nn.Module):
 
     # Linear head only, like Segmenter baseline:
     # https://arxiv.org/abs/2105.05633
-    x = jnp.reshape(x, [b*ens_size, gh, gw, -1])
+    x = jnp.reshape(x, [b * ens_size, gh, gw, -1])
     x = output_projection(x)
 
     # Resize bilinearly:
-    x = jax.image.resize(x, [b*ens_size, h, w, x.shape[-1]], 'linear')
+    x = jax.image.resize(x, [b * ens_size, h, w, x.shape[-1]], 'linear')
     out['logits'] = x
 
-    new_input_shape = tuple([input_shape[0]*ens_size,] + list(input_shape[1:-1]))
+    new_input_shape = tuple([
+        input_shape[0] * ens_size,
+    ] + list(input_shape[1:-1]))
     assert new_input_shape == x.shape[:-1], (
         'BE Input and output shapes do not match: %d vs. %d.', new_input_shape,
         x.shape[:-1])
 
     return x, out
-
-
-def segmenter_be_transformer(num_classes: int,
-                          patches: Any,
-                          backbone_configs: Any,
-                          decoder_configs: Any
-                          ):
-  """Builds a Segmenter BE model."""
-
-  return SegVitBE(
-      num_classes=num_classes,
-      patches=patches,
-      backbone_configs=backbone_configs,
-      decoder_configs=decoder_configs,
-    )

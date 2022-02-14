@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ from uncertainty_baselines.models.resnet50_batchensemble import resnet50_batchen
 from uncertainty_baselines.models.resnet50_batchensemble import resnet_batchensemble
 from uncertainty_baselines.models.resnet50_deterministic import resnet50_deterministic
 from uncertainty_baselines.models.resnet50_dropout import resnet50_dropout
+from uncertainty_baselines.models.resnet50_fsvi import resnet50_fsvi
 from uncertainty_baselines.models.resnet50_het_mimo import resnet50_het_mimo
 from uncertainty_baselines.models.resnet50_het_rank1 import resnet50_het_rank1
 from uncertainty_baselines.models.resnet50_heteroscedastic import resnet50_heteroscedastic
@@ -71,10 +72,15 @@ from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_var
 try:
   # Try to import ViT models.
   from uncertainty_baselines.models import vit_batchensemble
+  from uncertainty_baselines.models import vit_batchensemble_gp
+  from uncertainty_baselines.models.bit_resnet import bit_resnet
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
+  from uncertainty_baselines.models.vit_batchensemble_gp import PatchTransformerBEGP
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp
+  from uncertainty_baselines.models.vit_hetgpbe import VisionTransformerHetGPBE
   from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
+  from uncertainty_baselines.models.vit_mimo import VisionTransformerMIMO
   from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
@@ -113,15 +119,13 @@ except ImportError:
 except tf.errors.NotFoundError:
   logging.warning('Skipped MIMO models due to NotFoundError.', exc_info=True)
 
-# This is necessary because we cannot depend on torch internally, so the torch
-# model modules cannot be imported at all, so we cannot just wrap the imports in
-# a try/except.
-import_torch = True
-if import_torch:
-  try:
-    from uncertainty_baselines.models.resnet50_torch import resnet50_dropout_torch
-  except ImportError:
-    logging.warning(
-        'Skipped Torch ResNet-50 Dropout model due to ImportError.',
-        exc_info=True)
+# pylint: disable=line-too-long
+try:
+  from uncertainty_baselines.models.resnet50_dropout_torch import resnet50_dropout_torch
+  from uncertainty_baselines.models.resnet50_torch import resnet50_torch
+except ImportError:
+  logging.warning(
+      'Skipped Torch ResNet-50 Dropout model due to ImportError.',
+      exc_info=True)
+# pylint: enable=line-too-long
 # pylint: enable=g-import-not-at-top

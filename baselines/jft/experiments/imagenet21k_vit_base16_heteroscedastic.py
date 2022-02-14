@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,10 +44,10 @@ def get_config():
   config.pp_eval += f'|onehot({config.num_classes})'
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 1000
-  config.log_eval_steps = 10000
+  config.log_training_steps = 10000
+  config.log_eval_steps = 50000
   # NOTE: Save infrequently to prevent crowding the disk space.
-  config.checkpoint_steps = 17250
+  config.checkpoint_steps = 50000
   config.checkpoint_timeout = 10
 
   # Model section
@@ -71,16 +71,6 @@ def get_config():
   config.model.num_factors = 50
   config.model.param_efficient = True
 
-  # Gaussian process layer section
-  config.gp_layer = ml_collections.ConfigDict()
-  # Use momentum-based (i.e., non-exact) covariance update for pre-training.
-  # This is because the exact covariance update can be unstable for pretraining,
-  # since it involves inverting a precision matrix accumulated over 300M data.
-  config.gp_layer.covmat_momentum = .999
-  config.gp_layer.ridge_penalty = 1.
-  # No need to use mean field adjustment for pretraining.
-  config.gp_layer.mean_field_factor = -1.
-
   # Optimizer section
   config.optim_name = 'Adam'
   config.optim = ml_collections.ConfigDict()
@@ -97,8 +87,6 @@ def get_config():
   # Few-shot eval section
   config.fewshot = common_fewshot.get_fewshot()
   config.fewshot.log_steps = 20_000
-
-  config.args = {}
   return config
 
 

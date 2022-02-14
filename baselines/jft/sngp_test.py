@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,12 +41,12 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
   @parameterized.parameters(
-      # ('imagenet2012', 'token', 2, 82502.49, 1695.701171875, 0.17, False),
-      # ('imagenet2012', 'token', 2, 82502.49, 1695.701171875, 0.17, True),
-      ('imagenet2012', 'token', None, 12.5429, 13.533501, 0.23, False),
-      ('imagenet2012', 'gap', 2, 67.36933, 79.786621, 0.17, False),
-      ('imagenet2012', 'gap', None, 162.6031, 21.984634, 0.25, False),
-      ('imagenet2012', 'gap', None, 162.6031, 21.984634, 0.25, True),
+      ('imagenet2012', 'token', 2, 65.89198, 70.65269470214844, 0.56, False),
+      ('imagenet2012', 'token', 2, 65.89198, 70.65269470214844, 0.56, True),
+      ('imagenet2012', 'token', None, 9.569044, 11.68548117743598, 1.11, False),
+      ('imagenet2012', 'gap', 2, 65.891975, 70.65279981825087, 1.00, False),
+      ('imagenet2012', 'gap', None, 27.400314, 96.92751587761774, 1.56, False),
+      ('imagenet2012', 'gap', None, 27.400314, 96.92751587761774, 1.56, True),
   )
   @flagsaver.flagsaver
   def test_sngp_script(self, dataset_name, classifier, representation_size,
@@ -61,10 +61,11 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
         use_gp_layer=True)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = data_dir
+    num_examples = config.batch_size * config.total_steps
 
     if not simulate_failure:
       # Check for any errors.
-      with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
         train_loss, val_loss, fewshot_results = sngp.main(config, output_dir)
     else:
       # Check for the ability to restart from a previous checkpoint (after
@@ -74,7 +75,7 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
       config.testing_failure_step = config.total_steps - 1
       config.checkpoint_steps = config.testing_failure_step
       config.keep_checkpoint_steps = config.checkpoint_steps
-      with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
         sngp.main(config, output_dir)
 
       checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
@@ -86,7 +87,7 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
 
       # This should resume from the failed step.
       del config.testing_failure_step
-      with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
         train_loss, val_loss, fewshot_results = sngp.main(config, output_dir)
 
     # Check for reproducibility.
@@ -98,7 +99,7 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(val_loss['val'], correct_val_loss, atol=0.02, rtol=0.3)
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', None, True, 28.37252, 19.472, 0.10, 'imagenet'),
+      ('imagenet2012', 'token', None, True, 29.3086, 17.3351, 0.67, 'imagenet'),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, dataset_name, classifier,
@@ -115,10 +116,11 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
         use_gp_layer=use_gp_layer)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = data_dir
+    num_examples = config.batch_size * config.total_steps
 
     # Run to save a checkpoint, then use that as a pretrained model.
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
       sngp.main(config, output_dir)
 
     checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
@@ -129,24 +131,24 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     config.model.representation_size = None
     if finetune_dataset_name == 'cifar':
       config.dataset = 'cifar10'
-      config.val_split = 'train[:9]'
-      config.train_split = 'train[30:60]'
+      config.val_split = f'train[:{num_examples}]'
+      config.train_split = f'train[{num_examples}:{num_examples*2}]'
       config.num_classes = 10
       config.ood_datasets = ['cifar100']
       config.ood_num_classes = [100]
-      config.ood_split = 'test[10:20]'
+      config.ood_split = f'test[{num_examples*2}:{num_examples*3}]'
       config.ood_methods = ['maha', 'entropy', 'rmaha', 'msp']
       config.eval_on_cifar_10h = True
-      config.cifar_10h_split = 'test[:9]'
+      config.cifar_10h_split = f'test[:{num_examples}]'
       config.pp_eval_cifar_10h = (
           'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
     elif finetune_dataset_name == 'imagenet':
       config.dataset = 'imagenet2012'
-      config.val_split = 'train[:9]'
-      config.train_split = 'train[30:60]'
+      config.val_split = f'train[:{num_examples}]'
+      config.train_split = f'train[{num_examples}:{num_examples*2}]'
       config.num_classes = 1000
       config.eval_on_imagenet_real = True
-      config.imagenet_real_split = 'validation[:9]'
+      config.imagenet_real_split = f'validation[:{num_examples}]'
       config.pp_eval_imagenet_real = (
           'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
     pp_common = '|value_range(-1, 1)'
@@ -164,13 +166,14 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
                                    f'onehot({num_classes}'))
       config.pp_eval_ood = pp_eval_ood
 
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
       logging.info('!!!config %s', config)
       train_loss, val_loss, fewshot_results = sngp.main(config, output_dir)
 
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
+    # TODO(dusenberrymw,jjren): Add a reproducibility test for OOD eval.
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
     self.assertAllClose(train_loss, correct_train_loss, atol=1e-3, rtol=1e-3)
     self.assertAllClose(val_loss['val'], correct_val_loss, atol=1e-3, rtol=1e-3)

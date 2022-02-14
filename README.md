@@ -244,6 +244,14 @@ The following papers have used code from Uncertainty Baselines:
 
 ## Contributing
 
+### Formatting Code
+
+Before committing code, make sure that the file is formatted according to yapf's yapf style:
+
+```
+yapf -i --style yapf [source file]
+```
+
 ### Adding a Baseline
 
 1. Write a script that loads the fixed training dataset and model. Typically, this is forked from other baselines.

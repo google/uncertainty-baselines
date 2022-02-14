@@ -42,6 +42,7 @@ setup(
         'tfds-nightly==4.4.0.dev202111160106',
         'urllib3',
         'zipp',
+        'dm-haiku'
     ],
     extras_require={
         'experimental': [],
@@ -81,6 +82,13 @@ setup(
         'torch': [
             'torch',
             'torchvision',
+        ],
+        'retinopathy': [
+            'wandb',
+            'dm-haiku',
+            'torch',
+            'seaborn',
+            'tfds-nightly'
         ],
     },
     classifiers=[

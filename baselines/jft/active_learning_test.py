@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,11 +14,16 @@
 # limitations under the License.
 
 """Tests for the for the Active Learning with a pre-trained model script."""
+# TODO(joost,andreas): Refactor active_learning.py and use this test for smaller
+# components including acquisition functions and other utility functions.
+# pylint: disable=pointless-string-statement
+"""
 import os.path
 import pathlib
 import tempfile
 
 from absl import flags
+from absl.testing import parameterized
 import flax
 import jax
 import jax.numpy as jnp
@@ -33,7 +38,7 @@ flags.adopt_module_key_flags(active_learning)
 FLAGS = flags.FLAGS
 
 
-class ActiveLearningTest(tf.test.TestCase):
+class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -41,7 +46,15 @@ class ActiveLearningTest(tf.test.TestCase):
     baseline_root_dir = pathlib.Path(__file__).parents[1]
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
-  def test_active_learning_script(self):
+  @parameterized.parameters(
+      # First acquisition batch (2 elements) is same for uniform and density.
+      ('uniform', [1829114898, 2022464325, 808104751, 1167338319]),
+      ('density', [1829114898, 2022464325, 298464138, 934744266]),
+      ('margin', [1321476171, 1943658980, 1452077357, 1019530438]),
+      ('entropy', [506568176, 1321476171, 1943658980, 809552352]),
+  )
+  def test_active_learning_script(self, acquisition_method, gt_ids):
+
     data_dir = self.data_dir
 
     # Create a dummy checkpoint
@@ -63,22 +76,28 @@ class ActiveLearningTest(tf.test.TestCase):
     checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
     checkpoint_utils.save_checkpoint(params, checkpoint_path)
 
-    # Active Learn on CIFAR-10
     config.dataset = 'cifar10'
     config.val_split = 'train[98%:]'
     config.train_split = 'train[:98%]'
     config.batch_size = 8
-    config.max_labels = 3
-    config.acquisition_batch_size = 2
+    config.total_steps = 6
     config.dataset_dir = data_dir
     config.model_init = checkpoint_path
 
-    with tfds.testing.mock_data(num_examples=100, data_dir=data_dir):
-      ids, test_accs = active_learning.main(config, output_dir)
+    # Active learning settings
+    config.acquisition_method = acquisition_method
+    config.max_training_set_size = 4
+    config.initial_training_set_size = 0
+    config.acquisition_batch_size = 2
+    config.early_stopping_patience = 6  # not tested yet
 
-    self.assertAllClose(test_accs, [0.125, 0.125])
-    self.assertAllEqual(ids, [1751673441, 543581031, 1701210465, 1701209956])
+    with tfds.testing.mock_data(num_examples=50, data_dir=data_dir):
+      ids, _ = active_learning.main(config, output_dir)
+
+    # Get the warmup batch
+    self.assertEqual(ids, set(gt_ids))
 
 
 if __name__ == '__main__':
   tf.test.main()
+"""

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ import flax.jax_utils as flax_utils
 
 import jax
 import jax.numpy as jnp
-import ml_collections
+import ml_collections.config_flags
 import numpy as np
 import robustness_metrics as rm
 
@@ -40,7 +40,7 @@ import tensorflow as tf
 from tensorflow.io import gfile
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
-import cifar10h_utils  # local file import from baselines.jft
+import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
@@ -61,45 +61,6 @@ flags.DEFINE_string('tpu', None,
                     'Unused. Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
-
-
-# Utility functions.
-def accumulate_gradient_with_states(
-    loss_and_grad_fn,
-    params,
-    states,  # Allows for states.
-    images,
-    labels,
-    accum_steps):
-  """Improved version of `train_utils.accumulate_gradient()` that allows for states."""
-  # This function handles the `loss_and_grad_fn` function which takes a state
-  # argument and returns ((losses, states), grads).
-  if accum_steps and accum_steps > 1:
-    assert images.shape[0] % accum_steps == 0, (
-        f'Bad accum_steps {accum_steps} for batch size {images.shape[0]}')
-    step_size = images.shape[0] // accum_steps
-
-    # Run the first step.
-    (l, s), g = loss_and_grad_fn(params, states, images[:step_size],
-                                 labels[:step_size])
-
-    # Run the rest of the steps.
-    def acc_grad_and_loss(i, l_s_g):
-      # Extract data for current step.
-      imgs = jax.lax.dynamic_slice(images, (i * step_size, 0, 0, 0),
-                                   (step_size,) + images.shape[1:])
-      lbls = jax.lax.dynamic_slice(labels, (i * step_size, 0),
-                                   (step_size, labels.shape[1]))
-      # Update state and accumulate gradient.
-      l, s, g = l_s_g
-      (li, si), gi = loss_and_grad_fn(params, s, imgs, lbls)
-      return (l + li, si, jax.tree_multimap(lambda x, y: x + y, g, gi))
-
-    l, s, g = jax.lax.fori_loop(1, accum_steps, acc_grad_and_loss, (l, s, g))
-    l, g = jax.tree_map(lambda x: x / accum_steps, (l, g))
-    return (l, s), g
-  else:
-    return loss_and_grad_fn(params, states, images, labels)
 
 
 def get_gp_kwargs(gp_config):
@@ -216,61 +177,57 @@ def main(argv):
         process_batch_size=local_batch_size_eval,
         preprocess_fn=pp_eval,
         cache=config.get('val_cache', 'batched'),
+        num_epochs=1,
         repeat_after_batching=True,
         shuffle=False,
         prefetch_size=config.get('prefetch_to_host', 2),
         drop_remainder=False,
         data_dir=fillin(data_dir))
-    val_iter = input_utils.start_input_pipeline(
-        val_ds, config.get('prefetch_to_device', 1))
 
-    return (val_iter, val_steps)
+    return val_ds
 
-  val_iter_splits = {
+  val_ds_splits = {
       'val':
           _get_val_split(config.dataset, config.val_split, config.pp_eval,
                          config.get('dataset_dir'))
   }
 
+  if config.get('test_split'):
+    val_ds_splits.update({
+        'test': _get_val_split(
+            config.dataset,
+            split=config.test_split,
+            pp_eval=config.pp_eval,
+            data_dir=config.get('data_dir'))
+    })
+
   if config.get('eval_on_cifar_10h'):
-    cifar10_to_cifar10h_fn = cifar10h_utils.create_cifar10_to_cifar10h_fn(
+    cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
         config.get('data_dir', None))
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_cifar_10h, available_ops=preprocess_utils.all_ops())
     pp_eval = lambda ex: preprocess_fn(cifar10_to_cifar10h_fn(ex))
-    val_iter_splits['cifar_10h'] = _get_val_split(
+    val_ds_splits['cifar_10h'] = _get_val_split(
         'cifar10',
         split=config.get('cifar_10h_split') or 'test',
         pp_eval=pp_eval,
         data_dir=config.get('data_dir'))
   elif config.get('eval_on_imagenet_real'):
-
-    def avg_label(example):
-      real_label = example['real_label']
-      if tf.shape(real_label)[0] > 0:
-        one_hot = tf.one_hot(real_label, 1000)
-        example['labels'] = tf.reduce_mean(one_hot, axis=0)
-        example['mask'] = tf.identity(1.)
-      else:
-        example['labels'] = tf.zeros([1000])
-        example['mask'] = tf.identity(0.)
-      return example
-
+    imagenet_to_real_fn = data_uncertainty_utils.create_imagenet_to_real_fn()
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(avg_label(ex))
-    val_iter_imagenet_real, val_steps = _get_val_split(
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
+    val_ds_splits['imagenet_real'] = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',
         pp_eval=pp_eval,
         data_dir=config.get('data_dir'))
-    val_iter_splits['imagenet_real'] = (val_iter_imagenet_real, val_steps)
 
   ood_ds = {}
   if config.get('ood_datasets') and config.get('ood_methods'):
     if config.get('ood_methods'):  #  config.ood_methods is not a empty list
-      logging.info('loading OOD dataset = %s', config.get('ood_dataset'))
+      logging.info('loading OOD dataset = %s', config.get('ood_datasets'))
       ood_ds, ood_ds_names = ood_utils.load_ood_datasets(
           config.dataset,
           config.ood_datasets,
@@ -333,8 +290,9 @@ def main(argv):
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
 
-    init_rngs = {'params': rng, 'diag_noise_samples': (rng + 1) * 7,
-                 'standard_norm_noise_samples': (rng + 3) * 13}
+    rng, diag_noise_rng, standard_noise_rng = jax.random.split(rng, num=3)
+    init_rngs = {'params': rng, 'diag_noise_samples': diag_noise_rng,
+                 'standard_norm_noise_samples': standard_noise_rng}
     variables = model.init(init_rngs, dummy_input, train=False)
     # Split model parameters into trainable and untrainable collections.
     states, params = variables.pop('params')
@@ -354,7 +312,8 @@ def main(argv):
 
     return params, states
 
-  rng, rng_init = jax.random.split(rng)
+  (rng, rng_init, rng_dropout, diag_noise_rng,
+   standard_noise_rng) = jax.random.split(rng, num=5)
   params_cpu, states_cpu = init(rng_init)
 
   if jax.process_index() == 0:
@@ -371,9 +330,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
 
     # Note that logits and labels are usually of the shape [batch,num_classes].
     # But for OOD data, when num_classes_ood > num_classes_ind, we need to
@@ -401,9 +360,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -430,9 +389,9 @@ def main(argv):
         variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng,
-              'diag_noise_samples': (rng + 1) * 7,
-              'standard_norm_noise_samples': (rng + 3) * 13})
+        rngs={'dropout': rng_dropout,
+              'diag_noise_samples': diag_noise_rng,
+              'standard_norm_noise_samples': standard_noise_rng})
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -461,6 +420,8 @@ def main(argv):
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
     rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
+    rng_model_local, diag_noise_rng, standard_noise_rng = jax.random.split(
+        rng_model_local, num=3)
 
     def loss_fn(params, states, images, labels):
       # Specify mutable collection to update untrainable GP parameters.
@@ -470,8 +431,8 @@ def main(argv):
           images,
           train=True,
           rngs={'dropout': rng_model_local,
-                'diag_noise_samples': (rng_model_local + 1) * 7,
-                'standard_norm_noise_samples': (rng_model_local + 3) * 13},
+                'diag_noise_samples': diag_noise_rng,
+                'standard_norm_noise_samples': standard_noise_rng},
           mutable=list(states.keys()))
 
       logits, _ = model_results
@@ -498,7 +459,7 @@ def main(argv):
 
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
-    (l, s), g = accumulate_gradient_with_states(
+    (l, s), g = train_utils.accumulate_gradient_with_states(
         jax.value_and_grad(loss_fn, has_aux=True), opt.target, states, images,
         labels, config.get('grad_accum_steps'))
     l, g = jax.lax.pmean((l, g), axis_name='batch')
@@ -588,7 +549,7 @@ def main(argv):
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
-  val_loss = {val_name: -jnp.inf for val_name, _ in val_iter_splits.items()}
+  val_loss = {val_name: -jnp.inf for val_name, _ in val_ds_splits.items()}
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
@@ -599,15 +560,6 @@ def main(argv):
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
-    # NOTE: Validation eval is only run on certain steps, so determine how many
-    # times it was run previously.
-    num_val_runs = sum(
-        map(
-            lambda i: train_utils.itstime(i, config.log_eval_steps, total_steps
-                                         ), range(1, first_step + 1)))
-    for val_name, (val_iter, val_steps) in val_iter_splits.items():
-      val_iter = itertools.islice(val_iter, num_val_runs * val_steps, None)
-      val_iter_splits[val_name] = (val_iter, val_steps)
 
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
@@ -687,7 +639,7 @@ def main(argv):
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
-      for val_name, (val_iter, val_steps) in val_iter_splits.items():
+      for val_name, val_ds in val_ds_splits.items():
         # Sets up evaluation metrics.
         ece_num_bins = config.get('ece_num_bins', 15)
         auc_num_bins = config.get('auc_num_bins', 1000)
@@ -707,8 +659,10 @@ def main(argv):
         ged = tf.keras.metrics.Mean()
 
         # Runs evaluation loop.
+        val_iter = input_utils.start_input_pipeline(
+            val_ds, config.get('prefetch_to_device', 1))
         ncorrect, loss, nseen = 0, 0, 0
-        for _, batch in zip(range(val_steps), val_iter):
+        for batch in val_iter:
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
                 cifar_10h_evaluation_fn(
@@ -745,10 +699,9 @@ def main(argv):
               oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
               oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
-              if val_name == 'cifar_10h':
-                (batch_label_diversity, batch_sample_diversity,
-                 batch_ged) = cifar10h_utils.generalized_energy_distance(
-                     label[m], p[m, :], 10)
+              if val_name == 'cifar_10h' or val_name == 'imagenet_real':
+                batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
+                    label[m], p[m, :], config.num_classes)
                 label_diversity.update_state(batch_label_diversity)
                 sample_diversity.update_state(batch_sample_diversity)
                 ged.update_state(batch_ged)
@@ -772,7 +725,7 @@ def main(argv):
               'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
-        if val_name == 'cifar_10h':
+        if val_name == 'cifar_10h' or val_name == 'imagenet_real':
           cifar_10h_measurements = {
               f'{val_name}_label_diversity': label_diversity.result(),
               f'{val_name}_sample_diversity': sample_diversity.result(),
@@ -800,8 +753,12 @@ def main(argv):
           return sngp_eval_fn
 
         ood_measurements = ood_utils.eval_ood_metrics(
-            ood_ds, ood_ds_names, config.ood_methods,
-            make_sngp_eval_fn(states_repl), opt_repl)
+            ood_ds,
+            ood_ds_names,
+            config.ood_methods,
+            make_sngp_eval_fn(states_repl),
+            opt_repl.target,
+            n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
 
       chrono.resume()

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -368,6 +368,28 @@ class PslRulesTest(tf.test.TestCase):
     loss = psl_constraints.rule_12(
         logits=tf.constant(logits), data=test_util.FEATURES)
     self.assertNear(loss, 0.1, err=1e-6)
+
+  def test_compute_loss_per_rule(self):
+    rule_weights = (1.0, 2.0)
+    rule_names = ('rule_11', 'rule_12')
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights, rule_names, config=self.config)
+    logits = test_util.LOGITS
+
+    loss_per_rule = psl_constraints.compute_loss_per_rule(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertArrayNear(loss_per_rule, [0.7, 0.2], err=1e-6)
+
+  def test_compute_loss(self):
+    rule_weights = (1.0, 2.0)
+    rule_names = ('rule_11', 'rule_12')
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights, rule_names, config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.compute_loss(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertNear(loss, 0.9, err=1e-6)
 
 if __name__ == '__main__':
   tf.test.main()

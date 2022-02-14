@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Uncertainty Baselines Authors.
+# Copyright 2022 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import augmentation_utils  # local file import from baselines.drug_cardiotoxicity
 import utils  # local file import from baselines.drug_cardiotoxicity
 
 FLAGS = flags.FLAGS
@@ -57,6 +58,50 @@ flags.DEFINE_integer('message_layer_size', 32,
 flags.DEFINE_integer('readout_layer_size', 32,
                      'Number of units in the readout layer.')
 
+# Choose augmentations, if any.
+flags.DEFINE_float(
+    'aug_ratio', 0.2, 'Proportion of graph in terms of nodes '
+    'or edges to augment.')
+flags.DEFINE_float(
+    'aug_prob', 0.2, 'Probability of applying an augmentation for a given '
+    'graph.')
+flags.DEFINE_multi_enum(
+    'augmentations',
+    default=[],
+    enum_values=['drop_nodes', 'perturb_edges', 'mask_node_features'],
+    help='Types of augmentations to perform on graphs. If an empty list is '
+    'provided, then no augmentation will be applied to the data.')
+
+# Flags for drop_nodes augmentation
+flags.DEFINE_boolean('perturb_node_features', False, 'When True, zeros out the '
+                     'features of dropped nodes. When False, does not '
+                     'affect the node features. Controls whether or not the '
+                     'drop_nodes function affects the `atoms` feature.')
+
+# Flags for perturb_edges augmentation
+flags.DEFINE_boolean('drop_edges_only', False, 'If True, only drop edges '
+                     'when using the perturb_edges augmentation, rather than '
+                     're-adding the dropped edges between randomly selected '
+                     'nodes. Re-adds the edges when False. Only affects the '
+                     '`pair_mask` feature, not `pairs` (see '
+                     '`perturb_edge_features` flag).')
+flags.DEFINE_boolean('perturb_edge_features', False, 'When True, zeros out the '
+                     'features of dropped edges. When False, does not affect '
+                     'the edge features. Controls whether or not to affect '
+                     'the `pairs` feature.')
+flags.DEFINE_boolean('initialize_edge_features_randomly', False,
+                     'When True, initializes the features of newly added edges '
+                     'from a random uniform distribution. When False, uses the '
+                     'features of dropped edges for the newly added ones.')
+
+# Flags for mask_node_features
+flags.DEFINE_float(
+    'mask_mean', 0.5, 'Mean of random normal distribution used to generate '
+    'features of mask.')
+flags.DEFINE_float(
+    'mask_stddev', 0.5, 'Standard deviation of random normal distribution used '
+    'to generate features of mask.')
+
 # Loss type.
 flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
                   'Type of loss function to use.')
@@ -70,7 +115,8 @@ def run(
     model_dir: str,
     strategy: tf.distribute.Strategy,
     summary_writer: tf.summary.SummaryWriter,
-    loss_type: str):
+    loss_type: str,
+    graph_augmenter: augmentation_utils.GraphAugment):
   """Trains and evaluates the model."""
   with strategy.scope():
     model = ub.models.mpnn(
@@ -114,6 +160,12 @@ def run(
       else:
         features, labels = inputs
         sample_weights = 1
+
+      if params.augmentations:
+        # TODO(jihyeonlee): For now, choose 1 augmentation function from all
+        # possible with equal probability. Allow user to specify number of
+        # augmentations to apply per graph.
+        features = graph_augmenter.augment(features)
 
       with tf.GradientTape() as tape:
         probs = model(features, training=True)
@@ -246,6 +298,13 @@ def main(argv: Sequence[str]):
       eval_identifiers, splits, FLAGS.data_dir, FLAGS.batch_size)
 
   logging.info('Steps for eval datasets: %s', steps_per_eval)
+  graph_augmenter = None
+  if FLAGS.augmentations:
+    graph_augmenter = augmentation_utils.GraphAugment(
+        FLAGS.augmentations, FLAGS.aug_ratio, FLAGS.aug_prob,
+        FLAGS.perturb_node_features, FLAGS.drop_edges_only,
+        FLAGS.perturb_edge_features, FLAGS.initialize_edge_features_randomly,
+        FLAGS.mask_mean, FLAGS.mask_stddev)
 
   params = utils.ModelParameters(
       num_heads=FLAGS.num_heads,
@@ -254,6 +313,7 @@ def main(argv: Sequence[str]):
       readout_layer_size=FLAGS.readout_layer_size,
       use_gp_layer=False,
       learning_rate=FLAGS.learning_rate,
+      augmentations=FLAGS.augmentations,
       num_epochs=FLAGS.num_epochs,
       steps_per_epoch=steps_per_epoch)
 
@@ -270,7 +330,8 @@ def main(argv: Sequence[str]):
       model_dir=model_dir,
       strategy=strategy,
       summary_writer=summary_writer,
-      loss_type=FLAGS.loss_type)
+      loss_type=FLAGS.loss_type,
+      graph_augmenter=graph_augmenter)
 
 
 if __name__ == '__main__':

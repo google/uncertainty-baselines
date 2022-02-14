@@ -1,0 +1,52 @@
+"""
+Top hyperparameter configuration of the
+FSVI baseline for Diabetic Retinopathy Detection,
+tuning on in-domain validation AUC,
+evaluated on the Severity Shift with moderate decision threshold.
+"""
+name: severity-fsvi-finetune-id
+program: baselines/diabetic_retinopathy_detection/fsvi.py
+method: grid
+project: severity-fsvi-finetune
+entity: nband
+parameters:
+  epochs:
+    value: 90
+  num_cores:
+    value: 4
+  dr_decision_threshold:
+    value: 'moderate'
+  distribution_shift:
+    value: 'severity'
+  checkpoint_interval:
+    value: 1
+  output_dir:
+    value: 'gs://drd-fsvi-severity-finetune/indomain'
+  data_dir:
+    value: 'gs://ub-data/retinopathy'
+  layer_to_linearize:
+    value: 1
+  per_core_batch_size:
+    value: 64
+  prior_cov:
+    value: 5.630095605753332
+  n_inducing_inputs:
+    value: 20
+  base_learning_rate:
+    value: 0.029950447006601596
+  one_minus_momentum:
+    value: 0.021384130535018597
+  l2:
+    value: 1.5549034188287367e-06
+  loss_type:
+    value: 3
+  stochastic_linearization:
+    value: True
+  seed:
+    values:
+      - 42
+      - 43
+      - 44
+      - 45
+      - 46
+      - 47

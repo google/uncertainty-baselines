@@ -212,7 +212,7 @@ def imagenet_fewshot(hyper,
   config.ood_datasets = ['places365_small']
   config.ood_num_classes = [365]
   config.ood_split = 'validation'  # val split has fewer samples, faster eval
-  config.ood_methods = ['msp', 'entropy']
+  config.ood_methods = ['msp', 'entropy', 'mlogit']
   pp_eval_ood = []
   for num_classes in config.ood_num_classes:
     if num_classes > config.num_classes:

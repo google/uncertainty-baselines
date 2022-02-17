@@ -175,4 +175,55 @@ def imagenet(hyper, size=384, steps=20_000, warmup=500, include_ood_maha=False):
 
   config.eval_on_imagenet_real = True
   config.pp_eval_imagenet_real = f'decode|resize({size})|value_range(-1, 1)|keep(["image", "labels"])'  # pylint: disable=line-too-long
+
+  return fixed(hyper, config)
+
+
+def imagenet_fewshot(hyper,
+                     fewshot='5shot',
+                     size=384,
+                     steps=1000,
+                     warmup=2,
+                     log_eval_steps=100):
+  """A fixed sweep for ImageNet2012Fewshot specific settings."""
+  name = f'imagenet2012_fewshot/{fewshot}'
+  n_cls = 1000
+  pp_common = '|value_range(-1, 1)'
+  pp_common += '|onehot(1000, key="{lbl}", key_result="labels")'
+  pp_common += '|keep(["image", "labels"])'
+  pp_train = f'decode_jpeg_and_inception_crop({size})|flip_lr'
+  pp_train += pp_common.format(lbl='label')
+  pp_eval = f'decode|resize({size})' + pp_common.format(lbl='label')
+
+  config = ml_collections.ConfigDict()
+  config.dataset = name
+  config.train_split = 'train'
+  config.pp_train = pp_train
+  config.val_split = 'validation'
+  config.test_split = 'validation'
+  config.pp_eval = pp_eval
+  config.num_classes = n_cls
+  config.lr = ml_collections.ConfigDict()
+  config.lr.warmup_steps = warmup
+  config.total_steps = steps
+  config.log_eval_steps = log_eval_steps
+
+  # OOD evaluation
+  config.ood_datasets = ['places365_small']
+  config.ood_num_classes = [365]
+  config.ood_split = 'validation'  # val split has fewer samples, faster eval
+  config.ood_methods = ['msp', 'entropy']
+  pp_eval_ood = []
+  for num_classes in config.ood_num_classes:
+    if num_classes > config.num_classes:
+      # Note that evaluation_fn ignores the entries with all zero labels for
+      # evaluation. When num_classes > n_cls, we should use onehot{num_classes},
+      # otherwise the labels that are greater than n_cls will be encoded with
+      # all zeros and then be ignored.
+      pp_eval_ood.append(
+          config.pp_eval.replace(f'onehot({config.num_classes}',
+                                 f'onehot({num_classes}'))
+    else:
+      pp_eval_ood.append(config.pp_eval)
+  config.pp_eval_ood = pp_eval_ood
   return fixed(hyper, config)

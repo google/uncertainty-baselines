@@ -22,11 +22,16 @@ import ml_collections
 import uncertainty_baselines as ub
 
 
-class SegVitTest(parameterized.TestCase):
+class SegVitBETest(parameterized.TestCase):
 
   @parameterized.parameters(
-      (2, 16, 224, 224),)
-  def test_segmenter_transformer(self, num_classes, hidden_size, img_h, img_w):
+      (2, 16, 224, 224, 'vit', 'linear', 1),
+      (2, 16, 224, 224, 'vit_be', 'linear', 3),
+      (2, 16, 224, 224, 'vit_be', 'linear_be', 3),
+  )
+  def test_segmenter_be_transformer(self, num_classes, hidden_size, img_h,
+                                    img_w, encoder_type, decoder_type,
+                                    ens_size):
     # VisionTransformer.
     config = ml_collections.ConfigDict()
 
@@ -36,7 +41,7 @@ class SegVitTest(parameterized.TestCase):
     config.patches.size = [4, 4]
 
     config.backbone_configs = ml_collections.ConfigDict()
-    config.backbone_configs.type = 'vit'
+    config.backbone_configs.type = encoder_type
     config.backbone_configs.hidden_size = hidden_size
     config.backbone_configs.attention_dropout_rate = 0.
     config.backbone_configs.dropout_rate = 0.
@@ -46,17 +51,24 @@ class SegVitTest(parameterized.TestCase):
     config.backbone_configs.classifier = 'gap'
 
     config.decoder_configs = ml_collections.ConfigDict()
-    config.decoder_configs.type = 'linear'
+    config.decoder_configs.type = decoder_type
+
+    # BE params
+    config.backbone_configs.ens_size = ens_size
+    config.backbone_configs.random_sign_init = -0.5
+    config.backbone_configs.be_layers = (0,)
 
     num_examples = 2
     inputs = jnp.ones([num_examples, img_h, img_w, 3], jnp.float32)
-    model = ub.models.SegVit(**config)
+    model = ub.models.SegVitBE(**config)
     key = jax.random.PRNGKey(0)
     variables = model.init(key, inputs, train=False)
 
     logits, outputs = model.apply(variables, inputs, train=False)
 
-    self.assertEqual(logits.shape, (num_examples, img_h, img_w, num_classes))
+    self.assertEqual(logits.shape,
+                     (num_examples * ens_size, img_h, img_w, num_classes))
+
     self.assertEqual(
         set(outputs.keys()), set(('stem', 'transformed', 'logits')))
 

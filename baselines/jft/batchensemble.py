@@ -60,9 +60,7 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 
-def main(_):
-  config = FLAGS.config
-  output_dir = FLAGS.output_dir
+def main(config, output_dir):
 
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
@@ -691,4 +689,11 @@ def main(_):
 if __name__ == '__main__':
   # Adds jax flags to the program.
   jax.config.parse_flags_with_absl()
-  app.run(main)
+
+  def _main(argv):
+    del argv
+    config = FLAGS.config
+    output_dir = FLAGS.output_dir
+    main(config, output_dir)
+
+  app.run(_main)  # Ignore the returned values from `main`.

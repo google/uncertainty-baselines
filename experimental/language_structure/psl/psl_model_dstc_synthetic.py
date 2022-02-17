@@ -372,16 +372,6 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
 
         return total_loss
 
-    def compute_all_potential_losses(self, data: tf.Tensor, logits: tf.Tensor) -> List[float]:
-        """Calculate the loss for each PSL rule."""
-        rules_loss = []
-        rule_kwargs = dict(logits=logits, data=data)
-
-        for rule_weight, rule_function in zip(self.rule_weights, self.rule_functions):
-            rules_loss.append(rule_weight * rule_function(**rule_kwargs))
-
-        return rules_loss
-
     def compute_loss_per_rule(self, data: tf.Tensor,
                               logits: tf.Tensor) -> List[float]:
         """Calculate the loss for each of the PSL rules."""

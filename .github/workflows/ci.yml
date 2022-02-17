@@ -32,11 +32,12 @@ jobs:
           python -c "import uncertainty_baselines as ub; print(ub.datasets)"
           python -c "import uncertainty_baselines as ub; print(ub.models)"
       - name: Run Pytest
+        # TODO(dusenberrymw,trandustin): Reenable bert tests.
         run: |
           set -v
           set -e
           python -m unittest -v uncertainty_baselines/datasets/random_test.py
-          python -m unittest -v uncertainty_baselines/models/*_test.py
+          python -m unittest -v $(find . -name 'uncertainty_baselines/models/*_test.py' -a ! -name 'uncertainty_baselines/models/bert*_test.py')
           python -m unittest -v uncertainty_baselines/*_test.py
   test_jft:
     runs-on: ubuntu-latest

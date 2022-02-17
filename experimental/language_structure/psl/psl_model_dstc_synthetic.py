@@ -22,8 +22,8 @@ File consists of:
 
 from typing import List
 
-import tensorflow as tf
 import psl_model
+import tensorflow as tf
 
 
 class PSLModelDSTCSynthetic(psl_model.PSLModel):

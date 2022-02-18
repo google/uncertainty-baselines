@@ -541,7 +541,8 @@ def main(config, output_dir):
   profiler = periodic_actions.Profile(
       # Create profile after every restart to analyze pre-emption related
       # problems and assure we get similar performance in every run.
-      logdir=output_dir, first_profile=10)
+      logdir=output_dir,
+      first_profile=10)
 
   logging.info(config)
 
@@ -562,7 +563,7 @@ def main(config, output_dir):
   write_note(f'Initializing for {acquisition_method}')
 
   # Download dataset
-  data_builder = tfds.builder('cifar10')
+  data_builder = tfds.builder(config.dataset)
   data_builder.download_and_prepare()
 
   seed = config.get('seed', 0)
@@ -588,7 +589,7 @@ def main(config, output_dir):
 
   test_ds = input_utils.get_data(
       dataset=config.dataset,
-      split='test',
+      split=config.test_split,
       rng=None,
       process_batch_size=local_batch_size_eval,
       preprocess_fn=preprocess_spec.parse(
@@ -641,11 +642,10 @@ def main(config, output_dir):
   update_fn = make_update_fn(model, config)
   evaluation_fn = make_evaluation_fn(model, config)
 
-  pool_subset_data_builder = al_utils.Cifar10Subset(subset_ids={
-      config.train_split: None,
-      'test': None,
-  })
-  pool_subset_data_builder.download_and_prepare()
+  # NOTE: We need this because we need an Id field of type int.
+  # TODO(andreas): Rename to IdSubsetDatasetBuilder?
+  pool_subset_data_builder = al_utils.SubsetDatasetBuilder(
+      data_builder, subset_ids=None)
 
   rng, pool_ds_rng = jax.random.split(rng)
 
@@ -692,11 +692,8 @@ def main(config, output_dir):
   # then this dataset creation could be simplified.
   # https://github.com/google/CommonLoopUtils/blob/main/clu/deterministic_data.py#L340
   # CLU is explicitly not accepting outside contributions at the moment.
-  train_subset_data_builder = al_utils.Cifar10Subset(subset_ids={
-      config.train_split: set(initial_training_set_batch_ids),
-      'test': None
-  })
-  train_subset_data_builder.download_and_prepare()
+  train_subset_data_builder = al_utils.SubsetDatasetBuilder(
+      data_builder, subset_ids=set(initial_training_set_batch_ids))
 
   test_accuracies = []
   training_sizes = []
@@ -712,8 +709,7 @@ def main(config, output_dir):
   measurements = {}
   accumulated_steps = 0
   while True:
-    current_train_ds_length = len(
-        train_subset_data_builder.subset_ids[config.train_split])
+    current_train_ds_length = len(train_subset_data_builder.subset_ids)
     if current_train_ds_length >= config.get('max_training_set_size', 150):
       break
     write_note(f'Training set size: {current_train_ds_length}')
@@ -828,24 +824,22 @@ def main(config, output_dir):
         acquisition_batch_size=config.get('acquisition_batch_size', 10),
         scores=pool_scores,
         ids=pool_ids,
-        ignored_ids=train_subset_data_builder.subset_ids[config.train_split])
+        ignored_ids=train_subset_data_builder.subset_ids)
 
-    train_subset_data_builder.subset_ids[config.train_split].update(
-        acquisition_batch_ids)
+    train_subset_data_builder.subset_ids.update(acquisition_batch_ids)
 
     measurements.update({'test_accuracy': test_accuracy})
     writer.write_scalars(current_train_ds_length, measurements)
 
   write_note(f'Final acquired training ids: '
-             f'{train_subset_data_builder.subset_ids[config.train_split]}'
+             f'{train_subset_data_builder.subset_ids}'
              f'Accuracies: {test_accuracies}')
 
   pool.close()
   pool.join()
   writer.close()
   # TODO(joost,andreas): save the final checkpoint
-  return (train_subset_data_builder.subset_ids[config.train_split],
-          test_accuracies)
+  return (train_subset_data_builder.subset_ids, test_accuracies)
 
 
 if __name__ == '__main__':
@@ -854,4 +848,5 @@ if __name__ == '__main__':
   def _main(argv):
     del argv
     main(FLAGS.config, FLAGS.output_dir)
+
   app.run(_main)  # Ignore the returned values from `main`.

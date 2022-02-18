@@ -28,15 +28,17 @@ import tensorflow_datasets as tfds
 
 
 def _get_dataset_builder(
-    dataset: Union[str, tfds.core.DatasetBuilder],
-    data_dir: Optional[str] = None) -> tfds.core.DatasetBuilder:
+    dataset: Union[str, deterministic_data.DatasetBuilder],
+    data_dir: Optional[str] = None) -> deterministic_data.DatasetBuilder:
   """Returns a dataset builder."""
   if isinstance(dataset, str):
     dataset_builder = tfds.builder(dataset, data_dir=data_dir)
-  elif isinstance(dataset, tfds.core.DatasetBuilder):
+  # clu does not use @runtime_checkable on its protocol classes sadly
+  # used to be `isinstance(dataset, deterministic_data.DatasetBuilder)` which is not generic enough for us
+  elif hasattr(dataset, "as_dataset"):
     dataset_builder = dataset
   else:
-    raise ValueError("`dataset` must be a string or tfds.core.DatasetBuilder. "
+    raise ValueError("`dataset` must be a string or deterministic_data.DatasetBuilder. "
                      f"Received {dataset} instead.")
   return dataset_builder
 
@@ -138,7 +140,7 @@ def _pad_reshape_batch(batch, flat_batch_size, num_devices):
 
 
 def get_data(
-    dataset: Union[str, tfds.core.DatasetBuilder],
+    dataset: Union[str, deterministic_data.DatasetBuilder],
     split: str,
     rng: Union[None, jnp.ndarray, tf.Tensor],
     process_batch_size: int,

@@ -482,10 +482,10 @@ def main(config, output_dir):
       if not config.get('only_eval', False):
         opt_repl, train_loop_rngs, loss_value, extra_measurements = update_fn(
             opt_repl,
-            train_loop_rngs,
             lr_repl,
             train_batch['image'],
-            train_batch['labels'])
+            train_batch['labels'],
+            train_loop_rngs)
 
     if jax.process_index() == 0:
       profiler(step)

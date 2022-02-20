@@ -545,7 +545,7 @@ def main(argv):
       if config.use_wandb:
         wandb.log(metrics_results, step=step)
 
-      Save per-prediction metrics
+      # Save per-prediction metrics
       results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
       chrono.resume()

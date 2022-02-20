@@ -28,12 +28,10 @@ from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
 import flax
-import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
 import ml_collections.config_flags
 import numpy as np
-from scipy.stats import entropy
 import tensorflow as tf
 
 tf.config.experimental.set_visible_devices([], 'GPU')
@@ -426,8 +424,8 @@ def main(argv):
       nprefetch=config.get('prefetch_to_device', 1))
 
   write_note(f'Replicating...\n{chrono.note}')
-  opt_repl = flax_utils.replicate(opt_cpu)
-  states_repl = flax_utils.replicate(states_cpu)
+  opt_repl = flax.jax_utils.replicate(opt_cpu)
+  states_repl = flax.jax_utils.replicate(states_cpu)
 
   checkpoint_writer = None
 
@@ -447,8 +445,7 @@ def main(argv):
   # when eval takes place.
   log_eval_steps = steps_per_epoch
   if first_step > 0:
-    write_note(
-        'Advancing iterators after resuming from a checkpoint...')
+    write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
 
@@ -575,7 +572,7 @@ def main(argv):
                                                 axis=0)
         results_arrs['y_pred'] = np.concatenate(
             results_arrs['y_pred'], axis=0).astype('float64')
-        results_arrs['y_pred_entropy'] = entropy(
+        results_arrs['y_pred_entropy'] = vit_utils.entropy(
             np.concatenate(results_arrs['y_pred_entropy'], axis=0), axis=-1)
 
         time_elapsed = time.time() - start_time

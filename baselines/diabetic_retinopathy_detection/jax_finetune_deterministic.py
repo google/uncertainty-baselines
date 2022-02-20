@@ -52,15 +52,9 @@ from utils import vit_utils
 import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
+# TODO(nband): lock config after separating total and warmup steps arguments.
 ml_collections.config_flags.DEFINE_config_file(
-    'config', None, 'Training configuration.', lock_config=True)
-flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
-flags.DEFINE_integer(
-    'num_cores', default=None, help='Unused. How many devices being used.')
-flags.DEFINE_boolean(
-    'use_gpu', default=None, help='Unused. Whether or not running on GPU.')
-flags.DEFINE_string('tpu', None,
-                    'Unused. Name of the TPU. Only used if use_gpu is False.')
+    'config', None, 'Training configuration.', lock_config=False)
 FLAGS = flags.FLAGS
 
 
@@ -69,8 +63,15 @@ def main(argv):
 
   config = FLAGS.config
 
+  # Unpack total and warmup steps
+  # TODO(nband): revert this to separate arguments.
+  total_steps = config.total_and_warmup_steps[0]
+  warmup_steps = config.total_and_warmup_steps[1]
+  del config.total_and_warmup_steps
+  config.total_steps = total_steps
+  config.lr.warmup_steps = warmup_steps
+
   # Wandb and Checkpointing Setup
-  output_dir = FLAGS.output_dir
   wandb_run, output_dir = vit_utils.maybe_setup_wandb(config)
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)

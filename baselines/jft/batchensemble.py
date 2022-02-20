@@ -60,9 +60,7 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 
-def main(_):
-  config = FLAGS.config
-  output_dir = FLAGS.output_dir
+def main(config, output_dir):
 
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
@@ -399,10 +397,7 @@ def main(_):
         opt=opt, rngs=rngs, lr=lr, images=images, labels=labels,
         batch_loss_fn=batch_loss_fn,
         weight_decay_fn=weight_decay_fn,
-        plot_grad_norm_name_fn=None,
-        plot_grads_nan_inf=config.get('plot_grads_nan_inf', True),
         max_grad_norm_global=config.get('grad_clip_norm', None),
-        frozen_vars_patterns=config.get('frozen_var_patterns', None),
         fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
   reint_params = ('batchensemble_head/bias',
@@ -694,4 +689,11 @@ def main(_):
 if __name__ == '__main__':
   # Adds jax flags to the program.
   jax.config.parse_flags_with_absl()
-  app.run(main)
+
+  def _main(argv):
+    del argv
+    config = FLAGS.config
+    output_dir = FLAGS.output_dir
+    main(config, output_dir)
+
+  app.run(_main)  # Ignore the returned values from `main`.

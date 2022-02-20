@@ -68,9 +68,39 @@ flags.DEFINE_float(
 flags.DEFINE_multi_enum(
     'augmentations',
     default=[],
-    enum_values=['drop_nodes'],
+    enum_values=['drop_nodes', 'perturb_edges', 'mask_node_features'],
     help='Types of augmentations to perform on graphs. If an empty list is '
     'provided, then no augmentation will be applied to the data.')
+
+# Flags for drop_nodes augmentation
+flags.DEFINE_boolean('perturb_node_features', False, 'When True, zeros out the '
+                     'features of dropped nodes. When False, does not '
+                     'affect the node features. Controls whether or not the '
+                     'drop_nodes function affects the `atoms` feature.')
+
+# Flags for perturb_edges augmentation
+flags.DEFINE_boolean('drop_edges_only', False, 'If True, only drop edges '
+                     'when using the perturb_edges augmentation, rather than '
+                     're-adding the dropped edges between randomly selected '
+                     'nodes. Re-adds the edges when False. Only affects the '
+                     '`pair_mask` feature, not `pairs` (see '
+                     '`perturb_edge_features` flag).')
+flags.DEFINE_boolean('perturb_edge_features', False, 'When True, zeros out the '
+                     'features of dropped edges. When False, does not affect '
+                     'the edge features. Controls whether or not to affect '
+                     'the `pairs` feature.')
+flags.DEFINE_boolean('initialize_edge_features_randomly', False,
+                     'When True, initializes the features of newly added edges '
+                     'from a random uniform distribution. When False, uses the '
+                     'features of dropped edges for the newly added ones.')
+
+# Flags for mask_node_features
+flags.DEFINE_float(
+    'mask_mean', 0.5, 'Mean of random normal distribution used to generate '
+    'features of mask.')
+flags.DEFINE_float(
+    'mask_stddev', 0.5, 'Standard deviation of random normal distribution used '
+    'to generate features of mask.')
 
 # Loss type.
 flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
@@ -135,7 +165,7 @@ def run(
         # TODO(jihyeonlee): For now, choose 1 augmentation function from all
         # possible with equal probability. Allow user to specify number of
         # augmentations to apply per graph.
-        features, _ = graph_augmenter.augment(features)
+        features = graph_augmenter.augment(features)
 
       with tf.GradientTape() as tape:
         probs = model(features, training=True)
@@ -270,9 +300,11 @@ def main(argv: Sequence[str]):
   logging.info('Steps for eval datasets: %s', steps_per_eval)
   graph_augmenter = None
   if FLAGS.augmentations:
-    graph_augmenter = augmentation_utils.GraphAugment(FLAGS.augmentations,
-                                                      FLAGS.aug_ratio,
-                                                      FLAGS.aug_prob)
+    graph_augmenter = augmentation_utils.GraphAugment(
+        FLAGS.augmentations, FLAGS.aug_ratio, FLAGS.aug_prob,
+        FLAGS.perturb_node_features, FLAGS.drop_edges_only,
+        FLAGS.perturb_edge_features, FLAGS.initialize_edge_features_randomly,
+        FLAGS.mask_mean, FLAGS.mask_stddev)
 
   params = utils.ModelParameters(
       num_heads=FLAGS.num_heads,

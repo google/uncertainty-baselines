@@ -20,7 +20,6 @@ r"""ViT-B/16 finetuning on CIFAR-10.
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
 
 
 def get_config():

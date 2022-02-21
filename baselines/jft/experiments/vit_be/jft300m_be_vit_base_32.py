@@ -49,34 +49,31 @@ def get_config():
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [32, 32]
-  config.model.hidden_size = 1024
-  config.model.representation_size = 1024
-  config.model.classifier = 'token'
+  config.model.hidden_size = 768
   config.model.transformer = ml_collections.ConfigDict()
-  config.model.transformer.num_layers = 24
-  config.model.transformer.dropout_rate = 0.0
-  config.model.transformer.mlp_dim = 4096
-  config.model.transformer.num_heads = 16
-  config.model.transformer.attention_dropout_rate = 0.0
+  config.model.transformer.attention_dropout_rate = 0.
+  config.model.transformer.dropout_rate = 0.
+  config.model.transformer.mlp_dim = 3072
+  config.model.transformer.num_heads = 12
+  config.model.transformer.num_layers = 12
+  config.model.classifier = 'token'  # Or 'gap'
+  config.model.representation_size = 768
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
+  config.model.transformer.be_layers = (9, 10, 11)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = -0.5
   config.fast_weight_lr_multiplier = 1.0
 
-  # Optimizer parameters.
+  # Optimizer section
   config.optim_name = 'Adam'
   config.optim = ml_collections.ConfigDict()
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
-  # TODO(trandustin): Note BE uses config.weight_decay instead of
-  # config.optim.weight_decay as in typical ViT. xid/34376832 shows
-  # config.weight_decay is better for BE. Still need to sweep over LR though.
   config.weight_decay = 0.1
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 6e-4  # LR likely has to be lower for larger models!
+  config.lr.base = 8e-4  # LR likely has to be lower for larger models!
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5

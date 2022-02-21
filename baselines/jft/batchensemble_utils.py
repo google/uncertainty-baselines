@@ -180,6 +180,7 @@ def update_fn_be(
   # Average gradients.
   grads = jax.lax.pmean(grads, axis_name='batch')
   loss = jax.lax.pmean(loss, axis_name='batch')
+  aux['training_loss'] = loss
 
   if max_grad_norm_global and max_grad_norm_global > 0.0:
     # Normalize by 'global' norm (i.e. flatten all parameters).
@@ -198,4 +199,6 @@ def update_fn_be(
   if weight_decay_fn:
     params = weight_decay_fn(opt.target, lr)
     opt = opt.replace(target=params)
-  return opt, next_rngs, loss, aux
+
+  aux['learning_rate'] = lr
+  return opt, next_rngs, aux

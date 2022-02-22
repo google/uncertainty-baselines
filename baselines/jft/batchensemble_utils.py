@@ -202,3 +202,12 @@ def update_fn_be(
 
   aux['learning_rate'] = lr
   return opt, next_rngs, aux
+
+
+def broadcast_batchensemble_biases(params, be_layers, ensemble_size):
+  for layer in be_layers:
+    for block in [0, 1]:
+      be_block = params['Transformer'][f'encoderblock_{layer}']['MlpBlock_3']
+      be_block[f'Dense_{block}']['bias'] = jnp.tile(
+          be_block[f'Dense_{block}']['bias'], (ensemble_size, 1))
+  return params

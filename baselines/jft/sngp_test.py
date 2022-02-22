@@ -147,10 +147,6 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
       config.val_split = f'train[:{num_examples}]'
       config.train_split = f'train[{num_examples}:{num_examples*2}]'
       config.num_classes = 1000
-      config.eval_on_imagenet_real = True
-      config.imagenet_real_split = f'validation[:{num_examples}]'
-      config.pp_eval_imagenet_real = (
-          'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
     pp_common += '|keep(["image", "labels"])'

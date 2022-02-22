@@ -14,13 +14,12 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-L/32 finetuning from upstream batchensemble.
+r"""BE S/32 finetuning.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
 import sweep_utils  # local file import from baselines.jft.experiments
 
 
@@ -62,28 +61,25 @@ def get_config():
   config.pp_eval_imagenet_real = ''
 
   # Model section
-  # pre-trained model ckpt file
-  # !!!  The below section should be modified per experiment
-  config.model_init = '/path/to/pretrained_model_ckpt.npz'
-
+  config.model_init = ''  # set in sweep
 
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [32, 32]
-  config.model.hidden_size = 1024
+  config.model.hidden_size = 512
+  config.model.classifier = 'token'
   config.model.transformer = ml_collections.ConfigDict()
-  config.model.transformer.attention_dropout_rate = 0.
-  config.model.transformer.dropout_rate = 0.
-  config.model.transformer.mlp_dim = 4096
-  config.model.transformer.num_heads = 16
-  config.model.transformer.num_layers = 24
-  config.model.classifier = 'token'  # Or 'gap'
+  config.model.transformer.num_layers = 8
+  config.model.transformer.dropout_rate = 0.0
+  config.model.transformer.mlp_dim = 2048
+  config.model.transformer.num_heads = 8
+  config.model.transformer.attention_dropout_rate = 0.0
 
-  # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
-  config.model.transformer.ens_size = 3
-  config.model.transformer.random_sign_init = 0.5
+  # BatchEnsemble parameters
+  config.model.transformer.be_layers = (5, 6, 7)
+  config.model.transformer.ens_size = 2
+  config.model.transformer.random_sign_init = -0.5
   config.fast_weight_lr_multiplier = 1.0
 
   # This is "no head" fine-tuning, which we use by default
@@ -106,6 +102,8 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
+  checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+
   cifar10_sweep = hyper.product([
       hyper.chainit([
           hyper.product(sweep_utils.cifar10(
@@ -114,7 +112,6 @@ def get_sweep(hyper):
       ]),
       hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
-
   cifar100_sweep = hyper.product([
       hyper.chainit([
           hyper.product(sweep_utils.cifar100(
@@ -123,7 +120,6 @@ def get_sweep(hyper):
       ]),
       hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
-
   imagenet_sweep = hyper.product([
       hyper.chainit([
           hyper.product(sweep_utils.imagenet(
@@ -136,9 +132,10 @@ def get_sweep(hyper):
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
-          imagenet_sweep
+          imagenet_sweep,
       ]),
-      hyper.product([  # BE Hyperparameters.
+      hyper.product([
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
+          hyper.sweep('config.model_init', checkpoints),
       ])
   ])

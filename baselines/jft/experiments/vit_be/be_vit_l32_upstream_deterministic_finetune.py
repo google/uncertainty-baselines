@@ -14,13 +14,12 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-L/32 finetuning from upstream batchensemble.
+r"""ViT-L/32 finetuning from upstream deterministic.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
 import sweep_utils  # local file import from baselines.jft.experiments
 
 
@@ -81,7 +80,7 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 23)
+  config.model.transformer.be_layers = (21, 22, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = 0.5
   config.fast_weight_lr_multiplier = 1.0
@@ -136,7 +135,7 @@ def get_sweep(hyper):
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
-          imagenet_sweep
+          imagenet_sweep,
       ]),
       hyper.product([
           hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),

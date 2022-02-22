@@ -54,6 +54,4 @@ parameters:
   config.fast_weight_lr_multiplier:
     values: [0.5, 1.0, 2.0]
   config.model.transformer.random_sign_init:
-    distribution: uniform
-    min: -0.5
-    max: 0.5
+    values: [-0.5, 0.5]

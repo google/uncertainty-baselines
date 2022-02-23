@@ -83,8 +83,8 @@ def main(config, output_dir):
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
-  if config.get('dataset_dir'):
-    logging.info('data_dir=%s', config.dataset_dir)
+  if config.get('data_dir'):
+    logging.info('data_dir=%s', config.data_dir)
   logging.info('Output dir: %s', output_dir)
 
   save_checkpoint_path = None
@@ -183,7 +183,7 @@ def main(config, output_dir):
   val_ds_splits = {
       'val':
           _get_val_split(config.dataset, config.val_split, config.pp_eval,
-                         config.get('dataset_dir'))
+                         config.get('data_dir'))
   }
 
   if config.get('test_split'):

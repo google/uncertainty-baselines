@@ -53,7 +53,8 @@ import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
 ml_collections.config_flags.DEFINE_config_file(
-    'config', None, 'Training configuration.', lock_config=True)
+    'config', None, 'Training configuration.', lock_config=False)
+# Keep extraneous flags for usage in Google experiments.
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
     'num_cores', default=None, help='Unused. How many devices being used.')
@@ -68,6 +69,13 @@ def main(argv):
   del argv  # unused arg
 
   config = FLAGS.config
+
+  # Unpack total and warmup steps
+  total_steps = config.total_and_warmup_steps[0]
+  warmup_steps = config.total_and_warmup_steps[1]
+  del config.total_and_warmup_steps
+  config.total_steps = total_steps
+  config.lr.warmup_steps = warmup_steps
 
   # Wandb and Checkpointing Setup
   output_dir = FLAGS.output_dir
@@ -298,6 +306,7 @@ def main(argv):
         jax.value_and_grad(loss_fn), opt.target, images, labels,
         config.get('grad_accum_steps'))
     l, g = jax.lax.pmean((l, g), axis_name='batch')
+    measurements['training_loss'] = l
 
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
@@ -329,8 +338,8 @@ def main(argv):
     params, _ = jax.tree_flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(
         sum([jnp.vdot(p, p) for p in params]))
-
-    return opt, l, rng, measurements
+    measurements['learning_rate'] = lr
+    return opt, rng, measurements
 
   # Set config checkpoint resume path, if provided in args.
   if config.resume_checkpoint_path is not None:
@@ -408,7 +417,7 @@ def main(argv):
 
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
       if not config.get('only_eval', False):
-        opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
+        opt_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
             lr_repl,
             train_batch['image'],
@@ -454,17 +463,14 @@ def main(argv):
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
-      train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
-      train_measurements.update({
-          'learning_rate': lr_repl[0],
-          'training_loss': train_loss,
-      })
       train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
+      # Keep to return for reproducibility tests.
+      # train_loss = train_measurements['training_loss']
 
     # Report validation performance
     if train_utils.itstime(step, config.log_eval_steps, total_steps):
@@ -492,8 +498,6 @@ def main(argv):
           # (local_devices, per_device_batch_size, elem_shape...)
           # with each local device's entry being identical as they got psum'd.
           # So let's just take the first one to the host as numpy.
-
-          # from jft/deterministic.py
 
           # Here we parse batch_metric_args to compute uncertainty metrics.
           logits, labels, _ = batch_metric_args
@@ -545,7 +549,7 @@ def main(argv):
       if config.use_wandb:
         wandb.log(metrics_results, step=step)
 
-      Save per-prediction metrics
+      # Save per-prediction metrics
       results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
       chrono.resume()

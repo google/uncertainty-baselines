@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-L/32 + BatchEnsemble finetuning on RETINA.
+r"""Finetune a pretrained ViT-L/32 on RETINA.
 
 This config is used for models pretrained on either JFT-300M or ImageNet-21K.
 
@@ -30,8 +30,8 @@ def get_config():
 
   # Directories
   # model_init should be modified per experiment
-  config.model_init = ('gs://ub-checkpoints/ImageNet21k_BE-L32/'
-      'baselines-jft-0209_205214/1/checkpoint.npz')
+  config.model_init = (
+    'gs://ub-checkpoints/ImageNet21k_ViT-L32/1/checkpoint.npz')
   config.data_dir = 'gs://ub-data/retinopathy'
   # The directory where the model weights and training/evaluation summaries
   #   are stored.
@@ -43,7 +43,7 @@ def get_config():
   #   Kaggle/EyePACS in-domain datasets are unchanged.
   # 'severity': uses DiabeticRetinopathySeverityShift dataset, a subdivision
   #   of the Kaggle/EyePACS dataset to hold out clinical severity labels as OOD.
-  config.distribution_shift = 'aptos'
+  config.distribution_shift = 'aptos'  # set in sweep
 
   # If provided, resume training and/or conduct evaluation using this
   #   checkpoint. Will only be used if the output_dir does not already
@@ -54,8 +54,7 @@ def get_config():
   config.trial = 0
 
   # Logging and hyperparameter tuning
-
-  config.use_wandb = False  # Use wandb for logging.
+  config.use_wandb = False
   config.wandb_dir = 'wandb'  # Directory where wandb logs go.
   config.project = 'ub-debug'  # Wandb project name.
   config.exp_name = None  # Give experiment a name.
@@ -78,15 +77,8 @@ def get_config():
   config.model.transformer.attention_dropout_rate = 0.
   config.model.transformer.dropout_rate = 0.
   config.model.classifier = 'token'
-
-  # This is "no head" fine-tuning, which we use by default
+  # This is "no head" fine-tuning, which we use by default.
   config.model.representation_size = None
-
-  # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
-  config.model.transformer.ens_size = 3
-  config.model.transformer.random_sign_init = -0.5  # set in sweep
-  config.fast_weight_lr_multiplier = 1.0  # set in sweep
 
   # Preprocessing
   # Input resolution of each retina image. (Default: 512)
@@ -105,13 +97,13 @@ def get_config():
   # Optimizer section
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
-  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
   config.grad_clip_norm = 1.0
-  config.weight_decay = 0.  # No explicit weight decay
+  config.weight_decay = None
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 1e-3  # Set in sweep.
-  config.lr.decay_type = 'linear'
+  config.lr.base = 0.01  # set in sweep
+  config.lr.decay_type = 'cosine'
 
   # The dataset is imbalanced (e.g., in Country Shift, we have 19.6%, 18.8%,
   # 19.2% positive examples in train, val, test respectively).
@@ -133,8 +125,6 @@ def get_config():
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.
   config.checkpoint_steps = 1000
   config.checkpoint_timeout = 1
-
-  config.args = {}
   return config
 
 
@@ -153,6 +143,4 @@ def get_sweep(hyper):
                            hyper.interval(1e-6, 2e-4)),
       ], length=1),
       hyper.sweep('config.grad_clip_norm', [2.5]),
-      hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-      hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
   ])

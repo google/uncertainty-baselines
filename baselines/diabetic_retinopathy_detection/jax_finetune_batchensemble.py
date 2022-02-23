@@ -555,6 +555,9 @@ def main(_):
   pool.join()
   writer.close()
 
+  if wandb_run is not None:
+    wandb_run.finish()
+
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.
   # return train_loss, val_loss, results

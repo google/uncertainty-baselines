@@ -33,7 +33,7 @@ import jax.numpy as jnp
 import ml_collections
 import numpy as np
 import scipy
-import tensorflow as tf
+from tensorflow.io import gfile
 
 Params = MutableMapping[str, Any]
 
@@ -97,7 +97,7 @@ def load_checkpoint(tree, path):
     A JAX pytree with the same structure as `tree`, but with the leaf values
     restored from the saved checkpoint.
   """
-  with tf.io.gfile.GFile(path, "rb") as f:
+  with gfile.GFile(path, "rb") as f:
     data = f.read()
   keys, values = zip(
       *list(np.load(io.BytesIO(data), allow_pickle=False).items()))
@@ -109,6 +109,8 @@ def load_checkpoint(tree, path):
   else:
     tree = _recover_tree(keys, values)
   return tree
+
+
 
 
 def _traverse_with_names(tree):
@@ -177,12 +179,12 @@ def save_checkpoint(tree: Params, path: str,
   # In order to be robust to interruptions during saving, we first save the
   # checkpoint to a temporary file, and then rename it to the actual path name.
   path_tmp = path + "-TEMPORARY"
-  with tf.io.gfile.GFile(path_tmp, "wb") as f:
+  with gfile.GFile(path_tmp, "wb") as f:
     f.write(io_buffer.getvalue())
-  tf.io.gfile.rename(path_tmp, path, overwrite=True)
+  gfile.rename(path_tmp, path, overwrite=True)
 
   if step_for_copy is not None:
-    tf.io.gfile.copy(path, f"{path}-{step_for_copy:09d}", overwrite=True)
+    gfile.copy(path, f"{path}-{step_for_copy:09d}", overwrite=True)
 
 
 def checkpoint_trained_model(
@@ -433,8 +435,7 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
 
   # Parse config file to figure out which setting we are in.
   resume_from_checkpoint = (
-      (save_checkpoint_path is not None and
-       tf.io.gfile.exists(save_checkpoint_path))
+      (save_checkpoint_path is not None and gfile.exists(save_checkpoint_path))
       or config.get("resume") is not None)
   reinitialize_model = config.get(
       "model_init") is not None and not resume_from_checkpoint
@@ -442,7 +443,7 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
   if resume_from_checkpoint:
     logging.info("Resume training from checkpoint...")
     # Always prioritize loading from a checkpoint from the current training job.
-    if save_checkpoint_path and tf.io.gfile.exists(save_checkpoint_path):
+    if save_checkpoint_path and gfile.exists(save_checkpoint_path):
       resume_checkpoint_path = save_checkpoint_path
     # Otherwise, we reload from a previous checkpoint provided by the config.
     else:

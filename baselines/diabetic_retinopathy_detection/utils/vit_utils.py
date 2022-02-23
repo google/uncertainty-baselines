@@ -195,9 +195,21 @@ def initialize_sngp_model(config):
       'use_gp_layer': use_gp_layer
   }
 
+
+def initialize_batchensemble_model(config):
+  """Initialize BatchEnsemble model."""
+  model = ub.models.PatchTransformerBE(
+      num_classes=config.num_classes, **config.model)
+  return {
+      'model': model,
+      'ens_size': config.model.transformer.ens_size,
+  }
+
+
 VIT_MODEL_INIT_MAP = {
     'deterministic': initialize_deterministic_model,
-    'sngp': initialize_sngp_model
+    'sngp': initialize_sngp_model,
+    'batchensemble': initialize_batchensemble_model,
 }
 
 

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-L/32.
+r"""ViT-HetSNGP L/32.
 
 """
 # pylint: enable=line-too-long
@@ -29,28 +29,25 @@ def get_config():
 
   config.seed = 0
 
-  # Directory for the version de-dup'd from BiT downstream test-sets.
-  config.dataset = 'jft/entity:1.0.0'
-  config.val_split = 'test[:49511]'  # aka tiny_test/test[:5%] in task_adapt
-  config.train_split = 'train'  # task_adapt used train+validation so +64167
-  config.num_classes = 18291
+  config.dataset = 'imagenet21k'
+  config.val_split = 'full[:102400]'
+  config.train_split = 'full[102400:]'
+  config.num_classes = 21843
   config.init_head_bias = -10.0
 
   config.trial = 0
   config.batch_size = 4096
-  config.num_epochs = 7
+  config.num_epochs = 90
 
   pp_common = '|value_range(-1, 1)'
-  pp_common += f'|onehot({config.num_classes})'
-  # To use ancestor 'smearing', use this line instead:
-  # pp_common += f'|onehot({config.num_classes}, key='labels_extended', key_result='labels')  # pylint: disable=line-too-long
-  pp_common += '|keep(["image", "labels"])'
   config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
+  config.pp_train += f'|onehot({config.num_classes}, on=0.9999, off=0.0001)'
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
+  config.pp_eval += f'|onehot({config.num_classes})'
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   config.log_training_steps = 10000
-  config.log_eval_steps = 50000
+  config.log_eval_steps = 3003  # ~= steps_per_epoch
   # NOTE: Save infrequently to prevent crowding the disk space.
   config.checkpoint_steps = 17250
   config.checkpoint_timeout = 10
@@ -62,24 +59,42 @@ def get_config():
   config.model.hidden_size = 1024
   config.model.transformer = ml_collections.ConfigDict()
   config.model.transformer.attention_dropout_rate = 0.
-  config.model.transformer.dropout_rate = 0.
+  config.model.transformer.dropout_rate = 0.1
   config.model.transformer.mlp_dim = 4096
   config.model.transformer.num_heads = 16
   config.model.transformer.num_layers = 24
   config.model.classifier = 'token'  # Or 'gap'
   config.model.representation_size = 1024
 
+  # Heteroscedastic
+  config.het = ml_collections.ConfigDict()
+  config.het.multiclass = False
+  config.het.temperature = 1.5
+  config.het.mc_samples = 1000
+  config.het.num_factors = 50
+  config.het.param_efficient = True
+
+  # Gaussian process layer section
+  config.gp_layer = ml_collections.ConfigDict()
+  # Use momentum-based (i.e., non-exact) covariance update for pre-training.
+  # This is because the exact covariance update can be unstable for pretraining,
+  # since it involves inverting a precision matrix accumulated over 300M data.
+  config.gp_layer.covmat_momentum = .999
+  config.gp_layer.ridge_penalty = 1.
+  # No need to use mean field adjustment for pretraining.
+  config.gp_layer.mean_field_factor = -1.
+
   # Optimizer section
   config.optim_name = 'Adam'
   config.optim = ml_collections.ConfigDict()
-  config.optim.weight_decay = 0.1
+  config.optim.weight_decay = 0.03
+  config.grad_clip_norm = 1.0
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
-  config.weight_decay = None  # No explicit weight decay
-  config.grad_clip_norm = 1.0
 
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
+  # LR has to be lower for GP layer and on larger models.
   config.lr.base = 6e-4  # LR has to be lower for larger models!
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
@@ -91,8 +106,3 @@ def get_config():
   return config
 
 
-def get_sweep(hyper):
-  return hyper.product([
-      # Use this for the experiments that use four seeds.
-      hyper.sweep('config.seed', [0, 1]),
-  ])

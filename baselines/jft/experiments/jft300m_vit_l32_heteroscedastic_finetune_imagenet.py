@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Finetune a ViT-B/16 heteroscedastic model on Imagenet.
+r"""Finetune a ViT-L/32 heteroscedastic model on Imagenet.
 
 """
 # pylint: enable=line-too-long
@@ -31,8 +31,9 @@ def get_config():
 
   # Fine-tuning dataset
   config.dataset = 'imagenet2012'
-  config.train_split = 'train'
-  config.val_split = 'validation'
+  config.train_split = 'train[:99%]'
+  config.val_split = 'train[99%:]'
+  config.test_split = 'validation'
   config.num_classes = 1000
 
   # OOD eval
@@ -44,9 +45,9 @@ def get_config():
   config.batch_size_eval = BATCH_SIZE
   config.val_cache = False
 
-  config.total_steps = 20_000
+  config.total_steps = 40_000
 
-  INPUT_RES = 512  # pylint: disable=invalid-name
+  INPUT_RES = 384  # pylint: disable=invalid-name
   common = '|value_range(-1, 1)'
   common += '|onehot(1000, key="label", key_result="labels")'
   common += '|keep(["image", "labels"])'
@@ -63,9 +64,9 @@ def get_config():
 
   config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 100
-  config.log_eval_steps = 1000
-  config.checkpoint_steps = 4000
+  config.log_training_steps = 2000
+  config.log_eval_steps = 5000
+  config.checkpoint_steps = 10000
   config.checkpoint_timeout = 1
 
   config.prefetch_to_device = 2
@@ -78,19 +79,19 @@ def get_config():
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
-  config.model.patches.size = [16, 16]
-  config.model.hidden_size = 768
+  config.model.patches.size = [32, 32]
+  config.model.hidden_size = 1024
   config.model.transformer = ml_collections.ConfigDict()
   config.model.transformer.attention_dropout_rate = 0.
   config.model.transformer.dropout_rate = 0.
-  config.model.transformer.mlp_dim = 3072
-  config.model.transformer.num_heads = 12
-  config.model.transformer.num_layers = 12
+  config.model.transformer.mlp_dim = 4096
+  config.model.transformer.num_heads = 16
+  config.model.transformer.num_layers = 24
   config.model.classifier = 'token'  # Or 'gap'
   config.model.fix_base_model = False
 
   # This is "no head" fine-tuning, which we use by default
-  config.model.representation_size = 768
+  config.model.representation_size = None
 
   # set reint_head = False to re-use the head parameters of the upstream model
   config.reint_head = True
@@ -99,7 +100,7 @@ def get_config():
   config.model.multiclass = True
   config.model.temperature = 3.0
   config.model.mc_samples = 5000
-  config.model.num_factors = 15
+  config.model.num_factors = 0
   config.model.param_efficient = False
   config.model.return_locs = False  # True -> fine-tune a homoscedastic model
 

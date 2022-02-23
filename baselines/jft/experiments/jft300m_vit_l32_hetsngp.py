@@ -14,12 +14,13 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-L/32.
+r"""Heteroscedastic ViT-L/32.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
+# TODO(dusenberrymw): Open-source remaining imports.
 import common_fewshot  # local file import from baselines.jft.experiments
 
 
@@ -42,15 +43,15 @@ def get_config():
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  # To use ancestor 'smearing', use this line instead:
-  # pp_common += f'|onehot({config.num_classes}, key='labels_extended', key_result='labels')  # pylint: disable=line-too-long
+  # To use ancestor "smearing", use this line instead:
+  # pp_common += f'|onehot({config.num_classes}, key="labels_extended", key_result="labels")  # pylint: disable=line-too-long
   pp_common += '|keep(["image", "labels"])'
   config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   config.log_training_steps = 10000
-  config.log_eval_steps = 50000
+  config.log_eval_steps = 73230  # ~= steps_per_epoch
   # NOTE: Save infrequently to prevent crowding the disk space.
   config.checkpoint_steps = 17250
   config.checkpoint_timeout = 10
@@ -68,6 +69,24 @@ def get_config():
   config.model.transformer.num_layers = 24
   config.model.classifier = 'token'  # Or 'gap'
   config.model.representation_size = 1024
+
+  # Heteroscedastic
+  config.het = ml_collections.ConfigDict()
+  config.het.multiclass = False
+  config.het.temperature = 1.5
+  config.het.mc_samples = 1000
+  config.het.num_factors = 50
+  config.het.param_efficient = True
+
+  # Gaussian process layer section
+  config.gp_layer = ml_collections.ConfigDict()
+  # Use momentum-based (i.e., non-exact) covariance update for pre-training.
+  # This is because the exact covariance update can be unstable for pretraining,
+  # since it involves inverting a precision matrix accumulated over 300M data.
+  config.gp_layer.covmat_momentum = .999
+  config.gp_layer.ridge_penalty = 1.
+  # No need to use mean field adjustment for pretraining.
+  config.gp_layer.mean_field_factor = -1.
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -93,6 +112,7 @@ def get_config():
 
 def get_sweep(hyper):
   return hyper.product([
-      # Use this for the experiments that use four seeds.
-      hyper.sweep('config.seed', [0, 1]),
+      hyper.sweep('config.seed', [0]),
+      hyper.sweep('config.het.temperature',
+                  [0.25, 0.4, 0.55, 0.7, 0.85, 1.0])
   ])

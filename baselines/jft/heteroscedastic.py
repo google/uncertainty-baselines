@@ -257,29 +257,32 @@ def main(config, output_dir):
     params = flax.core.unfreeze(model.init(init_rngs, dummy_input,
                                            train=False))['params']
 
+    head = ('multiclass_head' if config.get('model', {}).get('multiclass')
+            else 'multilabel_head')
     # Set bias in the head to a low value, such that loss is small initially.
-    if 'head' in params:
-      params['head']['loc_layer']['bias'] = jnp.full_like(
-          params['head']['loc_layer']['bias'], config.get('init_head_bias', 0))
+    if head in params:
+      params[head]['loc_layer']['bias'] = jnp.full_like(
+          params[head]['loc_layer']['bias'], config.get('init_head_bias', 0))
 
     # init head kernel to all zeros for fine-tuning
     if config.get('model_init'):
-      params['head']['loc_layer']['kernel'] = jnp.full_like(
-          params['head']['loc_layer']['kernel'], 0)
-      if 'scale_layer_homoscedastic' in params['head']:
-        params['head']['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
-            params['head']['scale_layer_homoscedastic']['kernel'], 0)
-        params['head']['scale_layer_homoscedastic']['bias'] = jnp.full_like(
-            params['head']['scale_layer_homoscedastic']['bias'], 0)
-      if 'scale_layer_heteroscedastic' in params['head']:
-        params['head']['scale_layer_heteroscedastic']['kernel'] = jnp.full_like(
-            params['head']['scale_layer_heteroscedastic']['kernel'], 0)
-        params['head']['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
-            params['head']['scale_layer_heteroscedastic']['bias'], 0)
-      params['head']['diag_layer']['kernel'] = jnp.full_like(
-          params['head']['diag_layer']['kernel'], 0)
-      params['head']['diag_layer']['bias'] = jnp.full_like(
-          params['head']['diag_layer']['bias'], 0)
+      params[head]['loc_layer']['kernel'] = jnp.full_like(
+          params[head]['loc_layer']['kernel'], 0)
+      params[head]['diag_layer']['kernel'] = jnp.full_like(
+          params[head]['diag_layer']['kernel'], 0)
+      params[head]['diag_layer']['bias'] = jnp.full_like(
+          params[head]['diag_layer']['bias'], 0)
+
+      if 'scale_layer_homoscedastic' in params[head]:
+        params[head]['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
+            params[head]['scale_layer_homoscedastic']['kernel'], 0)
+        params[head]['scale_layer_homoscedastic']['bias'] = jnp.full_like(
+            params[head]['scale_layer_homoscedastic']['bias'], 0)
+      if 'scale_layer_heteroscedastic' in params[head]:
+        params[head]['scale_layer_heteroscedastic']['kernel'] = jnp.full_like(
+            params[head]['scale_layer_heteroscedastic']['kernel'], 0)
+        params[head]['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
+            params[head]['scale_layer_heteroscedastic']['bias'], 0)
 
     return params
 
@@ -445,13 +448,23 @@ def main(config, output_dir):
 
     return opt, l, rng, measurements
 
-  default_reinit_params = [
-      'head/scale_layer_homoscedastic/kernel',
-      'head/scale_layer_homoscedastic/bias',
-      'head/scale_layer_heteroscedastic/kernel',
-      'head/scale_layer_heteroscedastic/bias', 'head/loc_layer/kernel',
-      'head/diag_layer/kernel', 'head/loc_layer/bias', 'head/diag_layer/bias'
-  ]
+  if config.get('model.multiclass', False):
+    default_reinit_params = []
+  else:
+    default_reinit_params = [
+        'head/scale_layer_homoscedastic/kernel',
+        'head/scale_layer_homoscedastic/bias',
+        'head/scale_layer_heteroscedastic/kernel',
+        'head/scale_layer_heteroscedastic/bias',
+        'head/loc_layer/kernel',
+        'head/diag_layer/kernel',
+        'head/loc_layer/bias',
+        'head/diag_layer/bias'
+    ]
+    default_reinit_params = (
+        default_reinit_params +
+        list(map(lambda k: 'multilabel_' + k, default_reinit_params)) +
+        list(map(lambda k: 'multiclass_' + k, default_reinit_params)))
 
   rng, train_loop_rngs = jax.random.split(rng)
 

@@ -33,7 +33,6 @@ from functools import partial  # pylint: disable=g-importing-member standard use
 import logging
 import math
 import multiprocessing
-import numbers
 
 from absl import app
 from absl import flags
@@ -52,7 +51,9 @@ import tqdm
 import uncertainty_baselines as ub
 
 import al_utils  # local file import from baselines.jft
+import batchensemble_utils  # local file import from baselines.jft
 import checkpoint_utils  # local file import from baselines.jft
+import deterministic_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
@@ -352,9 +353,8 @@ def finetune(*,
 
   for current_step, train_batch, lr_repl in zip(
       tqdm.trange(1, total_steps + 1), iter_ds, lr_iter):
-    opt_repl, _, rngs_loop, _ = update_fn(opt_repl, lr_repl,
-                                          train_batch['image'],
-                                          train_batch['labels'], rngs_loop)
+    opt_repl, rngs_loop, _ = update_fn(opt_repl, lr_repl, train_batch['image'],
+                                       train_batch['labels'], rngs_loop)
     if jax.process_index() == 0 and profiler is not None:
       profiler(current_step)
     if current_step % 5 == 0:
@@ -386,153 +386,6 @@ def finetune(*,
       train_val_accuracies=train_val_accuracies)
 
   return best_opt_repl, rngs_loop, info
-
-
-def make_init_fn(model, image_shape, local_batch_size, config):
-  """Make the init function.
-
-  Args:
-    model: The model to init.
-    image_shape: The shape of the input images.
-    local_batch_size: the local device batch size.
-    config: the full config for the experiment.
-
-  Returns:
-    The init function
-  """
-
-  @partial(jax.jit, backend='cpu')
-  def init(rng):
-    dummy_input = jnp.zeros((local_batch_size,) + image_shape, jnp.float32)
-
-    params = flax.core.unfreeze(model.init(rng, dummy_input,
-                                           train=False))['params']
-
-    # Set bias in the head to a low value, such that loss is small initially.
-    params['head']['bias'] = jnp.full_like(params['head']['bias'],
-                                           config.get('init_head_bias', 0))
-
-    # init head kernel to all zeros for fine-tuning
-    if config.get('model_init'):
-      params['head']['kernel'] = jnp.full_like(params['head']['kernel'], 0)
-
-    return params
-
-  return init
-
-
-def make_update_fn(model, config):
-  """Make the update function.
-
-  Args:
-    model: The model to be used in updates.
-    config: The config of the experiment.
-
-  Returns:
-    The function that updates the model for one step.
-  """
-
-  @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
-  def update_fn(opt, lr, images, labels, rng):
-    """Update step."""
-
-    measurements = {}
-
-    # Get device-specific loss rng.
-    rng, rng_model = jax.random.split(rng, 2)
-    rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
-
-    def loss_fn(params, images, labels):
-      logits, _ = model.apply(
-          {'params': flax.core.freeze(params)},
-          images,
-          train=True,
-          rngs={'dropout': rng_model_local},
-      )
-      return getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
-          logits=logits, labels=labels)
-
-    # Implementation considerations compared and summarized at
-    # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
-    l, g = train_utils.accumulate_gradient(
-        jax.value_and_grad(loss_fn),
-        opt.target,
-        images,
-        labels,
-        config.get('grad_accum_steps'),
-    )
-    l, g = jax.lax.pmean((l, g), axis_name='batch')
-
-    # Log the gradient norm only if we need to compute it anyways (clipping)
-    # or if we don't use grad_accum_steps, as they interact badly.
-    if config.get('grad_accum_steps', 1) == 1 or config.get('grad_clip_norm'):
-      grads, _ = jax.tree_flatten(g)
-      l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
-      measurements['l2_grads'] = l2_g
-
-    # Optionally resize the global gradient to a maximum norm. We found this
-    # useful in some cases across optimizers, hence it's in the main loop.
-    if config.get('grad_clip_norm'):
-      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
-      g = jax.tree_util.tree_map(lambda p: g_factor * p, g)
-    opt = opt.apply_gradient(g, learning_rate=lr)
-
-    decay_rules = config.get('weight_decay', []) or []
-    if isinstance(decay_rules, numbers.Number):
-      decay_rules = [('.*kernel.*', decay_rules)]
-    sched_m = lr / config.lr.base if config.get('weight_decay_decouple') else lr
-
-    def decay_fn(v, wd):
-      return (1.0 - sched_m * wd) * v
-
-    opt = opt.replace(
-        target=train_utils.tree_map_with_regex(decay_fn, opt.target,
-                                               decay_rules))
-
-    params, _ = jax.tree_flatten(opt.target)
-    measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
-
-    return opt, l, rng, measurements
-
-  return update_fn
-
-
-def make_evaluation_fn(model, config):
-  """Make evaluation function.
-
-  Args:
-    model: The model to be used in evaluation.
-    config: The config of the experiment.
-
-  Returns:
-    The evaluation function.
-  """
-
-  @partial(jax.pmap, axis_name='batch')
-  def evaluation_fn(params, images, labels, mask):
-    # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False)
-
-    losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
-        logits=logits, labels=labels, reduction=False)
-    loss = jax.lax.psum(losses * mask, axis_name='batch')
-
-    top1_idx = jnp.argmax(logits, axis=1)
-    # Extracts the label at the highest logit index for each image.
-    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
-    ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
-    n = jax.lax.psum(mask, axis_name='batch')
-
-    # NOTE: this works on multi host devices already
-    metric_args = jax.lax.all_gather([logits, labels, out['pre_logits'], mask],
-                                     axis_name='batch')
-
-    return ncorrect, loss, n, metric_args
-
-  return evaluation_fn
 
 
 def main(config, output_dir):
@@ -599,11 +452,25 @@ def main(config, output_dir):
       num_epochs=1,  # Only repeat once.
   )
 
-  model = ub.models.vision_transformer(
-      num_classes=config.num_classes, **config.get('model', {}))
+  # Init model
+  if config.model_type == 'deterministic':
+    model_utils = deterministic_utils
+    reinit_params = config.get('model_reinit_params',
+                               ('head/kernel', 'head/bias'))
+    model = ub.models.vision_transformer(
+        num_classes=config.num_classes, **config.get('model', {}))
+  elif config.model_type == 'batchensemble':
+    model_utils = batchensemble_utils
+    reinit_params = ('batchensemble_head/bias', 'batchensemble_head/kernel',
+                     'batchensemble_head/fast_weight_alpha',
+                     'batchensemble_head/fast_weight_gamma')
+    model = ub.models.PatchTransformerBE(
+        num_classes=config.num_classes, **config.model)
+  else:
+    raise ValueError('Expect config.model_type to be "deterministic" or'
+                     f'"batchensemble", but received {config.model_type}.')
 
-  image_shape = tuple(test_ds.element_spec['image'].shape[2:])
-  init = make_init_fn(model, image_shape, local_batch_size, config)
+  init = model_utils.create_init(model, config, test_ds)
 
   rng, rng_init = jax.random.split(rng)
   params_cpu = init(rng_init)
@@ -621,8 +488,6 @@ def main(config, output_dir):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
-  reinit_params = config.get('model_reinit_params',
-                             ('head/kernel', 'head/bias'))
   loaded_params = checkpoint_utils.load_checkpoint(
       tree=None, path=config.model_init)
   loaded = checkpoint_utils.restore_from_pretrained_params(
@@ -639,8 +504,8 @@ def main(config, output_dir):
   # donated otherwise. Ensure opt_cpu is really on the cpu this way.
   opt_cpu = jax.device_get(opt_cpu)
 
-  update_fn = make_update_fn(model, config)
-  evaluation_fn = make_evaluation_fn(model, config)
+  update_fn = model_utils.create_update_fn(model, config)
+  evaluation_fn = model_utils.create_evaluation_fn(model, config)
 
   # NOTE: We need this because we need an Id field of type int.
   # TODO(andreas): Rename to IdSubsetDatasetBuilder?
@@ -700,6 +565,8 @@ def main(config, output_dir):
 
   rng, rng_loop = jax.random.split(rng)
   rngs_loop = flax_utils.replicate(rng_loop)
+  if config.model_type == 'batchensemble':
+    rngs_loop = {'dropout': rngs_loop}
 
   # TODO(joost,andreas): double check if below is still necessary
   # (train_split is independent of this)

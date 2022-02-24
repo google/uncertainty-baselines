@@ -14,12 +14,11 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Active learn a pretrained ViT-L/32 on CIFAR-10.
+r"""Active learn a pretrained (BE) ViT-L/32 on CIFAR-100.
 
 Based on: vit_l32_finetune.py and sweep_utils.py
 
 """
-# pylint: enable=line-too-long
 
 import ml_collections
 
@@ -28,14 +27,16 @@ def get_config():
   """Config for finetuning."""
   config = ml_collections.ConfigDict()
 
-  config.model_init = ''  # pass as parameter to script
+  config.model_init = '/cns/tp-d/home/trandustin/baselines-jft-0209_205214/1/checkpoint.npz'  # pass as parameter to script
+  # pylint: enable=line-too-long
   config.seed = 0
 
   n_cls = 100
   size = 384
 
   # AL section:
-  config.acquisition_method = 'uniform'
+  config.model_type = 'deterministic'  # 'batchensemble'
+  config.acquisition_method = 'margin'
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
   config.acquisition_batch_size = 10
@@ -79,6 +80,11 @@ def get_config():
   config.model.transformer.attention_dropout_rate = 0.
   config.model.transformer.dropout_rate = 0.
   config.model.classifier = 'token'
+  # BatchEnsemble parameters.
+  config.model.transformer.be_layers = (21, 22, 23)
+  config.model.transformer.ens_size = 3
+  config.model.transformer.random_sign_init = -0.5
+  config.fast_weight_lr_multiplier = 1.0
   # This is "no head" fine-tuning, which we use by default.
   config.model.representation_size = None
 
@@ -101,4 +107,4 @@ def get_sweep(hyper):
   """Sweeps over datasets."""
   # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
   return hyper.product(
-      [hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])])
+      [hyper.sweep('config.lr.base', [0.03])])

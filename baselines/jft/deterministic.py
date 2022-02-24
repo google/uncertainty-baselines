@@ -84,6 +84,7 @@ def main(config, output_dir):
   def write_note(note):
     if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
+
   write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
@@ -254,8 +255,8 @@ def main(config, output_dir):
                                            train=False))['params']
 
     # Set bias in the head to a low value, such that loss is small initially.
-    params['head']['bias'] = jnp.full_like(
-        params['head']['bias'], config.get('init_head_bias', 0))
+    params['head']['bias'] = jnp.full_like(params['head']['bias'],
+                                           config.get('init_head_bias', 0))
 
     # init head kernel to all zeros for fine-tuning
     if config.get('model_init'):
@@ -273,6 +274,7 @@ def main(config, output_dir):
 
   @functools.partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
+    """Copy to deterministic_utils.py whenever changes are made!"""
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
     logits, out = model.apply({'params': flax.core.freeze(params)},
@@ -358,8 +360,7 @@ def main(config, output_dir):
 
   @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, lr, images, labels, rng):
-    """Update step."""
-
+    """Update step. Copy to deterministic_utils.py whenever changes are made!"""
     measurements = {}
 
     # Split rng and return next_rng for the following step.
@@ -376,7 +377,6 @@ def main(config, output_dir):
       loss = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
           logits=logits, labels=labels)
       return loss, logits
-
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
     (l, logits), g = train_utils.accumulate_gradient(

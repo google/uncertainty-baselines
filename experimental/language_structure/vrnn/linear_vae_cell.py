@@ -29,6 +29,7 @@ version [2].
 
 from typing import Any, Dict, Optional, Sequence
 
+import numpy as np
 import tensorflow as tf
 import model_config  # local file import from experimental.language_structure.vrnn
 import utils  # local file import from experimental.language_structure.vrnn
@@ -493,23 +494,38 @@ class VanillaLinearVAECell(_VAECell):
   def __init__(self, config: model_config.VanillaLinearVAECellConfig):
     self._gumbel_softmax_label_adjustment_multiplier = config.gumbel_softmax_label_adjustment_multiplier
 
-    if config.shared_embedding:
-      if config.shared_bert_embedding:
-        shared_embedding_layer = _BERT(
-            config.max_seq_length,
-            bert_config=configs.BertConfig(
-                **config.shared_bert_embedding_config),
-            trainable=config.trainable_embedding)
-      else:
+    vocab_embeddings_initializer = None
+    if config.shared_bert_embedding:
+      shared_embedding_layer = _BERT(
+          config.max_seq_length,
+          bert_config=configs.BertConfig(**config.shared_bert_embedding_config),
+          trainable=config.trainable_embedding)
+    else:
+      # If word_embedding_path is specified, use the embedding size of the
+      # pre-trained embeddings.
+      if config.word_embedding_path:
+        with tf.io.gfile.GFile(config.word_embedding_path,
+                               'rb') as embedding_file:
+          word_embedding = np.load(embedding_file)
+        embedding_vocab_size, embed_size = word_embedding.shape
+        if config.vocab_size != embedding_vocab_size:
+          raise ValueError(
+              'Expected consistent vocab size between vocab.txt and the '
+              'embedding, found {} and {}.'.format(embedding_vocab_size,
+                                                   config.vocab_size))
+        config.embed_size = embed_size
+        vocab_embeddings_initializer = (
+            tf.keras.initializers.Constant(word_embedding))
+      if config.shared_embedding:
         shared_embedding_layer = _Embedding(
             INPUT_ID_NAME,
             config.vocab_size,
             config.embed_size,
-            embeddings_initializer=config.vocab_embeddings_initializer,
+            embeddings_initializer=vocab_embeddings_initializer,
             input_length=config.max_seq_length,
             trainable=config.trainable_embedding)
-    else:
-      shared_embedding_layer = None
+      else:
+        shared_embedding_layer = None
 
     encoder = DualRNNEncoder(
         vocab_size=config.vocab_size,
@@ -519,7 +535,7 @@ class VanillaLinearVAECell(_VAECell):
         num_layers=config.num_ecnoder_rnn_layers,
         dropout=config.dropout,
         cell_type=config.encoder_cell_type,
-        embeddings_initializer=config.vocab_embeddings_initializer,
+        embeddings_initializer=vocab_embeddings_initializer,
         shared_embedding_layer=shared_embedding_layer,
         trainable_embedding=config.trainable_embedding)
     sampler = utils.GumbelSoftmaxSampler(config.temperature, hard=False)
@@ -535,7 +551,7 @@ class VanillaLinearVAECell(_VAECell):
         num_layers=1,
         dropout=config.dropout,
         cell_type=config.decoder_cell_type,
-        embeddings_initializer=config.vocab_embeddings_initializer,
+        embeddings_initializer=vocab_embeddings_initializer,
         shared_embedding_layer=shared_embedding_layer,
         trainable_embedding=config.trainable_embedding,
         return_state=True)

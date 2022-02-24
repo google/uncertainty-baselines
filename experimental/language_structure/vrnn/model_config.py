@@ -15,10 +15,7 @@
 
 """VRNN model config."""
 
-import json
-
 from ml_collections import config_dict
-import tensorflow as tf
 
 VanillaLinearVAECellConfig = config_dict.ConfigDict
 VanillaLinearVRNNConfig = config_dict.ConfigDict
@@ -36,13 +33,12 @@ def vanilla_linear_vae_cell_config(**kwargs) -> VanillaLinearVAECellConfig:
   config.embed_size = kwargs.get('embed_size', 300)
   config.trainable_embedding = kwargs.get('trainable_embedding', True)
   config.shared_embedding = kwargs.get('shared_embedding', True)
-  config.vocab_embeddings_initializer = kwargs.get(
-      'vocab_embeddings_initializer')
+  config.word_embedding_path = kwargs.get('word_embedding_path')
   config.shared_bert_embedding = kwargs.get('shared_bert_embedding', False)
-  config.shared_bert_embedding_config = kwargs.get(
-      'shared_bert_embedding_config')
   config.shared_bert_embedding_ckpt_dir = kwargs.get(
       'shared_bert_embedding_ckpt_dir', '')
+  config.shared_bert_embedding_config = kwargs.get(
+      'shared_bert_embedding_config', {})
 
   config.encoder_hidden_size = kwargs.get('encoder_hidden_size', 400)
   config.encoder_cell_type = kwargs.get('encoder_cell_type', 'lstm')
@@ -63,10 +59,6 @@ def vanilla_linear_vae_cell_config(**kwargs) -> VanillaLinearVAECellConfig:
 
   config.gumbel_softmax_label_adjustment_multiplier = kwargs.get(
       'gumbel_softmax_label_adjustment_multiplier', 0)
-
-  if config.shared_embedding and config.shared_bert_embedding:
-    if not config.shared_bert_embedding_config:
-      raise ValueError('Found empty shared_bert_embedding_config.')
 
   return config
 
@@ -91,11 +83,3 @@ def vanilla_linear_vrnn_config(**kwargs) -> VanillaLinearVRNNConfig:
   config.bow_hidden_sizes = kwargs.get('bow_hidden_sizes', (400,))
 
   return config
-
-
-def to_json(config: VanillaLinearVRNNConfig, filename: str):
-  """Dumps model config into a json file."""
-  # Remove not json serializable configs.
-  config.vae_cell.vocab_embeddings_initializer = None
-  with tf.io.gfile.GFile(filename, 'w') as f:
-    json.dump(config.to_json(), f)

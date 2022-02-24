@@ -38,7 +38,6 @@ from uncertainty_baselines.datasets import datasets
 import data_preprocessor as preprocessor  # local file import from experimental.language_structure.vrnn
 import data_utils  # local file import from experimental.language_structure.vrnn
 import linear_vrnn  # local file import from experimental.language_structure.vrnn
-import model_config  # local file import from experimental.language_structure.vrnn
 import psl_utils  # local file import from experimental.language_structure.vrnn
 import train_lib  # local file import from experimental.language_structure.vrnn
 import utils  # local file import from experimental.language_structure.vrnn
@@ -57,6 +56,10 @@ _LABEL_SHOT_MODE = 'shots'
 _TRAIN = 'train'
 _TEST = 'test'
 _SPLITS = [_TRAIN, _TEST]
+
+# The metric used for early stopping.
+_PRIMARY_METRIC_KEY = f'{_TEST}/hidden_state_class_balanced_mixed_accuracy'
+_PRIMARY_METRIC_SHOULD_DECREASE = False
 
 FLAGS = flags.FLAGS
 
@@ -82,6 +85,15 @@ _MetricMap = Dict[str, tf.keras.metrics.Metric]
 def _label_count_map(labels) -> Dict[int, int]:
   unique_labels, counts = np.unique(labels, return_counts=True)
   return dict(zip(unique_labels, counts))
+
+
+def _primary_metric_improved(metrics: _MetricMap, current_best: tf.Tensor,
+                             min_delta: float) -> bool:
+  """Returns whether the primary metric is improved."""
+  if _PRIMARY_METRIC_SHOULD_DECREASE:
+    return metrics[_PRIMARY_METRIC_KEY] + abs(min_delta) < current_best
+  else:
+    return metrics[_PRIMARY_METRIC_KEY] - abs(min_delta) > current_best
 
 
 def _get_unmasked_dialog_turn_ids(labels: tf.Tensor, dialog_turn_ids: tf.Tensor,
@@ -196,6 +208,7 @@ def _create_metrics(
       'hidden_state_domain_loss',
       'hidden_state_domain_accuracy',
       'hidden_state_domain_class_balanced_accuracy',
+      'hidden_state_class_balanced_mixed_accuracy',
       'adjusted_mutual_info',
       'cluster_purity',
   ]
@@ -283,21 +296,6 @@ def _load_data_from_files(config: config_dict.ConfigDict):
                                         'bert_config.json')) as config_file:
       config.model.vae_cell.shared_bert_embedding_config = json.load(
           config_file)
-  else:
-    # If word_embedding_path is specified, use the embedding size of the
-    # pre-trained embeddings.
-    if config.word_embedding_path:
-      with tf.io.gfile.GFile(config.word_embedding_path,
-                             'rb') as embedding_file:
-        word_embedding = np.load(embedding_file)
-      embedding_vocab_size, embed_size = word_embedding.shape
-      if vocab_size != embedding_vocab_size:
-        raise ValueError(
-            f'Expected consistent vocab size between vocab.txt and the embedding, found {embedding_vocab_size} and {vocab_size}.'
-        )
-      config.model.vae_cell.embed_size = embed_size
-      config.model.vae_cell.vocab_embeddings_initializer = (
-          tf.keras.initializers.Constant(word_embedding))
 
   if config.psl_config_file:
     with tf.io.gfile.GFile(config.psl_config_file, 'r') as file:
@@ -332,6 +330,9 @@ def _update_hidden_state_model_metrics(
   for split, split_evaluation_results in zip(splits, evaluation_results):
     for key, value in zip(hidden_state_model_metrics, split_evaluation_results):
       metrics['{}/{}'.format(split, key)].update_state(value)
+    metrics['{}/hidden_state_class_balanced_mixed_accuracy'.format(
+        split)].update_state(
+            (split_evaluation_results[2] + split_evaluation_results[5]) / 2)
 
 
 def _update_clustering_metrics(metrics: _MetricMap, split: str,
@@ -400,7 +401,14 @@ def _create_fewshot_dataset_and_sample_weights(
   return dataset, sample_weights
 
 
-def main(config: config_dict.ConfigDict, output_dir: str):
+def _json_dump(config: config_dict.ConfigDict, filename: str):
+  """Dumps the config into a json file."""
+  with tf.io.gfile.GFile(filename, 'w') as f:
+    json.dump(config.to_dict(), f)
+
+
+def run_experiment(config: config_dict.ConfigDict, output_dir: str):
+  """Runs training/evaluation experiment."""
   seed = config.get('seed', 0)
 
 
@@ -411,6 +419,16 @@ def main(config: config_dict.ConfigDict, output_dir: str):
   tf.io.gfile.makedirs(output_dir)
   logging.info('Model checkpoint will be saved at %s', output_dir)
   tf.random.set_seed(seed)
+
+  if config.model_base_dir:
+    dir_name = os.path.basename(output_dir)
+    model_dir = os.path.join(config.model_base_dir, dir_name)
+    logging.info('Model outputs will be saved at %s', model_dir)
+    tf.io.gfile.makedirs(model_dir)
+    _json_dump(config, os.path.join(model_dir, 'config.json'))
+    _json_dump(config.model, os.path.join(model_dir, 'model_config.json'))
+  else:
+    model_dir = None
 
   if _USE_GPU.value:
     logging.info('Use GPU')
@@ -469,6 +487,11 @@ def main(config: config_dict.ConfigDict, output_dir: str):
     labeled_dialog_turn_ids = _generate_labeled_dialog_turn_ids(
         config.label_sampling_path, inputs[_STATE_LABEL_NAME],
         inputs[_DIAL_TURN_ID_NAME], seed)
+    if model_dir:
+      with tf.io.gfile.GFile(
+          os.path.join(model_dir, 'labeled_dialog_turn_ids.txt'), 'w') as f:
+        f.write('\n'.join(
+            str(id) for id in labeled_dialog_turn_ids.numpy().tolist()))
   else:
     labeled_dialog_turn_ids = None
 
@@ -546,8 +569,7 @@ def main(config: config_dict.ConfigDict, output_dir: str):
       word_weights_from_file = np.load(word_weights_file)
     word_weights = w * word_weights_from_file + (1 - w) * word_weights
 
-  model_config.to_json(config.model,
-                       os.path.join(output_dir, 'model_config.json'))
+  _json_dump(config.model, os.path.join(output_dir, 'model_config.json'))
 
   with strategy.scope():
     model = linear_vrnn.VanillaLinearVRNN(config.model)
@@ -575,12 +597,18 @@ def main(config: config_dict.ConfigDict, output_dir: str):
       psl_optimizer = None
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
-    latest_checkpoint = tf.train.latest_checkpoint(output_dir)
+    checkpoint_manager = tf.train.CheckpointManager(
+        checkpoint, directory=output_dir, max_to_keep=None)
+    if model_dir:
+      best_model_checkpoint_manager = tf.train.CheckpointManager(
+          checkpoint, directory=model_dir, max_to_keep=1)
+    else:
+      best_model_checkpoint_manager = None
+    # checkpoint.restore must be within a strategy.scope() so that optimizer
+    # slot variables are mirrored.
+    latest_checkpoint = checkpoint_manager.restore_or_initialize()
     initial_epoch = 0
     if latest_checkpoint:
-      # checkpoint.restore must be within a strategy.scope() so that optimizer
-      # slot variables are mirrored.
-      checkpoint.restore(latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
       logging.info('Loaded checkpoint %s. Initialize from epoch %s',
                    latest_checkpoint, initial_epoch)
@@ -717,6 +745,11 @@ def main(config: config_dict.ConfigDict, output_dir: str):
 
   summary_writer = tf.summary.create_file_writer(
       os.path.join(output_dir, 'summaries'))
+  if model_dir:
+    best_summary_writer = tf.summary.create_file_writer(
+        os.path.join(model_dir, 'summaries'))
+  else:
+    best_summary_writer = None
 
   run_train_steps = train_lib.create_run_steps_fn(
       train_step(config.train_batch_size, config),
@@ -737,9 +770,18 @@ def main(config: config_dict.ConfigDict, output_dir: str):
       output_dtypes=[tf.float32, tf.int32, tf.int32, tf.int32],
   )
 
+  primary_metric = tf.constant(0.)
+  out_of_patience = 0
   train_iterator = iter(train_dataset)
   start_time = time.time()
   for epoch in range(initial_epoch, config.train_epochs):
+    if out_of_patience > config.patience:
+      logging.info(
+          'Found primary metric %s keeping being worse than the '
+          'current best %.4f for %s evaluation cycles, early stop '
+          'at epoch %s', _PRIMARY_METRIC_KEY, primary_metric, out_of_patience,
+          epoch)
+      break
     logging.info('Starting to run epoch: %s', epoch)
     run_train_steps(train_iterator, tf.cast(steps_per_epoch, tf.int32))
     current_step = (epoch + 1) * steps_per_epoch
@@ -801,6 +843,27 @@ def main(config: config_dict.ConfigDict, output_dir: str):
         for name, result in total_results.items():
           tf.summary.scalar(name, result, step=epoch + 1)
 
+      if _primary_metric_improved(total_results, primary_metric,
+                                  config.min_delta):
+        primary_metric = total_results[_PRIMARY_METRIC_KEY]
+        out_of_patience = 0
+        if best_model_checkpoint_manager:
+          best_model_checkpoint_manager.save()
+        if best_summary_writer:
+          with best_summary_writer.as_default():
+            for name, result in total_results.items():
+              tf.summary.scalar(name, result, step=epoch + 1)
+        if model_dir:
+          _save_model_results([
+              train_hidden_state, train_label, train_prediction,
+              train_domain_label
+          ], model_dir, _TRAIN)
+          _save_model_results([
+              test_hidden_state, test_label, test_prediction, test_domain_label
+          ], model_dir, _TEST)
+      else:
+        out_of_patience += 1
+
 
     for metric in metrics.values():
       metric.reset_states()
@@ -811,38 +874,26 @@ def main(config: config_dict.ConfigDict, output_dir: str):
       logging.info('Saved checkpoint to %s', checkpoint_name)
 
 
-  if config.model_base_dir:
-    dir_name = os.path.basename(output_dir)
-    model_dir = os.path.join(config.model_base_dir, dir_name)
-    # Save model predictions.
-    logging.info('Saving model and prediction results to %s.', model_dir)
-    tf.io.gfile.makedirs(model_dir)
-
-    model_config.to_json(config.model,
-                         os.path.join(model_dir, 'model_config.json'))
-    checkpoint.save(os.path.join(model_dir, 'checkpoint'))
-    if labeled_dialog_turn_ids is not None:
-      with tf.io.gfile.GFile(
-          os.path.join(model_dir, 'labeled_dialog_turn_ids.txt'), 'w') as f:
-        f.write('\n'.join(
-            str(id) for id in labeled_dialog_turn_ids.numpy().tolist()))
-    if config.psl:
-      with tf.io.gfile.GFile(os.path.join(model_dir, 'psl_config.json'),
-                             'w') as f:
-        json.dump(config.psl, f)
-
-    model_outputs = run_inference_steps(
-        iter(inference_train_dataset), num_inference_train_steps)
-    _save_model_results(model_outputs, model_dir, _TRAIN)
-    model_outputs = run_inference_steps(
-        iter(inference_test_dataset), num_inference_test_steps)
-    _save_model_results(model_outputs, model_dir, _TEST)
+  return False
 
 
 if __name__ == '__main__':
 
   def _main(argv):
+    """Main entry function."""
     del argv  # unused
-    main(_CONFIG.value, _OUTPUT_DIR.value)
+    num_restarts = 0
+    config = _CONFIG.value
+    output_dir = _OUTPUT_DIR.value
+    keep_running = True
+    while keep_running:
+      try:
+        keep_running = run_experiment(config, output_dir)
+      except tf.errors.UnavailableError as err:
+        num_restarts += 1
+        logging.warn(
+            'Error encountered during experiment: %s. Will now try to recover.',
+            err,
+            exc_info=True)
 
   app.run(_main)

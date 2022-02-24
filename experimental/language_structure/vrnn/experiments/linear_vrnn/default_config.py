@@ -43,13 +43,16 @@ def _create_model_config(
     num_states: int,
     with_bow: bool,
     shared_bert_embedding: bool,
-    bert_dir: Optional[str] = '') -> model_config.VanillaLinearVRNNConfig:
+    bert_dir: Optional[str] = '',
+    word_embedding_path: Optional[str] = ''
+) -> model_config.VanillaLinearVRNNConfig:
   """Create model config with hyperparemeters overwritten by flag values."""
   data = dict(
       vae_cell=dict(
           max_seq_length=data_utils.get_dataset_max_seq_length(dataset),
           num_states=num_states,
           shared_bert_embedding=shared_bert_embedding,
+          word_embedding_path=word_embedding_path,
       ),
       with_bow=with_bow,
       max_dialog_length=data_utils.get_dataset_max_dialog_length(dataset),
@@ -105,6 +108,11 @@ def get_config(dataset: str,
   config.inference_seed = 9527
   # Directory storing the saved model and model prediction outputs.
   config.model_base_dir = None
+  # Maximum number of evaluation cycles with the primary metric worse than the
+  # current best to tolerate before early stopping.
+  config.patience = 3
+  # The minimal difference to be counted as improvement on the metric.
+  config.min_delta = 0.01
 
   # Number of epochs between saving checkpoints. Use -1 to never save
   # checkpoints.
@@ -137,7 +145,7 @@ def get_config(dataset: str,
       'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3')
   config.bert_dir = bert_dir
   # Path to the pre-trained embedding.
-  config.word_embedding_path = data_utils.get_word_embedding_path(dataset)
+  word_embedding_path = data_utils.get_word_embedding_path(dataset)
 
   config.vocab_file_path = os.path.join(
       bert_dir, 'vocab.txt') if config.shared_bert_embedding else os.path.join(
@@ -146,7 +154,8 @@ def get_config(dataset: str,
   if not num_states:
     num_states = data_utils.get_dataset_num_latent_states(dataset)
   config.model = _create_model_config(dataset, num_states, config.with_bow,
-                                      config.shared_bert_embedding, bert_dir)
+                                      config.shared_bert_embedding, bert_dir,
+                                      word_embedding_path)
 
   # Weight of the word weights from word_weights_path used to interpolate with
   # uniform weight (1 / vocab_size). It should be between 0 and 1. The final

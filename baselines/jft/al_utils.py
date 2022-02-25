@@ -132,7 +132,7 @@ class SubsetDatasetBuilder(DatasetBuilder):
     # .shuffle. BUT don't cache for the pool set as it will be much larger than
     # the training set.
     reshuffle_each_iteration = shuffle_files and read_config.shuffle_reshuffle_each_iteration
-    cache_data = self.subset_ids is None
+    cache_data = self.subset_ids is not None
 
     if reshuffle_each_iteration and cache_data:
       dataset = dataset.cache()

@@ -77,8 +77,9 @@ def get_ids_logits_masks(*,
                          model,
                          opt_repl,
                          ds,
-                         pre_logits=False,
-                         prefetch_to_device=1):
+                         use_pre_logits=False,
+                         prefetch_to_device=1,
+                         config=None):
   """Obtain (pre) logits for each datapoint.
 
   This can be then used to compute entropies, and so on.
@@ -87,8 +88,9 @@ def get_ids_logits_masks(*,
     model: a initialized model.
     opt_repl: an optimizer with parameters.
     ds: a dataset.
-    pre_logits: if True, return pre logit instead of logit
+    use_pre_logits: if True, return pre logit instead of logit
     prefetch_to_device: how many batches to prefix
+    config: experiment config.
 
   Returns:
     a tuple of jnp arrays of ids, logits, labels and masks.
@@ -99,8 +101,25 @@ def get_ids_logits_masks(*,
     logits, out = model.apply({'params': flax.core.freeze(params)},
                               images,
                               train=False)
-    if pre_logits:
-      output = out['pre_logits']
+    pre_logits = out['pre_logits']
+    if config and config.model_type == 'batchensemble':
+      ens_size = config.model.transformer.ens_size
+      loss_name = config.get('loss', 'sigmoid_xent')
+      tiled_logits = logits
+      if loss_name == 'sigmoid_xent':
+        ens_logits = batchensemble_utils.log_average_sigmoid_probs(
+            jnp.asarray(jnp.split(tiled_logits, ens_size)))
+        pre_logits = batchensemble_utils.log_average_sigmoid_probs(
+            jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+      else:  # softmax
+        ens_logits = batchensemble_utils.log_average_softmax_probs(
+            jnp.asarray(jnp.split(tiled_logits, ens_size)))
+        pre_logits = batchensemble_utils.log_average_softmax_probs(
+            jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+      logits = ens_logits
+
+    if use_pre_logits:
+      output = pre_logits
     else:
       output = logits
 
@@ -114,8 +133,7 @@ def get_ids_logits_masks(*,
   ids = []
   labels = []
   masks = []
-  for i, batch in enumerate(iter_ds):
-    logging.info(msg=f'i = {i}, batch = {jax.tree_map(jnp.shape, batch)}')
+  for _, batch in enumerate(iter_ds):
     batch_id = batch['id']
     batch_label = batch['labels']
     batch_mask = batch['mask']
@@ -132,7 +150,6 @@ def get_ids_logits_masks(*,
   outputs = jnp.concatenate(outputs, axis=1)
   labels = jnp.concatenate(labels, axis=1)
   masks = jnp.concatenate(masks, axis=1)
-
   # NOTE(joost,andreas): due to batch padding, entropies/ids will be of size:
   # if training set size % batch size > 0:
   # (training set size // batch size + 1) * batch size
@@ -203,7 +220,7 @@ def get_uniform_scores(masks, rng):
 
 
 def get_density_scores(*, model, opt_repl, train_ds, pool_pre_logits,
-                       pool_masks):
+                       pool_masks, config=None):
   """Obtain scores using density method.
 
   Args:
@@ -212,13 +229,18 @@ def get_density_scores(*, model, opt_repl, train_ds, pool_pre_logits,
     train_ds: the dataset to fit the density estimator on.
     pool_pre_logits: the pre logits (features) of the pool set.
     pool_masks: the masks belonging to the pool_pre_logits.
+    config: experiment config.
 
   Returns:
     a list of scores belonging to the pool set.
   """
   # Fit LDA
   _, train_pre_logits, train_labels, train_masks = get_ids_logits_masks(
-      model=model, opt_repl=opt_repl, ds=train_ds, pre_logits=True)
+      model=model,
+      opt_repl=opt_repl,
+      ds=train_ds,
+      use_pre_logits=True,
+      config=config)
 
   train_masks_bool = train_masks.astype(bool)
   train_pre_logits = train_pre_logits[train_masks_bool].reshape(
@@ -539,6 +561,7 @@ def main(config, output_dir):
         model=model,
         opt_repl=current_opt_repl,
         ds=pool_train_ds,
+        config=config
     )
 
     rng, initial_uniform_rng = jax.random.split(rng)
@@ -664,7 +687,8 @@ def main(config, output_dir):
         model=model,
         opt_repl=current_opt_repl,
         ds=pool_train_ds,
-        pre_logits=acquisition_method == 'density')
+        use_pre_logits=acquisition_method == 'density',
+        config=config)
 
     if acquisition_method == 'uniform':
       rng_loop, rng_acq = jax.random.split(rng_loop, 2)
@@ -680,7 +704,8 @@ def main(config, output_dir):
             opt_repl=current_opt_repl,
             train_ds=train_eval_ds,
             pool_pre_logits=pool_outputs,
-            pool_masks=pool_masks)
+            pool_masks=pool_masks,
+            config=config)
       else:
         rng_loop, rng_acq = jax.random.split(rng_loop, 2)
         pool_scores = get_uniform_scores(pool_masks, rng_acq)

@@ -32,7 +32,7 @@ def get_config():
   config.acquisition_method = ''  # set in sweep
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
-  config.acquisition_batch_size = 10
+  config.acquisition_batch_size = 5
   config.early_stopping_patience = 64
 
   config.dataset = ''  # set in sweep
@@ -111,42 +111,37 @@ def get_config():
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-
   cifar10_sweep = hyper.product([
-      hyper.chainit([
-          hyper.product(sweep_utils.cifar10(
-              hyper, steps=int(10_000 * s), warmup=int(500 * s)))
-          for s in [0.5, 1.0, 1.5, 2.0]
-      ]),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.01]),
   ])
+
   cifar100_sweep = hyper.product([
-      hyper.chainit([
-          hyper.product(sweep_utils.cifar100(
-              hyper, steps=int(10_000 * s), warmup=int(500 * s)))
-          for s in [0.5, 1.0, 1.5, 2.0]
-      ]),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.03]),
   ])
+
   imagenet_sweep = hyper.product([
-      hyper.chainit([
-          hyper.product(sweep_utils.imagenet(
-              hyper, steps=int(20_000 * s), warmup=int(500 * s)))
-          for s in [0.5, 1.0, 1.5, 2.0]
-      ]),
-      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+      hyper.product(sweep_utils.imagenet(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.06, 0.03]),
   ])
+
+  places365_sweep = hyper.product([
+      hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.06, 0.03]),
+  ])
+
   return hyper.product([
       hyper.sweep('config.acquisition_method', acquisition_methods),
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
           imagenet_sweep,
+          places365_sweep,
       ]),
       hyper.product([
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-          hyper.sweep('config.model.transformer.random_sign_init',
-                      [-0.5, 0.5]),
+          hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
           hyper.sweep('config.model_init', checkpoints),
       ])
   ])

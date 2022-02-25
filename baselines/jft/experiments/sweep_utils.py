@@ -227,3 +227,35 @@ def imagenet_fewshot(hyper,
       pp_eval_ood.append(config.pp_eval)
   config.pp_eval_ood = pp_eval_ood
   return fixed(hyper, config)
+
+
+def places365_small(hyper, size=384, steps=1000):
+  """A fixed sweep for places365_small specific settings."""
+  n_cls = 365
+
+  config = ml_collections.ConfigDict()
+  config.dataset = 'places365_small'
+  config.val_split = 'train[98%:]'
+  config.train_split = 'train[:98%]'
+  config.test_split = 'validation'
+  config.num_classes = n_cls
+
+  config.batch_size = 256  # half of config's 512 - due to memory issues
+  config.total_steps = steps
+
+  pp_common = '|value_range(-1, 1)'
+  pp_common += f'|onehot({n_cls}, key="label", key_result="labels")'
+  pp_common += '|keep(["image", "labels", "id"])'
+  config.pp_train = f'decode|inception_crop({size})|flip_lr' + pp_common
+  config.pp_eval = f'decode|resize({size})' + pp_common
+
+  config.shuffle_buffer_size = 50_000  # Per host, so small-ish is ok.
+
+  config.log_training_steps = 100
+  config.log_eval_steps = 1000
+  config.checkpoint_steps = 5000
+  config.checkpoint_timeout = 1
+
+  config.prefetch_to_device = 2
+  config.trial = 0
+  return fixed(hyper, config)

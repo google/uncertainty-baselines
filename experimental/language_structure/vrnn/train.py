@@ -211,14 +211,13 @@ def _create_metrics(
       'hidden_state_class_balanced_mixed_accuracy',
       'adjusted_mutual_info',
       'cluster_purity',
+      'unique_prediction_class_count',
   ]
 
   for rule_name in psl_constraint_rule_names:
     mean_type_metrics.append('constraint_loss_%s' % rule_name)
 
-  accuracy_type_metrics = [
-      'accuracy', 'masked_accuracy', 'class_balanced_accuracy'
-  ]
+  accuracy_type_metrics = ['accuracy', 'class_balanced_accuracy']
 
 
   return {
@@ -228,16 +227,9 @@ def _create_metrics(
   }
 
 
-def _update_metrics(metrics: _MetricMap, split: str, logits: tf.Tensor,
-                    losses: Sequence[Any], label_id: tf.Tensor,
-                    label_mask: tf.Tensor,
-                    psl_constraint_rule_names: Optional[Sequence[str]]):
-  """Updates metrics by model outputs, losses and labels."""
-  prediction = linear_vrnn.get_prediction(logits)
-  metrics['{}/masked_accuracy'.format(split)].update_state(
-      label_id, prediction, label_mask)
-  metrics['{}/accuracy'.format(split)].update_state(label_id, prediction,
-                                                    tf.sign(label_id))
+def _update_loss_metrics(metrics: _MetricMap, split: str, losses: Sequence[Any],
+                         psl_constraint_rule_names: Optional[Sequence[str]]):
+  """Updates loss metrics."""
 
   (total_loss, rc_loss, kl_loss, bow_loss, classification_loss, constraint_loss,
    elbo, constraint_loss_per_rule) = losses
@@ -258,14 +250,13 @@ def _update_metrics(metrics: _MetricMap, split: str, logits: tf.Tensor,
 
 def _log_metric_results(metrics: _MetricMap, split: str):
   logging.info(
-      '%s Accuracy (masked): %.4f, Accuracy: %.4f, Adjusted_Mutual_Information:'
+      '%s Accuracy: %.4f, Adjusted_Mutual_Information:'
       ' %.4f, Cluster_Purity: %.4f, Total Loss: %.4f, '
       'RC_Loss: %.4f, KL_Loss: %.4f, BOW_Loss: %.4f, CLS_loss: %.4f, '
       'PSL_Loss: %.4f, ELBO: %.4f, Hidden_State_Loss: %.4f, '
       'Hidden_State_Accuracy: %.4f, Hidden_State_Accuracy (balanced): %.4f, '
       'Hidden_State_Domain_Loss: %.4f, Hidden_State_Domain_Accuracy: %.4f, '
       'Hidden_State_Domain_Accuracy (balanced): %.4f', split,
-      metrics['{}/masked_accuracy'.format(split)].result(),
       metrics['{}/accuracy'.format(split)].result(),
       metrics['{}/adjusted_mutual_info'.format(split)].result(),
       metrics['{}/cluster_purity'.format(split)].result(),
@@ -335,13 +326,24 @@ def _update_hidden_state_model_metrics(
             (split_evaluation_results[2] + split_evaluation_results[5]) / 2)
 
 
-def _update_clustering_metrics(metrics: _MetricMap, split: str,
-                               label_id: tf.Tensor, prediction: tf.Tensor):
-  """Updates clustering related metrics."""
+def _update_model_prediction_metrics(metrics: _MetricMap, split: str,
+                                     label_id: tf.Tensor,
+                                     prediction: tf.Tensor):
+  """Updates metrics related to model prediction quality."""
+  # Updates clustering related metrics.
   metrics['{}/adjusted_mutual_info'.format(split)].update_state(
       utils.adjusted_mutual_info(label_id, prediction))
   metrics['{}/cluster_purity'.format(split)].update_state(
       utils.cluster_purity(label_id, prediction))
+  prediction_classes, _ = tf.unique(tf.reshape(prediction, shape=[-1]))
+  metrics['{}/unique_prediction_class_count'.format(split)].update_state(
+      tf.size(prediction_classes))
+  # Updates accuracies.
+  metrics['{}/accuracy'.format(split)].update_state(label_id, prediction,
+                                                    tf.sign(label_id))
+  class_balanced_weight = utils.create_rebalanced_sample_weights(label_id)
+  metrics['{}/class_balanced_accuracy'.format(split)].update_state(
+      label_id, prediction, class_balanced_weight)
 
 
 
@@ -669,9 +671,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       grads = tape.gradient(total_loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-      logits = linear_vrnn.get_logits(model_outputs)
-      _update_metrics(metrics, _TRAIN, logits, losses, label_id, label_mask,
-                      config.psl_constraint_rule_names)
+      _update_loss_metrics(metrics, _TRAIN, losses,
+                           config.psl_constraint_rule_names)
 
     return _train_step
 
@@ -715,7 +716,27 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           psl_inputs=psl_inputs,
           psl_constraint_loss_weight=config.psl_constraint_inference_weight)
 
+      _update_loss_metrics(metrics, split, losses,
+                           config.psl_constraint_rule_names)
+
+    return _test_step
+
+  def inference_step(psl_inference: bool, batch_size: int,
+                     config: config_dict.ConfigDict):
+
+    @tf.function
+    def _inference_step(inputs: Sequence[tf.Tensor]) -> Sequence[tf.Tensor]:
+      (input_1, input_2, label, _, initial_state, initial_sample,
+       domain_label) = inputs[:7]
+      model_inputs = [input_1, input_2, initial_state, initial_sample]
+      model_outputs = model(model_inputs, training=False)
+
       if psl_inference:
+        psl_inputs = inputs[-1]
+        # Explicitly specify the batch size as PSL model now requires known
+        # batch size.
+        psl_inputs = tf.ensure_shape(
+            psl_inputs, (batch_size, psl_inputs.shape[1], psl_inputs.shape[2]))
         logits = psl_utils.update_logits(model, psl_optimizer, model_inputs,
                                          linear_vrnn.get_logits, psl_model,
                                          psl_inputs,
@@ -724,23 +745,12 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       else:
         logits = linear_vrnn.get_logits(model_outputs)
 
-      _update_metrics(metrics, split, logits, losses, label_id, label_mask,
-                      config.psl_constraint_rule_names)
+      prediction = linear_vrnn.get_prediction(logits)
+      latent_state = model_outputs[0]
 
-    return _test_step
+      return latent_state, label, prediction, domain_label
 
-  @tf.function
-  def inference_step(inputs: Sequence[tf.Tensor]) -> Sequence[tf.Tensor]:
-    (input_1, input_2, label, _, initial_state, initial_sample,
-     domain_label) = inputs[:7]
-    model_inputs = [input_1, input_2, initial_state, initial_sample]
-    model_outputs = model(model_inputs, training=False)
-
-    prediction = linear_vrnn.get_prediction(
-        linear_vrnn.get_logits(model_outputs))
-    latent_state = model_outputs[0]
-
-    return latent_state, label, prediction, domain_label
+    return _inference_step
 
 
   summary_writer = tf.summary.create_file_writer(
@@ -764,18 +774,21 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         distributed=distributed_training)
 
   run_inference_steps = train_lib.create_run_steps_fn(
-      inference_step,
+      inference_step(psl_inference, config.inference_batch_size, config),
       strategy,
       distributed=distributed_inference,
       output_dtypes=[tf.float32, tf.int32, tf.int32, tf.int32],
   )
 
+  fixed_train_epoch = config.patience < 0
   primary_metric = tf.constant(0.)
   out_of_patience = 0
+  train_model_outputs = None
+  test_model_outputs = None
   train_iterator = iter(train_dataset)
   start_time = time.time()
   for epoch in range(initial_epoch, config.train_epochs):
-    if out_of_patience > config.patience:
+    if not fixed_train_epoch and out_of_patience > config.patience:
       logging.info(
           'Found primary metric %s keeping being worse than the '
           'current best %.4f for %s evaluation cycles, early stop '
@@ -795,7 +808,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
                    steps_per_sec, eta_seconds / 60, time_elapsed / 60))
     logging.info(message)
 
-    if epoch % config.evaluation_interval == 0:
+    if (epoch + 1) % config.evaluation_interval == 0:
       for dataset_name, test_dataset in test_datasets.items():
         test_iterator = iter(test_dataset)
         logging.info('Testing on dataset %s', dataset_name)
@@ -830,8 +843,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           test_results + domain_test_results
       ])
 
-      _update_clustering_metrics(metrics, _TRAIN, train_label, train_prediction)
-      _update_clustering_metrics(metrics, _TEST, test_label, test_prediction)
+      _update_model_prediction_metrics(metrics, _TRAIN, train_label,
+                                       train_prediction)
+      _update_model_prediction_metrics(metrics, _TEST, test_label,
+                                       test_prediction)
 
       for split in _SPLITS:
         _log_metric_results(metrics, split)
@@ -841,26 +856,27 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       }
       with summary_writer.as_default():
         for name, result in total_results.items():
-          tf.summary.scalar(name, result, step=epoch + 1)
+          tf.summary.scalar(name, result, step=epoch)
 
+      train_model_outputs = [
+          train_hidden_state, train_label, train_prediction, train_domain_label
+      ]
+      test_model_outputs = [
+          test_hidden_state, test_label, test_prediction, test_domain_label
+      ]
       if _primary_metric_improved(total_results, primary_metric,
                                   config.min_delta):
         primary_metric = total_results[_PRIMARY_METRIC_KEY]
         out_of_patience = 0
         if best_model_checkpoint_manager:
-          best_model_checkpoint_manager.save()
+          best_model_checkpoint_manager.save(checkpoint_number=epoch)
         if best_summary_writer:
           with best_summary_writer.as_default():
             for name, result in total_results.items():
-              tf.summary.scalar(name, result, step=epoch + 1)
+              tf.summary.scalar(name, result, step=epoch)
         if model_dir:
-          _save_model_results([
-              train_hidden_state, train_label, train_prediction,
-              train_domain_label
-          ], model_dir, _TRAIN)
-          _save_model_results([
-              test_hidden_state, test_label, test_prediction, test_domain_label
-          ], model_dir, _TEST)
+          _save_model_results(train_model_outputs, model_dir, _TRAIN)
+          _save_model_results(test_model_outputs, model_dir, _TEST)
       else:
         out_of_patience += 1
 
@@ -870,8 +886,11 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
     if (config.checkpoint_interval > 0 and
         (epoch + 1) % config.checkpoint_interval == 0):
-      checkpoint_name = checkpoint.save(os.path.join(output_dir, 'checkpoint'))
-      logging.info('Saved checkpoint to %s', checkpoint_name)
+      logging.info('Saving checkpoint.')
+      checkpoint_manager.save(checkpoint_number=epoch)
+      if fixed_train_epoch:
+        _save_model_results(train_model_outputs, output_dir, _TRAIN)
+        _save_model_results(test_model_outputs, output_dir, _TEST)
 
 
   return False

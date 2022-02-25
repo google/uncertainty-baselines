@@ -110,6 +110,8 @@ def get_config(dataset: str,
   config.model_base_dir = None
   # Maximum number of evaluation cycles with the primary metric worse than the
   # current best to tolerate before early stopping.
+  # Disable it and run fixed epochs training by setting it to some value < 0
+  # (e.g., -1)
   config.patience = 3
   # The minimal difference to be counted as improvement on the metric.
   config.min_delta = 0.01

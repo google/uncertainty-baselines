@@ -52,8 +52,10 @@ from utils import vit_utils
 import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
+# TODO(nband): lock config after separating total and warmup steps arguments.
 ml_collections.config_flags.DEFINE_config_file(
-    'config', None, 'Training configuration.', lock_config=True)
+    'config', None, 'Training configuration.', lock_config=False)
+# Set up extraneous flags for use in Googler job launching.
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
     'num_cores', default=None, help='Unused. How many devices being used.')
@@ -68,6 +70,14 @@ def main(argv):
   del argv  # unused arg
 
   config = FLAGS.config
+
+  # Unpack total and warmup steps
+  # TODO(nband): revert this to separate arguments.
+  total_steps = config.total_and_warmup_steps[0]
+  warmup_steps = config.total_and_warmup_steps[1]
+  del config.total_and_warmup_steps
+  config.total_steps = total_steps
+  config.lr.warmup_steps = warmup_steps
 
   # Wandb and Checkpointing Setup
   output_dir = FLAGS.output_dir
@@ -545,7 +555,7 @@ def main(argv):
       if config.use_wandb:
         wandb.log(metrics_results, step=step)
 
-      Save per-prediction metrics
+      # Save per-prediction metrics
       results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
       chrono.resume()

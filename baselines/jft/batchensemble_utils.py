@@ -206,11 +206,16 @@ def update_fn_be(
 
 
 def broadcast_batchensemble_biases(params, be_layers, ensemble_size):
+  """Tiles BE biases when seeding downstream weights from a deterministic model."""
   for layer in be_layers:
     for block in [0, 1]:
       be_block = params['Transformer'][f'encoderblock_{layer}']['MlpBlock_3']
-      be_block[f'Dense_{block}']['bias'] = jnp.tile(
-          be_block[f'Dense_{block}']['bias'], (ensemble_size, 1))
+
+      # The biases already have the right shape if we are restarting from a
+      # checkpoint (e.g., after a job got preempted).
+      if be_block[f'Dense_{block}']['bias'].ndim != 2:
+        be_block[f'Dense_{block}']['bias'] = jnp.tile(
+            be_block[f'Dense_{block}']['bias'], (ensemble_size, 1))
   return params
 
 

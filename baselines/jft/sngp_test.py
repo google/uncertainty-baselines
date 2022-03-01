@@ -172,7 +172,7 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     # TODO(dusenberrymw,jjren): Add a reproducibility test for OOD eval.
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
     self.assertAllClose(train_loss, correct_train_loss, atol=1e-3, rtol=1e-3)
-    self.assertAllClose(val_loss['val'], correct_val_loss, atol=1e-3, rtol=1e-3)
+    self.assertAllClose(val_loss['val'], correct_val_loss, atol=2e-3, rtol=2e-3)
 
 
 if __name__ == '__main__':

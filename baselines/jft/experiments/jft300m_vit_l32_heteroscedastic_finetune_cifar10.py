@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Finetune a ViT-B/16 heteroscedastic model on CIFAR-10.
+r"""Finetune a ViT-L/32 heteroscedastic model on CIFAR-10.
 
 """
 # pylint: enable=line-too-long
@@ -57,7 +57,7 @@ def get_config():
 
   # OOD eval
   # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_dataset = ['cifar100', 'svhn_cropped']
+  config.ood_datasets = ['cifar100', 'svhn_cropped']
   config.ood_num_classes = [100, 10]
   config.ood_split = 'test'
   config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']

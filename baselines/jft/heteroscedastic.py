@@ -666,8 +666,11 @@ def main(config, output_dir):
             oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
             if val_name == 'cifar_10h' or val_name == 'imagenet_real':
+              num_classes = config.num_classes
+              if config.get('label_indices'):
+                num_classes = len(config.get('label_indices'))
               batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
-                  label[m], p[m, :], config.num_classes)
+                  label[m], p[m, :], num_classes)
               label_diversity.update_state(batch_label_diversity)
               sample_diversity.update_state(batch_sample_diversity)
               ged.update_state(batch_ged)

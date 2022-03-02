@@ -68,7 +68,8 @@ flags.DEFINE_float(
 flags.DEFINE_multi_enum(
     'augmentations',
     default=[],
-    enum_values=['drop_nodes', 'perturb_edges', 'mask_node_features'],
+    enum_values=['drop_nodes', 'perturb_edges', 'permute_edges',
+                 'mask_node_features'],
     help='Types of augmentations to perform on graphs. If an empty list is '
     'provided, then no augmentation will be applied to the data.')
 
@@ -78,7 +79,7 @@ flags.DEFINE_boolean('perturb_node_features', False, 'When True, zeros out the '
                      'affect the node features. Controls whether or not the '
                      'drop_nodes function affects the `atoms` feature.')
 
-# Flags for perturb_edges augmentation
+# Flags for perturb_edges and permute_edges augmentations
 flags.DEFINE_boolean('drop_edges_only', False, 'If True, only drop edges '
                      'when using the perturb_edges augmentation, rather than '
                      're-adding the dropped edges between randomly selected '

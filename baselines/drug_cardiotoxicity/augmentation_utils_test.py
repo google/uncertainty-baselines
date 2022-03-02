@@ -29,7 +29,7 @@ NUM_MOLECULES = 3
 AUG_RATIO = 0.5
 AUG_PROB = 1.
 AUGMENTATIONS = [
-    'drop_nodes', 'perturb_edges', 'mask_node_features'
+    'drop_nodes', 'perturb_edges', 'permute_edges', 'mask_node_features'
 ]
 VALID_NODES = [0, 2, 3, 5]
 
@@ -137,7 +137,8 @@ class AugmentationUtilsTest(googletest.TestCase):
         'molecule_id': tf.constant([]),
     }
     self.graph_augmenter_ratio_0 = augmentation_utils.GraphAugment(
-        AUGMENTATIONS, aug_ratio=0.0, aug_prob=AUG_PROB)
+        AUGMENTATIONS, aug_ratio=0.0, aug_prob=AUG_PROB,
+        perturb_edge_features=True)
     self.graph_augmenter_prob_0 = augmentation_utils.GraphAugment(
         AUGMENTATIONS, aug_ratio=AUG_RATIO, aug_prob=0.)
     self.graph_augmenter_empty_aug = augmentation_utils.GraphAugment(
@@ -449,6 +450,29 @@ class AugmentationUtilsTest(googletest.TestCase):
         self._check_nonzero_features_exist_for_edge(
             augmented_graph['pair_mask'][molecule_idx], edge)
 
+  def test_permute_edges(self):
+    augmented_graph, edge_permutations = self.graph_augmenter_perturb_features.permute_edges(
+        self.valid_graph)
+
+    for molecule_idx in range(NUM_MOLECULES):
+      edge_permutation = edge_permutations[molecule_idx].numpy()
+      aug_pair_mask = augmented_graph['pair_mask'][molecule_idx].numpy()
+      orig_pair_mask = self.valid_graph['pair_mask'][molecule_idx].numpy()
+      aug_pairs = augmented_graph['pairs'][molecule_idx].numpy()
+      orig_pairs = self.valid_graph['pairs'][molecule_idx].numpy()
+
+      for row_idx, row in enumerate(aug_pair_mask):
+        if row_idx < edge_permutation.shape[0]:
+          np.testing.assert_array_equal(
+              row, orig_pair_mask[edge_permutation[row_idx]])
+          np.testing.assert_array_equal(
+              aug_pairs[row_idx], orig_pairs[edge_permutation[row_idx]])
+        else:
+          nonzero_elems_mask = np.nonzero(row)[0]
+          self.assertEmpty(nonzero_elems_mask)
+          nonzero_elems = np.nonzero(aug_pairs[row_idx])[0]
+          self.assertEmpty(nonzero_elems)
+
   def test_empty_graph(self):
     _, idx_dropped_nodes = self.graph_augmenter_perturb_features.drop_nodes(
         self.empty_graph)
@@ -462,11 +486,15 @@ class AugmentationUtilsTest(googletest.TestCase):
     self.assertEmpty(idx_dropped_edges)
     self.assertEmpty(idx_added_edges)
 
+    _, edge_permutations = self.graph_augmenter_perturb_features.permute_edges(
+        self.empty_graph)
+    # Check that returned arrays of dropped node indices are empty.
+    self.assertEmpty(edge_permutations)
+
     _, idx_masked_nodes = self.graph_augmenter_perturb_features.mask_node_features(
         self.empty_graph)
     # Check that returned arrays of dropped node indices are empty.
     self.assertEmpty(idx_masked_nodes)
-
 
 if __name__ == '__main__':
   googletest.main()

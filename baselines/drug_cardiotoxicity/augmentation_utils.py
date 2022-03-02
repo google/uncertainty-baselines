@@ -73,6 +73,7 @@ class GraphAugment:
     self.augmentations_available = {
         'drop_nodes': self.drop_nodes,
         'perturb_edges': self.perturb_edges,
+        'permute_edges': self.permute_edges,
         'mask_node_features': self.mask_node_features
     }
     for augmentation in augmentations_to_use:
@@ -84,6 +85,8 @@ class GraphAugment:
       self.drop_edges_only = drop_edges_only
       self.perturb_edge_features = perturb_edge_features
       self.initialize_edge_features_randomly = initialize_edge_features_randomly
+    if 'permute_edges' in augmentations_to_use:
+      self.perturb_edge_features = perturb_edge_features
     if 'mask_node_features' in augmentations_to_use:
       self.mask_mean = mask_mean
       self.mask_stddev = mask_stddev
@@ -106,9 +109,11 @@ class GraphAugment:
     ) < self.aug_prob or self.aug_prob == 0.:
       return input_graph
     aug_function_name = random.choice(self.augmentations_to_use)
+    output_graph = input_graph.copy()
     augmented_graph, _ = self.augmentations_available[aug_function_name](
         input_graph)
-    return augmented_graph
+    output_graph.update(augmented_graph)
+    return output_graph
 
   def _sample_nodes(self, atom_mask: tf.Tensor) -> tf.Tensor:
     nodes = tf.where(tf.equal(atom_mask, 1.))
@@ -200,14 +205,10 @@ class GraphAugment:
         'atoms': aug_atoms,
         'atom_mask': aug_atom_mask,
         'pairs': aug_pairs,
-        'pair_mask': aug_pair_mask,
-        'molecule_id': input_graph['molecule_id']
+        'pair_mask': aug_pair_mask
     }
     return augmented_graph, idx_dropped_nodes
 
-  # TODO(jihyeonlee): Add permute_edges function that performs simpler version
-  # of simply permuting the edge features, consistent with paper in
-  # GraphAugment references..
   def perturb_edges(
       self, input_graph: Dict[str, tf.Tensor]
   ) -> Tuple[Dict[str, tf.Tensor], Tuple[List[tf.Tensor], List[tf.Tensor]]]:
@@ -329,10 +330,83 @@ class GraphAugment:
         'atoms': input_graph['atoms'],
         'atom_mask': input_graph['atom_mask'],
         'pairs': aug_pairs,
-        'pair_mask': aug_pair_mask,
-        'molecule_id': input_graph['molecule_id']
+        'pair_mask': aug_pair_mask
     }
     return augmented_graph, (idx_dropped_edges, idx_added_edges)
+
+  # TODO(jihyeonlee): Add permute_edges function that performs simpler version
+  # of simply permuting the edge features, consistent with paper in
+  # GraphAugment references. Is this what we want?
+  def permute_edges(
+      self, input_graph: Dict[str, tf.Tensor]
+  ) -> Tuple[Dict[str, tf.Tensor], List[tf.Tensor]]:
+    """Permutes order of sample of edges and drops unselected edges.
+
+    It will perturb the connectivities in G through randomly reordering a random
+    sample of edges and dropping the rest. It implies that the semantic
+    meaning of G has certain robustness to the edge connectivity pattern
+    variances.
+
+    Args:
+      input_graph: Graph to be augmented.
+
+    Returns:
+      Augmented graph and list of indices indicating order of permuted edges.
+    """
+    edge_permutations = []
+
+    def _permute_edges_helper(
+        features: Tuple[tf.Tensor, tf.Tensor]
+    ) -> Tuple[tf.Tensor, tf.Tensor]:
+      """Performs batch-wise operation to permute a sample of edges."""
+      pairs, pair_mask = features
+
+      num_rows = tf.cast(tf.shape(pair_mask)[0], dtype=self.aug_ratio.dtype)
+      idx_permutation = tf.random.shuffle(tf.range(num_rows, dtype=tf.int64))
+
+      # TODO(jihyeonlee): To follow literature, we can choose a sample of size
+      # _MAX_NODES - int(_MAX_NODES*aug_ratio) and permute only those indices,
+      # leaving out the rest.
+      num_rows_to_permute = tf.math.subtract(num_rows, tf.math.ceil(
+          tf.math.multiply(self.aug_ratio,
+                           tf.cast(num_rows, dtype=self.aug_ratio.dtype))))
+      idx_permutation = tf.gather(
+          idx_permutation,
+          tf.range(num_rows_to_permute, dtype=tf.int64),
+          axis=0)
+      permuted_rows = tf.gather(pair_mask, idx_permutation, axis=0)
+      aug_pair_mask = tf.zeros_like(pair_mask)
+      aug_pair_mask = tf.tensor_scatter_nd_update(
+          aug_pair_mask,
+          tf.expand_dims(
+              tf.range(num_rows_to_permute, dtype=tf.int64), axis=1),
+          permuted_rows)
+      edge_permutations.append(idx_permutation)
+
+      if self.perturb_edge_features:
+        aug_pairs = tf.zeros_like(pairs)
+        permuted_rows = tf.gather(pairs, idx_permutation, axis=0)
+        aug_pairs = tf.tensor_scatter_nd_update(
+            aug_pairs,
+            tf.expand_dims(
+                tf.range(num_rows_to_permute, dtype=tf.int64), axis=1),
+            permuted_rows)
+      else:
+        aug_pairs = pairs
+
+      return aug_pairs, aug_pair_mask
+
+    # Replace features with augmented versions.
+    aug_pairs, aug_pair_mask = tf.map_fn(
+        _permute_edges_helper,
+        (input_graph['pairs'], input_graph['pair_mask']))
+    augmented_graph = {
+        'atoms': input_graph['atoms'],
+        'atom_mask': input_graph['atom_mask'],
+        'pairs': aug_pairs,
+        'pair_mask': aug_pair_mask
+    }
+    return augmented_graph, edge_permutations
 
   def mask_node_features(
       self, input_graph: Dict[str, tf.Tensor]
@@ -381,7 +455,6 @@ class GraphAugment:
         'atoms': aug_atoms,
         'atom_mask': input_graph['atom_mask'],
         'pairs': input_graph['pairs'],
-        'pair_mask': input_graph['pair_mask'],
-        'molecule_id': input_graph['molecule_id']
+        'pair_mask': input_graph['pair_mask']
     }
     return augmented_graph, idx_masked_nodes

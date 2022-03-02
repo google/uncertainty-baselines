@@ -192,11 +192,12 @@ def get_margin_scores(logits, masks):
     a list of scores belonging to the pool set.
   """
   probs = jax.nn.softmax(logits)
-  sorted_probs = jnp.take_along_axis(
-      probs, jnp.argsort(probs, axis=-1), axis=-1)
-  margins = sorted_probs[..., -1] - sorted_probs[..., -2]
+  top2_probs = jax.lax.top_k(probs, k=2)[0]
+  # top_k's documentation does not specify whether the top-k are sorted or not.
+  margins = jnp.abs(top2_probs[..., 0] - top2_probs[..., 1])
 
-  # Higher is better, so we invert the scores.
+  # Lower margin means higher uncertainty, so we invert the scores.
+  # Then higer margin score means higher uncertainty.
   margin_scores = -margins
   margin_scores = jnp.where(masks, margin_scores, NINF_SCORE)
 

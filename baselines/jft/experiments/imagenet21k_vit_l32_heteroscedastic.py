@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-Heteroscedastic L/32.
+r"""ViT-Heteroscedastic L/32 for ImageNet-21k.
 
 """
 # pylint: enable=line-too-long
@@ -43,7 +43,6 @@ def get_config():
   config.pp_train += f'|onehot({config.num_classes}, on=0.9999, off=0.0001)'
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
   config.pp_eval += f'|onehot({config.num_classes})'
-  config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
   config.log_training_steps = 10000
@@ -76,7 +75,7 @@ def get_config():
   # Optimizer section
   config.optim_name = 'Adam'
   config.optim = ml_collections.ConfigDict()
-  config.optim.weight_decay = 0.03
+  config.optim.weight_decay = 0.1
   config.grad_clip_norm = 1.0
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
@@ -84,7 +83,7 @@ def get_config():
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
   # LR has to be lower for GP layer and on larger models.
-  config.lr.base = 6e-4  # LR has to be lower for larger models!
+  config.lr.base = 0.001  # LR has to be lower for larger models!
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5

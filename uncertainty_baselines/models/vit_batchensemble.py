@@ -15,7 +15,6 @@
 
 """Patch Transformerm similar to Gshard paper with BatchEnsemble MLPs."""
 
-import functools
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Tuple
 
 from absl import logging
@@ -96,13 +95,12 @@ class BatchEnsembleMlpBlock(nn.Module):
 
 
 class Encoder1DBlock(nn.Module):
-  """Transformer encoder layer.
-
-  If mlp_class returns a tuple (e.g. TokenMoeBlock) with auxiliary information,
-  this also returns the auxiliary information.
-  """
-  mlp_class: Callable  # pylint: disable=g-bare-generic
+  """Transformer encoder layer."""
+  mlp_dim: int
   num_heads: int
+  ens_size: int
+  random_sign_init: float
+  ensemble_attention: bool = False
   dtype: Optional[DType] = None
   dropout_rate: float = 0.0
   attention_dropout_rate: float = 0.0
@@ -116,20 +114,41 @@ class Encoder1DBlock(nn.Module):
     assert inputs.ndim == 3, f"Expected (batch, seq, hidden) got {inputs.shape}"
 
     x = nn.LayerNorm(dtype=self.dtype, name="LayerNorm_0")(inputs)
-    x = nn.MultiHeadDotProductAttention(
-        dtype=self.dtype,
-        kernel_init=nn.initializers.xavier_uniform(),
-        broadcast_dropout=False,
-        deterministic=deterministic,
-        name="MultiHeadDotProductAttention_1",
-        num_heads=self.num_heads,
-        dropout_rate=self.attention_dropout_rate)(x, x)
+    # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
+    # need checkpoints that only apply BE on the FF block.
+    if self.ensemble_attention:
+      x = ed.nn.MultiHeadDotProductAttentionBE(
+          dtype=self.dtype,
+          kernel_init=nn.initializers.xavier_uniform(),
+          broadcast_dropout=False,
+          deterministic=deterministic,
+          name="MultiHeadDotProductAttention_1",
+          num_heads=self.num_heads,
+          ens_size=self.ens_size,
+          alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
+          gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
+          dropout_rate=self.attention_dropout_rate)(x, x)
+    else:
+      x = nn.MultiHeadDotProductAttention(
+          dtype=self.dtype,
+          kernel_init=nn.initializers.xavier_uniform(),
+          broadcast_dropout=False,
+          deterministic=deterministic,
+          name="MultiHeadDotProductAttention_1",
+          num_heads=self.num_heads,
+          dropout_rate=self.attention_dropout_rate)(x, x)
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
     x = x + inputs
 
     # MLP block.
     y = nn.LayerNorm(dtype=self.dtype, name="LayerNorm_2")(x)
-    y = self.mlp_class(name="MlpBlock_3")(y, deterministic=deterministic)
+    y = BatchEnsembleMlpBlock(
+        mlp_dim=self.mlp_dim,
+        ens_size=self.ens_size,
+        random_sign_init=self.random_sign_init,
+        dtype=self.dtype,
+        name="MlpBlock_3",
+        dropout_rate=self.dropout_rate)(y, deterministic=deterministic)
 
     return x + y
 
@@ -156,6 +175,7 @@ class BatchEnsembleEncoder(nn.Module):
   ens_size: int
   random_sign_init: float
   num_heads: int
+  ensemble_attention: bool = False
   dtype: Optional[DType] = None
   dropout_rate: float = 0.0
   attention_dropout_rate: float = 0.0
@@ -190,19 +210,10 @@ class BatchEnsembleEncoder(nn.Module):
             inputs)
     x = nn.Dropout(rate=self.dropout_rate, deterministic=not self.train)(x)
 
-    be_params = dict(
-        ens_size=self.ens_size, random_sign_init=self.random_sign_init)
-    mlp_params = dict(dtype=dtype, name="mlp")
-    mlp_params_dense = dict(
-        dropout_rate=self.dropout_rate, mlp_dim=self.mlp_dim)
-    mlp_dense = functools.partial(vit.MlpBlock, **mlp_params,
-                                  **mlp_params_dense)
-    be_block = functools.partial(BatchEnsembleMlpBlock, **mlp_params,
-                                 **mlp_params_dense, **be_params)
     extra_info = dict()
     for lyr in range(self.num_layers):
-      encoder_block = functools.partial(
-          Encoder1DBlock,
+      params = dict(
+          mlp_dim=self.mlp_dim,
           num_heads=self.num_heads,
           dtype=dtype,
           dropout_rate=self.dropout_rate,
@@ -213,9 +224,13 @@ class BatchEnsembleEncoder(nn.Module):
         if is_first_be_layer(lyr):
           x = jnp.tile(x, [self.ens_size] + [1] * (x.ndim - 1))
 
-        x = encoder_block(mlp_class=be_block)(x, deterministic=not train)
+        x = Encoder1DBlock(
+            ens_size=self.ens_size,
+            random_sign_init=self.random_sign_init,
+            ensemble_attention=self.ensemble_attention,
+            **params)(x, deterministic=not train)
       else:
-        x = encoder_block(mlp_class=mlp_dense)(x, deterministic=not train)
+        x = vit.Encoder1DBlock(**params)(x, deterministic=not train)
     encoded = nn.LayerNorm(name="encoder_norm")(x)
 
     return encoded, extra_info

@@ -77,9 +77,12 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
+  config.model.transformer.be_layers = (22, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = -0.5
+  # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
+  # need checkpoints that only apply BE on the FF block.
+  config.model.transformer.ensemble_attention = True
   config.fast_weight_lr_multiplier = 1.0
 
   # This is "no head" fine-tuning, which we use by default

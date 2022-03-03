@@ -100,7 +100,7 @@ def get_config():
   config.model.temperature = 3.0
   config.model.mc_samples = 5000
   config.model.num_factors = 15
-  config.model.param_efficient = True
+  config.model.param_efficient = False
   config.model.return_locs = False  # True -> fine-tune a homoscedastic model
 
   # Optimizer section

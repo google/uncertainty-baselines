@@ -368,7 +368,6 @@ def main(config, output_dir):
     mask = jax.lax.all_gather(mask, 'batch')
     return representation, labels, mask
 
-  # Load the optimizer from flax.
   opt_name = config.get('optim_name')
   write_note(f'Initializing {opt_name} optimizer...')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
@@ -402,6 +401,7 @@ def main(config, output_dir):
 
   reint_params = ('batchensemble_head/bias',
                   'batchensemble_head/kernel',
+                  'batchensemble_head/fast_weight_alpha',
                   'batchensemble_head/fast_weight_gamma')
   if config.get('only_eval', False) or not config.get('reint_head', True):
     reint_params = []
@@ -413,7 +413,7 @@ def main(config, output_dir):
       init_fixed_model_states=None,
       default_reinit_params=reint_params,
       config=config)
-  train_loop_rngs = {'params': checkpoint_data.train_loop_rngs}
+  train_loop_rngs = {'dropout': checkpoint_data.train_loop_rngs}
   opt_cpu = checkpoint_data.optimizer
 
   accumulated_train_time = checkpoint_data.accumulated_train_time
@@ -480,7 +480,7 @@ def main(config, output_dir):
       range(first_step + 1, total_steps + 1), train_iter, lr_iter):
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
       if not config.get('only_eval', False):
-        opt_repl, train_loop_rngs, loss_value, extra_measurements = update_fn(
+        opt_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
             train_loop_rngs,
             lr_repl,
@@ -525,17 +525,14 @@ def main(config, output_dir):
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
-      train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
-      train_measurements.update({
-          'learning_rate': lr_repl[0],
-          'training_loss': train_loss,
-      })
       train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
+      # Keep to return for reproducibility tests.
+      train_loss = train_measurements['training_loss']
 
     # Report validation performance
     if config.get('only_eval', False) or train_utils.itstime(

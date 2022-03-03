@@ -14,19 +14,26 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""ViT-L/32 finetuning from upstream batchensemble.
+r"""BE L/32 active learning.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
 import sweep_utils  # local file import from baselines.jft.experiments
 
 
 def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
+
+  # Active learning section
+  config.model_type = 'batchensemble'
+  config.acquisition_method = ''  # set in sweep
+  config.max_training_set_size = 200
+  config.initial_training_set_size = 0
+  config.acquisition_batch_size = 5
+  config.early_stopping_patience = 64
 
   config.dataset = ''  # set in sweep
   config.val_split = ''  # set in sweep
@@ -62,10 +69,7 @@ def get_config():
   config.pp_eval_imagenet_real = ''
 
   # Model section
-  # pre-trained model ckpt file
-  # !!!  The below section should be modified per experiment
-  config.model_init = '/path/to/pretrained_model_ckpt.npz'
-
+  config.model_init = ''  # set in sweep
 
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
@@ -81,9 +85,9 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 23)
+  config.model.transformer.be_layers = (21, 22, 23)
   config.model.transformer.ens_size = 3
-  config.model.transformer.random_sign_init = 0.5
+  config.model.transformer.random_sign_init = -0.5
   config.fast_weight_lr_multiplier = 1.0
 
   # This is "no head" fine-tuning, which we use by default
@@ -106,40 +110,38 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
+  checkpoints = ['/path/to/pretrained_model_ckpt.npz']
   cifar10_sweep = hyper.product([
-      hyper.chainit([
-          hyper.product(sweep_utils.cifar10(
-              hyper, steps=int(10_000 * s), warmup=int(500 * s)))
-          for s in [0.5, 1.0, 1.5, 2.0]
-      ]),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.01]),
   ])
 
   cifar100_sweep = hyper.product([
-      hyper.chainit([
-          hyper.product(sweep_utils.cifar100(
-              hyper, steps=int(10_000 * s), warmup=int(500 * s)))
-          for s in [0.5, 1.0, 1.5, 2.0]
-      ]),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.03]),
   ])
 
   imagenet_sweep = hyper.product([
-      hyper.chainit([
-          hyper.product(sweep_utils.imagenet(
-              hyper, steps=int(20_000 * s), warmup=int(500 * s)))
-          for s in [0.5, 1.0, 1.5, 2.0]
-      ]),
-      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+      hyper.product(sweep_utils.imagenet(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.06, 0.03]),
   ])
+
+  places365_sweep = hyper.product([
+      hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
+      hyper.sweep('config.lr.base', [0.06, 0.03]),
+  ])
+
   return hyper.product([
+      hyper.sweep('config.acquisition_method', acquisition_methods),
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
-          imagenet_sweep
+          imagenet_sweep,
+          places365_sweep,
       ]),
       hyper.product([
-          hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
+          hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
+          hyper.sweep('config.model_init', checkpoints),
       ])
   ])

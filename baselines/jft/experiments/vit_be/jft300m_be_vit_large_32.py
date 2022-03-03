@@ -67,11 +67,13 @@ def get_config():
 
   # Optimizer parameters.
   config.optim_name = 'Adam'
-  config.optim = ml_collections.ConfigDict(dict(beta1=0.9, beta2=0.999))
-  # TODO(trandustin): Ablate difference with config.weight_decay vs
-  # config.optim.weight_decay.
+  config.optim = ml_collections.ConfigDict()
+  config.optim.beta1 = 0.9
+  config.optim.beta2 = 0.999
+  # TODO(trandustin): Note BE uses config.weight_decay instead of
+  # config.optim.weight_decay as in typical ViT. xid/34376832 shows
+  # config.weight_decay is better for BE. Still need to sweep over LR though.
   config.weight_decay = 0.1
-  config.grad_clip_norm = None
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 6e-4  # LR likely has to be lower for larger models!
@@ -99,10 +101,9 @@ def get_config():
 
 
 def get_sweep(hyper):
-  return hyper.product([])
   # Use this as a sensible sweep over hyperparameters.
-  # return hyper.product([
-  #     hyper.sweep('config.model.transformer.ens_size', [3]),
-  #     hyper.sweep('config.model.transformer.random_sign_init',
-  #                 [-0.5, 0.5, 0.75]),
-  # ])
+  return hyper.product([
+      hyper.sweep('config.model.transformer.ens_size', [3]),
+      hyper.sweep('config.model.transformer.random_sign_init',
+                  [-0.75, -0.5, 0.5, 0.75]),
+  ])

@@ -32,10 +32,11 @@ def get_config():
   config.seed = 0
 
   # Active learning section
+  config.model_type = 'deterministic'  # 'batchensemble'
   config.acquisition_method = ''  # set in sweep
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
-  config.acquisition_batch_size = 10
+  config.acquisition_batch_size = 5
   config.early_stopping_patience = 64
 
   # Dataset section
@@ -63,6 +64,7 @@ def get_config():
 
   # Model section
   config.model_init = ''  # set in sweep
+  config.model_type = 'deterministic'  # 'batchensemble'
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [32, 32]
@@ -107,32 +109,81 @@ def get_config():
 def get_sweep(hyper):
   """Sweeps over datasets."""
   # Adapted the sweep over checkpoints from vit_l32_finetune.py.
-  checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-  use_jft = True  # whether to use JFT-300M or ImageNet-21K settings
-  sweep_lr = True  # whether to sweep over learning rates
-  acquisition_methods = ['uniform', 'entropy', 'margin', 'density']
-  if use_jft:
-    cifar10_sweep = sweep_utils.cifar10(hyper)
-    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
-    cifar10_sweep = hyper.product(cifar10_sweep)
-  else:
-    cifar10_sweep = sweep_utils.cifar10(hyper)
-    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
-    cifar10_sweep = hyper.product(cifar10_sweep)
-  if sweep_lr:
-    # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
-    checkpoints = [checkpoints[0]]
-    cifar10_sweep = hyper.chainit([
-        hyper.product(sweep_utils.cifar10(
-            hyper, steps=int(10_000 * s), warmup=int(500 * s)))
-        for s in [0.5, 1.0, 1.5, 2.0]
-    ])
-    cifar10_sweep = hyper.product([
-        cifar10_sweep,
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])])
 
-  return hyper.product([
-      cifar10_sweep,
-      hyper.sweep('config.model_init', checkpoints),
-      hyper.sweep('config.acquisition_method', acquisition_methods),
-  ])
+  sweep_lr = False  # whether to sweep over learning rates
+  acquisition_methods = ['entropy', 'margin']
+  #. ['uniform', 'entropy', 'margin', 'density']
+  def sweep_checkpoints(use_jft, sweep_lr=sweep_lr):
+    """whether to use JFT-300M or ImageNet-21K settings."""
+    checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+    if use_jft:
+      cifar10_sweep = sweep_utils.cifar10(hyper, steps=1000)
+      cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+      cifar10_sweep = hyper.product(cifar10_sweep)
+
+      cifar100_sweep = sweep_utils.cifar100(hyper, steps=1000)
+      cifar100_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+      cifar100_sweep = hyper.product(cifar100_sweep)
+
+      imagenet_sweep = sweep_utils.imagenet(hyper, steps=1000)
+      imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+      imagenet_sweep = hyper.product(imagenet_sweep)
+
+      places365_sweep = hyper.product([
+          hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
+          hyper.sweep('config.lr.base', [0.03]),
+      ])
+    else:
+      cifar10_sweep = sweep_utils.cifar10(hyper, steps=1000)
+      cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
+      cifar10_sweep = hyper.product(cifar10_sweep)
+
+      cifar100_sweep = sweep_utils.cifar100(hyper, steps=1000)
+      cifar100_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+      cifar100_sweep = hyper.product(cifar100_sweep)
+
+      imagenet_sweep = sweep_utils.imagenet(hyper, steps=1000)
+      imagenet_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+      imagenet_sweep = hyper.product(imagenet_sweep)
+
+      places365_sweep = hyper.product([
+          hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
+          hyper.sweep('config.lr.base', [0.01]),
+      ])
+    if sweep_lr:
+      # Apply a learning rate sweep following Table 4 of Vision Transformer
+      # paper.
+      checkpoints = [checkpoints[0]]
+
+      cifar10_sweep = hyper.product([
+          hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
+          hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      ])
+
+      cifar100_sweep = hyper.product([
+          hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
+          hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      ])
+
+      imagenet_sweep = hyper.product([
+          hyper.product(sweep_utils.imagenet(hyper)),
+          hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+      ])
+
+      places365_sweep = hyper.product([
+          hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
+          hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      ])
+    return hyper.product([
+        hyper.chainit([
+            cifar10_sweep,
+            cifar100_sweep,
+            places365_sweep,
+            imagenet_sweep,
+        ]),
+        hyper.sweep('config.model_init', checkpoints),
+        hyper.sweep('config.acquisition_method', acquisition_methods),
+    ])
+
+  return hyper.chainit(
+      [sweep_checkpoints(use_jft) for use_jft in [True, False]])

@@ -54,8 +54,8 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
 
   def _first_statement(self):
     """Creates a (batch_size, dialog_size) first statement mask."""
-    return tf.constant(
-      [[1.0] + [0.0] * (self.dialog_size - 1)] * self.batch_size)
+    return tf.constant([[1.0] + [0.0] * (self.dialog_size - 1)] *
+                       self.batch_size)
 
   def _last_statement(self, data):
     """Creates a (batch_size, dialog_size) end statement mask."""
@@ -97,12 +97,12 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
       Utt3  1    1    1    0
       Pad1  0    0    0    0
 
-      Args:
+    Args:
         data: input features used to produce the logits.
 
-      Returns:
+    Returns:
         A cross product matrix mask containing the previous statements.
-      """
+    """
     off_diagonal_matrix = tf.linalg.diag([1.0] * (self.dialog_size - 1), k=1)
 
     # Creates a (batch_size, dialog_size, dialog_size) tensor indicating which
@@ -129,31 +129,28 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
             a known tf-idf word.
         THEN: the utterance is likely to belong to a start State.
 
-      Args:
+    Args:
         logits: logits outputted by a neural model.
 
-      Returns:
+    Returns:
         A loss incurred by this dialog structure rule.
-      """
+    """
     first_statement = self.predicates['first_statement']
 
     current_state = self._get_tensor_column(logits, 3)
     has_tfidf = self.predicates['3_usr_index']
-    return_loss = self.template_rx_and_sx_implies_tx(first_statement,
-                                                     has_tfidf,
+    return_loss = self.template_rx_and_sx_implies_tx(first_statement, has_tfidf,
                                                      current_state)
 
     current_state = self._get_tensor_column(logits, 7)
     has_tfidf = self.predicates['7_usr_index']
     return_loss += self.template_rx_and_sx_implies_tx(first_statement,
-                                                      has_tfidf,
-                                                      current_state)
+                                                      has_tfidf, current_state)
 
     current_state = self._get_tensor_column(logits, 21)
     has_tfidf = self.predicates['21_usr_index']
     return_loss += self.template_rx_and_sx_implies_tx(first_statement,
-                                                      has_tfidf,
-                                                      current_state)
+                                                      has_tfidf, current_state)
 
     return return_loss
 
@@ -168,31 +165,28 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
             a known tf-idf word.
         THEN: the utterance is likely to belong to a start State.
 
-      Args:
+    Args:
         logits: logits outputted by a neural model.
 
-      Returns:
+    Returns:
         A loss incurred by this dialog structure rule.
-      """
+    """
     first_statement = self.predicates['first_statement']
 
     current_state = self._get_tensor_column(logits, 3)
     has_tfidf = self.predicates['3_sys_index']
-    return_loss = self.template_rx_and_sx_implies_tx(first_statement,
-                                                     has_tfidf,
+    return_loss = self.template_rx_and_sx_implies_tx(first_statement, has_tfidf,
                                                      current_state)
 
     current_state = self._get_tensor_column(logits, 7)
     has_tfidf = self.predicates['7_sys_index']
     return_loss += self.template_rx_and_sx_implies_tx(first_statement,
-                                                      has_tfidf,
-                                                      current_state)
+                                                      has_tfidf, current_state)
 
     current_state = self._get_tensor_column(logits, 21)
     has_tfidf = self.predicates['21_sys_index']
     return_loss += self.template_rx_and_sx_implies_tx(first_statement,
-                                                      has_tfidf,
-                                                      current_state)
+                                                      has_tfidf, current_state)
 
     return return_loss
 
@@ -207,30 +201,27 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
             a known tf-idf word.
         THEN: the utterance is likely to belong to a last state.
 
-      Args:
+    Args:
         logits: logits outputted by a neural model.
 
-      Returns:
+    Returns:
         A loss incurred by this dialog structure rule.
-      """
+    """
     last_statement = self.predicates['last_statement']
 
     current_state = self._get_tensor_column(logits, 5)
     has_tfidf = self.predicates['5_usr_index']
-    return_loss = self.template_rx_and_sx_implies_tx(last_statement,
-                                                     has_tfidf,
+    return_loss = self.template_rx_and_sx_implies_tx(last_statement, has_tfidf,
                                                      current_state)
 
     current_state = self._get_tensor_column(logits, 12)
     has_tfidf = self.predicates['12_usr_index']
-    return_loss += self.template_rx_and_sx_implies_tx(last_statement,
-                                                      has_tfidf,
+    return_loss += self.template_rx_and_sx_implies_tx(last_statement, has_tfidf,
                                                       current_state)
 
     current_state = self._get_tensor_column(logits, 15)
     has_tfidf = self.predicates['15_usr_index']
-    return_loss += self.template_rx_and_sx_implies_tx(last_statement,
-                                                      has_tfidf,
+    return_loss += self.template_rx_and_sx_implies_tx(last_statement, has_tfidf,
                                                       current_state)
 
     return return_loss
@@ -246,30 +237,27 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
             a known tf-idf word.
         THEN: the utterance is likely to belong to a last state.
 
-      Args:
+    Args:
         logits: logits outputted by a neural model.
 
-      Returns:
+    Returns:
         A loss incurred by this dialog structure rule.
-      """
+    """
     last_statement = self.predicates['last_statement']
 
     current_state = self._get_tensor_column(logits, 5)
     has_tfidf = self.predicates['5_sys_index']
-    return_loss = self.template_rx_and_sx_implies_tx(last_statement,
-                                                     has_tfidf,
+    return_loss = self.template_rx_and_sx_implies_tx(last_statement, has_tfidf,
                                                      current_state)
 
     current_state = self._get_tensor_column(logits, 12)
     has_tfidf = self.predicates['12_sys_index']
-    return_loss += self.template_rx_and_sx_implies_tx(last_statement,
-                                                      has_tfidf,
+    return_loss += self.template_rx_and_sx_implies_tx(last_statement, has_tfidf,
                                                       current_state)
 
     current_state = self._get_tensor_column(logits, 15)
     has_tfidf = self.predicates['15_sys_index']
-    return_loss += self.template_rx_and_sx_implies_tx(last_statement,
-                                                      has_tfidf,
+    return_loss += self.template_rx_and_sx_implies_tx(last_statement, has_tfidf,
                                                       current_state)
 
     return return_loss
@@ -287,12 +275,12 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
             transitioned state.
         THEN: the utterance is likely to belong to that state.
 
-      Args:
+    Args:
         logits: logits outputted by a neural model.
 
-      Returns:
+    Returns:
         A loss incurred by this dialog structure rule.
-      """
+    """
     previous_statement = self.predicates['previous_statement']
     return_loss = None
     for [current_state_index, previous_state_index] in self.state_transitions:
@@ -302,16 +290,10 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
 
       if return_loss is None:
         return_loss = self.template_rxy_and_sy_and_tx_implies_ux(
-          previous_statement,
-          previous_state,
-          has_tfidf,
-          current_state)
+            previous_statement, previous_state, has_tfidf, current_state)
       else:
         return_loss += self.template_rxy_and_sy_and_tx_implies_ux(
-          previous_statement,
-          previous_state,
-          has_tfidf,
-          current_state)
+            previous_statement, previous_state, has_tfidf, current_state)
 
     return return_loss
 
@@ -328,12 +310,12 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
             transitioned state.
         THEN: the utterance is likely to belong to that state.
 
-      Args:
+    Args:
         logits: logits outputted by a neural model.
 
-      Returns:
+    Returns:
         A loss incurred by this dialog structure rule.
-      """
+    """
     previous_statement = self.predicates['previous_statement']
     return_loss = None
     for [current_state_index, previous_state_index] in self.state_transitions:
@@ -343,16 +325,10 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
 
       if return_loss is None:
         return_loss = self.template_rxy_and_sy_and_tx_implies_ux(
-          previous_statement,
-          previous_state,
-          has_tfidf,
-          current_state)
+            previous_statement, previous_state, has_tfidf, current_state)
       else:
         return_loss += self.template_rxy_and_sy_and_tx_implies_ux(
-          previous_statement,
-          previous_state,
-          has_tfidf,
-          current_state)
+            previous_statement, previous_state, has_tfidf, current_state)
 
     return return_loss
 
@@ -365,10 +341,10 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
     for class_name in self.config['words']:
       usr_index = self.config['words'][class_name]['usr']['index']
       sys_index = self.config['words'][class_name]['sys']['index']
-      self.predicates[class_name + '_usr_index'] = self._has_word(data,
-                                                                  usr_index)
-      self.predicates[class_name + '_sys_index'] = self._has_word(data,
-                                                                  sys_index)
+      self.predicates[class_name + '_usr_index'] = self._has_word(
+          data, usr_index)
+      self.predicates[class_name + '_sys_index'] = self._has_word(
+          data, sys_index)
 
   def compute_loss_per_rule(self, data: tf.Tensor,
                             logits: tf.Tensor) -> List[float]:

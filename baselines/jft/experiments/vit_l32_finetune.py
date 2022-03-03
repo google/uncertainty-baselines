@@ -111,18 +111,18 @@ def get_sweep(hyper):
     imagenet_sweep = hyper.product(imagenet_sweep)
 
     imagenet_1shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='1shot', steps=200, warmup=1, log_eval_steps=20)
-    imagenet_1shot_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+        hyper, fewshot='1shot', steps=200, warmup=40, log_eval_steps=20)
+    imagenet_1shot_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     imagenet_1shot_sweep = hyper.product(imagenet_1shot_sweep)
 
     imagenet_5shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='5shot', steps=1000, warmup=2, log_eval_steps=100)
-    imagenet_5shot_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+        hyper, fewshot='5shot', steps=1000, warmup=40, log_eval_steps=100)
+    imagenet_5shot_sweep.append(hyper.fixed('config.lr.base', 0.02, length=1))
     imagenet_5shot_sweep = hyper.product(imagenet_5shot_sweep)
 
     imagenet_10shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='10shot', steps=2000, warmup=4, log_eval_steps=200)
-    imagenet_10shot_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+        hyper, fewshot='10shot', steps=2000, warmup=50, log_eval_steps=200)
+    imagenet_10shot_sweep.append(hyper.fixed('config.lr.base', 0.02, length=1))
     imagenet_10shot_sweep = hyper.product(imagenet_10shot_sweep)
   else:
     cifar10_sweep = sweep_utils.cifar10(hyper)
@@ -138,18 +138,18 @@ def get_sweep(hyper):
     imagenet_sweep = hyper.product(imagenet_sweep)
 
     imagenet_1shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='1shot', steps=200, warmup=1, log_eval_steps=20)
-    imagenet_1shot_sweep.append(hyper.fixed('config.lr.base', 0.001, length=1))
+        hyper, fewshot='1shot', steps=200, warmup=10, log_eval_steps=20)
+    imagenet_1shot_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     imagenet_1shot_sweep = hyper.product(imagenet_1shot_sweep)
 
     imagenet_5shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='5shot', steps=1000, warmup=2, log_eval_steps=100)
-    imagenet_5shot_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
+        hyper, fewshot='5shot', steps=1000, warmup=30, log_eval_steps=100)
+    imagenet_5shot_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
     imagenet_5shot_sweep = hyper.product(imagenet_5shot_sweep)
 
     imagenet_10shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='10shot', steps=2000, warmup=4, log_eval_steps=200)
-    imagenet_10shot_sweep.append(hyper.fixed('config.lr.base', 0.001, length=1))
+        hyper, fewshot='10shot', steps=2000, warmup=10, log_eval_steps=200)
+    imagenet_10shot_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     imagenet_10shot_sweep = hyper.product(imagenet_10shot_sweep)
   if sweep_lr:
     # Sweep over learning rates following Table 4 of Vision Transformer paper
@@ -183,26 +183,32 @@ def get_sweep(hyper):
         hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
     ])
 
-    imagenet_1shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='1shot', steps=200, warmup=1, log_eval_steps=20)
-    imagenet_1shot_sweep.append(
-        hyper.sweep('config.lr.base', [0.1, 0.06, 0.03, 0.01])
-    )
-    imagenet_1shot_sweep = hyper.product(imagenet_1shot_sweep)
+    imagenet_1shot_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.imagenet_fewshot(
+                hyper, fewshot='1shot', steps=200, warmup=s))
+            for s in [1, 5, 10, 20, 30, 40, 50]]),
+        hyper.sweep('config.lr.base',
+                    [0.06, 0.05, 0.04, 0.03, 0.02, 0.01])
+    ])
 
-    imagenet_5shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='5shot', steps=1000, warmup=2, log_eval_steps=100)
-    imagenet_5shot_sweep.append(
-        hyper.sweep('config.lr.base', [0.2, 0.1, 0.06, 0.03, 0.01])
-    )
-    imagenet_5shot_sweep = hyper.product(imagenet_5shot_sweep)
+    imagenet_5shot_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.imagenet_fewshot(
+                hyper, fewshot='5shot', steps=1000, warmup=s))
+            for s in [1, 5, 10, 20, 30, 40, 50]]),
+        hyper.sweep('config.lr.base',
+                    [0.06, 0.05, 0.04, 0.03, 0.02, 0.01]),
+    ])
 
-    imagenet_10shot_sweep = sweep_utils.imagenet_fewshot(
-        hyper, fewshot='10shot', steps=2000, warmup=4, log_eval_steps=200)
-    imagenet_10shot_sweep.append(
-        hyper.sweep('config.lr.base', [0.2, 0.1, 0.06, 0.03, 0.01])
-    )
-    imagenet_10shot_sweep = hyper.product(imagenet_10shot_sweep)
+    imagenet_10shot_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.imagenet_fewshot(
+                hyper, fewshot='10shot', steps=2000, warmup=s))
+            for s in [1, 5, 10, 20, 30, 40, 50]]),
+        hyper.sweep('config.lr.base',
+                    [0.06, 0.05, 0.04, 0.03, 0.02, 0.01])
+    ])
 
   return hyper.product([
       hyper.chainit([

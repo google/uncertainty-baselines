@@ -28,12 +28,10 @@ from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
 import flax
-import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
-import ml_collections
+import ml_collections.config_flags
 import numpy as np
-from scipy.stats import entropy
 import tensorflow as tf
 
 tf.config.experimental.set_visible_devices([], 'GPU')
@@ -53,127 +51,62 @@ from utils import vit_utils
 import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
-DEFAULT_NUM_EPOCHS = 90
+logging.info(tf.config.experimental.get_visible_devices())
 
-# Data load / output flags.
-flags.DEFINE_string(
-    'output_dir', '/tmp/diabetic_retinopathy_detection/vit-16-i21k/sngp',
-    'The directory where the model weights and training/evaluation summaries '
-    'are stored. If you aim to use these as trained models for ensemble.py, '
-    'you should specify an output_dir name that includes the random seed to '
-    'avoid overwriting.')
-flags.DEFINE_string(
-    'distribution_shift', None,
-    'Specifies distribution shift to use, if any.'
-    'aptos: loads APTOS (India) OOD validation and test datasets. '
-    '  Kaggle/EyePACS in-domain datasets are unchanged.'
-    'severity: uses DiabeticRetinopathySeverityShift dataset, a subdivision '
-    '  of the Kaggle/EyePACS dataset to hold out clinical severity labels '
-    '  as OOD.')
-flags.mark_flag_as_required('distribution_shift')
-flags.DEFINE_string(
-    'pretrain_dataset', 'imagenet21k',
-    'Dataset for model pretraining. Specifies the config to use.')
-flags.DEFINE_string(
-    'resume_checkpoint_path', None,
-    'If provided, resume training and/or conduct evaluation using this '
-    'checkpoint. Will only be used if the output_dir does not already '
-    'contain a checkpointed model. See checkpoint_utils.py.')
-
-# Logging and hyperparameter tuning.
-flags.DEFINE_bool('use_wandb', False, 'Use wandb for logging.')
-flags.DEFINE_string('wandb_dir', 'wandb', 'Directory where wandb logs go.')
-flags.DEFINE_string('project', 'ub-debug', 'Wandb project name.')
-flags.DEFINE_string('exp_name', None, 'Give experiment a name.')
-flags.DEFINE_string('exp_group', None, 'Give experiment a group name.')
-
-# Learning rate / SGD flags.
-flags.DEFINE_float('grad_clip_norm', 20.0, 'Gradient clipping threshold.')
-flags.DEFINE_float('weight_decay', None, 'Gradient clipping threshold.')
-flags.DEFINE_float('lr_base', 0.1, 'Base learning rate.')
-flags.DEFINE_integer('lr_warmup_steps', 500, 'Number of LR warmup steps.')
-flags.DEFINE_string('lr_decay_type', 'cosine',
-                    'Type of LR decay / schedule. Options: cosine, linear.')
-
-# General model flags.
-flags.DEFINE_string(
-    'vit_model_size', None,
-    'Specifies size of ViT backbone model. Options: {"B/16", "L/32"}')
-flags.mark_flag_as_required('vit_model_size')
-flags.DEFINE_integer('total_steps', 10000, 'Total steps.')
-flags.DEFINE_integer('batch_size', 128, 'Batch size.')
-flags.DEFINE_integer('seed', 0, 'Random seed.')
-flags.DEFINE_string(
-    'class_reweight_mode', None,
-    'Dataset is imbalanced (19.6%, 18.8%, 19.2% positive examples in train, '
-    'val, test respectively). `None` (default) will not perform any loss '
-    'reweighting. `constant` will use the train proportions to reweight the '
-    'binary cross entropy loss. `minibatch` will use the proportions of each '
-    'minibatch to reweight the loss.')
-
-# SNGP flags.
-flags.DEFINE_float('sngp_ridge_penalty', 1., 'SNGP ridge penalty.')
-flags.DEFINE_float('sngp_covmat_momentum', -1., 'SNGP covmat momentum.')
-flags.DEFINE_float('sngp_mean_field_factor', 20., 'SNGP Mean Field factor.')
-
-# Evaluation flags.
-flags.DEFINE_bool('only_eval', False,
-                  'Disables training, only evaluates the model.')
-flags.DEFINE_bool('use_validation', True,
-                  'Whether to use a validation split.')
-flags.DEFINE_bool('use_test', True, 'Whether to use a test split.')
-
+# TODO(nband): lock config after separating total and warmup steps arguments.
+ml_collections.config_flags.DEFINE_config_file(
+    'config', None, 'Training configuration.', lock_config=False)
+# Set up extraneous flags for use in Googler job launching.
+flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
+flags.DEFINE_integer(
+    'num_cores', default=None, help='Unused. How many devices being used.')
+flags.DEFINE_boolean(
+    'use_gpu', default=None, help='Unused. Whether or not running on GPU.')
+flags.DEFINE_string('tpu', None,
+                    'Unused. Name of the TPU. Only used if use_gpu is False.')
 FLAGS = flags.FLAGS
-
-
-def get_gp_kwargs(gp_config):
-  """Extract keyword argument parameters for the Gaussian process layer."""
-  covmat_momentum = gp_config.get('covmat_momentum', 0.999)
-
-  # Extracts model parameter.
-  logging.info('gp_config.covmat_momentum = %s', covmat_momentum)
-  covmat_momentum = None if covmat_momentum < 0. else covmat_momentum
-  covmat_kwargs = dict(momentum=covmat_momentum)
-
-  # Assembles into kwargs dictionary.
-  gp_layer_kwargs = dict(covmat_kwargs=covmat_kwargs)
-
-  return gp_layer_kwargs
 
 
 def main(argv):
   del argv  # unused arg
 
+  config = FLAGS.config
+
+  # Unpack total and warmup steps
+  # TODO(nband): revert this to separate arguments.
+  total_steps = config.total_and_warmup_steps[0]
+  warmup_steps = config.total_and_warmup_steps[1]
+  del config.total_and_warmup_steps
+  config.total_steps = total_steps
+  config.lr.warmup_steps = warmup_steps
+
   # Wandb and Checkpointing Setup
-  wandb_run, output_dir = vit_utils.maybe_setup_wandb(FLAGS)
+  output_dir = FLAGS.output_dir
+  wandb_run, output_dir = vit_utils.maybe_setup_wandb(config)
   tf.io.gfile.makedirs(output_dir)
   logging.info('Saving checkpoints at %s', output_dir)
 
   # Dataset Split Flags
-  dist_shift = FLAGS.distribution_shift
+  dist_shift = config.distribution_shift
   print(f'Distribution Shift: {dist_shift}.')
   dataset_names, split_names = vit_utils.get_dataset_and_split_names(dist_shift)
 
   # LR / Optimization Flags
-  batch_size = FLAGS.batch_size
-  grad_clip_norm = FLAGS.grad_clip_norm
-  weight_decay = FLAGS.weight_decay
-  lr_dict = {
-      'base': FLAGS.lr_base,
-      'warmup_steps': FLAGS.lr_warmup_steps,
-      'decay_type': FLAGS.lr_decay_type
-  }
+  batch_size = config.batch_size
+  grad_clip_norm = config.grad_clip_norm
+  weight_decay = config.weight_decay
   print('Standard wandb hyperparameters:')
   print({
       'batch_size': batch_size,
       'grad_clip_norm': grad_clip_norm,
       'weight_decay': weight_decay,
-      'total_steps': FLAGS.total_steps,
-      'lr': lr_dict
+      'total_steps': config.total_steps,
+      'lr': config.lr
   })
+  print('SNGP Params:', config.gp_layer)
 
   # Reweighting loss for class imbalance
-  # class_reweight_mode = FLAGS.class_reweight_mode
+  # class_reweight_mode = config.class_reweight_mode
   # if class_reweight_mode == 'constant':
   #   class_weights = utils.get_diabetic_retinopathy_class_balance_weights()
   # else:
@@ -184,26 +117,10 @@ def main(argv):
   # In a TPU runtime this will be 8 cores.
   print('Number of Jax local devices:', jax.local_devices())
 
-  config = vit_utils.get_vit_config(
-      'sngp', FLAGS.vit_model_size, FLAGS.pretrain_dataset)
-
-  # SNGP Flags
-  # Gaussian process layer section
-  config.gp_layer = ml_collections.ConfigDict()
-  config.gp_layer.ridge_penalty = FLAGS.sngp_ridge_penalty
-
-  # Disable momentum in order to use exact covariance update for finetuning.
-  config.gp_layer.covmat_momentum = FLAGS.sngp_covmat_momentum
-
-  config.gp_layer.mean_field_factor = FLAGS.sngp_mean_field_factor
-  print('SNGP Params:', config.gp_layer)
-
   # TODO(nband): fix sigmoid loss issues.
   assert config.get('loss', None) == 'softmax_xent'
 
-  # config = FLAGS.config
-
-  seed = FLAGS.seed
+  seed = config.seed
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
 
@@ -223,7 +140,11 @@ def main(argv):
   # The pool is used to perform misc operations such as logging in async way.
   pool = multiprocessing.pool.ThreadPool()
 
-  vit_utils.write_note('Initializing...')
+  def write_note(note):
+    if jax.process_index() == 0:
+      logging.info('NOTE: %s', note)
+
+  write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
   if config.get('keep_checkpoint_steps'):
@@ -247,12 +168,12 @@ def main(argv):
       jax.process_count(), local_batch_size, jax.local_device_count(),
       jax.device_count(), local_batch_size // jax.local_device_count())
 
-  vit_utils.write_note('Initializing preprocessing function...')
+  write_note('Initializing preprocessing function...')
   # Same preprocessing function for training and evaluation
   preproc_fn = preprocess_spec.parse(
       spec=config.pp_train, available_ops=preprocess_utils.all_ops())
 
-  vit_utils.write_note('Initializing train dataset...')
+  write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
   train_base_dataset = ub.datasets.get(
@@ -275,14 +196,14 @@ def main(argv):
   train_iter = input_utils.start_input_pipeline(
       train_ds, config.get('prefetch_to_device', 1))
 
-  vit_utils.write_note('Initializing val dataset(s)...')
+  write_note('Initializing val dataset(s)...')
 
   # Load in-domain and OOD validation and/or test datasets.
   # Please specify the desired shift (Country Shift or Severity Shift)
   # in the config.
   eval_iter_splits = vit_utils.init_evaluation_datasets(
-      use_validation=FLAGS.use_validation,
-      use_test=FLAGS.use_test,
+      use_validation=config.use_validation,
+      use_test=config.use_test,
       dataset_names=dataset_names,
       split_names=split_names,
       config=config,
@@ -301,14 +222,14 @@ def main(argv):
     total_steps = int(config.num_epochs * steps_per_epoch)
     assert not config.get('total_steps'), 'Set either num_epochs or total_steps'
   else:
-    total_steps = FLAGS.total_steps
+    total_steps = config.total_steps
 
   logging.info('Total train data points: %d', ntrain_img)
   logging.info(
       'Running for %d steps, that means %f epochs and %d steps per epoch',
       total_steps, total_steps * batch_size / ntrain_img, steps_per_epoch)
 
-  vit_utils.write_note('Initializing model...')
+  write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
 
   # Specify Gaussian process layer configs.
@@ -374,7 +295,7 @@ def main(argv):
 
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
-  vit_utils.write_note(f'Initializing {opt_name} optimizer...')
+  write_note(f'Initializing {opt_name} optimizer...')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
 
   # We jit this, such that the arrays that are created are created on the same
@@ -457,8 +378,8 @@ def main(argv):
     return opt, s, l, rng, measurements
 
   # Set config checkpoint resume path, if provided in args.
-  if FLAGS.resume_checkpoint_path is not None:
-    config.resume = FLAGS.resume_checkpoint_path
+  if config.resume_checkpoint_path is not None:
+    config.resume = config.resume_checkpoint_path
 
   default_reinit_params = ('head/output_layer/kernel', 'head/output_layer/bias',
                            'head/kernel', 'head/bias')
@@ -476,13 +397,13 @@ def main(argv):
   states_cpu = checkpoint_data.fixed_model_states
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  vit_utils.write_note('Adapting the checkpoint model...')
+  write_note('Adapting the checkpoint model...')
   adapted_params = checkpoint_utils.adapt_upstream_architecture(
       init_params=params_cpu,
       loaded_params=opt_cpu.target)
   opt_cpu = opt_cpu.replace(target=adapted_params)
 
-  vit_utils.write_note('Kicking off misc stuff...')
+  write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
@@ -496,7 +417,8 @@ def main(argv):
       logdir=output_dir, first_profile=first_step + 10)
 
   # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps, **lr_dict)
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
 
   # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
   # necessary for TPUs.
@@ -509,19 +431,19 @@ def main(argv):
       map(reset_covmat_fn, range(first_step, total_steps)),
       nprefetch=config.get('prefetch_to_device', 1))
 
-  vit_utils.write_note(f'Replicating...\n{chrono.note}')
-  opt_repl = flax_utils.replicate(opt_cpu)
-  states_repl = flax_utils.replicate(states_cpu)
+  write_note(f'Replicating...\n{chrono.note}')
+  opt_repl = flax.jax_utils.replicate(opt_cpu)
+  states_repl = flax.jax_utils.replicate(states_cpu)
 
   checkpoint_writer = None
 
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
-  train_loss = -jnp.inf
+  # train_loss = -jnp.inf
   # val_loss = -jnp.inf
   # results = {'dummy': {(0, 1): -jnp.inf}}
 
-  vit_utils.write_note(f'First step compilations...\n{chrono.note}')
+  write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
@@ -531,8 +453,7 @@ def main(argv):
   # when eval takes place.
   log_eval_steps = steps_per_epoch
   if first_step > 0:
-    vit_utils.write_note(
-        'Advancing iterators after resuming from a checkpoint...')
+    write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)
     train_iter = itertools.islice(train_iter, first_step, None)
 
@@ -560,7 +481,7 @@ def main(argv):
     # Checkpoint saving
     if train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
-      vit_utils.write_note('Checkpointing...')
+      write_note('Checkpointing...')
       chrono.pause()
       train_utils.checkpointing_timeout(checkpoint_writer,
                                         config.get('checkpoint_timeout', 1))
@@ -579,7 +500,7 @@ def main(argv):
       copy_step = None
       if train_utils.itstime(step, config.get('keep_checkpoint_steps'),
                              total_steps):
-        vit_utils.write_note('Keeping a checkpoint copy...')
+        write_note('Keeping a checkpoint copy...')
         copy_step = step
 
       # Checkpoint should be a nested dictionary or FLAX datataclasses from
@@ -597,10 +518,10 @@ def main(argv):
     # Report training progress
     if train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
-      vit_utils.write_note('Reporting training progress...')
+      write_note('Reporting training progress...')
       train_loss = loss_value[0]  # Keep to return for reproducibility tests.
       timing_measurements, note = chrono.tick(step)
-      vit_utils.write_note(note)
+      write_note(note)
       train_measurements = {}
       train_measurements.update({
           'learning_rate': lr_repl[0],
@@ -612,7 +533,7 @@ def main(argv):
 
     # Report validation performance
     if train_utils.itstime(step, log_eval_steps, total_steps):
-      vit_utils.write_note('Evaluating on the validation set...')
+      write_note('Evaluating on the validation set...')
       chrono.pause()
 
       all_eval_results = {}
@@ -659,7 +580,7 @@ def main(argv):
                                                 axis=0)
         results_arrs['y_pred'] = np.concatenate(
             results_arrs['y_pred'], axis=0).astype('float64')
-        results_arrs['y_pred_entropy'] = entropy(
+        results_arrs['y_pred_entropy'] = vit_utils.entropy(
             np.concatenate(results_arrs['y_pred_entropy'], axis=0), axis=-1)
 
         time_elapsed = time.time() - start_time
@@ -668,16 +589,26 @@ def main(argv):
 
         all_eval_results[eval_name] = results_arrs
 
-      per_pred_results, total_results = vit_utils.evaluate_vit_predictions(
+      per_pred_results, metrics_results = vit_utils.evaluate_vit_predictions(  # pylint: disable=unused-variable
           dataset_split_to_containers=all_eval_results,
           is_deterministic=True,
           num_bins=15,
           return_per_pred_results=True
       )
 
+      # `metrics_results` is a dict of {str: jnp.ndarray} dicts, one for each
+      # dataset. Flatten this dict so we can pass to the writer and remove empty
+      # entries.
+      flattened_metric_results = {}
+      for dic in metrics_results.values():
+        for key, value in dic.items():
+          if value is not None:
+            flattened_metric_results[key] = value
+      writer.write_scalars(step, flattened_metric_results)
+
       # Optionally log to wandb
-      if FLAGS.use_wandb:
-        wandb.log(total_results, step=step)
+      if config.use_wandb:
+        wandb.log(metrics_results, step=step)
 
       # Save per-prediction metrics
       results_storage_utils.save_per_prediction_results(
@@ -691,7 +622,7 @@ def main(argv):
       if config.testing_failure_step == step:
         break
 
-  vit_utils.write_note(f'Done!\n{chrono.note}')
+  write_note(f'Done!\n{chrono.note}')
   pool.close()
   pool.join()
   writer.close()

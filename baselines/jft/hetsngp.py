@@ -554,6 +554,12 @@ def main(argv):
 
   write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)
+
+  # Makes sure log_eval_steps is same as steps_per_epoch. This is because
+  # the precision matrix needs to be updated fully (at the end of each epoch)
+  # when eval takes place.
+  log_eval_steps = steps_per_epoch
+
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
   if first_step > 0:
@@ -636,7 +642,7 @@ def main(argv):
       writer.write_scalars(step, train_measurements)
 
     # Report validation performance
-    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+    if train_utils.itstime(step, log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, val_ds in val_ds_splits.items():

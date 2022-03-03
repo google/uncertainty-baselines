@@ -282,12 +282,13 @@ class VisionTransformer(nn.Module):
           self.num_classes, self.num_factors, self.temperature,
           self.param_efficient, self.mc_samples,
           self.mc_samples, logits_only=True, return_locs=self.return_locs,
-          name='head')
+          name='multiclass_head')
     else:
       output_layer = ed.nn.MCSigmoidDenseFA(
           self.num_classes, self.num_factors, self.temperature,
           self.param_efficient, self.mc_samples, self.mc_samples,
-          logits_only=True, return_locs=self.return_locs, name='head')
+          logits_only=True, return_locs=self.return_locs,
+          name='multilabel_head')
 
     # TODO(markcollier): Fix base model without using stop_gradient.
     if self.fix_base_model:

@@ -49,10 +49,11 @@ def get_config():
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 50
-  config.log_eval_steps = 1000
-  # NOTE: eval is very fast O(seconds) so it's fine to run it often.
-  config.checkpoint_steps = 1000
+  config.log_training_steps = 10000
+  config.log_eval_steps = 50000
+  # NOTE: Save infrequently to prevent crowding the disk space.
+  config.checkpoint_steps = 17250
+  config.checkpoint_timeout = 10
 
   # Model section
   config.model = ml_collections.ConfigDict()
@@ -75,6 +76,7 @@ def get_config():
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
   config.weight_decay = None  # No explicit weight decay
+  config.grad_clip_norm = 1.0
 
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
@@ -85,12 +87,12 @@ def get_config():
 
   # Few-shot eval section
   config.fewshot = common_fewshot.get_fewshot()
-  config.fewshot.log_steps = 25_000
+  config.fewshot.log_steps = 50_000
   return config
 
 
 def get_sweep(hyper):
   return hyper.product([
       # Use this for the experiments that use four seeds.
-      # hyper.sweep('config.seed', list(range(4))),
+      hyper.sweep('config.seed', [0, 1]),
   ])

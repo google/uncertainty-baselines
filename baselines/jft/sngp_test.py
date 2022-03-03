@@ -147,10 +147,6 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
       config.val_split = f'train[:{num_examples}]'
       config.train_split = f'train[{num_examples}:{num_examples*2}]'
       config.num_classes = 1000
-      config.eval_on_imagenet_real = True
-      config.imagenet_real_split = f'validation[:{num_examples}]'
-      config.pp_eval_imagenet_real = (
-          'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
     pp_common = '|value_range(-1, 1)'
     pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
     pp_common += '|keep(["image", "labels"])'
@@ -176,7 +172,7 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     # TODO(dusenberrymw,jjren): Add a reproducibility test for OOD eval.
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
     self.assertAllClose(train_loss, correct_train_loss, atol=1e-3, rtol=1e-3)
-    self.assertAllClose(val_loss['val'], correct_val_loss, atol=1e-3, rtol=1e-3)
+    self.assertAllClose(val_loss['val'], correct_val_loss, atol=2e-3, rtol=2e-3)
 
 
 if __name__ == '__main__':

@@ -109,8 +109,6 @@ IMAGENET21K_2_IMAGENET_LABEL_INDICES = [
     21181, 21196, 21200, 21369, 21817]
 
 
-
-
 def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
@@ -196,3 +194,7 @@ def get_config():
   config.lr.warmup_steps = 0
   config.lr.decay_type = 'cosine'
   return config
+
+
+def get_sweep(hyper):
+  return hyper.product([])

@@ -91,3 +91,9 @@ def get_config():
   return config
 
 
+def get_sweep(hyper):
+  # Below shows an example for how to sweep hyperparameters.
+  return hyper.product([
+      hyper.sweep('config.seed', [0]),
+      hyper.sweep('config.model.temperature', [2.25]),
+  ])

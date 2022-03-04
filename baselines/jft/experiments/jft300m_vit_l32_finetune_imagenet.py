@@ -20,9 +20,6 @@ r"""ViT-B/16 finetuning on Imagenet.
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
-
-
 
 
 def get_config():
@@ -108,3 +105,10 @@ def get_config():
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
   return config
+
+
+def get_sweep(hyper):
+  return hyper.product([
+      hyper.sweep('config.total_steps', [20_000, 30_000, 40_000]),
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+  ])

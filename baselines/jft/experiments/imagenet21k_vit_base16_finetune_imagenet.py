@@ -23,8 +23,6 @@ import ml_collections
 # TODO(dusenberrymw): Open-source remaining imports.
 
 
-
-
 def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
@@ -123,3 +121,12 @@ def get_config():
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
   return config
+
+
+def get_sweep(hyper):
+  lr_grid = [0.03, 0.06]
+  steps_grid = [20_000, 30_000, 40_000]
+  return hyper.product([
+      hyper.sweep('config.lr.base', lr_grid),
+      hyper.sweep('config.total_steps', steps_grid),
+  ])

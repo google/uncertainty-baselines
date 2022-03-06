@@ -57,6 +57,21 @@ def _make_deterministic_model(num_classes=21843, representation_size=2):
   return model, config
 
 
+def _make_sngp_model(num_classes=21843, representation_size=2):
+  config = _get_config(num_classes=num_classes,
+                       representation_size=representation_size)
+  vit_kwargs = config.get("model")
+  gp_layer_kwargs = {"covmat_kwargs": {"momentum": 0.999}}
+
+  model = ub.models.vision_transformer_gp(
+      num_classes=config.num_classes,
+      use_gp_layer=True,
+      vit_kwargs=vit_kwargs,
+      gp_layer_kwargs=gp_layer_kwargs)
+
+  return model, config
+
+
 def _init_model(key, model, input_shape=(2, 224, 224, 3),
                 rand_normal_head_kernel=False):
   dummy_input = jnp.zeros(input_shape, jnp.float32)
@@ -255,7 +270,8 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
       (["head/kernel"], True),
       ([], False),
   )
-  def test_checkpointing_reinitialize(self, reinit_params, expect_new_head):
+  def test_checkpointing_reinitialize_same_models(
+      self, reinit_params, expect_new_head):
     key = jax.random.PRNGKey(42)
     init_head_val = 1.
     ckpt_head_val = 0.
@@ -308,6 +324,91 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     actual_head = checkpoint_data.optimizer.target["head"]["kernel"]
     self.assertAllClose(actual_head,
                         jnp.ones_like(actual_head) * expected_head_val)
+
+  @parameterized.parameters(
+      (["pre_logits/kernel"], True, "smaller"),
+      (["pre_logits/kernel"], True, "same"),
+      (["pre_logits/kernel"], True, "larger"),
+      ([], False, "smaller"),
+  )
+  def test_checkpointing_reinitialize_different_models(
+      self, reinit_params, expect_new_pre_logits_kernel,
+      change_downstream_pytree_size_compared_with_upstream):
+    key = jax.random.PRNGKey(42)
+    num_steps = 10
+    train_time = 3.14
+
+    output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    checkpoint_path = os.path.join(output_dir, "checkpoint.npz")
+    self.assertFalse(os.path.exists(checkpoint_path))
+
+    # Initialize a upstream deterministic model.
+    model_det, _ = _make_deterministic_model()
+    key, init_key, save_ckpt_key = jax.random.split(key, 3)
+    params_det = _init_model(init_key, model_det)
+
+    # Create optimzier and save checkpoint.
+    opt = flax.optim.Adam().create(params_det)
+    opt = opt.replace(state=opt.state.replace(step=num_steps))
+    checkpoint_utils.checkpoint_trained_model(
+        checkpoint_utils.CheckpointData(
+            optimizer=opt,
+            fixed_model_states=None,
+            accumulated_train_time=train_time,
+            train_loop_rngs=flax_utils.replicate(save_ckpt_key)),
+        path=checkpoint_path)
+
+    # Initialize a downstream SNGP model.
+    model_sngp, config_sngp = _make_sngp_model()
+    key, init_key, load_ckpt_key = jax.random.split(key, 3)
+    init_params = _init_model(init_key, model_sngp)
+    if change_downstream_pytree_size_compared_with_upstream == "smaller":
+      # We delete the head/output_layer/bias to make SNGP parameter pytree
+      # smaller than the upstream model.
+      init_params_flat = checkpoint_utils._flatten_jax_params_dict(init_params)
+      del init_params_flat["head/output_layer/bias"]
+      init_params = checkpoint_utils._unflatten_jax_params_dict(
+          init_params_flat)
+    elif change_downstream_pytree_size_compared_with_upstream == "larger":
+      # We add the head/additional_kernel to make SNGP parameter pytree
+      # larger than the upstream model.
+      init_params_flat = checkpoint_utils._flatten_jax_params_dict(init_params)
+      init_params_flat["head/additional_kernel"] = jnp.ones((2, 2))
+      init_params = checkpoint_utils._unflatten_jax_params_dict(
+          init_params_flat)
+
+    # We make the SNGP's pre_logits layer kernel a dummpy jnp.ones matrix,
+    # which makes it easy to test whether the reinitialization
+    # works as expected.
+    init_params = flax.core.unfreeze(init_params)
+    init_params["pre_logits"]["kernel"] = jnp.ones_like(
+        init_params["pre_logits"]["kernel"])
+    init_params = flax.core.freeze(init_params)
+
+    init_opt = flax.optim.Adam().create(init_params)
+    config_sngp.model_init = checkpoint_path
+    config_sngp.model_reinit_params = reinit_params
+
+    # Load checkpoint from disk.
+    checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
+        load_ckpt_key,
+        init_optimizer=init_opt,
+        init_params=init_params,
+        init_fixed_model_states=0.,
+        save_checkpoint_path=None,
+        config=config_sngp,
+        default_reinit_params=("head/kernel", "head/bias"))
+
+    self.assertEqual(checkpoint_data.optimizer.state.step, 0)
+    self.assertEqual(checkpoint_data.accumulated_train_time, 0.)
+    self.assertAllClose(checkpoint_data.train_loop_rngs,
+                        flax_utils.replicate(load_ckpt_key))
+
+    actual_kernel = checkpoint_data.optimizer.target["pre_logits"]["kernel"]
+    if expect_new_pre_logits_kernel:
+      self.assertAllClose(actual_kernel, jnp.ones_like(actual_kernel))
+    else:
+      self.assertAllClose(actual_kernel, params_det["pre_logits"]["kernel"])
 
   def test_checkpointing_no_loading(self):
     key = jax.random.PRNGKey(42)

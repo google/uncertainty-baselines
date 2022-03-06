@@ -426,12 +426,6 @@ def main(config, output_dir):
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
-  opt_cpu = opt_cpu.replace(target=adapted_params)
-
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   if first_step == 0 and jax.process_index() == 0:

@@ -244,41 +244,6 @@ def _unflatten_jax_params_dict(flat_params: Params, sep: str = "/") -> Params:
   return flax.traverse_util.unflatten_dict(tuple_to_value)
 
 
-def _inspect_params(*,
-                    params,
-                    expected,
-                    fail_if_extra=True,
-                    fail_if_missing=True):
-  """Inspects whether the params are consistent with the expected keys."""
-  params_flat = _flatten_jax_params_dict(params)
-  expected_flat = _flatten_jax_params_dict(expected)
-  missing_keys = set(expected_flat.keys()) - set(params_flat.keys())
-  extra_keys = set(params_flat.keys()) - set(expected_flat.keys())
-
-  # Adds back empty dict explicitly, to support layers without weights.
-  # Context: FLAX ignores empty dict during serialization.
-  empty_keys = set()
-  for k in missing_keys:
-    if isinstance(expected_flat[k], dict) and not expected_flat[k]:
-      params[k] = {}
-      empty_keys.add(k)
-  missing_keys -= empty_keys
-
-  if empty_keys:
-    logging.warning("Inspect recovered empty keys:\n%s", empty_keys)
-  if missing_keys:
-    logging.info("Inspect missing keys:\n%s", missing_keys)
-  if extra_keys:
-    logging.info("Inspect extra keys:\n%s", extra_keys)
-
-  if (missing_keys and fail_if_missing) or (extra_keys and fail_if_extra):
-    raise ValueError(f"Missing params from checkpoint: {missing_keys}.\n"
-                     f"Extra params in checkpoint: {extra_keys}.\n"
-                     f"Restored params from checkpoint: {params_flat.keys()}.\n"
-                     f"Expected params from code: {expected_flat.keys()}.")
-  return params
-
-
 def _tree_map_with_names(f, tree, *rest):
   """Performs a tree map with a filter on the leaf path name.
 
@@ -328,11 +293,7 @@ def restore_from_pretrained_params(init_params, loaded_params,
   """
   if "opt" in loaded_params:
     loaded_params = loaded_params["opt"]["target"]
-  restored_params = _inspect_params(
-      params=loaded_params,
-      expected=init_params,
-      fail_if_extra=False,
-      fail_if_missing=False)
+  restored_params = adapt_upstream_architecture(init_params, loaded_params)
 
   # The following allows implementing fine-tuning head variants depending on the
   # value of `representation_size` in the fine-tuning job:

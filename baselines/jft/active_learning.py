@@ -24,8 +24,12 @@ The below command is for running this script on a TPU-VM.
 Execute in `baselines/jft`:
 
 python3 active_learning.py \
-  --config='experiments/vit_l32_active_learning.py' \
-  --config.model_init='gs://ub-checkpoints/ImageNet21k_ViT-L32/1/checkpoint.npz'
+  --config='experiments/vit_l32_active_learning_cifar.py' \
+  --config.model_init='gs://ub-checkpoints/ImageNet21k_ViT-L32/1/checkpoint.npz' \
+  --output_dir active_learning_results
+
+
+Use `gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/1/checkpoint.npz` for BE
 """
 # pylint: enable=line-too-long
 
@@ -58,6 +62,7 @@ import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
+
 config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
@@ -78,6 +83,7 @@ def get_ids_logits_masks(*,
                          opt_repl,
                          ds,
                          use_pre_logits=False,
+                         average_logits=True,
                          prefetch_to_device=1,
                          config=None):
   """Obtain (pre) logits for each datapoint.
@@ -105,18 +111,19 @@ def get_ids_logits_masks(*,
     if config and config.model_type == 'batchensemble':
       ens_size = config.model.transformer.ens_size
       loss_name = config.get('loss', 'sigmoid_xent')
-      tiled_logits = logits
+      logits = jnp.asarray(jnp.split(logits, ens_size))
       if loss_name == 'sigmoid_xent':
-        ens_logits = batchensemble_utils.log_average_sigmoid_probs(
-            jnp.asarray(jnp.split(tiled_logits, ens_size)))
+        if average_logits:
+          logits = batchensemble_utils.log_average_sigmoid_probs(logits)
         pre_logits = batchensemble_utils.log_average_sigmoid_probs(
             jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
-      else:  # softmax
-        ens_logits = batchensemble_utils.log_average_softmax_probs(
-            jnp.asarray(jnp.split(tiled_logits, ens_size)))
+      elif loss_name == 'softmax_xent':
+        if average_logits:
+          logits = batchensemble_utils.log_average_softmax_probs(logits)
         pre_logits = batchensemble_utils.log_average_softmax_probs(
             jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
-      logits = ens_logits
+      else:
+        raise ValueError(f"Loss name: {loss_name} not supported.")
 
     if use_pre_logits:
       output = pre_logits
@@ -146,8 +153,14 @@ def get_ids_logits_masks(*,
     labels.append(batch_label)
     masks.append(batch_mask)
 
+  if average_logits:
+    # 0 dimension is TPU shard, 1 is batch
+    outputs = jnp.concatenate(outputs, axis=1)
+  else:
+    # 0 dimension is TPU shard, 1 is ensemble, 2 is batch
+    outputs = jnp.concatenate(outputs, axis=2)
+
   ids = jnp.concatenate(ids, axis=1)
-  outputs = jnp.concatenate(outputs, axis=1)
   labels = jnp.concatenate(labels, axis=1)
   masks = jnp.concatenate(masks, axis=1)
   # NOTE(joost,andreas): due to batch padding, entropies/ids will be of size:
@@ -179,6 +192,36 @@ def get_entropy_scores(logits, masks):
   entropy = jnp.where(masks, entropy, NINF_SCORE)
 
   return entropy
+
+
+def get_bald_scores(logits, masks):
+  """Obtain scores using BALD scoring.
+
+  Args:
+    logits: the logits of the pool set, first dimension is the ensemble.
+    masks: the masks belonging to the pool set.
+
+  Returns:
+    a list of scores belonging to the pool set.
+  """
+
+  # TPU shard, ensemble size, batch size, logits
+  _, ens_size, _, _ = logits.shape
+
+  log_probs = jax.nn.log_softmax(logits)
+  probs = jax.nn.softmax(logits)
+
+  marginal_log_probs = jax.nn.logsumexp(log_probs, axis=1) - jnp.log(ens_size)
+  marginal_probs = jnp.mean(probs, axis=1)
+
+  entropy_marginal = jnp.sum(-marginal_probs * marginal_log_probs, axis=-1)
+  marginal_entropy = jnp.mean(jnp.sum(-probs * log_probs, axis=-1), axis=1)
+  bald = entropy_marginal - marginal_entropy
+
+  bald = jnp.where(jnp.isnan(bald), 0, bald)
+  bald = jnp.where(masks, bald, NINF_SCORE)
+
+  return bald
 
 
 def get_margin_scores(logits, masks):
@@ -220,8 +263,13 @@ def get_uniform_scores(masks, rng):
   return uniform_scores
 
 
-def get_density_scores(*, model, opt_repl, train_ds, pool_pre_logits,
-                       pool_masks, config=None):
+def get_density_scores(*,
+                       model,
+                       opt_repl,
+                       train_ds,
+                       pool_pre_logits,
+                       pool_masks,
+                       config=None):
   """Obtain scores using density method.
 
   Args:
@@ -301,6 +349,50 @@ def select_acquisition_batch_indices(*, acquisition_batch_size, scores, ids,
   logging.info(msg=f'Data selected - ids: {top_ids}, with scores: {top_scores}')
 
   return top_ids, top_scores
+
+
+def acquire_points(model, current_opt_repl, pool_train_ds, train_eval_ds,
+                   train_subset_data_builder, acquisition_method, config,
+                   rng_loop):
+  pool_ids, pool_outputs, _, pool_masks = get_ids_logits_masks(
+      model=model,
+      opt_repl=current_opt_repl,
+      ds=pool_train_ds,
+      use_pre_logits=acquisition_method == 'density',
+      average_logits=acquisition_method != 'bald',
+      config=config)
+
+  if acquisition_method == 'uniform':
+    rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+    pool_scores = get_uniform_scores(pool_masks, rng_acq)
+  elif acquisition_method == 'entropy':
+    pool_scores = get_entropy_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'margin':
+    pool_scores = get_margin_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'bald':
+    pool_scores = get_bald_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'density':
+    if len(train_subset_data_builder.subset_ids) > 0:
+      pool_scores = get_density_scores(
+          model=model,
+          opt_repl=current_opt_repl,
+          train_ds=train_eval_ds,
+          pool_pre_logits=pool_outputs,
+          pool_masks=pool_masks,
+          config=config)
+    else:
+      rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+      pool_scores = get_uniform_scores(pool_masks, rng_acq)
+  else:
+    raise ValueError('Acquisition method not found.')
+
+  acquisition_batch_ids, _ = select_acquisition_batch_indices(
+      acquisition_batch_size=config.get('acquisition_batch_size', 10),
+      scores=pool_scores,
+      ids=pool_ids,
+      ignored_ids=train_subset_data_builder.subset_ids)
+
+  return acquisition_batch_ids, rng_loop
 
 
 def get_accuracy(*, evaluation_fn, opt_repl, ds, prefetch_to_device=1):
@@ -423,6 +515,8 @@ def main(config, output_dir):
   logging.info(config)
 
   acquisition_method = config.get('acquisition_method')
+  if acquisition_method == 'bald':
+    assert config.model_type == 'batchensemble', 'Bald requires batch ensemble'
 
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
@@ -559,11 +653,7 @@ def main(config, output_dir):
   if initial_training_set_size > 0:
     current_opt_repl = flax_utils.replicate(opt_cpu)
     pool_ids, _, _, pool_masks = get_ids_logits_masks(
-        model=model,
-        opt_repl=current_opt_repl,
-        ds=pool_train_ds,
-        config=config
-    )
+        model=model, opt_repl=current_opt_repl, ds=pool_train_ds, config=config)
 
     rng, initial_uniform_rng = jax.random.split(rng)
     pool_scores = get_uniform_scores(pool_masks, initial_uniform_rng)
@@ -632,8 +722,9 @@ def main(config, output_dir):
           num_epochs=num_repeats,
       )
 
-      # We use this dataset to evaluate how well we perform on the training set.
-      # We need this to evaluate if we fit well within max_steps budget.
+      # We use this dataset to evaluate how well we perform on the training set,
+      # and for fitting the feature density method.
+      # We need training set accuracy to evaluate if we fit well within max_steps budget.
       train_eval_ds = input_utils.get_data(
           dataset=train_subset_data_builder,
           split=config.train_split,
@@ -675,6 +766,8 @@ def main(config, output_dir):
         })
         current_steps = step
       accumulated_steps += current_steps + 10
+    else:
+      train_eval_ds = None
 
     test_accuracy = get_accuracy(
         evaluation_fn=evaluation_fn, opt_repl=current_opt_repl, ds=test_ds)
@@ -684,41 +777,9 @@ def main(config, output_dir):
     test_accuracies.append(test_accuracy)
     training_sizes.append(current_train_ds_length)
 
-    pool_ids, pool_outputs, _, pool_masks = get_ids_logits_masks(
-        model=model,
-        opt_repl=current_opt_repl,
-        ds=pool_train_ds,
-        use_pre_logits=acquisition_method == 'density',
-        config=config)
-
-    if acquisition_method == 'uniform':
-      rng_loop, rng_acq = jax.random.split(rng_loop, 2)
-      pool_scores = get_uniform_scores(pool_masks, rng_acq)
-    elif acquisition_method == 'entropy':
-      pool_scores = get_entropy_scores(pool_outputs, pool_masks)
-    elif acquisition_method == 'margin':
-      pool_scores = get_margin_scores(pool_outputs, pool_masks)
-    elif acquisition_method == 'density':
-      if current_train_ds_length > 0:
-        pool_scores = get_density_scores(
-            model=model,
-            opt_repl=current_opt_repl,
-            train_ds=train_eval_ds,
-            pool_pre_logits=pool_outputs,
-            pool_masks=pool_masks,
-            config=config)
-      else:
-        rng_loop, rng_acq = jax.random.split(rng_loop, 2)
-        pool_scores = get_uniform_scores(pool_masks, rng_acq)
-    else:
-      raise ValueError('Acquisition method not found.')
-
-    acquisition_batch_ids, _ = select_acquisition_batch_indices(
-        acquisition_batch_size=config.get('acquisition_batch_size', 10),
-        scores=pool_scores,
-        ids=pool_ids,
-        ignored_ids=train_subset_data_builder.subset_ids)
-
+    acquisition_batch_ids, rng_loop = acquire_points(
+        model, current_opt_repl, pool_train_ds, train_eval_ds,
+        train_subset_data_builder, acquisition_method, config, rng_loop)
     train_subset_data_builder.subset_ids.update(acquisition_batch_ids)
 
     measurements.update({'test_accuracy': test_accuracy})

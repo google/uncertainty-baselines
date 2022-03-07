@@ -497,7 +497,8 @@ def main(config, output_dir):
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
   # Prepare the precision matrix resetting schedule, and pre-fetch it to device.
-  reset_covmat_fn = lambda step: float(step % steps_per_epoch == 0)
+  reset_steps = steps_per_epoch * 1
+  reset_covmat_fn = lambda step: float(step % reset_steps == 0)
   reset_covmat_iter = train_utils.prefetch_scalar(
       map(reset_covmat_fn, range(first_step, total_steps)),
       nprefetch=config.get('prefetch_to_device', 1))
@@ -529,7 +530,7 @@ def main(config, output_dir):
   # Makes sure log_eval_steps is same as steps_per_epoch. This is because
   # the precision matrix needs to be updated fully (at the end of each epoch)
   # when eval takes place.
-  log_eval_steps = steps_per_epoch
+  log_eval_steps = max(steps_per_epoch, 2)
   if first_step > 0:
     write_note('Advancing iterators after resuming from a checkpoint...')
     lr_iter = itertools.islice(lr_iter, first_step, None)

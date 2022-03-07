@@ -199,7 +199,7 @@ def imagenet_fewshot(hyper,
   config.dataset = name
   config.train_split = 'train'
   config.pp_train = pp_train
-  config.val_split = 'validation'
+  config.val_split = 'tune'
   config.test_split = 'validation'
   config.pp_eval = pp_eval
   config.num_classes = n_cls

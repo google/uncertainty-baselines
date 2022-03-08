@@ -290,13 +290,11 @@ def main(config, output_dir):
     if loss_name == 'sigmoid_xent':
       ens_logits = batchensemble_utils.log_average_sigmoid_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
     else:  # softmax
       ens_logits = batchensemble_utils.log_average_softmax_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+    pre_logits = jnp.concatenate(
+        jnp.split(out['pre_logits'], ens_size), axis=-1)
 
     losses = getattr(train_utils, loss_name)(
         logits=ens_logits,
@@ -323,13 +321,11 @@ def main(config, output_dir):
     if loss_name == 'sigmoid_xent':
       ens_logits = batchensemble_utils.log_average_sigmoid_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
     else:  # softmax
       ens_logits = batchensemble_utils.log_average_softmax_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+    pre_logits = jnp.concatenate(
+        jnp.split(out['pre_logits'], ens_size), axis=-1)
 
     label_indices = config.get('label_indices')
     if label_indices:

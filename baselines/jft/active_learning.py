@@ -107,7 +107,6 @@ def get_ids_logits_masks(*,
     logits, out = model.apply({'params': flax.core.freeze(params)},
                               images,
                               train=False)
-    pre_logits = out['pre_logits']
     if config and config.model_type == 'batchensemble':
       ens_size = config.model.transformer.ens_size
       loss_name = config.get('loss', 'sigmoid_xent')
@@ -115,17 +114,15 @@ def get_ids_logits_masks(*,
       if loss_name == 'sigmoid_xent':
         if average_logits:
           logits = batchensemble_utils.log_average_sigmoid_probs(logits)
-        pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-            jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
       elif loss_name == 'softmax_xent':
         if average_logits:
           logits = batchensemble_utils.log_average_softmax_probs(logits)
-        pre_logits = batchensemble_utils.log_average_softmax_probs(
-            jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
       else:
         raise ValueError(f'Loss name: {loss_name} not supported.')
 
     if use_pre_logits:
+      pre_logits = jnp.concatenate(
+          jnp.split(out['pre_logits'], ens_size), axis=-1)
       output = pre_logits
     else:
       output = logits

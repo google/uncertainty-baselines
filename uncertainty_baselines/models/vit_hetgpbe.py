@@ -192,16 +192,11 @@ class VisionTransformerHetGPBE(nn.Module):
       if self.multiclass:
         logits = log_average_softmax_probs(
             jnp.asarray(jnp.split(logits, self.transformer.get('ens_size'))))
-        out['pre_ens_logits'] = out['pre_logits']
-        out['pre_logits'] = log_average_softmax_probs(
-            jnp.asarray(jnp.split(out['pre_logits'],
-                                  self.transformer.get('ens_size'))))
       else:
         logits = log_average_sigmoid_probs(
             jnp.asarray(jnp.split(logits, self.transformer.get('ens_size'))))
-        out['pre_ens_logits'] = out['pre_logits']
-        out['pre_logits'] = log_average_sigmoid_probs(
-            jnp.asarray(jnp.split(out['pre_logits'],
-                                  self.transformer.get('ens_size'))))
+      out['pre_logits'] = jnp.concatenate(
+          jnp.split(out['pre_logits'], self.transformer.get('ens_size')),
+          axis=-1)
 
     return logits, out

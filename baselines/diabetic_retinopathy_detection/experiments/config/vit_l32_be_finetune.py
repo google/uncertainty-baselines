@@ -28,17 +28,15 @@ def get_config():
   """Config."""
   config = ml_collections.ConfigDict()
 
-  # Data load / output flags
-
-  # The directory where the model weights and training/evaluation summaries
-  #   are stored.
-  config.output_dir = (
-      '/tmp/diabetic_retinopathy_detection/vit-32-i21k/batchensemble')
-
+  # Directories
   # model_init should be modified per experiment
   config.model_init = ('gs://ub-checkpoints/ImageNet21k_BE-L32/'
       'baselines-jft-0209_205214/1/checkpoint.npz')
   config.data_dir = 'gs://ub-data/retinopathy'
+  The directory where the model weights and training/evaluation summaries
+    are stored.
+  config.output_dir = (
+      '/tmp/diabetic_retinopathy_detection/vit-32-i21k/batchensemble')
 
   # REQUIRED: distribution shift.
   # 'aptos': loads APTOS (India) OOD validation and test datasets.
@@ -47,10 +45,9 @@ def get_config():
   #   of the Kaggle/EyePACS dataset to hold out clinical severity labels as OOD.
   config.distribution_shift = 'aptos'
 
-  # If provided, resume training and/or conduct evaluation using this
-  #   checkpoint. Will only be used if the output_dir does not already
-  #   contain a checkpointed model. See `checkpoint_utils.py`.
-  config.resume_checkpoint_path = None
+  # If checkpoint path is provided, resume training and/or conduct evaluation
+  #   with this checkpoint. See `checkpoint_utils.py`.
+  config.resume = None
 
   config.prefetch_to_device = 2
   config.trial = 0
@@ -85,9 +82,12 @@ def get_config():
   config.model.representation_size = None
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
+  config.model.transformer.be_layers = (22, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = -0.5  # set in sweep
+  # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
+  # need checkpoints that only apply BE on the FF block.
+  config.model.transformer.ensemble_attention = True
   config.fast_weight_lr_multiplier = 1.0  # set in sweep
 
   # Preprocessing

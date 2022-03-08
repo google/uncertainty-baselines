@@ -337,6 +337,7 @@ def compute_loss(labels_1: tf.Tensor,
   else:
     probability = tf.keras.activations.softmax(logits)
     constraint_loss_weight = psl_constraint_loss_weight
+    psl_constraint_model.generate_predicates(psl_inputs)
     constraint_loss_per_rule = psl_constraint_model.compute_loss_per_rule(
         psl_inputs, probability)
     constraint_loss = sum(constraint_loss_per_rule)

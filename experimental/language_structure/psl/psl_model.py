@@ -33,6 +33,10 @@ class PSLModel(abc.ABC):
     self.rule_weights = rule_weights
     self.kwargs = kwargs
 
+  def generate_predicates(self, data: tf.Tensor):
+    """Generates potentials used throughout the rules."""
+    pass
+
   @abc.abstractmethod
   def compute_loss(self, data: tf.Tensor, logits: tf.Tensor) -> float:
     pass

@@ -22,8 +22,8 @@ File consists of:
 
 from typing import List
 
-import psl_model
 import tensorflow as tf
+import psl_model  # local file import from experimental.language_structure.psl
 
 
 class PSLModelDSTCSynthetic(psl_model.PSLModel):
@@ -41,6 +41,7 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
     self.batch_size = self.config['batch_size']
     self.dialog_size = self.config['max_dialog_size']
     self.state_transitions = self.config['state_transitions']
+    self.predicates = {}
 
   def _get_tensor_column(self, data, index):
     """Gathers a column in a tensor and reshapes."""

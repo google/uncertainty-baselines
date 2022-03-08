@@ -15,12 +15,13 @@
 
 """Tests for ood_utils."""
 
+from absl.testing import absltest
+from absl.testing import parameterized
 import numpy as np
-import tensorflow as tf
 import ood_utils  # local file import from baselines.jft
 
 
-class OodUtilsTest(tf.test.TestCase):
+class OodUtilsTest(parameterized.TestCase):
 
   def setUp(self):
     super(OodUtilsTest, self).setUp()
@@ -59,15 +60,15 @@ class OodUtilsTest(tf.test.TestCase):
     labels = np.array(labels_list)
     mean_list, cov = ood_utils.compute_mean_and_cov(embeds, labels)
     for a, b in zip(mean_list, self.mean_list):
-      self.assertAllClose(a, b, atol=0.1)
-    self.assertAllClose(cov, self.cov, atol=0.1)
+      np.testing.assert_allclose(a, b, atol=0.1)
+    np.testing.assert_allclose(cov, self.cov, atol=0.1)
 
   def test_compute_mahalanobis_distance(self):
     embeds = np.array([[-1, 0], [1, 0], [10, 0]])
     dists = ood_utils.compute_mahalanobis_distance(embeds, self.mean_list,
                                                    self.cov)
-    self.assertAllEqual(np.array([0, 0, 81]), np.min(dists, axis=-1))
+    np.testing.assert_array_equal(np.array([0, 0, 81]), np.min(dists, axis=-1))
 
 
 if __name__ == "__main__":
-  tf.test.main()
+  absltest.main()

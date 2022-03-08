@@ -15,11 +15,12 @@
 
 """Tests for deep_ensemble."""
 
+from absl.testing import absltest
 from absl.testing import parameterized
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import tensorflow as tf
+import numpy as np
 import deep_ensemble  # local file import from baselines.jft
 
 
@@ -33,7 +34,7 @@ class DummyModel(nn.Module):
     return y, {'pre_logits': y}
 
 
-class DeepEnsembleTest(parameterized.TestCase, tf.test.TestCase):
+class DeepEnsembleTest(parameterized.TestCase):
 
   @parameterized.parameters((1, 'softmax_xent'), (3, 'softmax_xent'),
                             (5, 'softmax_xent'), (1, 'sigmoid_xent'),
@@ -67,8 +68,10 @@ class DeepEnsembleTest(parameterized.TestCase, tf.test.TestCase):
       link_fn = jax.nn.sigmoid
 
     expected_probs = jnp.mean(link_fn(raw_logits), axis=0)
-    self.assertAllClose(link_fn(actual_logits), expected_probs)
-    self.assertAllClose(link_fn(actual_pre_logits), expected_probs)
+    np.testing.assert_allclose(link_fn(actual_logits), expected_probs,
+                               rtol=1e-06, atol=1e-06)
+    np.testing.assert_allclose(link_fn(actual_pre_logits), expected_probs,
+                               rtol=1e-06, atol=1e-06)
 
 if __name__ == '__main__':
-  tf.test.main()
+  absltest.main()

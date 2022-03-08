@@ -24,6 +24,7 @@ import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
 import ml_collections
+import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
@@ -171,12 +172,22 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     leaves = jax.tree_util.tree_leaves(tree)
     new_leaves = jax.tree_util.tree_leaves(new_tree)
     for arr, new_arr in zip(leaves, new_leaves):
-      self.assertNotAllClose(arr, new_arr)
+      # Cast from bfloat16 as np.testing does not support it.
+      arr = arr.astype(np.float32) if arr.dtype == jax.dtypes.bfloat16 else arr
+      new_arr = (new_arr.astype(np.float32)
+                 if new_arr.dtype == jax.dtypes.bfloat16 else new_arr)
+      np.testing.assert_raises(
+          AssertionError, np.testing.assert_allclose, arr, new_arr)
 
     restored_tree = checkpoint_utils.load_checkpoint(new_tree, checkpoint_path)
     restored_leaves = jax.tree_util.tree_leaves(restored_tree)
     for arr, restored_arr in zip(leaves, restored_leaves):
-      self.assertAllClose(arr, restored_arr)
+      # Cast from bfloat16 as np.testing does not support it.
+      arr = arr.astype(np.float32) if arr.dtype == jax.dtypes.bfloat16 else arr
+      restored_arr = (
+          restored_arr.astype(np.float32)
+          if restored_arr.dtype == jax.dtypes.bfloat16 else restored_arr)
+      np.testing.assert_allclose(arr, restored_arr)
 
   def test_checkpointing_model(self):
     key = jax.random.PRNGKey(42)
@@ -194,7 +205,7 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     restored_leaves = jax.tree_util.tree_leaves(restored_params)
     leaves = jax.tree_util.tree_leaves(params)
     for arr, restored_arr in zip(leaves, restored_leaves):
-      self.assertAllClose(arr, restored_arr)
+      np.testing.assert_allclose(arr, restored_arr)
 
     key, subkey = jax.random.split(key)
     inputs = jax.random.normal(subkey, input_shape, jnp.float32)
@@ -203,8 +214,12 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     _, restored_out = model.apply({"params": restored_params},
                                   inputs,
                                   train=False)
-    self.assertNotAllClose(out["pre_logits"], new_out["pre_logits"])
-    self.assertAllClose(out["pre_logits"], restored_out["pre_logits"])
+    np.testing.assert_raises(
+        AssertionError,
+        np.testing.assert_allclose,
+        out["pre_logits"],
+        new_out["pre_logits"])
+    np.testing.assert_allclose(out["pre_logits"], restored_out["pre_logits"])
 
 
   @parameterized.named_parameters(
@@ -260,11 +275,18 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(checkpoint_data.optimizer.state.step, num_steps)
     self.assertEqual(checkpoint_data.fixed_model_states, states)
     self.assertEqual(checkpoint_data.accumulated_train_time, train_time)
-    self.assertAllClose(checkpoint_data.train_loop_rngs,
-                        flax_utils.replicate(save_ckpt_key))
+    np.testing.assert_allclose(checkpoint_data.train_loop_rngs,
+                               flax_utils.replicate(save_ckpt_key))
 
-    self.assertAllClose(checkpoint_data.optimizer.target, params)
-    self.assertNotAllClose(checkpoint_data.optimizer.target, init_params)
+    def assert_dict_allclose(dict1, dict2):
+      leaves1 = jax.tree_util.tree_leaves(dict1)
+      leaves2 = jax.tree_util.tree_leaves(dict2)
+      for arr1, arr2 in zip(leaves1, leaves2):
+        np.testing.assert_allclose(arr1, arr2)
+
+    assert_dict_allclose(params, checkpoint_data.optimizer.target)
+    np.testing.assert_raises(
+        AssertionError, assert_dict_allclose, params, init_params)
 
   @parameterized.parameters(
       (["head/kernel"], True),
@@ -317,13 +339,14 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertEqual(checkpoint_data.optimizer.state.step, 0)
     self.assertEqual(checkpoint_data.accumulated_train_time, 0.)
-    self.assertAllClose(checkpoint_data.train_loop_rngs,
-                        flax_utils.replicate(load_ckpt_key))
+    np.testing.assert_allclose(checkpoint_data.train_loop_rngs,
+                               flax_utils.replicate(load_ckpt_key))
 
     expected_head_val = init_head_val if expect_new_head else ckpt_head_val
     actual_head = checkpoint_data.optimizer.target["head"]["kernel"]
-    self.assertAllClose(actual_head,
-                        jnp.ones_like(actual_head) * expected_head_val)
+    np.testing.assert_allclose(
+        actual_head,
+        jnp.ones_like(actual_head) * expected_head_val)
 
   @parameterized.parameters(
       (["pre_logits/kernel"], True, "smaller"),
@@ -435,9 +458,14 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(checkpoint_data.optimizer.state.step, 0)
     self.assertEqual(checkpoint_data.accumulated_train_time, 0.)
 
-    self.assertAllClose(checkpoint_data.optimizer.target, opt.target)
-    self.assertAllClose(checkpoint_data.train_loop_rngs,
-                        flax_utils.replicate(ckpt_key))
+    restored_leaves = jax.tree_util.tree_leaves(
+        checkpoint_data.optimizer.target)
+    leaves = jax.tree_util.tree_leaves(opt.target)
+    for arr, restored_arr in zip(leaves, restored_leaves):
+      np.testing.assert_allclose(arr, restored_arr)
+
+    np.testing.assert_allclose(checkpoint_data.train_loop_rngs,
+                               flax_utils.replicate(ckpt_key))
 
   def test_adapt_upstream_architecture_toy(self):
     init_params = {"a": {"b": 1, "c": 2}, "d": 3}
@@ -606,7 +634,7 @@ _MODEL_TO_PARAMS_AND_KEYS = {
 }
 
 
-class AdaptUpstreamModelTest(parameterized.TestCase, tf.test.TestCase):
+class AdaptUpstreamModelTest(parameterized.TestCase):
 
   @parameterized.product(
       upstream_model=[
@@ -647,12 +675,12 @@ class AdaptUpstreamModelTest(parameterized.TestCase, tf.test.TestCase):
       self.assertNotIn(key, actual_keys)
 
     for key in shared_keys:
-      self.assertAllEqual(flattened_adapted_params[key],
-                          flattened_upstream_params[key])
+      np.testing.assert_array_equal(flattened_adapted_params[key],
+                                    flattened_upstream_params[key])
 
     for key in expected_new_keys:
-      self.assertAllEqual(flattened_adapted_params[key],
-                          flattened_downstream_params[key])
+      np.testing.assert_array_equal(flattened_adapted_params[key],
+                                    flattened_downstream_params[key])
 
 
 if __name__ == "__main__":

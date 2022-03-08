@@ -15,14 +15,14 @@
 
 """Tests for training utilities used in the ViT experiments."""
 
+from absl.testing import absltest
 from absl.testing import parameterized
-
 import jax
-import tensorflow as tf
+import numpy as np
 import train_utils  # local file import from baselines.jft
 
 
-class TrainUtilsTest(tf.test.TestCase, parameterized.TestCase):
+class TrainUtilsTest(parameterized.TestCase):
 
   def test_sigmoid_xent(self):
     key = jax.random.PRNGKey(42)
@@ -32,7 +32,8 @@ class TrainUtilsTest(tf.test.TestCase, parameterized.TestCase):
     labels = jax.random.bernoulli(key2, shape=(n,))
     expected_loss = 5.22126
     actual_loss = train_utils.sigmoid_xent(logits=logits, labels=labels)
-    self.assertAllClose(actual_loss, expected_loss)
+    np.testing.assert_allclose(actual_loss, expected_loss,
+                               rtol=1e-06, atol=1e-06)
 
   def test_softmax_xent(self):
     key = jax.random.PRNGKey(42)
@@ -45,7 +46,8 @@ class TrainUtilsTest(tf.test.TestCase, parameterized.TestCase):
         num_classes=k)
     expected_loss = 2.55749
     actual_loss = train_utils.sigmoid_xent(logits=logits, labels=labels)
-    self.assertAllClose(actual_loss, expected_loss)
+    np.testing.assert_allclose(actual_loss, expected_loss,
+                               rtol=1e-06, atol=1e-06)
 
   def test_accumulate_gradient(self):
     # TODO(dusenberrymw): Add a test for this.
@@ -68,12 +70,13 @@ class TrainUtilsTest(tf.test.TestCase, parameterized.TestCase):
         0.07502499967813492
     ]
     actual_lrs = [float(lr_fn(i)) for i in range(5)]
-    self.assertAllClose(actual_lrs, expected_lrs)
+    np.testing.assert_allclose(actual_lrs, expected_lrs)
 
     decay_type = "cosine"
     expected_lrs = [0., 0.05, 0.1, 0.087513, 0.075025]
     actual_lrs = [float(lr_fn(i)) for i in range(5)]
-    self.assertAllClose(actual_lrs, expected_lrs)
+    np.testing.assert_allclose(actual_lrs, expected_lrs,
+                               rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
       dict(weight_decay_rules=[],
@@ -103,7 +106,10 @@ class TrainUtilsTest(tf.test.TestCase, parameterized.TestCase):
     weight_decay_fn = train_utils.get_weight_decay_fn(
         weight_decay_rules, rescale_value)
     actual_decayed_params = weight_decay_fn(input_params, learning_rate)
-    self.assertAllClose(actual_decayed_params, expected_decayed_params)
+    actual_leaves = jax.tree_util.tree_leaves(actual_decayed_params)
+    expected_leaves = jax.tree_util.tree_leaves(expected_decayed_params)
+    for actual_arr, expected_arr in zip(actual_leaves, expected_leaves):
+      np.testing.assert_allclose(actual_arr, expected_arr)
 
   def test_tree_map_with_regex(self):
     d = {"this": 1, "that": {"another": 2, "wow": 3, "cool": {"neat": 4}}}
@@ -162,4 +168,4 @@ class TrainUtilsTest(tf.test.TestCase, parameterized.TestCase):
 
 
 if __name__ == "__main__":
-  tf.test.main()
+  absltest.main()

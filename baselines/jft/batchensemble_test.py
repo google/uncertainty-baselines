@@ -136,17 +136,19 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
 
     actual_logits = batchensemble_utils.log_average_softmax_probs(
         ensemble_logits)
-    self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
+    self.assertEqual(actual_logits.shape, (batch_size, num_classes))
 
     expected_probs = jnp.mean(jax.nn.softmax(ensemble_logits), axis=0)
-    self.assertAllClose(jax.nn.softmax(actual_logits), expected_probs)
+    np.testing.assert_allclose(jax.nn.softmax(actual_logits), expected_probs,
+                               rtol=1e-06, atol=1e-06)
 
     actual_logits = batchensemble_utils.log_average_sigmoid_probs(
         ensemble_logits)
-    self.assertAllEqual(actual_logits.shape, (batch_size, num_classes))
+    self.assertEqual(actual_logits.shape, (batch_size, num_classes))
 
     expected_probs = jnp.mean(jax.nn.sigmoid(ensemble_logits), axis=0)
-    self.assertAllClose(jax.nn.sigmoid(actual_logits), expected_probs)
+    np.testing.assert_allclose(jax.nn.sigmoid(actual_logits), expected_probs,
+                               rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
       ('token', 2, 13350.85, 12320.728299),
@@ -172,8 +174,10 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
 
     # Check for reproducibility.
     logging.info('(train_loss, val_loss) = %s, %s', train_loss, val_loss['val'])
-    self.assertAllClose(train_loss, correct_train_loss)
-    self.assertAllClose(val_loss['val'], correct_val_loss)
+    np.testing.assert_allclose(train_loss, correct_train_loss,
+                               rtol=1e-06, atol=1e-06)
+    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
+                               rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
       ('token', 2),

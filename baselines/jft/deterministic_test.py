@@ -23,7 +23,7 @@ from absl import logging
 from absl.testing import flagsaver
 from absl.testing import parameterized
 import jax
-# import ml_collections
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import checkpoint_utils  # local file import from baselines.jft
@@ -96,8 +96,10 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
-    self.assertAllClose(train_loss, correct_train_loss)
-    self.assertAllClose(val_loss['val'], correct_val_loss)
+    np.testing.assert_allclose(train_loss, correct_train_loss,
+                               rtol=1e-06, atol=1e-06)
+    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
+                               rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
       ('imagenet2012', 'token', 2, 569.38904, 521.6078152126, 0.56, 'imagenet'),
@@ -166,8 +168,10 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw,jjren): Add a reproducibility test for OOD eval.
-    self.assertAllClose(train_loss, correct_train_loss)
-    self.assertAllClose(val_loss['val'], correct_val_loss)
+    np.testing.assert_allclose(train_loss, correct_train_loss,
+                               rtol=1e-06, atol=1e-06)
+    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
+                               rtol=1e-06, atol=1e-06)
 
 
 if __name__ == '__main__':

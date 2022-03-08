@@ -27,23 +27,26 @@ def get_config():
   """Config for finetuning."""
   config = ml_collections.ConfigDict()
 
-  config.model_init = '/cns/tp-d/home/trandustin/baselines-jft-0209_205214/1/checkpoint.npz'  # pass as parameter to script
+  config.model_init = ''  # pass as parameter to script
+  config.dataset = 'cifar10'
+
   # pylint: enable=line-too-long
   config.seed = 0
 
-  n_cls = 100
+  n_cls = int(config.dataset[5:])
   size = 384
 
+  config.model_type = 'batchensemble'
+  # config.model_type = 'deterministic'
+
   # AL section:
-  config.model_type = 'deterministic'  # 'batchensemble'
-  config.acquisition_method = 'margin'
+  config.acquisition_method = 'bald'
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
   config.acquisition_batch_size = 10
   config.early_stopping_patience = 64
 
   # Dataset section:
-  config.dataset = 'cifar100'
   config.val_split = 'train[98%:]'
   config.train_split = 'train[:98%]'
   config.test_split = 'test'
@@ -80,13 +83,15 @@ def get_config():
   config.model.transformer.attention_dropout_rate = 0.
   config.model.transformer.dropout_rate = 0.
   config.model.classifier = 'token'
-  # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
-  config.model.transformer.ens_size = 3
-  config.model.transformer.random_sign_init = -0.5
-  config.fast_weight_lr_multiplier = 1.0
   # This is "no head" fine-tuning, which we use by default.
   config.model.representation_size = None
+
+  # BatchEnsemble parameters.
+  if config.model_type == 'batchensemble':
+    config.model.transformer.be_layers = (21, 22, 23)
+    config.model.transformer.ens_size = 3
+    config.model.transformer.random_sign_init = -0.5
+    config.fast_weight_lr_multiplier = 1.0
 
   # Optimizer section
   config.optim_name = 'Momentum'

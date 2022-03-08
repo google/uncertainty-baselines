@@ -34,6 +34,8 @@ def get_config():
   n_cls = 365
   size = 384
 
+  config.model_type = 'deterministic'
+
   # AL section:
   config.acquisition_method = 'uniform'
   config.max_training_set_size = 200

@@ -36,7 +36,7 @@ def get_config():
   config.acquisition_method = ''  # set in sweep
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
-  config.acquisition_batch_size = 5
+  config.acquisition_batch_size = 1
   config.early_stopping_patience = 64
 
   # Dataset section
@@ -110,8 +110,8 @@ def get_sweep(hyper):
   """Sweeps over datasets."""
   # Adapted the sweep over checkpoints from vit_l32_finetune.py.
 
-  sweep_lr = False  # whether to sweep over learning rates
-  acquisition_methods = ['entropy', 'margin']
+  sweep_lr = True  # whether to sweep over learning rates
+  acquisition_methods = ['uniform', 'entropy', 'margin']
   #. ['uniform', 'entropy', 'margin', 'density']
   def sweep_checkpoints(use_jft, sweep_lr=sweep_lr):
     """whether to use JFT-300M or ImageNet-21K settings."""
@@ -125,6 +125,8 @@ def get_sweep(hyper):
       cifar100_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
       cifar100_sweep = hyper.product(cifar100_sweep)
 
+      # Temporarity disable imagenet and places due to OOM.
+      # pylint: disable=unused-variable
       imagenet_sweep = sweep_utils.imagenet(hyper, steps=1000)
       imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
       imagenet_sweep = hyper.product(imagenet_sweep)
@@ -133,6 +135,7 @@ def get_sweep(hyper):
           hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
           hyper.sweep('config.lr.base', [0.03]),
       ])
+      # pylint: enable=unused-variable
     else:
       cifar10_sweep = sweep_utils.cifar10(hyper, steps=1000)
       cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
@@ -178,8 +181,8 @@ def get_sweep(hyper):
         hyper.chainit([
             cifar10_sweep,
             cifar100_sweep,
-            places365_sweep,
-            imagenet_sweep,
+            # places365_sweep,
+            # imagenet_sweep,
         ]),
         hyper.sweep('config.model_init', checkpoints),
         hyper.sweep('config.acquisition_method', acquisition_methods),

@@ -32,7 +32,7 @@ def get_config():
   config.acquisition_method = ''  # set in sweep
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
-  config.acquisition_batch_size = 5
+  config.acquisition_batch_size = 1
   config.early_stopping_patience = 64
 
   config.dataset = ''  # set in sweep
@@ -113,14 +113,16 @@ def get_sweep(hyper):
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
   cifar10_sweep = hyper.product([
       hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.01]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
 
   cifar100_sweep = hyper.product([
       hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.03]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
 
+  # Temporarity disable imagenet and places due to OOM.
+  # pylint: disable=unused-variable
   imagenet_sweep = hyper.product([
       hyper.product(sweep_utils.imagenet(hyper, steps=1000)),
       hyper.sweep('config.lr.base', [0.06, 0.03]),
@@ -130,14 +132,15 @@ def get_sweep(hyper):
       hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
       hyper.sweep('config.lr.base', [0.06, 0.03]),
   ])
+  # pylint: enable=unused-variable
 
   return hyper.product([
       hyper.sweep('config.acquisition_method', acquisition_methods),
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
-          imagenet_sweep,
-          places365_sweep,
+          # imagenet_sweep,
+          # places365_sweep,
       ]),
       hyper.product([
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),

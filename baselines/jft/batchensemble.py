@@ -285,6 +285,11 @@ def main(config, output_dir):
                                     images,
                                     train=False)
 
+    label_indices = config.get('label_indices')
+    logging.info('!!! mask %s, label_indices %s', mask, label_indices)
+    if label_indices:
+      tiled_logits = tiled_logits[:, label_indices]
+
     loss_name = config.get('loss', 'sigmoid_xent')
     # TODO(dusenberrymw,zmariet): Clean up and generalize this.
     if loss_name == 'sigmoid_xent':
@@ -298,7 +303,8 @@ def main(config, output_dir):
 
     losses = getattr(train_utils, loss_name)(
         logits=ens_logits,
-        labels=labels[:, :config.num_classes],
+        labels=labels[:, :(len(label_indices) if label_indices
+                           else config.num_classes)],
         reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
@@ -590,8 +596,11 @@ def main(config, output_dir):
               oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
               if val_name == 'cifar_10h' or val_name == 'imagenet_real':
+                num_classes = config.num_classes
+                if config.get('label_indices'):
+                  num_classes = len(config.get('label_indices'))
                 batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
-                    label[m], p[m, :], config.num_classes)
+                    label[m], p[m, :], num_classes)
                 label_diversity.update_state(batch_label_diversity)
                 sample_diversity.update_state(batch_sample_diversity)
                 ged.update_state(batch_ged)

@@ -95,7 +95,7 @@ def ensemble_prediction_fn(model_apply_fn, params, images, loss_as_str):
   ens_logits = ens_logits_fn(ens_logits)
 
   ens_prelogits = jnp.asarray([out['pre_logits'] for _, out in outputs])
-  ens_prelogits = ens_logits_fn(ens_prelogits)
+  ens_prelogits = jnp.concatenate(ens_prelogits, axis=-1)
 
   return ens_logits, ens_prelogits
 

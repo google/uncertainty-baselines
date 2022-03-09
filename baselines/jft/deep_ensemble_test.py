@@ -68,9 +68,10 @@ class DeepEnsembleTest(parameterized.TestCase):
       link_fn = jax.nn.sigmoid
 
     expected_probs = jnp.mean(link_fn(raw_logits), axis=0)
+    expected_pre_logits = jnp.concatenate(raw_logits, axis=-1)
     np.testing.assert_allclose(link_fn(actual_logits), expected_probs,
                                rtol=1e-06, atol=1e-06)
-    np.testing.assert_allclose(link_fn(actual_pre_logits), expected_probs,
+    np.testing.assert_allclose(actual_pre_logits, expected_pre_logits,
                                rtol=1e-06, atol=1e-06)
 
 if __name__ == '__main__':

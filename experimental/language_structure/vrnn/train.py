@@ -599,21 +599,23 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       psl_optimizer = None
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
-    checkpoint_manager = tf.train.CheckpointManager(
-        checkpoint, directory=output_dir, max_to_keep=None)
-    if model_dir:
-      best_model_checkpoint_manager = tf.train.CheckpointManager(
-          checkpoint, directory=model_dir, max_to_keep=1)
-    else:
-      best_model_checkpoint_manager = None
-    # checkpoint.restore must be within a strategy.scope() so that optimizer
-    # slot variables are mirrored.
-    latest_checkpoint = checkpoint_manager.restore_or_initialize()
+    # If we found a valid checkpoint in output_dir, the job is an auto-retry one
+    # and we should continue training; otherwise we try first initialize from
+    # config.init_checkpoint or config.init_dir
+    init_checkpoint = tf.train.latest_checkpoint(output_dir)
+    if not init_checkpoint:
+      if config.init_checkpoint:
+        init_checkpoint = config.init_checkpoint
+      elif config.init_dir:
+        init_checkpoint = tf.train.latest_checkpoint(config.init_dir)
     initial_epoch = 0
-    if latest_checkpoint:
+    if init_checkpoint:
+      # checkpoint.restore must be within a strategy.scope() so that optimizer
+      # slot variables are mirrored.
+      checkpoint.restore(init_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
       logging.info('Loaded checkpoint %s. Initialize from epoch %s',
-                   latest_checkpoint, initial_epoch)
+                   init_checkpoint, initial_epoch)
     elif config.shared_bert_embedding:
       # load BERT from initial checkpoint
       bert_ckpt_dir = config.model.vae_cell.shared_bert_embedding_ckpt_dir
@@ -868,13 +870,14 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
                                   config.min_delta):
         primary_metric = total_results[_PRIMARY_METRIC_KEY]
         out_of_patience = 0
-        if best_model_checkpoint_manager:
-          best_model_checkpoint_manager.save(checkpoint_number=epoch)
         if best_summary_writer:
           with best_summary_writer.as_default():
             for name, result in total_results.items():
               tf.summary.scalar(name, result, step=epoch)
         if model_dir:
+          checkpoint_name = checkpoint.save(
+              os.path.join(model_dir, 'checkpoint'))
+          logging.info('Saved checkpoint to %s', checkpoint_name)
           _save_model_results(train_model_outputs, model_dir, _TRAIN)
           _save_model_results(test_model_outputs, model_dir, _TEST)
       else:
@@ -886,8 +889,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
     if (config.checkpoint_interval > 0 and
         (epoch + 1) % config.checkpoint_interval == 0):
-      logging.info('Saving checkpoint.')
-      checkpoint_manager.save(checkpoint_number=epoch)
+      checkpoint_name = checkpoint.save(os.path.join(output_dir, 'checkpoint'))
+      logging.info('Saved checkpoint to %s', checkpoint_name)
       if fixed_train_epoch:
         _save_model_results(train_model_outputs, output_dir, _TRAIN)
         _save_model_results(test_model_outputs, output_dir, _TEST)

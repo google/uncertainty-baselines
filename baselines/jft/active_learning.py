@@ -244,6 +244,26 @@ def get_margin_scores(logits, masks):
   return margin_scores
 
 
+def get_msp_scores(logits, masks):
+  """Obtain scores using maximum softmax probability scoring.
+
+  Args:
+    logits: the logits of the pool set.
+    masks: the masks belonging to the pool set.
+
+  Returns:
+    a list of scores belonging to the pool set.
+  """
+  probs = jax.nn.softmax(logits)
+  max_probs = jnp.max(probs, axis=-1)
+
+  # High max prob means low uncertainty, so we invert the value.
+  msp_scores = -max_probs
+  msp_scores = jnp.where(masks, msp_scores, NINF_SCORE)
+
+  return msp_scores
+
+
 def get_uniform_scores(masks, rng):
   """Obtain scores using uniform sampling.
 
@@ -367,6 +387,8 @@ def acquire_points(model, current_opt_repl, pool_train_ds, train_eval_ds,
     pool_scores = get_entropy_scores(pool_outputs, pool_masks)
   elif acquisition_method == 'margin':
     pool_scores = get_margin_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'msp':
+    pool_scores = get_msp_scores(pool_outputs, pool_masks)
   elif acquisition_method == 'bald':
     pool_scores = get_bald_scores(pool_outputs, pool_masks)
   elif acquisition_method == 'density':

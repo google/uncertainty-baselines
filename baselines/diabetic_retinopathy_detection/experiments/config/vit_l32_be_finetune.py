@@ -33,8 +33,8 @@ def get_config():
   config.model_init = ('gs://ub-checkpoints/ImageNet21k_BE-L32/'
       'baselines-jft-0209_205214/1/checkpoint.npz')
   config.data_dir = 'gs://ub-data/retinopathy'
-  The directory where the model weights and training/evaluation summaries
-    are stored.
+  # The directory where the model weights and training/evaluation summaries
+  #   are stored.
   config.output_dir = (
       '/tmp/diabetic_retinopathy_detection/vit-32-i21k/batchensemble')
 

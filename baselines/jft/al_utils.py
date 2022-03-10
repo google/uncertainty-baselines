@@ -95,7 +95,6 @@ class SubsetDatasetBuilder(DatasetBuilder):
     """
     self.subset_ids = set(subset_ids) if subset_ids is not None else None
     self.base_dataset_builder = base_dataset_builder
-    self.info = base_dataset_builder.info
 
   def as_dataset(self,
                  split: Union[str, tfds.core.ReadInstruction],
@@ -122,7 +121,6 @@ class SubsetDatasetBuilder(DatasetBuilder):
     dataset = tf.data.Dataset.from_generator(
         _subset_generator(
             dataset=dataset,
-            dataset_info=self.base_dataset_builder.info,
             subset_ids=self.subset_ids,
             splitwise_id=True),
         output_signature=element_spec,

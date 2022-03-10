@@ -144,7 +144,7 @@ def _pad_reshape_batch(batch, flat_batch_size, num_devices):
 
 
 def get_data(
-    dataset: Union[str, DatasetBuilder],
+    dataset: Union[str, T_DatasetBuilder],
     split: str,
     rng: Union[None, jnp.ndarray, tf.Tensor],
     process_batch_size: int,

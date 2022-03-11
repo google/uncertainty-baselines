@@ -15,77 +15,86 @@
 
 """Tests for al_utils."""
 
+import os
+import pathlib
+
 import tensorflow as tf
 import tensorflow_datasets as tfds
-# pylint: disable=unused-import # to register Cifar10Subset as dataset
 import al_utils  # local file import from baselines.jft
+import test_utils  # local file import from baselines.jft
 
 
 class AlUtilsTest(tf.test.TestCase):
 
+  def setUp(self):
+    super().setUp()
+    baseline_root_dir = pathlib.Path(__file__).parents[1]
+    self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
+
   def test_mnist_subset_has_ids(self):
-    # NOTE: MNIST has no id field, so this tests the enumerate code path.
-    mnist_builder = tfds.builder('mnist')
-    mnist_builder.download_and_prepare()
+    data_dir = self.data_dir
 
-    print(mnist_builder.as_dataset('train'))
+    num_examples = 50
+    with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
+      # NOTE: MNIST has no id field, so this tests the enumerate code path.
+      mnist_builder = tfds.builder('mnist')
+      print(mnist_builder.info.splits)
+      dataset_builder = al_utils.SubsetDatasetBuilder(
+          mnist_builder, subset_ids=None)
+      dataset = dataset_builder.as_dataset(split='train').batch(10)
 
-    dataset_builder = al_utils.SubsetDatasetBuilder(
-        mnist_builder, subset_ids=None)
+      all_ids = []
+      n = 0
+      for example in dataset.as_numpy_iterator():
+        n += example['image'].shape[0]
+        all_ids.extend(example['id'])
+      all_ids.sort()
 
-    dataset = dataset_builder.as_dataset(split='train').batch(10000)
-
-    all_ids = []
-    n = 0
-    for example in dataset.as_numpy_iterator():
-      n += example['image'].shape[0]
-      all_ids.extend(example['id'])
-
-    all_ids.sort()
-
-    self.assertEqual(n, 60000)
-    self.assertEqual(all_ids, list(range(60000)))
+    self.assertEqual(n, num_examples)
+    self.assertEqual(all_ids, list(range(num_examples)))
 
   def test_cifar10_subset_has_ids(self):
-    # NOTE: cifar10 has an id field.
-    cifar10_builder = tfds.builder('cifar10')
-    cifar10_builder.download_and_prepare()
+    data_dir = self.data_dir
 
-    dataset_builder = al_utils.SubsetDatasetBuilder(
-        cifar10_builder, subset_ids=None)
+    num_examples = 50
+    with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
+      # NOTE: cifar10 has an id field.
+      cifar10_builder = tfds.builder('cifar10')
+      dataset_builder = al_utils.SubsetDatasetBuilder(
+          cifar10_builder, subset_ids=None)
+      dataset = dataset_builder.as_dataset(split='train').batch(10)
 
-    dataset = dataset_builder.as_dataset(split='train').batch(10000)
+      all_ids = []
+      n = 0
+      for example in dataset.as_numpy_iterator():
+        n += example['image'].shape[0]
+        all_ids.extend(example['id'])
+      all_ids.sort()
 
-    all_ids = []
-    n = 0
-    for example in dataset.as_numpy_iterator():
-      n += example['image'].shape[0]
-      all_ids.extend(example['id'])
-
-    all_ids.sort()
-
-    self.assertEqual(n, 50000)
-    self.assertEqual(all_ids, list(range(50000)))
+    self.assertEqual(n, num_examples)
+    self.assertEqual(all_ids, list(range(num_examples)))
 
   def test_cifar10_subset_filtering(self):
+    data_dir = self.data_dir
+
     train_ids = [0, 1, 2]
     test_ids = [3, 4, 5]
 
-    cifar10_builder = tfds.builder('cifar10')
-    cifar10_builder.download_and_prepare()
+    num_examples = 50
+    with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
+      cifar10_builder = tfds.builder('cifar10')
 
-    for split, ids in zip(['train', 'test'], [train_ids, test_ids]):
-      dataset_builder = al_utils.SubsetDatasetBuilder(
-          cifar10_builder, subset_ids=ids)
-      dataset = dataset_builder.as_dataset(split=split).batch(1)
+      for split, ids in zip(['train', 'test'], [train_ids, test_ids]):
+        dataset_builder = al_utils.SubsetDatasetBuilder(
+            cifar10_builder, subset_ids=ids)
+        dataset = dataset_builder.as_dataset(split=split).batch(1)
 
-      ds_ids = []
-      for example in dataset.as_numpy_iterator():
-        ds_ids.extend(example['id'])
+        ds_ids = []
+        for example in dataset.as_numpy_iterator():
+          ds_ids.extend(example['id'])
+        ds_ids.sort()
 
-      ds_ids.sort()
-
-      self.assertEqual(ds_ids, ids)
+        self.assertEqual(ds_ids, ids)
 
 
 if __name__ == '__main__':

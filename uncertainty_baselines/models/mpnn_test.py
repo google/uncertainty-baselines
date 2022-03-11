@@ -27,7 +27,6 @@ class MpnnTest(tf.test.TestCase):
 
     self.num_classes = 2
     self.batch_size = 4
-    self.hidden_dim = 8
     self.max_nodes = 30
     self.node_dim = 10
     self.edge_dim = 12
@@ -40,8 +39,7 @@ class MpnnTest(tf.test.TestCase):
 
     # Compiles classifier model.
     model = ub.models.mpnn(
-        nodes_shape=(self.max_nodes, self.node_dim),
-        edges_shape=(self.max_nodes, self.max_nodes, self.edge_dim),
+        node_feature_dim=self.node_dim,
         num_heads=self.num_classes,
         num_layers=self.num_layers,
         message_layer_size=self.message_layer_size,

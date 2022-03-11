@@ -137,9 +137,9 @@ def run(
 
   """
   with strategy.scope():
+    node_feature_dim = train_dataset.element_spec[0]['atoms'].shape[-1]
     model = ub.models.mpnn(
-        nodes_shape=train_dataset.element_spec[0]['atoms'].shape[1:],
-        edges_shape=train_dataset.element_spec[0]['pairs'].shape[1:],
+        node_feature_dim=node_feature_dim,
         num_heads=params.num_heads,
         num_layers=params.num_layers,
         message_layer_size=params.message_layer_size,

@@ -108,6 +108,18 @@ flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
                   'Type of loss function to use.')
 
 
+def make_mpnn_model(node_feature_dim, mpnn_model_params):
+  model = ub.models.mpnn(
+      node_feature_dim=node_feature_dim,
+      num_heads=mpnn_model_params.num_heads,
+      num_layers=mpnn_model_params.num_layers,
+      message_layer_size=mpnn_model_params.message_layer_size,
+      readout_layer_size=mpnn_model_params.readout_layer_size,
+      use_gp_layer=mpnn_model_params.use_gp_layer)
+
+  return model
+
+
 def run(
     train_dataset: tf.data.Dataset,
     eval_datasets: Dict[str, tf.data.Dataset],
@@ -120,14 +132,8 @@ def run(
     graph_augmenter: augmentation_utils.GraphAugment):
   """Trains and evaluates the model."""
   with strategy.scope():
-    model = ub.models.mpnn(
-        nodes_shape=train_dataset.element_spec[0]['atoms'].shape[1:],
-        edges_shape=train_dataset.element_spec[0]['pairs'].shape[1:],
-        num_heads=params.num_heads,
-        num_layers=params.num_layers,
-        message_layer_size=params.message_layer_size,
-        readout_layer_size=params.readout_layer_size,
-        use_gp_layer=params.use_gp_layer)
+    node_feature_dim = train_dataset.element_spec[0]['atoms'].shape[-1]
+    model = make_mpnn_model(node_feature_dim, params)
     optimizer = tf.keras.optimizers.RMSprop(learning_rate=params.learning_rate)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),

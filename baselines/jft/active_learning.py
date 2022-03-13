@@ -524,6 +524,8 @@ def finetune(*,
 
 
 def main(config, output_dir):
+  if jax.process_count() > 1:
+    raise NotImplementedError
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(

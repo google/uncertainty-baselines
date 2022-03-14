@@ -208,14 +208,22 @@ def get_bald_scores(logits, masks):
   log_probs = jax.nn.log_softmax(logits)
   probs = jax.nn.softmax(logits)
 
+  weighted_nats = -probs * log_probs
+  weighted_nats = jnp.where(jnp.isnan(weighted_nats), 0, weighted_nats)
+
+  marginal_entropy = jnp.mean(jnp.sum(weighted_nats, axis=-1), axis=1)
+
   marginal_log_probs = jax.nn.logsumexp(log_probs, axis=1) - jnp.log(ens_size)
   marginal_probs = jnp.mean(probs, axis=1)
 
-  entropy_marginal = jnp.sum(-marginal_probs * marginal_log_probs, axis=-1)
-  marginal_entropy = jnp.mean(jnp.sum(-probs * log_probs, axis=-1), axis=1)
-  bald = entropy_marginal - marginal_entropy
+  weighted_marginal_nats = -marginal_probs * marginal_log_probs
+  weighted_marginal_nats = jnp.where(
+      jnp.isnan(weighted_marginal_nats), 0, weighted_marginal_nats)
 
-  bald = jnp.where(jnp.isnan(bald), 0, bald)
+  entropy_marginal = jnp.sum(weighted_marginal_nats, axis=-1)
+
+  # Mask results.
+  bald = entropy_marginal - marginal_entropy
   bald = jnp.where(masks, bald, NINF_SCORE)
 
   return bald

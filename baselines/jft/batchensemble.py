@@ -286,7 +286,7 @@ def main(config, output_dir):
                                     train=False)
 
     label_indices = config.get('label_indices')
-    logging.info('!!! mask %s, label_indices %s', mask, label_indices)
+    logging.info('mask %s, label_indices %s', mask, label_indices)
     if label_indices:
       tiled_logits = tiled_logits[:, label_indices]
 
@@ -298,8 +298,9 @@ def main(config, output_dir):
     else:  # softmax
       ens_logits = batchensemble_utils.log_average_softmax_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-    pre_logits = jnp.concatenate(
-        jnp.split(out['pre_logits'], ens_size), axis=-1)
+    # pre_logits [batch_size, hidden_size, ens_size]
+    pre_logits = jnp.transpose(
+        jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
 
     losses = getattr(train_utils, loss_name)(
         logits=ens_logits,

@@ -121,8 +121,9 @@ def get_ids_logits_masks(*,
         raise ValueError(f'Loss name: {loss_name} not supported.')
 
     if use_pre_logits:
-      pre_logits = jnp.concatenate(
-          jnp.split(out['pre_logits'], ens_size), axis=-1)
+      # pre_logits [batch_size, hidden_size, ens_size]
+      pre_logits = jnp.transpose(
+          jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
       output = pre_logits
     else:
       output = logits

@@ -143,15 +143,45 @@ class OODMetric:
             'But it is not found in the dict.')
     elif self.method_name == 'maha':
       if 'dists' in scores:
-        ood_scores = np.min(scores['dists'], axis=-1)
+        # For single models, scores['dists'] np.array [batch_size, num_classes]
+        # For ensemble models, scores['dists'] will be a list where each element
+        # is np.array [batch_size, num_classes]
+        if not isinstance(scores['dists'], list):
+          dists = scores['dists']
+        else:
+          dists = np.mean(np.array(scores['dists']), axis=0)
+        ood_scores = np.min(dists, axis=-1)
       else:
         raise KeyError(
             ('The variable dists is needed for computing Mahalanobis distance ',
              'OOD score. But it is not found in the dict.'))
     elif self.method_name == 'rmaha':
       if 'dists' in scores and 'dists_background' in scores:
-        ood_scores = np.min(
-            scores['dists'], axis=-1) - scores['dists_background'].reshape(-1)
+        if not isinstance(scores['dists'], list) and not isinstance(
+            scores['dists_background'], list):
+          # Output from a single model
+          ood_scores = np.min(
+              scores['dists'], axis=-1) - scores['dists_background'].reshape(-1)
+        elif isinstance(scores['dists'], list) and isinstance(
+            scores['dists_background'], list):
+          # Output from ensemble models
+          if len(scores['dists']) == len(scores['dists_background']):
+            ood_scores_lists = []
+            for d, d0 in zip(scores['dists'], scores['dists_background']):
+              ood_scores_lists.append(np.min(d, axis=-1) - d0.reshape(-1))
+            ood_scores = np.mean(ood_scores_lists, axis=0)
+          else:
+            raise ValueError(
+                ('The number of ensemble members in Maha dists '
+                 'len(scores[dists]) %s != the number of ensemble members '
+                 'in Maha background dists len(scores[dists_background]) %s' %
+                 (len(scores['dists'])), len(scores['dists_background'])))
+        else:
+          raise ValueError(
+              ('The data types of scores[dists] and scores[dists_background]'
+               'are not consistent. Relative Mahalanobis distance cannot be'
+               'computed. scores[dists] %s, scores[dists_background] %s' %
+               (scores['dists'], scores['dists_background'])))
       else:
         raise KeyError((
             'The variable dists and dists_background are needed for computing ',
@@ -362,25 +392,46 @@ def eval_ood_metrics(ood_ds,
       # Here we parse batch_metric_args to compute OOD metrics.
       logits, labels, pre_logits, masks = batch_metric_args
       masks_bool = np.array(masks[0], dtype=bool)
+      embeds = np.array(pre_logits[0])[masks_bool]
+      use_ens = False
+      if len(embeds.shape) == 3:
+        # The output needs to the ensembled
+        # embeds is of the shape [batch_size, hidden_size, ens_size]
+        use_ens = True
+        ens_size = embeds.shape[-1]
+
       if not np.any(masks_bool):
         continue  # No valid examples in this batch.
       if ood_ds_name == 'train_maha':
         # For Mahalanobis distance, we need to first fit class conditional
         # Gaussian using training data.
-        pre_logits_list.append(np.array(pre_logits[0])[masks_bool])
         labels_list.append(np.array(labels[0])[masks_bool])
+        pre_logits_list.append(embeds)
       else:
         # Computes Mahalanobis distance.
         if mean_list is not None and cov is not None:
-          dists = compute_mahalanobis_distance(
-              np.array(pre_logits[0])[masks_bool], mean_list, cov)
-          batch_scores['dists'] = dists
+          if not use_ens:
+            batch_scores['dists'] = compute_mahalanobis_distance(
+                embeds, mean_list, cov)
+          else:
+            dists_list = []
+            for m in range(ens_size):
+              dists = compute_mahalanobis_distance(embeds[..., m], mean_list[m],
+                                                   cov[m])
+              dists_list.append(dists)
+            batch_scores['dists'] = dists_list
 
         if mean_list_background is not None and cov_background is not None:
-          dists_background = compute_mahalanobis_distance(
-              np.array(pre_logits[0])[masks_bool], mean_list_background,
-              cov_background)
-          batch_scores['dists_background'] = dists_background
+          if not use_ens:
+            batch_scores['dists_background'] = compute_mahalanobis_distance(
+                embeds, mean_list_background, cov_background)
+          else:
+            dists_background_list = []
+            for m in range(ens_size):
+              dists_background = compute_mahalanobis_distance(
+                  embeds[..., m], mean_list_background[m], cov_background[m])
+              dists_background_list.append(dists_background)
+            batch_scores['dists_background'] = dists_background_list
 
         # Computes Maximum softmax probability (MSP)
         probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
@@ -406,11 +457,33 @@ def eval_ood_metrics(ood_ds,
     logging.info('ood_ds_name %s, nseen %s', ood_ds_name, nseen)
     if ood_ds_name == 'train_maha':
       # Estimate class conditional Gaussian distribution for Mahalanobis dist.
-      pre_logits_train = np.vstack(np.vstack(pre_logits_list))
-      labels_train = np.argmax(np.vstack(np.vstack(labels_list)), axis=-1)
-      mean_list, cov = compute_mean_and_cov(pre_logits_train, labels_train)
-      mean_list_background, cov_background = compute_mean_and_cov(
-          pre_logits_train, np.zeros_like(labels_train))
+      # pre_logits_list is a list with elements of np.arrays of shape
+      # [batch_size, hidden_size]
+      pre_logits_train = np.vstack(pre_logits_list)
+      labels_train = np.argmax(np.vstack(labels_list), axis=-1)
+
+      if not use_ens:
+        # Single model
+        # pre_logits_train shape [sample_size, hidden_size]
+        # sample_size = num_batches*batch_size
+        mean_list, cov = compute_mean_and_cov(pre_logits_train, labels_train)
+        mean_list_background, cov_background = compute_mean_and_cov(
+            pre_logits_train, np.zeros_like(labels_train))
+      else:
+        # Multiple models
+        mean_list, cov = [], []
+        mean_list_background, cov_background = [], []
+        # pre_logits_train shape [sample_size, hidden_size, ens_size]
+        for m in range(ens_size):
+          mu, sigma = compute_mean_and_cov(pre_logits_train[..., m],
+                                           labels_train)
+          mu_background, sigma_background = compute_mean_and_cov(
+              pre_logits_train[..., m], np.zeros_like(labels_train))
+          mean_list.append(mu)
+          cov.append(sigma)
+          mean_list_background.append(mu_background)
+          cov_background.append(sigma_background)
+
     elif ood_ds_name == 'ind':
       # Evaluate in-distribution prediction accuracy
       output[f'{ood_ds_name}_prec@1'] = ncorrect / nseen

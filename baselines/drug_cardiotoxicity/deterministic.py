@@ -36,7 +36,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string(
     'data_dir', None,
     'Directory containing the TFRecord datasets for Drug Cardiotoxicity.')
-flags.DEFINE_integer('num_heads', 2, 'Number of classification heads.')
+flags.DEFINE_integer('num_classes', 2, 'Number of classification heads.')
 flags.DEFINE_string('output_dir', None, 'Output directory.')
 flags.DEFINE_string('job_base_dir', None,
                     'Output directory for the umbrella job, which may have '
@@ -111,7 +111,7 @@ flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
 def make_mpnn_model(node_feature_dim, mpnn_model_params):
   model = ub.models.mpnn(
       node_feature_dim=node_feature_dim,
-      num_heads=mpnn_model_params.num_heads,
+      num_classes=mpnn_model_params.num_classes,
       num_layers=mpnn_model_params.num_layers,
       message_layer_size=mpnn_model_params.message_layer_size,
       readout_layer_size=mpnn_model_params.readout_layer_size,
@@ -314,7 +314,7 @@ def main(argv: Sequence[str]):
         FLAGS.mask_mean, FLAGS.mask_stddev)
 
   params = utils.ModelParameters(
-      num_heads=FLAGS.num_heads,
+      num_classes=FLAGS.num_classes,
       num_layers=FLAGS.num_layers,
       message_layer_size=FLAGS.message_layer_size,
       readout_layer_size=FLAGS.readout_layer_size,

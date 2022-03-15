@@ -182,7 +182,7 @@ class MpnnModel(tf.keras.Model):
   def __init__(
       self,
       node_feature_dim: int,
-      num_heads: int,
+      num_classes: int,
       num_layers: int,
       message_layer_size: int,
       readout_layer_size: int,
@@ -200,7 +200,7 @@ class MpnnModel(tf.keras.Model):
 
     Args:
       node_feature_dim: Dimension (integer) of incoming node level features.
-      num_heads: Number of output classes.
+      num_classes: Number of output classes.
       num_layers: Number of message passing layers.
       message_layer_size: Number of hidden units in message functions.
       readout_layer_size: Number of hidden units in the readout function.
@@ -245,7 +245,7 @@ class MpnnModel(tf.keras.Model):
       self.j_layer_final = self.j_layer
 
     self.classifier = classifier_utils.build_classifier(
-        num_classes=num_heads,
+        num_classes=num_classes,
         gp_layer_kwargs=gp_layer_kwargs,
         use_gp_layer=use_gp_layer,
         kernel_regularizer=kernel_regularizer)
@@ -279,7 +279,7 @@ class MpnnModel(tf.keras.Model):
 
 def mpnn(
     node_feature_dim: int,
-    num_heads: int,
+    num_classes: int,
     num_layers: int,
     message_layer_size: int,
     readout_layer_size: int,
@@ -298,7 +298,7 @@ def mpnn(
 
   Args:
     node_feature_dim: Dimension (integer) of incoming node level features.
-    num_heads: Number of output classes.
+    num_classes: Number of output classes.
     num_layers: Number of message passing layers.
     message_layer_size: Number of hidden units in message functions.
     readout_layer_size: Number of hidden units in the readout function.
@@ -316,7 +316,7 @@ def mpnn(
     A Keras Model (not compiled).
   """
   return MpnnModel(node_feature_dim=node_feature_dim,
-                   num_heads=num_heads,
+                   num_classes=num_classes,
                    num_layers=num_layers,
                    message_layer_size=message_layer_size,
                    readout_layer_size=readout_layer_size,

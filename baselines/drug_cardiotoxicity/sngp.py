@@ -35,7 +35,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string(
     'data_dir', None,
     'Directory containing the TFRecord datasets for Drug Cardiotoxicity.')
-flags.DEFINE_integer('num_heads', 2, 'Number of classification heads.')
+flags.DEFINE_integer('num_classes', 2, 'Number of classification heads.')
 flags.DEFINE_string('output_dir', None, 'Output directory.')
 flags.DEFINE_string('job_base_dir', None,
                     'Output directory for the umbrella job, which may have '
@@ -140,7 +140,7 @@ def run(
     node_feature_dim = train_dataset.element_spec[0]['atoms'].shape[-1]
     model = ub.models.mpnn(
         node_feature_dim=node_feature_dim,
-        num_heads=params.num_heads,
+        num_classes=params.num_classes,
         num_layers=params.num_layers,
         message_layer_size=params.message_layer_size,
         readout_layer_size=params.readout_layer_size,
@@ -316,7 +316,7 @@ def main(argv: Sequence[str]):
   logging.info('Steps for eval datasets: %s', steps_per_eval)
 
   params = utils.ModelParameters(
-      num_heads=FLAGS.num_heads,
+      num_classes=FLAGS.num_classes,
       num_layers=FLAGS.num_layers,
       message_layer_size=FLAGS.message_layer_size,
       readout_layer_size=FLAGS.readout_layer_size,

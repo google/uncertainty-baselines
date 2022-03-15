@@ -40,7 +40,7 @@ class MpnnTest(tf.test.TestCase):
     # Compiles classifier model.
     model = ub.models.mpnn(
         node_feature_dim=self.node_dim,
-        num_heads=self.num_classes,
+        num_classes=self.num_classes,
         num_layers=self.num_layers,
         message_layer_size=self.message_layer_size,
         readout_layer_size=self.readout_layer_size)

@@ -32,7 +32,7 @@ class ModelParameters:
   """Model Parameters used in MPNN architecture.
 
   Attributes:
-    num_heads: Int, number of output classes.
+    num_classes: Int, number of output classes.
     num_layers: Int, number of Message Passing layers.
     message_layer_size: Int, dimension of message representation.
     readout_layer_size: Int, dimension of graph level readout representation.
@@ -42,7 +42,7 @@ class ModelParameters:
     augmentations: List of str, representing augmentation function names.
     steps_per_epoch: Int, number of training batches to take in one epoch.
   """
-  num_heads: int = 2
+  num_classes: int = 2
   num_layers: int = 2
   message_layer_size: int = 32
   readout_layer_size: int = 32

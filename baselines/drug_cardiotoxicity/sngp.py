@@ -104,7 +104,7 @@ def run(
     train_dataset: tf.data.Dataset,
     eval_datasets: Dict[str, tf.data.Dataset],
     steps_per_eval: Dict[str, int],
-    params: utils.ModelParameters,
+    params: utils.MPNNParameters,
     model_dir: str,
     gp_layer_kwargs: Dict[str, Any],
     strategy: tf.distribute.Strategy,
@@ -121,7 +121,7 @@ def run(
     eval_datasets: A dictionary of tf datasets that provides data for model
       evaluation.
     steps_per_eval: A dictionary of steps needed for each evaluation dataset.
-    params: ModelParameters object containing MPNN model parameters.
+    params: MPNNParameters object containing MPNN model parameters.
     model_dir: Directory for files generated during training and evaluation.
     gp_layer_kwargs: A dictionary of parameters used for GP layer.
     strategy: tf Distributed training strategy object.
@@ -315,7 +315,7 @@ def main(argv: Sequence[str]):
 
   logging.info('Steps for eval datasets: %s', steps_per_eval)
 
-  params = utils.ModelParameters(
+  params = utils.MPNNParameters(
       num_classes=FLAGS.num_classes,
       num_layers=FLAGS.num_layers,
       message_layer_size=FLAGS.message_layer_size,

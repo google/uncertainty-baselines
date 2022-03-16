@@ -28,7 +28,7 @@ from uncertainty_baselines.datasets.drug_cardiotoxicity import DrugCardiotoxicit
 
 
 @dataclasses.dataclass(frozen=True)
-class ModelParameters:
+class MPNNParameters:
   """Model Parameters used in MPNN architecture.
 
   Attributes:
@@ -47,6 +47,35 @@ class ModelParameters:
   message_layer_size: int = 32
   readout_layer_size: int = 32
   use_gp_layer: bool = False
+  learning_rate: float = 0.001
+  num_epochs: int = 100
+  augmentations: Optional[List[str]] = None
+  steps_per_epoch: Optional[int] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class GATParameters:
+  """Model Parameters used in GAT architecture.
+
+  Attributes:
+    num_classes: Int, number of output classes.
+    attention_heads: Int, number of graph attention heads per layer.
+    out_node_feature_dim: Int, dimension (integer) of node level features
+      outcoming from the attention layer.
+    readout_layer_size: Int, dimension of graph level readout representation.
+    constant_attention: Bool, whether to use constant attention.
+    dropout_rate: Float, dropout rate.
+    learning_rate: Float, learning rate.
+    num_epochs: Int, number of epoch for the entire training process.
+    augmentations: List of str, representing augmentation function names.
+    steps_per_epoch: Int, number of training batches to take in one epoch.
+  """
+  num_classes: int = 2
+  attention_heads: int = 3
+  out_node_feature_dim: int = 32
+  readout_layer_size: int = 32
+  constant_attention: bool = False
+  dropout_rate: float = 0.1
   learning_rate: float = 0.001
   num_epochs: int = 100
   augmentations: Optional[List[str]] = None

@@ -164,6 +164,11 @@ flags.DEFINE_float(
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
+flags.DEFINE_integer(
+    'gp_mc_sampling', -1,
+    ('Sample size for Monte Carlo Sampling for GP output softmax. if -1, '
+     'use mean field approaximation to estimate the softmax given '
+     'GP mean and varaince for logits.'))
 
 # OOD flags.
 flags.DEFINE_bool(
@@ -489,8 +494,14 @@ def main(argv):
           logits, covmat = logits
           if FLAGS.use_bfloat16:
             logits = tf.cast(logits, tf.float32)
-          logits = ed.layers.utils.mean_field_logits(
-              logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
+          if FLAGS.gp_mc_sampling == -1:
+            logits = ed.layers.utils.mean_field_logits(
+                logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
+          else:
+            logits = ed.layers.utils.monte_carlo_softmax(
+                logits,
+                tf.sqrt(tf.linalg.diag_part(covmat)),
+                num_samples=FLAGS.gp_mc_sampling)
         else:
           covmat = tf.eye(logits.shape[0])
           if FLAGS.use_bfloat16:

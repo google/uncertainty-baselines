@@ -120,13 +120,19 @@ def get_ids_logits_masks(*,
       else:
         raise ValueError(f'Loss name: {loss_name} not supported.')
 
-    if use_pre_logits:
-      # pre_logits [batch_size, hidden_size, ens_size]
-      pre_logits = jnp.transpose(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
-      output = pre_logits
+      if use_pre_logits:
+        # pre_logits [batch_size, hidden_size, ens_size]
+        pre_logits = jnp.transpose(
+            jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
+        output = pre_logits
+      else:
+        output = logits
     else:
-      output = logits
+      if use_pre_logits:
+        # pre_logits [batch_size, hidden_size]
+        output = out['pre_logits']
+      else:
+        output = logits
 
     # TODO(joost,andreas): For multi host this requires:
     # output = jax.lax.all_gather(output, axis_name='batch')
@@ -320,19 +326,55 @@ def get_density_scores(*,
       use_pre_logits=True,
       config=config)
 
+  # train_masks_bool [num_cores, per_core_batch_size]
   train_masks_bool = train_masks.astype(bool)
-  train_pre_logits = train_pre_logits[train_masks_bool].reshape(
-      -1, train_pre_logits.shape[-1])
+  # train_pre_logits [num_cores, per_core_batch_size, hidden_size, ens_size]
+  # train_embeds [batch_size, hidden_size, ens_size]
+  # batch_size = num_cores * per_core_batch_size
+  train_embeds = train_pre_logits[train_masks_bool]
   train_labels = np.argmax(train_labels[train_masks_bool], axis=-1).ravel()
 
-  mean_list, cov = ood_utils.compute_mean_and_cov(train_pre_logits,
-                                                  train_labels)
+  use_ens = False
+  if len(train_embeds.shape) == 3:
+    # The output needs to the ensembled
+    # embeds is of the shape [batch_size, hidden_size, ens_size]
+    use_ens = True
+    ens_size = train_embeds.shape[-1]
+
+  if not use_ens:
+    # Single model
+    # train_embeds shape [batch_size, hidden_size]
+    mean_list, cov = ood_utils.compute_mean_and_cov(train_embeds, train_labels)
+  else:
+    # Ensemble models
+    # train_embeds shape [batch_size, hidden_size, ens_size]
+    mean_list, cov = [], []
+    for m in range(ens_size):
+      mu, sigma = ood_utils.compute_mean_and_cov(train_embeds[..., m],
+                                                 train_labels)
+      mean_list.append(mu)
+      cov.append(sigma)
 
   # Evaluate LDA on pool set
-  pool_pre_logits = pool_pre_logits.reshape(-1, pool_pre_logits.shape[-1])
-  dists = ood_utils.compute_mahalanobis_distance(pool_pre_logits, mean_list,
-                                                 cov)
-  scores = np.array(jax.nn.logsumexp(-dists / 2, axis=-1))
+  if not use_ens:
+    # Single model
+    # pool_pre_logits [num_cores, per_core_batch_size, hidden_size]
+    pool_pre_logits = pool_pre_logits.reshape(-1, pool_pre_logits.shape[-1])
+    dists = ood_utils.compute_mahalanobis_distance(pool_pre_logits, mean_list,
+                                                   cov)
+    scores = np.array(jax.nn.logsumexp(-dists / 2, axis=-1))
+  else:
+    # Ensemble models
+    # pool_pre_logits [num_cores, per_core_batch_size, hidden_size, ens_size]
+    pool_pre_logits = pool_pre_logits.reshape(
+        [-1] + [s for s in pool_pre_logits.shape[2:]])
+    for m in range(ens_size):
+      scores_list = []
+      d = ood_utils.compute_mahalanobis_distance(pool_pre_logits[..., m],
+                                                 mean_list[m], cov[m])
+      s = np.array(jax.nn.logsumexp(-d / 2, axis=-1))
+      scores_list.append(s)
+    scores = np.mean(np.array(scores_list), axis=0)
 
   # Convert likelihood to AL score
   pool_masks_bool = np.array(pool_masks.ravel(), dtype=bool)

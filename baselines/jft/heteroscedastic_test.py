@@ -38,7 +38,9 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
   def setUp(self):
     super().setUp()
     baseline_root_dir = pathlib.Path(__file__).parents[1]
-    self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
+    data_dir = os.path.join(baseline_root_dir, 'testing_data')
+    logging.info('data_dir contents: %s', os.listdir(data_dir))
+    self.data_dir = data_dir
 
   @parameterized.parameters(
       ('imagenet2012', 'token', 2, 760.31396484375, 699.8519151475695, 0.78,

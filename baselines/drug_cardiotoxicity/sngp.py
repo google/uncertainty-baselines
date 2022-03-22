@@ -35,7 +35,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string(
     'data_dir', None,
     'Directory containing the TFRecord datasets for Drug Cardiotoxicity.')
-flags.DEFINE_integer('num_heads', 2, 'Number of classification heads.')
+flags.DEFINE_integer('num_classes', 2, 'Number of classification heads.')
 flags.DEFINE_string('output_dir', None, 'Output directory.')
 flags.DEFINE_string('job_base_dir', None,
                     'Output directory for the umbrella job, which may have '
@@ -104,7 +104,7 @@ def run(
     train_dataset: tf.data.Dataset,
     eval_datasets: Dict[str, tf.data.Dataset],
     steps_per_eval: Dict[str, int],
-    params: utils.ModelParameters,
+    params: utils.MPNNParameters,
     model_dir: str,
     gp_layer_kwargs: Dict[str, Any],
     strategy: tf.distribute.Strategy,
@@ -121,7 +121,7 @@ def run(
     eval_datasets: A dictionary of tf datasets that provides data for model
       evaluation.
     steps_per_eval: A dictionary of steps needed for each evaluation dataset.
-    params: ModelParameters object containing MPNN model parameters.
+    params: MPNNParameters object containing MPNN model parameters.
     model_dir: Directory for files generated during training and evaluation.
     gp_layer_kwargs: A dictionary of parameters used for GP layer.
     strategy: tf Distributed training strategy object.
@@ -137,10 +137,10 @@ def run(
 
   """
   with strategy.scope():
+    node_feature_dim = train_dataset.element_spec[0]['atoms'].shape[-1]
     model = ub.models.mpnn(
-        nodes_shape=train_dataset.element_spec[0]['atoms'].shape[1:],
-        edges_shape=train_dataset.element_spec[0]['pairs'].shape[1:],
-        num_heads=params.num_heads,
+        node_feature_dim=node_feature_dim,
+        num_classes=params.num_classes,
         num_layers=params.num_layers,
         message_layer_size=params.message_layer_size,
         readout_layer_size=params.readout_layer_size,
@@ -315,8 +315,8 @@ def main(argv: Sequence[str]):
 
   logging.info('Steps for eval datasets: %s', steps_per_eval)
 
-  params = utils.ModelParameters(
-      num_heads=FLAGS.num_heads,
+  params = utils.MPNNParameters(
+      num_classes=FLAGS.num_classes,
       num_layers=FLAGS.num_layers,
       message_layer_size=FLAGS.message_layer_size,
       readout_layer_size=FLAGS.readout_layer_size,

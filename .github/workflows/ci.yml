@@ -39,7 +39,8 @@ jobs:
           python -m unittest -v uncertainty_baselines/datasets/random_test.py
           python -m unittest -v $(find . -name 'uncertainty_baselines/models/*_test.py' -a ! -name 'uncertainty_baselines/models/bert*_test.py')
           python -m unittest -v uncertainty_baselines/*_test.py
-  test_jft:
+  # NOTE: These JFT directory tests are split out to lower the total runtime.
+  test_jft_active_learning:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -54,16 +55,72 @@ jobs:
           python -m pip install --upgrade pip
           pip install -q -e .[tensorflow,jax,models,tests]
       - name: Run Pytest
-        # Note that this does not include baselines/jft/input_utils_test.py.
         run: |
           set -v
           set -e
           cd baselines/jft
-          python -m unittest -v checkpoint_utils_test.py
-          python -m unittest -v ood_utils_test.py
+          python -m unittest -v active_learning_test.py
+          python -m unittest -v al_utils_test.py
+  test_jft_batchensemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e .[tensorflow,jax,models,tests]
+      - name: Run Pytest
+        run: |
+          set -v
+          set -e
+          cd baselines/jft
+          python -m unittest -v batchensemble_test.py
+  test_jft_deep_ensemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e .[tensorflow,jax,models,tests]
+      - name: Run Pytest
+        run: |
+          set -v
+          set -e
+          cd baselines/jft
+          python -m unittest -v deep_ensemble_test.py
+  test_jft_deterministic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e .[tensorflow,jax,models,tests]
+      - name: Run Pytest
+        run: |
+          set -v
+          set -e
+          cd baselines/jft
           python -m unittest -v deterministic_test.py
-          python -m unittest -v preprocess_utils_test.py
-          python -m unittest -v train_utils_test.py
   test_jft_heteroscedastic:
     runs-on: ubuntu-latest
     steps:
@@ -79,7 +136,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -q -e .[tensorflow,jax,models,tests]
       - name: Run Pytest
-        # Note that this does not include baselines/jft/input_utils_test.py.
         run: |
           set -v
           set -e
@@ -100,9 +156,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -q -e .[tensorflow,jax,models,tests]
       - name: Run Pytest
-        # Note that this does not include baselines/jft/input_utils_test.py.
         run: |
           set -v
           set -e
           cd baselines/jft
           python -m unittest -v sngp_test.py
+  test_jft_utils:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Python 3
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.7
+      - name: Pip Install
+        run: |
+          set -v
+          set -e
+          python -m pip install --upgrade pip
+          pip install -q -e .[tensorflow,jax,models,tests]
+      - name: Run Pytest
+        run: |
+          set -v
+          set -e
+          cd baselines/jft
+          python -m unittest -v checkpoint_utils_test.py
+          python -m unittest -v input_utils_test.py
+          python -m unittest -v ood_utils_test.py
+          python -m unittest -v preprocess_utils_test.py
+          python -m unittest -v train_utils_test.py

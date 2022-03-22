@@ -67,6 +67,7 @@ def _create_model_config(
 
 def get_config(dataset: str,
                num_states: Optional[int] = None,
+               shots: Optional[int] = 0,
                with_bow: Optional[bool] = True,
                shared_bert_embedding: Optional[bool] = False,
                bert_embedding_type: Optional[str] = 'base',
@@ -76,6 +77,7 @@ def get_config(dataset: str,
   Args:
     dataset: dataset name.
     num_states: number of the latent dialog states of the model.
+    shots: number of labeled examples per class used during training.
     with_bow: whether to enable BoW loss.
     shared_bert_embedding: whether to use BERT as the shared embedding layer.
     bert_embedding_type:  the type of Bert model for the embedding layer.
@@ -108,6 +110,13 @@ def get_config(dataset: str,
   config.inference_seed = 9527
   # Directory storing the saved model and model prediction outputs.
   config.model_base_dir = None
+  # Directory or checkpoint to initalize the model from. The initialize priority
+  # will be:
+  # -init_checkpoint
+  # -latest checkpoint in init_dir
+  # -latest checkpoint in output_dir
+  config.init_checkpoint = None
+  config.init_dir = None
   # Maximum number of evaluation cycles with the primary metric worse than the
   # current best to tolerate before early stopping.
   # Disable it and run fixed epochs training by setting it to some value < 0
@@ -136,8 +145,9 @@ def get_config(dataset: str,
   # Path to the JSON file defining the percentage/shots of each class of label
   # to be used to compute the classification loss. Defaults to 0. It should
   # also specify the sampling mode by setting {"mode": "ratios"|"shots"}.
-  config.label_sampling_path = os.path.join(config_dir,
-                                            'label_ratio_0_shots.json')
+  config.label_sampling_path = os.path.join(
+      config_dir, f'label_ratio_{shots}_shots.json'
+      if shots == 0 else f'label_ratio_{shots}_shots_per_cls.json')
 
   config.shared_bert_embedding = shared_bert_embedding
 

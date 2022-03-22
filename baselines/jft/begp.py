@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Het + BatchEnsemble, and optionally + GP."""
+"""BatchEnsemble of GP version of Vision Transformer."""
 
 import functools
 import itertools
@@ -33,6 +33,7 @@ import jax.numpy as jnp
 import ml_collections.config_flags
 import numpy as np
 import robustness_metrics as rm
+
 import tensorflow as tf
 import uncertainty_baselines as ub
 import batchensemble_utils  # local file import from baselines.jft
@@ -45,7 +46,6 @@ import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
-
 
 ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
@@ -60,7 +60,23 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 
+def get_gp_kwargs(gp_config):
+  """Extract keyword argument parameters for the Gaussian process layer."""
+  covmat_momentum = gp_config.get('covmat_momentum', 0.999)
+
+  # Extracts model parameter.
+  logging.info('gp_config.covmat_momentum = %s', covmat_momentum)
+  covmat_momentum = None if covmat_momentum < 0. else covmat_momentum
+  covmat_kwargs = dict(momentum=covmat_momentum)
+
+  # Assembles into kwargs dictionary.
+  gp_layer_kwargs = dict(covmat_kwargs=covmat_kwargs)
+
+  return gp_layer_kwargs
+
+
 def main(config, output_dir):
+
   seed = config.get('seed', 0)
   rng = jax.random.PRNGKey(seed)
   tf.random.set_seed(seed)
@@ -84,6 +100,7 @@ def main(config, output_dir):
   def write_note(note):
     if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
+
   write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
@@ -112,6 +129,7 @@ def main(config, output_dir):
   write_note('Initializing train dataset...')
   rng, train_ds_rng = jax.random.split(rng)
   train_ds_rng = jax.random.fold_in(train_ds_rng, jax.process_index())
+
   train_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.train_split,
@@ -162,20 +180,22 @@ def main(config, output_dir):
     return val_ds
 
   val_ds_splits = {
-      'val': _get_val_split(
-          config.dataset,
-          split=config.val_split,
-          pp_eval=config.pp_eval,
-          data_dir=config.get('data_dir'))
+      'val':
+          _get_val_split(
+              config.dataset,
+              split=config.val_split,
+              pp_eval=config.pp_eval,
+              data_dir=config.get('data_dir'))
   }
 
   if config.get('test_split'):
     val_ds_splits.update({
-        'test': _get_val_split(
-            config.dataset,
-            split=config.test_split,
-            pp_eval=config.pp_eval,
-            data_dir=config.get('data_dir'))
+        'test':
+            _get_val_split(
+                config.dataset,
+                split=config.test_split,
+                pp_eval=config.pp_eval,
+                data_dir=config.get('data_dir'))
     })
 
   if config.get('eval_on_cifar_10h'):
@@ -189,6 +209,7 @@ def main(config, output_dir):
         split=config.get('cifar_10h_split') or 'test',
         pp_eval=pp_eval,
         data_dir=config.get('data_dir'))
+
   elif config.get('eval_on_imagenet_real'):
     imagenet_to_real_fn = data_uncertainty_utils.create_imagenet_to_real_fn()
     preprocess_fn = preprocess_spec.parse(
@@ -237,8 +258,19 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.model)
-  model = ub.models.VisionTransformerHetGPBE(
-      num_classes=config.num_classes, **config.model)
+
+  # Specify Gaussian process layer configs.
+  use_gp_layer = config.get('use_gp_layer', True)
+  gp_config = config.get('gp_layer', {})
+  gp_layer_kwargs = get_gp_kwargs(gp_config)
+
+  # Process ViT backbone model configs.
+  vit_kwargs = config.get('model')
+  model = ub.models.PatchTransformerBEGP(
+      num_classes=config.num_classes,
+      use_gp_layer=use_gp_layer,
+      gp_layer_kwargs=gp_layer_kwargs,
+      **vit_kwargs)
   ens_size = config.model.transformer.ens_size
 
   # We want all parameters to be created in host RAM, not on any device, they'll
@@ -249,54 +281,33 @@ def main(config, output_dir):
     image_size = tuple(train_ds.element_spec['image'].shape[2:])
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
+    variables = model.init(rng, dummy_input, train=False)
 
-    rng, diag_noise_rng, standard_noise_rng = jax.random.split(rng, num=3)
-    init_rngs = {'params': rng, 'diag_noise_samples': diag_noise_rng,
-                 'standard_norm_noise_samples': standard_noise_rng}
-
-    if config.model.use_gp:
-      variables = model.init(init_rngs, dummy_input, train=False)
+    if use_gp_layer:
       # Split model parameters into trainable and untrainable collections.
       states, params = variables.pop('params')
       del variables
-    else:
-      params = model.init(init_rngs, dummy_input, train=False)['params']
-      states = {}
-
-    params = flax.core.unfreeze(params)
-    # Set bias in the head to a low value, such that loss is small initially.
-    if config.model.use_gp:
-      params['head']['loc_layer']['output_layer']['bias'] = jnp.full_like(
-          params['head']['loc_layer']['output_layer']['bias'],
+      params = flax.core.unfreeze(params)
+      # Set bias in the head to a low value, such that loss is small initially.
+      # Modify the head parameter in the GP head.
+      params['head']['output_layer']['bias'] = jnp.full_like(
+          params['head']['output_layer']['bias'],
           config.get('init_head_bias', 0))
     else:
-      params['head']['loc_layer']['bias'] = jnp.full_like(
-          params['head']['loc_layer']['bias'], config.get('init_head_bias', 0))
+      params = variables.pop('params')
+      params = flax.core.unfreeze(params)
+      params['batchensemble_head']['bias'] = jnp.full_like(
+          params['batchensemble_head']['bias'], config.get('init_head_bias', 0))
+      states = {}
 
       # init head kernel to all zeros for fine-tuning
       if config.get('model_init'):
-        params['head']['loc_layer']['kernel'] = jnp.full_like(
-            params['head']['loc_layer']['kernel'], 0)
-        if 'scale_layer_homoscedastic' in params['head']:
-          params['head']['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
-              params['head']['scale_layer_homoscedastic']['kernel'], 0)
-          params['head']['scale_layer_homoscedastic']['bias'] = jnp.full_like(
-              params['head']['scale_layer_homoscedastic']['bias'], 0)
-        if 'scale_layer_heteroscedastic' in params['head']:
-          params['head']['scale_layer_heteroscedastic']['kernel'] = (
-              jnp.full_like(
-                  params['head']['scale_layer_heteroscedastic']['kernel'], 0))
-          params['head']['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
-              params['head']['scale_layer_heteroscedastic']['bias'], 0)
-        params['head']['diag_layer']['kernel'] = jnp.full_like(
-            params['head']['diag_layer']['kernel'], 0)
-        params['head']['diag_layer']['bias'] = jnp.full_like(
-            params['head']['diag_layer']['bias'], 0)
+        params['batchensemble_head']['kernel'] = jnp.full_like(
+            params['batchensemble_head']['kernel'], 0)
 
     return params, states
 
-  (rng, rng_init, rng_dropout, diag_noise_rng,
-   standard_noise_rng) = jax.random.split(rng, num=5)
+  rng, rng_init = jax.random.split(rng)
   params_cpu, states_cpu = init(rng_init)
 
   if jax.process_index() == 0:
@@ -308,63 +319,73 @@ def main(config, output_dir):
   def evaluation_fn(params, states, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    logits, out = model.apply(
-        {'params': flax.core.freeze(params), **states},
+    variable_dict = {'params': flax.core.freeze(params), **states}
+    tiled_logits, out = model.apply(
+        variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng_dropout,
-              'diag_noise_samples': diag_noise_rng,
-              'standard_norm_noise_samples': standard_noise_rng})
+        mean_field_factor=gp_config.get('mean_field_factor', -1.))
+
+    label_indices = config.get('label_indices')
+    logging.info('!!! mask %s, label_indices %s', mask, label_indices)
+    if label_indices:
+      tiled_logits = tiled_logits[:, label_indices]
+
     loss_name = config.get('loss', 'sigmoid_xent')
-
+    # TODO(dusenberrymw,zmariet): Clean up and generalize this.
     if loss_name == 'sigmoid_xent':
-      logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(logits, ens_size)))
+      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
     else:  # softmax
-      logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(logits, ens_size)))
-    # pre_logits [batch_size, hidden_size, ens_size]
-    pre_logits = jnp.transpose(
-        jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
+      ens_logits = batchensemble_utils.log_average_softmax_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+    pre_logits = jnp.concatenate(
+        jnp.split(out['pre_logits'], ens_size), axis=-1)
 
-    # Note that logits and labels are usually of the shape [batch,num_classes].
-    # But for OOD data, when num_classes_ood > num_classes_ind, we need to
-    # adjust labels to labels[:, :config.num_classes] to match the shape of
-    # logits. That is just to avoid shape mismatch. The output losses does not
-    # have any meaning for OOD data, because OOD not belong to any IND class.
     losses = getattr(train_utils, loss_name)(
-        logits=logits,
-        labels=labels[:, :config.num_classes],
+        logits=ens_logits,
+        labels=labels[:, :(len(label_indices) if label_indices
+                           else config.num_classes)],
         reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
-    top1_idx = jnp.argmax(logits, axis=1)
-    # Extracts the label at the highest logit index for each image.
+    top1_idx = jnp.argmax(ens_logits, axis=1)
     top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, pre_logits, mask],
-                                     axis_name='batch')
+    metric_args = jax.lax.all_gather(
+        [ens_logits, labels, pre_logits, mask],
+        axis_name='batch')
     return ncorrect, loss, n, metric_args
 
   @functools.partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, states, images, labels, mask):
-    logits, out = model.apply(
-        {'params': flax.core.freeze(params), **states},
+    variable_dict = {'params': flax.core.freeze(params), **states}
+    tiled_logits, out = model.apply(
+        variable_dict,
         images,
         train=False,
-        rngs={'dropout': rng_dropout,
-              'diag_noise_samples': diag_noise_rng,
-              'standard_norm_noise_samples': standard_noise_rng})
-    loss_name = config.get('loss', 'sigmoid_xent')
-    pre_logits = out['pre_logits']
+        mean_field_factor=gp_config.get('mean_field_factor', -1.))
+    loss_name = config.get('loss', 'softmax_xent')
+    if loss_name == 'sigmoid_xent':
+      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+    else:  # softmax
+      ens_logits = batchensemble_utils.log_average_softmax_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+    pre_logits = jnp.concatenate(
+        jnp.split(out['pre_logits'], ens_size), axis=-1)
 
-    losses = getattr(train_utils, loss_name)(
-        logits=logits, labels=labels, reduction=False)
+    label_indices = config.get('label_indices')
+    if label_indices:
+      ens_logits = ens_logits[:, label_indices]
+
+    losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
+        logits=ens_logits, labels=labels, reduction=False)
     loss = jax.lax.psum(losses, axis_name='batch')
 
-    top1_idx = jnp.argmax(logits, axis=1)
+    top1_idx = jnp.argmax(ens_logits, axis=1)
     # Extracts the label at the highest logit index for each image.
     one_hot_labels = jnp.eye(10)[jnp.argmax(labels, axis=1)]
 
@@ -373,21 +394,21 @@ def main(config, output_dir):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([logits, labels, pre_logits, mask],
+    metric_args = jax.lax.all_gather([ens_logits, labels, pre_logits, mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
   # Setup function for computing representation.
   @functools.partial(jax.pmap, axis_name='batch')
-  def representation_fn(params, images, labels, mask, states):
+  def representation_fn(params, states, images, labels, mask):
+    # Return shape [batch_size, representation_size * ensemble_size]. During
+    # few-shot eval, a single linear regressor is applied over all dimensions.
+    variable_dict = {'params': flax.core.freeze(params), **states}
     _, outputs = model.apply(
-        {'params': flax.core.freeze(params), **states},
+        variable_dict,
         images,
         train=False,
-        rngs={
-            'dropout': rng_dropout,
-            'diag_noise_samples': diag_noise_rng,
-            'standard_norm_noise_samples': standard_noise_rng})
+        mean_field_factor=gp_config.get('mean_field_factor', -1.))
     representation = outputs[config.fewshot.representation_layer]
     representation = jnp.concatenate(
         jnp.split(representation, ens_size), axis=-1)
@@ -396,7 +417,6 @@ def main(config, output_dir):
     mask = jax.lax.all_gather(mask, 'batch')
     return representation, labels, mask
 
-  # Load the optimizer from flax.
   opt_name = config.get('optim_name')
   write_note(f'Initializing {opt_name} optimizer...')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
@@ -404,6 +424,7 @@ def main(config, output_dir):
   # We jit this, such that the arrays that are created are created on the same
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
+
   weight_decay_rules = config.get('weight_decay', []) or []
   rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
@@ -417,18 +438,14 @@ def main(config, output_dir):
     # Split rng and return next_rng for the following step.
     rng, next_rng = jax.random.split(rng, 2)
     rng_local = jax.random.fold_in(rng, jax.lax.axis_index('batch'))
-    rng_local, diag_noise_rng, standard_noise_rng = jax.random.split(
-        rng_local, num=3)
 
     def loss_fn(params, states, images, labels):
-      if config.model.use_gp:
+      if use_gp_layer:
         (logits, _), updated_states = model.apply(
             {'params': flax.core.freeze(params), **states},
             images,
             train=True,
-            rngs={'dropout': rng_local,
-                  'diag_noise_samples': diag_noise_rng,
-                  'standard_norm_noise_samples': standard_noise_rng},
+            rngs={'dropout': rng_local},
             # Specify mutable collection to update untrainable GP parameters.
             mutable=list(states.keys()))
       else:
@@ -437,9 +454,7 @@ def main(config, output_dir):
             {'params': flax.core.freeze(params), **states},
             images,
             train=True,
-            rngs={'dropout': rng_local,
-                  'diag_noise_samples': diag_noise_rng,
-                  'standard_norm_noise_samples': standard_noise_rng})
+            rngs={'dropout': rng_local})
 
       ens_size = config.model.transformer.ens_size
       labels = jnp.tile(labels, (ens_size, 1))
@@ -450,10 +465,10 @@ def main(config, output_dir):
 
     # Performs exact covariance update (i.e., reset precision matrix resetting
     # at begining of new epoch) if covmat_momentum is a null value.
-    if config.model.use_gp and config.get('model.covmat_momentum', -1.) < 0:
+    if use_gp_layer and config.get('gp_layer.covmat_momentum', -1.) < 0:
       # Resets precision matrix to Identity * ridge_penalty if at the begining
       # of a new epoch. This should be done before accumulate gradient.
-      ridge_penalty = config.get('model.ridge_penalty', 1.)
+      ridge_penalty = config.get('gp_layer.ridge_penalty', 1.)
       prec_mat_old = states['laplace_covariance']['head']['covmat_layer'][
           'precision_matrix']
       prec_mat_new = (
@@ -504,33 +519,16 @@ def main(config, output_dir):
     measurements['learning_rate'] = lr
     return opt, aux['states'], next_rng, measurements
 
-  if config.get('only_eval', False) or not config.get('reint_head', True):
-    default_reinit_params = []
-  else:
-    default_reinit_params = [
-        'head/scale_layer_homoscedastic/kernel',
-        'head/scale_layer_homoscedastic/bias',
-        'head/scale_layer_homoscedastic/fast_weight_gamma',
-        'head/scale_layer_heteroscedastic/kernel',
-        'head/scale_layer_heteroscedastic/bias',
-        'head/scale_layer_heteroscedastic/fast_weight_gamma',
-        'head/loc_layer/kernel',
-        'head/loc_layer/bias',
-        'head/loc_layer/fast_weight_gamma',
-        'head/diag_layer/kernel',
-        'head/diag_layer/bias',
-        'head/diag_layer/fast_weight_gamma',
-    ]
-  rng, train_loop_rngs = jax.random.split(rng)
-
+  reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
-      train_loop_rngs=train_loop_rngs,
+      train_loop_rngs=rng,
       save_checkpoint_path=save_checkpoint_path,
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=states_cpu,
-      default_reinit_params=default_reinit_params,
+      default_reinit_params=reint_params,
       config=config)
+
   train_loop_rngs = checkpoint_data.train_loop_rngs
   opt_cpu = checkpoint_data.optimizer
   states_cpu = checkpoint_data.fixed_model_states
@@ -542,6 +540,7 @@ def main(config, output_dir):
     writer.write_hparams(dict(config))
   chrono = train_utils.Chrono(
       first_step, total_steps, batch_size, accumulated_train_time)
+
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -557,8 +556,9 @@ def main(config, output_dir):
   lr_iter = train_utils.prefetch_scalar(
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
-  # Prepare the precision matrix resetting schedule; pre-fetch it to device.
-  reset_covmat_fn = lambda step: float(step % steps_per_epoch == 0)
+  # Prepare the precision matrix resetting schedule, and pre-fetch it to device.
+  reset_steps = steps_per_epoch * 1
+  reset_covmat_fn = lambda step: float(step % reset_steps == 0)
   reset_covmat_iter = train_utils.prefetch_scalar(
       map(reset_covmat_fn, range(first_step, total_steps)),
       nprefetch=config.get('prefetch_to_device', 1))
@@ -588,8 +588,8 @@ def main(config, output_dir):
   # the precision matrix needs to be updated fully (at the end of each epoch)
   # when eval takes place.
   log_eval_steps = config.log_eval_steps
-  if config.model.use_gp:
-    log_eval_steps = steps_per_epoch
+  if use_gp_layer:
+    log_eval_steps = max(steps_per_epoch, 2)
   # Advance the iterators if we are restarting from an earlier checkpoint.
   # TODO(dusenberrymw): Look into checkpointing dataset state instead.
   if first_step > 0:
@@ -600,13 +600,10 @@ def main(config, output_dir):
   # Using a python integer for step here, because opt.state.step is allocated
   # on TPU during replication.
   for step, train_batch, lr_repl, reset_covmat_repl in zip(
-      range(first_step + 1, total_steps + 1),
-      train_iter,
-      lr_iter,
+      range(first_step + 1, total_steps + 1), train_iter, lr_iter,
       reset_covmat_iter):
     with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
       if not config.get('only_eval', False):
-        # TODO(jereliu): Expand to allow precision matrix resetting.
         opt_repl, states_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
             states_repl,
@@ -666,7 +663,7 @@ def main(config, output_dir):
       train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
-      # Keep train_loss to return for reproducibility tests.
+      # Keep to return for reproducibility tests.
       train_loss = train_measurements['training_loss']
 
     # Report validation performance
@@ -675,23 +672,22 @@ def main(config, output_dir):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, val_ds in val_ds_splits.items():
-        if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
-          # Sets up evaluation metrics.
-          ece_num_bins = config.get('ece_num_bins', 15)
-          auc_num_bins = config.get('auc_num_bins', 1000)
-          ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
-          calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
-          oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
-                                                         num_bins=auc_num_bins)
-          oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
+        # Sets up evaluation metrics.
+        ece_num_bins = config.get('ece_num_bins', 15)
+        auc_num_bins = config.get('auc_num_bins', 1000)
+        ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
+        calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
                                                        num_bins=auc_num_bins)
-          oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
-                                                       num_bins=auc_num_bins)
-          oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
-                                                       num_bins=auc_num_bins)
-          label_diversity = tf.keras.metrics.Mean()
-          sample_diversity = tf.keras.metrics.Mean()
-          ged = tf.keras.metrics.Mean()
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
+                                                     num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
+                                                     num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
+                                                     num_bins=auc_num_bins)
+        label_diversity = tf.keras.metrics.Mean()
+        sample_diversity = tf.keras.metrics.Mean()
+        ged = tf.keras.metrics.Mean()
 
         # Runs evaluation loop.
         val_iter = input_utils.start_input_pipeline(
@@ -741,8 +737,11 @@ def main(config, output_dir):
               oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
               if val_name == 'cifar_10h' or val_name == 'imagenet_real':
+                num_classes = config.num_classes
+                if config.get('label_indices'):
+                  num_classes = len(config.get('label_indices'))
                 batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
-                    label[m], p[m, :], config.num_classes)
+                    label[m], p[m, :], num_classes)
                 label_diversity.update_state(batch_label_diversity)
                 sample_diversity.update_state(batch_sample_diversity)
                 ged.update_state(batch_ged)
@@ -802,6 +801,7 @@ def main(config, output_dir):
             opt_repl.target,
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
+
       chrono.resume()
 
     if 'fewshot' in config and fewshotter is not None:
@@ -811,10 +811,8 @@ def main(config, output_dir):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
-        fewshot_results, best_l2 = fewshotter.run_all(
-            opt_repl.target,
-            datasets=config.fewshot.datasets,
-            states=states_repl)
+        fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
+                                                      config.fewshot.datasets)
 
         # TODO(dusenberrymw): Remove this once fewshot.py is updated.
         def make_writer_measure_fn(step):
@@ -830,10 +828,6 @@ def main(config, output_dir):
 
     if config.get('only_eval', False):
       break
-    elif config.get('testing_failure_step'):
-      # Break early to simulate infra failures in test cases.
-      if config.testing_failure_step == step:
-        break
 
   write_note(f'Done!\n{chrono.note}')
   pool.close()
@@ -844,17 +838,14 @@ def main(config, output_dir):
   # reproducibility test cases.
   return train_loss, val_loss, fewshot_results
 
-
 if __name__ == '__main__':
   # Adds jax flags to the program.
-  jax.config.config_with_absl()
-
-  # TODO(dusenberrymw): Refactor `main` such that there is a `train_eval`
-  # function that returns values for tests and does not directly access flags,
-  # and then have `main` return None.
+  jax.config.parse_flags_with_absl()
 
   def _main(argv):
     del argv
-    main(FLAGS.config, FLAGS.output_dir)
+    config = FLAGS.config
+    output_dir = FLAGS.output_dir
+    main(config, output_dir)
 
   app.run(_main)  # Ignore the returned values from `main`.

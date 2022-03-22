@@ -13,14 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Deep ensemble of ViT models.
+"""V-MoEs from https://arxiv.org/abs/2106.05974.
 
-We average the predictions of M models trained independently. The models are
-assumed to be already trained and we access them via their checkpoints.
-This script thus only focuses on the evaluation of the ensemble.
+The models are assumed to be already trained and we access them via their
+checkpoints. This script thus only focuses on the evaluation of the models.
 """
 
-import functools
 import multiprocessing
 
 from absl import app
@@ -28,22 +26,24 @@ from absl import flags
 from absl import logging
 from clu import metric_writers
 from clu import preprocess_spec
-import flax
 import jax
+from jax.experimental import pjit
 import jax.numpy as jnp
 import ml_collections.config_flags
 import numpy as np
 import robustness_metrics as rm
 
 import tensorflow as tf
-import uncertainty_baselines as ub
-import batchensemble_utils as be_u  # local file import from baselines.jft
-import checkpoint_utils  # local file import from baselines.jft
 import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
+import vmoe_utils  # local file import from baselines.jft
+
+from vmoe import partitioning
+from vmoe.checkpoints import partitioned
+from vmoe.nn import models
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
@@ -61,64 +61,31 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 
-def ensemble_prediction_fn(model_apply_fn, params, images, loss_as_str):
-  """Predicts with a deep ensemble.
-
-  Args:
-    model_apply_fn: The `model.apply` function of the model of interest.
-    params: PyTree of parameters of the form:
-      {
-        'model_1': params_model_1,
-        'model_2': params_model_2,
-        ...,
-        'model_M': params_model_M,
-      }
-      with M denoting the ensemble size.
-   images: Input images to make predictions for.
-   loss_as_str: A string denoting either `softmax_xent` or `sigmoid_xent`. The
-     logits are aggregated according to the choice of the loss.
-
-  Returns:
-    The log probablity of the logits and pre-logits.
-  """
-  assert loss_as_str in ('softmax_xent', 'sigmoid_xent'), loss_as_str
-  if loss_as_str == 'softmax_xent':
-    ens_logits_fn = be_u.log_average_softmax_probs
-  else:
-    ens_logits_fn = be_u.log_average_sigmoid_probs
-
-  outputs = [
-      model_apply_fn({'params': flax.core.freeze(p)}, images, train=False)
-      for p in params.values()
-  ]
-  ens_logits = jnp.asarray([logits for logits, _ in outputs])
-  ens_logits = ens_logits_fn(ens_logits)
-
-  # ens_prelogits [ens_size, batch_size, hidden_size]
-  ens_prelogits = jnp.asarray([out['pre_logits'] for _, out in outputs])
-  # ens_prelogits [batch_size, hidden_size, ens_size]
-  ens_prelogits = jnp.transpose(ens_prelogits, axes=[1, 2, 0])
-
-  return ens_logits, ens_prelogits
 
 
-def load_checkpoints(config):
-  """Load the checkpoints for each ensemble members."""
-  if not (config.model_init and isinstance(config.model_init, (tuple, list))):
-    raise ValueError(('deep_ensemble.py expects a list/tuple of ckpts to load; '
-                      f'got instead config.model_init={config.model_init}.'))
-
-  load_fn = lambda p: checkpoint_utils.load_checkpoint({}, p)['opt']['target']
-  params = {}
-  ensemble_size = len(config.model_init)
-  for model_idx, path in enumerate(config.model_init, start=1):
-    prefix = f'[{model_idx}/{ensemble_size}]'
-    logging_msg = f'{prefix} Start to load checkpoint: {path}.'
-    logging.info(logging_msg)
-    params[path] = load_fn(path)
-    logging_msg = f'{prefix} Finish to load checkpoint: {path}.'
-    logging.info(logging_msg)
+def load_checkpoint(config, mesh):
+  """Loads the checkpoint to evaluate."""
+  with mesh:
+    params = partitioned.restore_checkpoint(
+        prefix=config.model_init, tree=None, axis_resources=None)
   return params
+
+
+def _reshape_from_pmap_shape(x):
+  """Reshapes from (num_devices, batch_size_per_device, ...) to (-1, ...)."""
+  return x.reshape((-1,) + x.shape[2:])
+
+
+def _check_pmap_and_pjit_shapes(images, labels, mask):
+  """Checks the inputs have the expected pmap shape-conventions within pjit."""
+  names = ('images', 'labels', 'mask')
+  num_devices = jax.device_count()
+  for tensor, name in zip((images, labels, mask), names):
+    # pjit can see the entire data array. Since the pmap inputs have shapes
+    #    (num_local_devices, local_batch_size, ...) on each host,
+    # pjit has to see a first dimension equal to the *total* number of devices.
+    first_dim = tensor.shape[0]
+    assert first_dim == num_devices, f'{name}: {first_dim} != {num_devices}.'
 
 
 def main(config, output_dir):
@@ -252,25 +219,55 @@ def main(config, output_dir):
       )
 
   write_note('Initializing model...')
-  logging.info('config.model = %s', config.model)
-  model = ub.models.vision_transformer(
-      num_classes=config.num_classes, **config.model)
+  model_config = config.model
+  logging.info('config.model = %s', model_config)
+  model_cls = getattr(models, model_config['name'])
+  model = model_cls(**model_config)
 
-  ensemble_pred_fn = functools.partial(ensemble_prediction_fn, model.apply)
+  # We define the main prediction function.
+  def pred_fn(params, images):
+    rngs = {}  # No rngs needed since the prediction is fully deterministic.
+    (logits, _), intermediates = model.apply(
+        dict(params=params), images, rngs=rngs, capture_intermediates=True)
+    prelogits = intermediates['intermediates']['pre_logits']['__call__'][0]
+    return logits, prelogits
 
-  @functools.partial(jax.pmap, axis_name='batch')
+  # We configure the mesh for pjit.
+  num_experts = model_config['encoder']['moe']['num_experts']
+  mesh = partitioning.get_auto_logical_mesh(num_experts, jax.devices())
+
+  # We load the parameters from the checkpoint.
+  write_note('Load checkpoint...')
+  params = load_checkpoint(config, mesh)
+
+  # We partition the params across the devices.
+  variables_partition_spec = vmoe_utils.get_variables_partition_spec(params)
+  in_axis_resources = (
+      variables_partition_spec,  # params.
+      pjit.PartitionSpec(('expert', 'replica')),  # inputs.
+      pjit.PartitionSpec(('expert', 'replica')),  # labels.
+      pjit.PartitionSpec(('expert', 'replica')),  # masks.
+  )
+  pjit_partition_params_fn = pjit.pjit(
+      fun=lambda x: x,
+      in_axis_resources=(jax.tree_map(lambda _: pjit.PartitionSpec(), params),),
+      out_axis_resources=variables_partition_spec)
+  with jax.experimental.maps.Mesh(mesh.devices, mesh.axis_names):
+    params = pjit_partition_params_fn(params)
+
   def evaluation_fn(params, images, labels, mask):
-    # params is a dict of the form:
-    #   {'model_1': params_model_1, 'model_2': params_model_2, ...}
+    _check_pmap_and_pjit_shapes(images, labels, mask)
+    images = _reshape_from_pmap_shape(images)
+    labels = _reshape_from_pmap_shape(labels)
+    mask = _reshape_from_pmap_shape(mask)
+    logits, prelogits = pred_fn(params, images)
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
     loss_as_str = config.get('loss', 'sigmoid_xent')
-    ens_logits, ens_prelogits = ensemble_pred_fn(params, images, loss_as_str)
-
     label_indices = config.get('label_indices')
     logging.info('!!! mask %s, label_indices %s', mask, label_indices)
     if label_indices:
-      ens_logits = ens_logits[:, label_indices]
+      logits = logits[:, label_indices]
 
     # Note that logits and labels are usually of the shape [batch,num_classes].
     # But for OOD data, when num_classes_ood > num_classes_ind, we need to
@@ -278,68 +275,71 @@ def main(config, output_dir):
     # logits. That is just to avoid shape mismatch. The output losses does not
     # have any meaning for OOD data, because OOD not belong to any IND class.
     losses = getattr(train_utils, loss_as_str)(
-        logits=ens_logits,
+        logits=logits,
         labels=labels[:, :(len(label_indices) if label_indices
                            else config.num_classes)], reduction=False)
-    loss = jax.lax.psum(losses * mask, axis_name='batch')
-
-    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_idx = jnp.argmax(logits, axis=1)
     # Extracts the label at the highest logit index for each image.
     top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
-    ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
-    n = jax.lax.psum(mask, axis_name='batch')
+    # The different outer [...] are to match the pmap shapes expected after.
+    loss = [jnp.sum(losses * mask, axis=0)]
+    ncorrect = [jnp.sum(top1_correct * mask, axis=0)]
+    n = [jnp.sum(mask, axis=0)]
+    metric_args = [logits, labels, prelogits, mask]
+    metric_args = [jnp.asarray([[args]]) for args in metric_args]
 
-    metric_args = jax.lax.all_gather([ens_logits, labels, ens_prelogits, mask],
-                                     axis_name='batch')
     return ncorrect, loss, n, metric_args
 
-  @functools.partial(jax.pmap, axis_name='batch')
+  evaluation_fn = vmoe_utils.get_pjit_eval_fn_with_mesh(
+      evaluation_fn, mesh, in_axis_resources, num_outputs=4)
+
   def cifar_10h_evaluation_fn(params, images, labels, mask):
+    _check_pmap_and_pjit_shapes(images, labels, mask)
+    images = _reshape_from_pmap_shape(images)
+    labels = _reshape_from_pmap_shape(labels)
+    mask = _reshape_from_pmap_shape(mask)
+    logits, prelogits = pred_fn(params, images)
     loss_as_str = config.get('loss', 'softmax_xent')
-    ens_logits, ens_prelogits = ensemble_pred_fn(params, images, loss_as_str)
     label_indices = config.get('label_indices')
     if label_indices:
-      ens_logits = ens_logits[:, label_indices]
+      logits = logits[:, label_indices]
 
     losses = getattr(train_utils, loss_as_str)(
-        logits=ens_logits, labels=labels, reduction=False)
-    loss = jax.lax.psum(losses, axis_name='batch')
-
-    top1_idx = jnp.argmax(ens_logits, axis=1)
+        logits=logits, labels=labels, reduction=False)
+    top1_idx = jnp.argmax(logits, axis=1)
     # Extracts the label at the highest logit index for each image.
     one_hot_labels = jnp.eye(10)[jnp.argmax(labels, axis=1)]
-
     top1_correct = jnp.take_along_axis(
         one_hot_labels, top1_idx[:, None], axis=1)[:, 0]
-    ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
-    n = jax.lax.psum(one_hot_labels, axis_name='batch')
+    # The different outer [...] are to match the pmap shapes expected after.
+    loss = [jnp.sum(losses, axis=0)]
+    ncorrect = [jnp.sum(top1_correct, axis=0)]
+    n = [jnp.sum(one_hot_labels, axis=0)]
+    metric_args = [logits, labels, prelogits, mask]
+    metric_args = [jnp.asarray([[args]]) for args in metric_args]
 
-    metric_args = jax.lax.all_gather([ens_logits, labels, ens_prelogits, mask],
-                                     axis_name='batch')
     return ncorrect, loss, n, metric_args
 
+  cifar_10h_evaluation_fn = vmoe_utils.get_pjit_eval_fn_with_mesh(
+      cifar_10h_evaluation_fn, mesh, in_axis_resources, num_outputs=4)
+
   # Setup function for computing representation.
-  @functools.partial(jax.pmap, axis_name='batch')
   def representation_fn(params, images, labels, mask):
-    # Return shape [batch_size, representation_size * ensemble_size]. During
-    # few-shot eval, a single linear regressor is applied over all dimensions.
-    representation = []
-    for p in params.values():
-      _, outputs = model.apply({'params': flax.core.freeze(p)},
-                               images,
-                               train=False)
-      representation += [outputs[config.fewshot.representation_layer]]
-    representation = jnp.concatenate(representation, axis=1)
-    representation = jax.lax.all_gather(representation, 'batch')
-    labels = jax.lax.all_gather(labels, 'batch')
-    mask = jax.lax.all_gather(mask, 'batch')
+    _check_pmap_and_pjit_shapes(images, labels, mask)
+    images = _reshape_from_pmap_shape(images)
+    _, prelogits = pred_fn(params, images)
+
+    # The outer [...] and reshape are to match the pmap shapes expected after.
+    def reshape_to_pmap_all_gather_shape(x):
+      assert x.ndim == 2, x.shape
+      return [x.reshape((jax.device_count(), -1, x.shape[-1]))]
+    representation = reshape_to_pmap_all_gather_shape(prelogits)
+    labels = [labels]
+    mask = [mask]
     return representation, labels, mask
 
-  write_note('Load checkpoints...')
-  ensemble_params = load_checkpoints(config)
-
-  write_note('Replicating...')
-  ensemble_params = flax.jax_utils.replicate(ensemble_params)
+  representation_fn = vmoe_utils.get_pjit_eval_fn_with_mesh(
+      representation_fn, mesh, in_axis_resources, num_outputs=3)
 
   if jax.process_index() == 0:
     writer.write_hparams(dict(config))
@@ -384,11 +384,11 @@ def main(config, output_dir):
     for batch in val_iter:
       if val_name == 'cifar_10h':
         batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-            cifar_10h_evaluation_fn(ensemble_params, batch['image'],
+            cifar_10h_evaluation_fn(params, batch['image'],
                                     batch['labels'], batch['mask']))
       else:
         batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-            evaluation_fn(ensemble_params, batch['image'],
+            evaluation_fn(params, batch['image'],
                           batch['labels'], batch['mask']))
       # All results are a replicated array shaped as follows:
       # (local_devices, per_device_batch_size, elem_shape...)
@@ -464,7 +464,7 @@ def main(config, output_dir):
         ood_ds_names,
         config.ood_methods,
         evaluation_fn,
-        ensemble_params,
+        params,
         n_prefetch=config.get('prefetch_to_device', 1))
     writer.write_scalars(step, ood_measurements)
 
@@ -472,7 +472,7 @@ def main(config, output_dir):
     # Compute few-shot on-the-fly evaluation.
     write_note('Few-shot evaluation...')
     # Keep `results` to return for reproducibility tests.
-    fewshot_results, best_l2 = fewshotter.run_all(ensemble_params,
+    fewshot_results, best_l2 = fewshotter.run_all(params,
                                                   config.fewshot.datasets)
 
     # TODO(dusenberrymw): Remove this once fewshot.py is updated.

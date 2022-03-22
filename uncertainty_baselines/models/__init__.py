@@ -27,6 +27,7 @@ from uncertainty_baselines.models import efficientnet_utils
 from uncertainty_baselines.models.criteo_mlp import criteo_mlp
 from uncertainty_baselines.models.efficientnet import efficientnet
 from uncertainty_baselines.models.efficientnet_batch_ensemble import efficientnet_batch_ensemble
+from uncertainty_baselines.models.gat import gat
 from uncertainty_baselines.models.genomics_cnn import genomics_cnn
 from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.movielens import movielens

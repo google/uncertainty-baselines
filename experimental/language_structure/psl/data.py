@@ -235,7 +235,8 @@ def create_keyword_feature(dialogs: tf.Tensor, keyword_ids: Sequence[int],
                            include_keyword_value: int,
                            exclude_keyword_value: int) -> tf.Tensor:
   """Creates binary features for whether a dialog turn contains any word of interest."""
-  has_keyword = 0
+  has_keyword = tf.zeros_like(
+      _reduce_to_dialog_turn(dialogs, tf.reduce_sum), dtype=tf.int32)
   for keyword_id in keyword_ids:
     has_keyword += tf.cast(
         _reduce_to_dialog_turn(tf.equal(dialogs, keyword_id), tf.reduce_any),
@@ -246,16 +247,33 @@ def create_keyword_feature(dialogs: tf.Tensor, keyword_ids: Sequence[int],
   return keyword_feature
 
 
-def create_features(dialogs: tf.Tensor,
+def _create_dialogs(user_utterance_ids: tf.Tensor,
+                    system_utterance_ids: tf.Tensor) -> tf.Tensor:
+  """Creates dialogs of shape [batch_size, dialog_length, 2, seq_length]."""
+  return tf.stack([user_utterance_ids, system_utterance_ids], axis=2)
+
+
+def create_features(user_utterance_ids: tf.Tensor,
+                    system_utterance_ids: tf.Tensor,
                     keyword_ids_per_class: Sequence[Sequence[int]],
+                    check_keyword_by_utterance: bool,
                     include_keyword_value: int, exclude_keyword_value: int,
                     pad_utterance_mask_value: int, utterance_mask_value: int,
                     last_utterance_mask_value: int) -> tf.Tensor:
   """Creates the features needed by the PSL constraint model.
 
+  if `check_keyword_by_utterance` is True, `keyword_ids_per_class` should be of
+  the order:
+    cls_1_usr_keyword_ids, cls_1_sys_keyword_ids, cls_2_usr_keyword_ids,...
+
   Args:
-    dialogs: tensor of shape [batch_size, dialog_length, 2, seq_length].
-    keyword_ids_per_class: the key word ids for each class.
+    user_utterance_ids: the token ids of user utterances. Tensor of shape
+      [batch_size, dialog_length, seq_length].
+    system_utterance_ids: the token ids of system utterances. Tensor of shape
+      [batch_size, dialog_length, seq_length].
+    keyword_ids_per_class: the keyword ids for each class.
+    check_keyword_by_utterance: whether to create the keyword features by
+      user/system utterances or the whole dialog turns.
     include_keyword_value: mark if a dialog turn contains a keyword.
     exclude_keyword_value: mark if a dialog turn doesn't contain a keyword.
     pad_utterance_mask_value: mark if a dialog turn is a padded turn.
@@ -267,14 +285,25 @@ def create_features(dialogs: tf.Tensor,
     Feature tensor for PSL constraint model.
   """
   # Create mask features
+  dialogs = _create_dialogs(user_utterance_ids, system_utterance_ids)
   features = [
       create_utterance_mask_feature(dialogs, pad_utterance_mask_value,
                                     utterance_mask_value,
                                     last_utterance_mask_value)
   ]
 
-  # Keyword features
-  for keyword_ids in keyword_ids_per_class:
+  # Create Keyword features.
+  if check_keyword_by_utterance:
+    dialog_user_utterance_only = _create_dialogs(
+        user_utterance_ids, tf.zeros_like(system_utterance_ids))
+    dialog_system_utterance_only = _create_dialogs(
+        tf.zeros_like(user_utterance_ids), system_utterance_ids)
+    candidate_dialogs = [
+        dialog_user_utterance_only, dialog_system_utterance_only
+    ]
+  for i, keyword_ids in enumerate(keyword_ids_per_class):
+    if check_keyword_by_utterance:
+      dialogs = candidate_dialogs[i % 2]
     features.append(
         create_keyword_feature(dialogs, keyword_ids, include_keyword_value,
                                exclude_keyword_value))
@@ -334,7 +363,7 @@ def pad_dialogs(
     sys_input_mask.append(sys_mask)
 
   return np.array(usr_input_sent), np.array(usr_input_mask), np.array(
-      sys_input_sent), np.array(sys_input_mask),
+      sys_input_sent), np.array(sys_input_mask)
 
 
 def one_hot_string_encoding(labels: List[List[str]],

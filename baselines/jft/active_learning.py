@@ -120,12 +120,19 @@ def get_ids_logits_masks(*,
       else:
         raise ValueError(f'Loss name: {loss_name} not supported.')
 
-    if use_pre_logits:
-      pre_logits = jnp.concatenate(
-          jnp.split(out['pre_logits'], ens_size), axis=-1)
-      output = pre_logits
+      if use_pre_logits:
+        # pre_logits [batch_size, hidden_size, ens_size]
+        pre_logits = jnp.transpose(
+            jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
+        output = pre_logits
+      else:
+        output = logits
     else:
-      output = logits
+      if use_pre_logits:
+        # pre_logits [batch_size, hidden_size]
+        output = out['pre_logits']
+      else:
+        output = logits
 
     # TODO(joost,andreas): For multi host this requires:
     # output = jax.lax.all_gather(output, axis_name='batch')
@@ -142,6 +149,9 @@ def get_ids_logits_masks(*,
     batch_label = batch['labels']
     batch_mask = batch['mask']
     batch_output = compute_batch_outputs(opt_repl.target, batch['image'])
+
+    # This moves the batch_output from TPU to CPU right away.
+    batch_output = jax.device_put(batch_output, jax.devices('cpu')[0])
 
     # TODO(joost,andreas): if we run on multi host, we need to index
     # batch_outputs: batch_outputs[0]
@@ -208,14 +218,22 @@ def get_bald_scores(logits, masks):
   log_probs = jax.nn.log_softmax(logits)
   probs = jax.nn.softmax(logits)
 
+  weighted_nats = -probs * log_probs
+  weighted_nats = jnp.where(jnp.isnan(weighted_nats), 0, weighted_nats)
+
+  marginal_entropy = jnp.mean(jnp.sum(weighted_nats, axis=-1), axis=1)
+
   marginal_log_probs = jax.nn.logsumexp(log_probs, axis=1) - jnp.log(ens_size)
   marginal_probs = jnp.mean(probs, axis=1)
 
-  entropy_marginal = jnp.sum(-marginal_probs * marginal_log_probs, axis=-1)
-  marginal_entropy = jnp.mean(jnp.sum(-probs * log_probs, axis=-1), axis=1)
-  bald = entropy_marginal - marginal_entropy
+  weighted_marginal_nats = -marginal_probs * marginal_log_probs
+  weighted_marginal_nats = jnp.where(
+      jnp.isnan(weighted_marginal_nats), 0, weighted_marginal_nats)
 
-  bald = jnp.where(jnp.isnan(bald), 0, bald)
+  entropy_marginal = jnp.sum(weighted_marginal_nats, axis=-1)
+
+  # Mask results.
+  bald = entropy_marginal - marginal_entropy
   bald = jnp.where(masks, bald, NINF_SCORE)
 
   return bald
@@ -242,6 +260,26 @@ def get_margin_scores(logits, masks):
   margin_scores = jnp.where(masks, margin_scores, NINF_SCORE)
 
   return margin_scores
+
+
+def get_msp_scores(logits, masks):
+  """Obtain scores using maximum softmax probability scoring.
+
+  Args:
+    logits: the logits of the pool set.
+    masks: the masks belonging to the pool set.
+
+  Returns:
+    a list of scores belonging to the pool set.
+  """
+  probs = jax.nn.softmax(logits)
+  max_probs = jnp.max(probs, axis=-1)
+
+  # High max prob means low uncertainty, so we invert the value.
+  msp_scores = -max_probs
+  msp_scores = jnp.where(masks, msp_scores, NINF_SCORE)
+
+  return msp_scores
 
 
 def get_uniform_scores(masks, rng):
@@ -288,19 +326,55 @@ def get_density_scores(*,
       use_pre_logits=True,
       config=config)
 
+  # train_masks_bool [num_cores, per_core_batch_size]
   train_masks_bool = train_masks.astype(bool)
-  train_pre_logits = train_pre_logits[train_masks_bool].reshape(
-      -1, train_pre_logits.shape[-1])
+  # train_pre_logits [num_cores, per_core_batch_size, hidden_size, ens_size]
+  # train_embeds [batch_size, hidden_size, ens_size]
+  # batch_size = num_cores * per_core_batch_size
+  train_embeds = train_pre_logits[train_masks_bool]
   train_labels = np.argmax(train_labels[train_masks_bool], axis=-1).ravel()
 
-  mean_list, cov = ood_utils.compute_mean_and_cov(train_pre_logits,
-                                                  train_labels)
+  use_ens = False
+  if len(train_embeds.shape) == 3:
+    # The output needs to the ensembled
+    # embeds is of the shape [batch_size, hidden_size, ens_size]
+    use_ens = True
+    ens_size = train_embeds.shape[-1]
+
+  if not use_ens:
+    # Single model
+    # train_embeds shape [batch_size, hidden_size]
+    mean_list, cov = ood_utils.compute_mean_and_cov(train_embeds, train_labels)
+  else:
+    # Ensemble models
+    # train_embeds shape [batch_size, hidden_size, ens_size]
+    mean_list, cov = [], []
+    for m in range(ens_size):
+      mu, sigma = ood_utils.compute_mean_and_cov(train_embeds[..., m],
+                                                 train_labels)
+      mean_list.append(mu)
+      cov.append(sigma)
 
   # Evaluate LDA on pool set
-  pool_pre_logits = pool_pre_logits.reshape(-1, pool_pre_logits.shape[-1])
-  dists = ood_utils.compute_mahalanobis_distance(pool_pre_logits, mean_list,
-                                                 cov)
-  scores = np.array(jax.nn.logsumexp(-dists / 2, axis=-1))
+  if not use_ens:
+    # Single model
+    # pool_pre_logits [num_cores, per_core_batch_size, hidden_size]
+    pool_pre_logits = pool_pre_logits.reshape(-1, pool_pre_logits.shape[-1])
+    dists = ood_utils.compute_mahalanobis_distance(pool_pre_logits, mean_list,
+                                                   cov)
+    scores = np.array(jax.nn.logsumexp(-dists / 2, axis=-1))
+  else:
+    # Ensemble models
+    # pool_pre_logits [num_cores, per_core_batch_size, hidden_size, ens_size]
+    pool_pre_logits = pool_pre_logits.reshape(
+        [-1] + [s for s in pool_pre_logits.shape[2:]])
+    for m in range(ens_size):
+      scores_list = []
+      d = ood_utils.compute_mahalanobis_distance(pool_pre_logits[..., m],
+                                                 mean_list[m], cov[m])
+      s = np.array(jax.nn.logsumexp(-d / 2, axis=-1))
+      scores_list.append(s)
+    scores = np.mean(np.array(scores_list), axis=0)
 
   # Convert likelihood to AL score
   pool_masks_bool = np.array(pool_masks.ravel(), dtype=bool)
@@ -367,6 +441,8 @@ def acquire_points(model, current_opt_repl, pool_train_ds, train_eval_ds,
     pool_scores = get_entropy_scores(pool_outputs, pool_masks)
   elif acquisition_method == 'margin':
     pool_scores = get_margin_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'msp':
+    pool_scores = get_msp_scores(pool_outputs, pool_masks)
   elif acquisition_method == 'bald':
     pool_scores = get_bald_scores(pool_outputs, pool_masks)
   elif acquisition_method == 'density':
@@ -502,6 +578,8 @@ def finetune(*,
 
 
 def main(config, output_dir):
+  if jax.process_count() > 1:
+    raise NotImplementedError
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(

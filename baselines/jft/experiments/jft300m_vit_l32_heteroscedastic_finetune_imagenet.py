@@ -20,9 +20,59 @@ r"""Finetune a ViT-L/32 heteroscedastic model on Imagenet.
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
+import sweep_utils  # local file import from baselines.jft.experiments
 
 
+def get_sweep(hyper):
+  """Few-shot sweep."""
+  imagenet_1shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='1shot', steps=200, warmup=s))
+          for s in [1, 5, 10]]),
+      hyper.sweep('config.lr.base',
+                  [0.04, 0.03, 0.02]),
+      hyper.sweep('config.model.temperature',
+                  [0.25, 0.5, 0.75, 1.0, 2.0, 3.0])
+  ])
+
+  imagenet_5shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='5shot', steps=1000, warmup=s))
+          for s in [1, 10, 20, 30]]),
+      hyper.sweep('config.lr.base',
+                  [0.05, 0.04, 0.03]),
+      hyper.sweep('config.model.temperature',
+                  [0.25, 0.5, 0.75, 1.0, 2.0, 3.0])
+  ])
+
+  imagenet_10shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='10shot', steps=2000, warmup=s))
+          for s in [30, 40, 50]]),
+      hyper.sweep('config.lr.base',
+                  [0.06, 0.05, 0.03]),
+      hyper.sweep('config.model.temperature',
+                  [0.25, 0.5, 0.75, 1.0, 2.0, 3.0])
+  ])
+
+  return hyper.product([
+      hyper.chainit([
+          imagenet_1shot_sweep,
+          imagenet_5shot_sweep,
+          imagenet_10shot_sweep
+      ]),
+  ])
+
+
+# def get_sweep(hyper):
+#   return hyper.product([
+#       hyper.sweep('config.total_steps', [20_000, 30_000, 40_000]),
+#       hyper.sweep('config.lr.base', [0.06, 0.03, 0.01]),
+#       hyper.sweep('config.model.temperature', [0.15, 0.25, 0.5, 0.75]),
+#   ])
 
 
 def get_config():
@@ -38,7 +88,11 @@ def get_config():
 
   # OOD eval
   # ood_split is the data split for both the ood_dataset and the dataset.
-  config.ood_dataset = None
+  config.ood_datasets = []
+  config.ood_num_classes = []
+  config.ood_split = ''
+  config.ood_methods = []
+  config.pp_eval_ood = []
 
   BATCH_SIZE = 512  # pylint: disable=invalid-name
   config.batch_size = BATCH_SIZE
@@ -57,6 +111,7 @@ def get_config():
 
   # CIFAR-10H eval
   config.eval_on_cifar_10h = False
+  config.pp_eval_cifar_10h = ''
 
   # Imagenet ReaL eval
   config.eval_on_imagenet_real = True

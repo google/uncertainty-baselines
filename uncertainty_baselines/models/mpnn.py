@@ -181,9 +181,8 @@ class MpnnModel(tf.keras.Model):
 
   def __init__(
       self,
-      nodes_shape: Tuple[int, int],
-      edges_shape: Tuple[int, int, int],
-      num_heads: int,
+      node_feature_dim: int,
+      num_classes: int,
       num_layers: int,
       message_layer_size: int,
       readout_layer_size: int,
@@ -200,9 +199,8 @@ class MpnnModel(tf.keras.Model):
       * The readout is Eq. (4) from https://arxiv.org/pdf/1704.01212.pdf.
 
     Args:
-      nodes_shape: Shape of the nodes tensor (excluding batch dimension).
-      edges_shape: Shape of the edges tensor (excluding batch dimension).
-      num_heads: Number of output classes.
+      node_feature_dim: Dimension (integer) of incoming node level features.
+      num_classes: Number of output classes.
       num_layers: Number of message passing layers.
       message_layer_size: Number of hidden units in message functions.
       readout_layer_size: Number of hidden units in the readout function.
@@ -224,7 +222,7 @@ class MpnnModel(tf.keras.Model):
     for _ in range(num_layers):
       self.mpnn_layers.append(
           MpnnLayer(
-              nodes_shape[-1], message_layer_size, kernel_regularizer,
+              node_feature_dim, message_layer_size, kernel_regularizer,
               use_spec_norm=use_spec_norm_mp,
               spec_norm_multiplier=spec_norm_multiplier_mp))
 
@@ -247,7 +245,7 @@ class MpnnModel(tf.keras.Model):
       self.j_layer_final = self.j_layer
 
     self.classifier = classifier_utils.build_classifier(
-        num_classes=num_heads,
+        num_classes=num_classes,
         gp_layer_kwargs=gp_layer_kwargs,
         use_gp_layer=use_gp_layer,
         kernel_regularizer=kernel_regularizer)
@@ -280,9 +278,8 @@ class MpnnModel(tf.keras.Model):
 
 
 def mpnn(
-    nodes_shape: Tuple[int, int],
-    edges_shape: Tuple[int, int, int],
-    num_heads: int,
+    node_feature_dim: int,
+    num_classes: int,
     num_layers: int,
     message_layer_size: int,
     readout_layer_size: int,
@@ -300,9 +297,8 @@ def mpnn(
     * The readout is Eq. (4) from https://arxiv.org/pdf/1704.01212.pdf.
 
   Args:
-    nodes_shape: Shape of the nodes tensor (excluding batch dimension).
-    edges_shape: Shape of the edges tensor (excluding batch dimension).
-    num_heads: Number of output classes.
+    node_feature_dim: Dimension (integer) of incoming node level features.
+    num_classes: Number of output classes.
     num_layers: Number of message passing layers.
     message_layer_size: Number of hidden units in message functions.
     readout_layer_size: Number of hidden units in the readout function.
@@ -319,9 +315,8 @@ def mpnn(
   Returns:
     A Keras Model (not compiled).
   """
-  return MpnnModel(nodes_shape=nodes_shape,
-                   edges_shape=edges_shape,
-                   num_heads=num_heads,
+  return MpnnModel(node_feature_dim=node_feature_dim,
+                   num_classes=num_classes,
                    num_layers=num_layers,
                    message_layer_size=message_layer_size,
                    readout_layer_size=readout_layer_size,

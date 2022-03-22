@@ -19,7 +19,7 @@ import dataclasses
 import logging
 import os
 import time
-from typing import Dict, Sequence
+from typing import Dict, Sequence, Union
 
 from absl import app
 from absl import flags
@@ -36,7 +36,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string(
     'data_dir', None,
     'Directory containing the TFRecord datasets for Drug Cardiotoxicity.')
-flags.DEFINE_integer('num_heads', 2, 'Number of classification heads.')
+flags.DEFINE_integer('num_classes', 2, 'Number of classification heads.')
 flags.DEFINE_string('output_dir', None, 'Output directory.')
 flags.DEFINE_string('job_base_dir', None,
                     'Output directory for the umbrella job, which may have '
@@ -49,14 +49,26 @@ flags.DEFINE_integer('num_epochs', 200, 'Number of epochs.')
 flags.DEFINE_boolean('use_gpu', True, 'If True, uses GPU.')
 flags.DEFINE_integer('num_cores', 1, 'Number of TPU cores or number of GPUs.')
 flags.DEFINE_string('tpu', '', 'TPU master.')
-# Parameter flags.
+# Model parameter flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_float('learning_rate', 0.001, 'Learning rate.')
+flags.DEFINE_integer('readout_layer_size', 32,
+                     'Number of units in the readout layer.')
+
+flags.DEFINE_string('model_type', 'mpnn', 'model architecture type to train.')
+# MPNN specific parameter flags.
 flags.DEFINE_integer('num_layers', 2, 'Number of message passing layers.')
 flags.DEFINE_integer('message_layer_size', 32,
                      'Number of units in message layers.')
-flags.DEFINE_integer('readout_layer_size', 32,
-                     'Number of units in the readout layer.')
+# GAT specific parameter flags.
+flags.DEFINE_integer('attention_heads', 3,
+                     'number of graph attention heads per layer.')
+flags.DEFINE_integer('out_node_feature_dim', 64,
+                     'dimension (integer) of node level features '
+                     'outcoming from the attention layer.')
+flags.DEFINE_boolean('constant_attention', False,
+                     'whether to use constant attention.')
+flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
 
 # Choose augmentations, if any.
 flags.DEFINE_float(
@@ -108,11 +120,37 @@ flags.DEFINE_enum('loss_type', 'xent', ['xent', 'focal'],
                   'Type of loss function to use.')
 
 
+def make_mpnn_model(node_feature_dim, mpnn_model_params):
+  model = ub.models.mpnn(
+      node_feature_dim=node_feature_dim,
+      num_classes=mpnn_model_params.num_classes,
+      num_layers=mpnn_model_params.num_layers,
+      message_layer_size=mpnn_model_params.message_layer_size,
+      readout_layer_size=mpnn_model_params.readout_layer_size,
+      use_gp_layer=mpnn_model_params.use_gp_layer)
+
+  return model
+
+
+def make_gat_model(node_feature_dim, gat_model_params):
+  """Makes a GAT model."""
+  model = ub.models.gat(
+      node_feature_dim=node_feature_dim,
+      attention_heads=gat_model_params.attention_heads,
+      out_node_feature_dim=gat_model_params.out_node_feature_dim,
+      readout_layer_size=gat_model_params.readout_layer_size,
+      num_classes=gat_model_params.num_classes,
+      constant_attention=gat_model_params.constant_attention,
+      dropout_rate=gat_model_params.dropout_rate)
+
+  return model
+
+
 def run(
     train_dataset: tf.data.Dataset,
     eval_datasets: Dict[str, tf.data.Dataset],
     steps_per_eval: Dict[str, int],
-    params: utils.ModelParameters,
+    params: Union[utils.MPNNParameters, utils.GATParameters],
     model_dir: str,
     strategy: tf.distribute.Strategy,
     summary_writer: tf.summary.SummaryWriter,
@@ -120,14 +158,11 @@ def run(
     graph_augmenter: augmentation_utils.GraphAugment):
   """Trains and evaluates the model."""
   with strategy.scope():
-    model = ub.models.mpnn(
-        nodes_shape=train_dataset.element_spec[0]['atoms'].shape[1:],
-        edges_shape=train_dataset.element_spec[0]['pairs'].shape[1:],
-        num_heads=params.num_heads,
-        num_layers=params.num_layers,
-        message_layer_size=params.message_layer_size,
-        readout_layer_size=params.readout_layer_size,
-        use_gp_layer=params.use_gp_layer)
+    node_feature_dim = train_dataset.element_spec[0]['atoms'].shape[-1]
+    if isinstance(params, utils.MPNNParameters):
+      model = make_mpnn_model(node_feature_dim, params)
+    else:
+      model = make_gat_model(node_feature_dim, params)
     optimizer = tf.keras.optimizers.RMSprop(learning_rate=params.learning_rate)
     metrics = {
         'train/negative_log_likelihood': tf.keras.metrics.Mean(),
@@ -307,16 +342,29 @@ def main(argv: Sequence[str]):
         FLAGS.perturb_edge_features, FLAGS.initialize_edge_features_randomly,
         FLAGS.mask_mean, FLAGS.mask_stddev)
 
-  params = utils.ModelParameters(
-      num_heads=FLAGS.num_heads,
-      num_layers=FLAGS.num_layers,
-      message_layer_size=FLAGS.message_layer_size,
-      readout_layer_size=FLAGS.readout_layer_size,
-      use_gp_layer=False,
-      learning_rate=FLAGS.learning_rate,
-      augmentations=FLAGS.augmentations,
-      num_epochs=FLAGS.num_epochs,
-      steps_per_epoch=steps_per_epoch)
+  if FLAGS.model_type == 'mpnn':
+    params = utils.MPNNParameters(
+        num_classes=FLAGS.num_classes,
+        num_layers=FLAGS.num_layers,
+        message_layer_size=FLAGS.message_layer_size,
+        readout_layer_size=FLAGS.readout_layer_size,
+        use_gp_layer=False,
+        learning_rate=FLAGS.learning_rate,
+        augmentations=FLAGS.augmentations,
+        num_epochs=FLAGS.num_epochs,
+        steps_per_epoch=steps_per_epoch)
+  else:
+    params = utils.GATParameters(
+        num_classes=FLAGS.num_classes,
+        attention_heads=FLAGS.attention_heads,
+        out_node_feature_dim=FLAGS.out_node_feature_dim,
+        readout_layer_size=FLAGS.readout_layer_size,
+        constant_attention=FLAGS.constant_attention,
+        dropout_rate=FLAGS.dropout_rate,
+        learning_rate=FLAGS.learning_rate,
+        augmentations=FLAGS.augmentations,
+        num_epochs=FLAGS.num_epochs,
+        steps_per_epoch=steps_per_epoch)
 
   model_dir = FLAGS.output_dir
   utils.write_params(

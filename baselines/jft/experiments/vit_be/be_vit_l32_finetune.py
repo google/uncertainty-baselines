@@ -77,12 +77,12 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (22, 23)
-  config.model.transformer.ens_size = 3
+  config.model.transformer.be_layers = (22, 23)  # Set in sweep.
+  config.model.transformer.ens_size = 3  # Set in sweep.
   config.model.transformer.random_sign_init = -0.5
   # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
   # need checkpoints that only apply BE on the FF block.
-  config.model.transformer.ensemble_attention = True
+  config.model.transformer.ensemble_attention = True  # Set in sweep.
   config.fast_weight_lr_multiplier = 1.0
 
   # This is "no head" fine-tuning, which we use by default
@@ -168,5 +168,12 @@ def get_sweep(hyper):
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
           hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
           hyper.sweep('config.model_init', checkpoints),
+          hyper.fixed(
+              'config.model.transformer.be_layers', be_layers, length=1),
+          hyper.fixed(
+              'config.model.transformer.ensemble_attention',
+              ensemble_attention,
+              length=1),
+          hyper.fixed('config.model.transformer.ens_size', ens_size, length=1),
       ])
   ])

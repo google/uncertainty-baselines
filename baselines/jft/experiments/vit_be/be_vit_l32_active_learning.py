@@ -32,8 +32,8 @@ def get_config():
   config.acquisition_method = ''  # set in sweep
   config.max_training_set_size = 200
   config.initial_training_set_size = 0
-  config.acquisition_batch_size = 1
-  config.early_stopping_patience = 64
+  config.acquisition_batch_size = 5
+  config.early_stopping_patience = 128
 
   config.dataset = ''  # set in sweep
   config.val_split = ''  # set in sweep
@@ -116,12 +116,20 @@ def get_sweep(hyper):
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
   cifar10_sweep = hyper.product([
       hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.015, 0.005, 0.0015, 0.0005]),
+      hyper.sweep('config.lr.base',
+                  [0.06, 0.03, 0.015, 0.005]),
+      hyper.sweep('config.initial_training_set_size',
+                  [20]),
+      hyper.sweep('config.max_training_set_size', [120]),
   ])
 
   cifar100_sweep = hyper.product([
       hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.015, 0.005, 0.0015, 0.0005]),
+      hyper.sweep('config.lr.base',
+                  [0.06, 0.03, 0.015, 0.005]),
+      hyper.sweep('config.initial_training_set_size',
+                  [200]),
+      hyper.sweep('config.max_training_set_size', [400]),
   ])
 
   # Temporarity disable imagenet and places due to OOM.

@@ -767,9 +767,9 @@ def main(config, output_dir):
   accumulated_steps = 0
   while True:
     current_train_ds_length = len(train_subset_data_builder.subset_ids)
+    write_note(f'Training set size: {current_train_ds_length}')
     if current_train_ds_length >= config.get('max_training_set_size', 150):
       break
-    write_note(f'Training set size: {current_train_ds_length}')
 
     current_opt_repl = flax_utils.replicate(opt_cpu)
 

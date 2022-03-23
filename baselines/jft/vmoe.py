@@ -13,12 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""V-MoEs from https://arxiv.org/abs/2106.05974.
+"""V-MoEs and ensemble thereof.
+
+Riquelme et al., 2021 https://arxiv.org/abs/2106.05974
+Allingham et al., 2021 https://arxiv.org/abs/2110.03360
 
 The models are assumed to be already trained and we access them via their
 checkpoints. This script thus only focuses on the evaluation of the models.
 """
-
+import functools
 import multiprocessing
 
 from absl import app
@@ -26,6 +29,7 @@ from absl import flags
 from absl import logging
 from clu import metric_writers
 from clu import preprocess_spec
+import flax
 import jax
 from jax.experimental import pjit
 import jax.numpy as jnp
@@ -34,6 +38,7 @@ import numpy as np
 import robustness_metrics as rm
 
 import tensorflow as tf
+import batchensemble_utils as be_u  # local file import from baselines.jft
 import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
@@ -65,10 +70,18 @@ FLAGS = flags.FLAGS
 
 def load_checkpoint(config, mesh):
   """Loads the checkpoint to evaluate."""
+  if not config.model_init:
+    raise ValueError(('vmoe.py expects at least one path to a ckpt to load; '
+                      f'got instead config.model_init={config.model_init}.'))
+  model_init = config.model_init
+  if not isinstance(model_init, (tuple, list)):
+    model_init = [model_init]
+
+  restore_checkpoint = functools.partial(
+      partitioned.restore_checkpoint, tree=None, axis_resources=None)
   with mesh:
-    params = partitioned.restore_checkpoint(
-        prefix=config.model_init, tree=None, axis_resources=None)
-  return params
+    params = {p: restore_checkpoint(prefix=p) for p in model_init}
+  return flax.core.freeze(params)
 
 
 def _reshape_from_pmap_shape(x):
@@ -86,6 +99,44 @@ def _check_pmap_and_pjit_shapes(images, labels, mask):
     # pjit has to see a first dimension equal to the *total* number of devices.
     first_dim = tensor.shape[0]
     assert first_dim == num_devices, f'{name}: {first_dim} != {num_devices}.'
+
+
+def ensemble_pred_fn(single_model_pred_fn, params, images, loss_as_str):
+  """Predicts with a V-Moe or an ensemble thereof.
+
+  Args:
+    single_model_pred_fn: Function to predict from a single model.
+    params: PyTree of parameters of the form:
+      {
+        'model_1': params_model_1,
+        'model_2': params_model_2,
+        ...,
+        'model_M': params_model_M,
+      }
+      with M denoting the ensemble size.
+    images: Input images to make predictions for.
+    loss_as_str: A string denoting either `softmax_xent` or `sigmoid_xent`. The
+      logits are aggregated according to the choice of the loss.
+
+  Returns:
+    The log probablity of the logits and pre-logits.
+  """
+  assert loss_as_str in ('softmax_xent', 'sigmoid_xent'), loss_as_str
+  if loss_as_str == 'softmax_xent':
+    ens_logits_fn = be_u.log_average_softmax_probs
+  else:
+    ens_logits_fn = be_u.log_average_sigmoid_probs
+
+  outputs = [single_model_pred_fn(p, images) for p in params.values()]
+  ens_logits = jnp.asarray([logits for logits, _ in outputs])
+  ens_logits = ens_logits_fn(ens_logits)
+
+  # ens_prelogits [ens_size, batch_size, hidden_size]
+  ens_prelogits = jnp.asarray([prelogits for _, prelogits in outputs])
+  # ens_prelogits [batch_size, hidden_size, ens_size]
+  ens_prelogits = jnp.transpose(ens_prelogits, axes=[1, 2, 0])
+
+  return ens_logits, ens_prelogits
 
 
 def main(config, output_dir):
@@ -225,12 +276,13 @@ def main(config, output_dir):
   model = model_cls(**model_config)
 
   # We define the main prediction function.
-  def pred_fn(params, images):
+  def single_model_pred_fn(params, images):
     rngs = {}  # No rngs needed since the prediction is fully deterministic.
     (logits, _), intermediates = model.apply(
         dict(params=params), images, rngs=rngs, capture_intermediates=True)
     prelogits = intermediates['intermediates']['pre_logits']['__call__'][0]
     return logits, prelogits
+  pred_fn = functools.partial(ensemble_pred_fn, single_model_pred_fn)
 
   # We configure the mesh for pjit.
   num_experts = model_config['encoder']['moe']['num_experts']
@@ -238,32 +290,39 @@ def main(config, output_dir):
 
   # We load the parameters from the checkpoint.
   write_note('Load checkpoint...')
-  params = load_checkpoint(config, mesh)
+  unpartitioned_params = load_checkpoint(config, mesh)
 
   # We partition the params across the devices.
-  variables_partition_spec = vmoe_utils.get_variables_partition_spec(params)
+  variables_partition_spec = vmoe_utils.get_variables_partition_spec(
+      unpartitioned_params)
   in_axis_resources = (
       variables_partition_spec,  # params.
       pjit.PartitionSpec(('expert', 'replica')),  # inputs.
       pjit.PartitionSpec(('expert', 'replica')),  # labels.
       pjit.PartitionSpec(('expert', 'replica')),  # masks.
   )
-  pjit_partition_params_fn = pjit.pjit(
-      fun=lambda x: x,
-      in_axis_resources=(jax.tree_map(lambda _: pjit.PartitionSpec(), params),),
-      out_axis_resources=variables_partition_spec)
-  with jax.experimental.maps.Mesh(mesh.devices, mesh.axis_names):
-    params = pjit_partition_params_fn(params)
+  params = {}
+  for model_key, model_params in unpartitioned_params.items():
+    pjit_partition_params_fn = pjit.pjit(
+        fun=lambda x: x,
+        in_axis_resources=(jax.tree_map(lambda _: pjit.PartitionSpec(),
+                                        model_params),),
+        out_axis_resources=variables_partition_spec[model_key])
+    with mesh:
+      params[model_key] = pjit_partition_params_fn(model_params)
+  del unpartitioned_params
+  params = flax.core.freeze(params)
 
+  # We define the evaluation functions.
   def evaluation_fn(params, images, labels, mask):
     _check_pmap_and_pjit_shapes(images, labels, mask)
     images = _reshape_from_pmap_shape(images)
     labels = _reshape_from_pmap_shape(labels)
     mask = _reshape_from_pmap_shape(mask)
-    logits, prelogits = pred_fn(params, images)
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
     loss_as_str = config.get('loss', 'sigmoid_xent')
+    logits, prelogits = pred_fn(params, images, loss_as_str)
     label_indices = config.get('label_indices')
     logging.info('!!! mask %s, label_indices %s', mask, label_indices)
     if label_indices:
@@ -298,8 +357,8 @@ def main(config, output_dir):
     images = _reshape_from_pmap_shape(images)
     labels = _reshape_from_pmap_shape(labels)
     mask = _reshape_from_pmap_shape(mask)
-    logits, prelogits = pred_fn(params, images)
     loss_as_str = config.get('loss', 'softmax_xent')
+    logits, prelogits = pred_fn(params, images, loss_as_str)
     label_indices = config.get('label_indices')
     if label_indices:
       logits = logits[:, label_indices]
@@ -327,12 +386,15 @@ def main(config, output_dir):
   def representation_fn(params, images, labels, mask):
     _check_pmap_and_pjit_shapes(images, labels, mask)
     images = _reshape_from_pmap_shape(images)
-    _, prelogits = pred_fn(params, images)
+
+    outputs = [single_model_pred_fn(p, images) for p in params.values()]
+    prelogits = jnp.concatenate([prelogits for _, prelogits in outputs], axis=1)
 
     # The outer [...] and reshape are to match the pmap shapes expected after.
     def reshape_to_pmap_all_gather_shape(x):
       assert x.ndim == 2, x.shape
       return [x.reshape((jax.device_count(), -1, x.shape[-1]))]
+
     representation = reshape_to_pmap_all_gather_shape(prelogits)
     labels = [labels]
     mask = [mask]

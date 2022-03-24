@@ -108,7 +108,7 @@ def create_update_fn(model, config):
   logging.info('weight_decay_rules = %s', weight_decay_rules)
   logging.info('rescale_value = %s', rescale_value)
 
-  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 4))
   def update_fn(opt, lr, images, labels, rng):
     """Update step."""
 

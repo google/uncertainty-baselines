@@ -117,8 +117,8 @@ def tree_map_with_names(f, param_tree, match_name_fn=lambda name: True):
     f: The function to be applied to each parameter in `param_tree`.
     param_tree: The tree of parameters `f` should be applied to.
     match_name_fn: This function is called with each tree leave's path name,
-      which has a path-like format ("a/b/c"), and decides whether `f` should
-      be applied to that leaf or the leaf should be kept as-is.
+      which has a path-like format ("a/b/c"), and decides whether `f` should be
+      applied to that leaf or the leaf should be kept as-is.
 
   Returns:
     A tree identical in structure to `param_tree` but with the leaves the
@@ -293,7 +293,7 @@ def create_update_fn(model, config):
 
   batch_loss_fn = create_batch_loss_fn(model, config)
 
-  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 4))
   def update_fn(opt, lr, images, labels, rngs):
     return update_fn_be(
         opt=opt,
@@ -361,4 +361,3 @@ def create_evaluation_fn(model, config):
     return ncorrect, loss, n, metric_args
 
   return evaluation_fn
-

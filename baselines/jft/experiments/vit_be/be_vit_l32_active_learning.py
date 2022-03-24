@@ -41,8 +41,8 @@ def get_config():
   config.test_split = ''  # set in sweep
   config.num_classes = None  # set in sweep
 
-  config.batch_size = 128
-  config.batch_size_eval = 128
+  config.batch_size = 256
+  config.batch_size_eval = 256
   config.total_steps = None  # set in sweep
 
   config.pp_train = ''  # set in sweep

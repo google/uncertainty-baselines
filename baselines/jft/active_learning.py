@@ -385,8 +385,19 @@ def get_density_scores(*,
   return scores
 
 
+def power_score_acquisition(scores, acquisition_batch_size, beta, rng):
+  # See https://colab.research.google.com/drive/1fbcDQHM9QD0px7Xb4hCewJXrin_xTDYD#scrollTo=nWnTaoO3L1FH
+  # for details.
+  noise = jax.random.gumbel(rng, [len(scores)])
+  noised_scores = scores + noise / beta 
+  
+  selected_scores, selected_indices = jax.lax.top_k(noised_scores, acquisition_batch_size)
+
+  return selected_scores, selected_indices
+
+
 def select_acquisition_batch_indices(*, acquisition_batch_size, scores, ids,
-                                     ignored_ids):
+                                     ignored_ids, power_acquisition, rng):
   """Select what data points to acquire from the pool set.
 
   Args:
@@ -411,15 +422,20 @@ def select_acquisition_batch_indices(*, acquisition_batch_size, scores, ids,
   logging.info(msg=f'Score statistics pool set - '
                f'min: {f_ent.min()}, mean: {f_ent.mean()}, max: {f_ent.max()}')
 
-  partitioned_scorers = np.argpartition(-scores, acquisition_batch_size)
-  top_scorers = partitioned_scorers[:acquisition_batch_size]
+  if power_acquisition:
+    beta = 1
+    selected_scorers = power_score_acquisition(scores, acquisition_batch_size, beta, rng)
+  else:
+    # Use top-k otherwise.
+    partitioned_scorers = np.argpartition(-scores, acquisition_batch_size)
+    selected_scorers = partitioned_scorers[:acquisition_batch_size]
 
-  top_ids = ids[top_scorers].tolist()
-  top_scores = scores[top_scorers].tolist()
+  selected_ids = ids[selected_scorers].tolist()
+  selected_scores = scores[selected_scorers].tolist()
 
-  logging.info(msg=f'Data selected - ids: {top_ids}, with scores: {top_scores}')
+  logging.info(msg=f'Data selected - ids: {selected_ids}, with scores: {selected_scores}')
 
-  return top_ids, top_scores
+  return selected_ids, selected_scores
 
 
 def acquire_points(model, current_opt_repl, pool_train_ds, train_eval_ds,
@@ -459,12 +475,15 @@ def acquire_points(model, current_opt_repl, pool_train_ds, train_eval_ds,
       pool_scores = get_uniform_scores(pool_masks, rng_acq)
   else:
     raise ValueError('Acquisition method not found.')
-
+    
+  rng_loop, rng_acq = jax.random.split(rng_loop, 2)
   acquisition_batch_ids, _ = select_acquisition_batch_indices(
       acquisition_batch_size=config.get('acquisition_batch_size', 10),
       scores=pool_scores,
       ids=pool_ids,
-      ignored_ids=train_subset_data_builder.subset_ids)
+      ignored_ids=train_subset_data_builder.subset_ids,
+      power_acquisition=config.get('power_acquisition', False),
+      rng=rng_acq)
 
   return acquisition_batch_ids, rng_loop
 

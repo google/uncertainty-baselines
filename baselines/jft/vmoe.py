@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""V-MoEs and ensemble thereof.
+"""V-MoEs, ensembles thereof and E^3.
 
-Riquelme et al., 2021 https://arxiv.org/abs/2106.05974
-Allingham et al., 2021 https://arxiv.org/abs/2110.03360
+[Riquelme et al., 2021] https://arxiv.org/abs/2106.05974
+[Allingham et al., 2021] https://arxiv.org/abs/2110.03360
 
 The models are assumed to be already trained and we access them via their
 checkpoints. This script thus only focuses on the evaluation of the models.
@@ -68,7 +68,7 @@ FLAGS = flags.FLAGS
 
 
 
-def load_checkpoint(config, mesh):
+def load_checkpoint(config, mesh, efficient_ensemble_size):
   """Loads the checkpoint to evaluate."""
   if not config.model_init:
     raise ValueError(('vmoe.py expects at least one path to a ckpt to load; '
@@ -101,11 +101,15 @@ def _check_pmap_and_pjit_shapes(images, labels, mask):
     assert first_dim == num_devices, f'{name}: {first_dim} != {num_devices}.'
 
 
-def ensemble_pred_fn(single_model_pred_fn, params, images, loss_as_str):
-  """Predicts with a V-Moe or an ensemble thereof.
+def ensemble_pred_fn(single_model_pred_fn, reshape_outputs_fn, params, images,
+                     loss_as_str):
+  """Predicts with a V-Moe, an ensemble thereof or E^3.
 
   Args:
     single_model_pred_fn: Function to predict from a single model.
+    reshape_outputs_fn: Function to reshape the logits and prelogits into a
+      canonical format with shape (ensemble size, batch size, dimension). In
+      particular, the reshape logic differs for deep and efficient ensembles.
     params: PyTree of parameters of the form:
       {
         'model_1': params_model_1,
@@ -128,12 +132,10 @@ def ensemble_pred_fn(single_model_pred_fn, params, images, loss_as_str):
     ens_logits_fn = be_u.log_average_sigmoid_probs
 
   outputs = [single_model_pred_fn(p, images) for p in params.values()]
-  ens_logits = jnp.asarray([logits for logits, _ in outputs])
+  # Both ens_logits and ens_prelogits are [ens_size, batch_size, hidden_size].
+  ens_logits, ens_prelogits = reshape_outputs_fn(outputs)
   ens_logits = ens_logits_fn(ens_logits)
-
-  # ens_prelogits [ens_size, batch_size, hidden_size]
-  ens_prelogits = jnp.asarray([prelogits for _, prelogits in outputs])
-  # ens_prelogits [batch_size, hidden_size, ens_size]
+  # ens_prelogits [batch_size, hidden_size, ens_size].
   ens_prelogits = jnp.transpose(ens_prelogits, axes=[1, 2, 0])
 
   return ens_logits, ens_prelogits
@@ -282,7 +284,17 @@ def main(config, output_dir):
         dict(params=params), images, rngs=rngs, capture_intermediates=True)
     prelogits = intermediates['intermediates']['pre_logits']['__call__'][0]
     return logits, prelogits
-  pred_fn = functools.partial(ensemble_pred_fn, single_model_pred_fn)
+
+  efficient_ensemble_size = model_config['encoder']['moe'].get('ensemble_size')
+  if efficient_ensemble_size is not None:
+    reshape_outputs_fn = functools.partial(
+        vmoe_utils.efficient_ensemble_reshape_outputs_fn,
+        ensemble_size=efficient_ensemble_size)
+  else:
+    reshape_outputs_fn = vmoe_utils.deep_ensemble_reshape_outputs_fn
+
+  pred_fn = functools.partial(ensemble_pred_fn, single_model_pred_fn,
+                              reshape_outputs_fn)
 
   # We configure the mesh for pjit.
   num_experts = model_config['encoder']['moe']['num_experts']
@@ -290,7 +302,7 @@ def main(config, output_dir):
 
   # We load the parameters from the checkpoint.
   write_note('Load checkpoint...')
-  unpartitioned_params = load_checkpoint(config, mesh)
+  unpartitioned_params = load_checkpoint(config, mesh, efficient_ensemble_size)
 
   # We partition the params across the devices.
   variables_partition_spec = vmoe_utils.get_variables_partition_spec(
@@ -388,7 +400,8 @@ def main(config, output_dir):
     images = _reshape_from_pmap_shape(images)
 
     outputs = [single_model_pred_fn(p, images) for p in params.values()]
-    prelogits = jnp.concatenate([prelogits for _, prelogits in outputs], axis=1)
+    _, prelogits = reshape_outputs_fn(outputs)
+    prelogits = jnp.concatenate(prelogits, axis=1)
 
     # The outer [...] and reshape are to match the pmap shapes expected after.
     def reshape_to_pmap_all_gather_shape(x):

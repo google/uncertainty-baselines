@@ -81,17 +81,17 @@ flags.DEFINE_multi_enum(
     'augmentations',
     default=[],
     enum_values=['drop_nodes', 'perturb_edges', 'permute_edges',
-                 'mask_node_features'],
+                 'mask_node_features', 'subgraph'],
     help='Types of augmentations to perform on graphs. If an empty list is '
     'provided, then no augmentation will be applied to the data.')
 
-# Flags for drop_nodes augmentation
+# Flags for drop_nodes augmentation.
 flags.DEFINE_boolean('perturb_node_features', False, 'When True, zeros out the '
                      'features of dropped nodes. When False, does not '
                      'affect the node features. Controls whether or not the '
                      'drop_nodes function affects the `atoms` feature.')
 
-# Flags for perturb_edges and permute_edges augmentations
+# Flags for perturb_edges and permute_edges augmentations.
 flags.DEFINE_boolean('drop_edges_only', False, 'If True, only drop edges '
                      'when using the perturb_edges augmentation, rather than '
                      're-adding the dropped edges between randomly selected '
@@ -107,7 +107,7 @@ flags.DEFINE_boolean('initialize_edge_features_randomly', False,
                      'from a random uniform distribution. When False, uses the '
                      'features of dropped edges for the newly added ones.')
 
-# Flags for mask_node_features
+# Flags for mask_node_features.
 flags.DEFINE_float(
     'mask_mean', 0.5, 'Mean of random normal distribution used to generate '
     'features of mask.')

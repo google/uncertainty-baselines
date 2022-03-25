@@ -21,6 +21,7 @@ from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import tensorflow_hub as hub
 
 from uncertainty_baselines.datasets import base
 
@@ -164,7 +165,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
                try_gcs: bool = False,
                download_data: bool = False,
                data_dir: Optional[str] = None,
-               is_training: Optional[bool] = None):  # pytype: disable=annotation-type-mismatch
+               is_training: Optional[bool] = None,
+               tf_hub_preprocessor_url: Optional[str] = None):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -192,14 +194,25 @@ class _JigsawToxicityDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
+      tf_hub_preprocessor_url: The TF Hub url to the BERT tokenizer. If given,
+        then the raw text from TFDS will be augmented with the BERT-compatible
+        `input_mask`, `input_ids`, and `segment_ids`.
     """
     dataset_builder = _JigsawToxicityDatasetBuilder(
         tfds.builder(name, try_gcs=try_gcs), max_seq_length, data_dir)
+    self.tf_hub_preprocessor_url = tf_hub_preprocessor_url
     self.additional_labels = additional_labels
 
     self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
     self.split_names = _DATA_SPLIT_NAMES
     self._data_dir = data_dir
+
+    if self.tf_hub_preprocessor_url:
+      preprocessor = hub.load(self.tf_hub_preprocessor_url)
+      self.tokenizer = hub.KerasLayer(preprocessor.tokenize)
+      self.bert_input_formatter = hub.KerasLayer(
+          preprocessor.bert_pack_inputs,
+          arguments=dict(seq_length=max_seq_length))
 
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
@@ -248,9 +261,24 @@ class _JigsawToxicityDataset(base.BaseDataset):
       else:
         label = example['toxicity']
         feature = example['text']
+        feature_id = example['id']
 
         # Read in sentences.
-        parsed_example = {'features': feature, 'labels': label}
+        parsed_example = {
+            'id': feature_id,
+            'features': feature,
+            'labels': label
+        }
+
+        # Append processed input for BERT model.
+        if self.tf_hub_preprocessor_url:
+          tokens = self.tokenizer([feature])
+          bert_inputs = self.bert_input_formatter([tokens])
+          parsed_example.update({
+              'input_ids': bert_inputs['input_word_ids'],
+              'input_mask': bert_inputs['input_mask'],
+              'segment_ids': bert_inputs['input_type_ids'],
+          })
 
         # Add additional labels.
         parsed_example.update({

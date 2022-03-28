@@ -34,10 +34,10 @@ def get_config():
   # Active learning section
   config.model_type = 'deterministic'  # 'batchensemble'
   config.acquisition_method = ''  # set in sweep
-  config.max_training_set_size = 200
-  config.initial_training_set_size = 0
-  config.acquisition_batch_size = 1
-  config.early_stopping_patience = 64
+  config.max_training_set_size = 0  # set in sweep
+  config.initial_training_set_size = 0  # set in sweep
+  config.acquisition_batch_size = 0  # set in sweep
+  config.early_stopping_patience = 128
 
   # Dataset section
   config.dataset = ''  # set in sweep
@@ -111,7 +111,7 @@ def get_sweep(hyper):
   # Adapted the sweep over checkpoints from vit_l32_finetune.py.
 
   sweep_lr = True  # whether to sweep over learning rates
-  acquisition_methods = ['uniform', 'entropy', 'margin']
+  acquisition_methods = ['uniform']  # ['uniform', 'entropy', 'margin']
   #. ['uniform', 'entropy', 'margin', 'density']
   def sweep_checkpoints(use_jft, sweep_lr=sweep_lr):
     """whether to use JFT-300M or ImageNet-21K settings."""
@@ -157,15 +157,29 @@ def get_sweep(hyper):
       # Apply a learning rate sweep following Table 4 of Vision Transformer
       # paper.
       checkpoints = [checkpoints[0]]
+      def set_data_sizes(a, b, c):
+        return [
+            hyper.fixed('config.initial_training_set_size', a, length=1),
+            hyper.fixed('config.max_training_set_size', b, length=1),
+            hyper.fixed('config.acquisition_batch_size', c, length=1),
+        ]
 
+      data_sizes = [
+          hyper.product(set_data_sizes(a, b, c))
+          for a, b, c in [(48990, 48991, 1)]
+      ]
       cifar10_sweep = hyper.product([
           hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-          hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+          hyper.sweep('config.lr.base',
+                      [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+          hyper.chainit(data_sizes),
       ])
 
       cifar100_sweep = hyper.product([
           hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-          hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+          hyper.sweep('config.lr.base',
+                      [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+          hyper.chainit(data_sizes),
       ])
 
       imagenet_sweep = hyper.product([

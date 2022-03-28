@@ -293,7 +293,7 @@ def create_update_fn(model, config):
 
   batch_loss_fn = create_batch_loss_fn(model, config)
 
-  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 4))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0))
   def update_fn(opt, lr, images, labels, rngs):
     return update_fn_be(
         opt=opt,

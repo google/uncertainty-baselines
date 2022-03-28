@@ -30,9 +30,9 @@ def get_config():
   # Active learning section
   config.model_type = 'batchensemble'
   config.acquisition_method = ''  # set in sweep
-  config.max_training_set_size = 200
-  config.initial_training_set_size = 0
-  config.acquisition_batch_size = 5
+  config.max_training_set_size = 0  # set in sweep
+  config.initial_training_set_size = 0  # set in sweep
+  config.acquisition_batch_size = 0  # set in sweep
   config.early_stopping_patience = 128
 
   config.dataset = ''  # set in sweep
@@ -114,22 +114,27 @@ def get_config():
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+  model_specs = hyper.sweep('config.model_init', checkpoints)
+  def set_data_sizes(a, b, c):
+    return [
+        hyper.fixed('config.initial_training_set_size', a, length=1),
+        hyper.fixed('config.max_training_set_size', b, length=1),
+        hyper.fixed('config.acquisition_batch_size', c, length=1),
+    ]
+
+  data_sizes = [
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(48990, 48991, 1)]
+  ]
   cifar10_sweep = hyper.product([
       hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-      hyper.sweep('config.lr.base',
-                  [0.06, 0.03, 0.015, 0.005]),
-      hyper.sweep('config.initial_training_set_size',
-                  [20]),
-      hyper.sweep('config.max_training_set_size', [120]),
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+      hyper.chainit(data_sizes),
   ])
 
   cifar100_sweep = hyper.product([
       hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-      hyper.sweep('config.lr.base',
-                  [0.06, 0.03, 0.015, 0.005]),
-      hyper.sweep('config.initial_training_set_size',
-                  [200]),
-      hyper.sweep('config.max_training_set_size', [400]),
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+      hyper.chainit(data_sizes),
   ])
 
   # Temporarity disable imagenet and places due to OOM.
@@ -156,6 +161,6 @@ def get_sweep(hyper):
       hyper.product([
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
           hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
-          hyper.sweep('config.model_init', checkpoints),
+          model_specs,
       ])
   ])

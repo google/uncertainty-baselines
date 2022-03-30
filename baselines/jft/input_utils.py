@@ -15,7 +15,7 @@
 
 """Input pipeline utilities for the ViT experiments."""
 import math
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, TypeVar
 
 from absl import logging
 from clu import deterministic_data
@@ -25,30 +25,25 @@ import jax.numpy as jnp
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import al_utils  # local file import from baselines.jft
 
-SubsetDatasetBuilder = al_utils.SubsetDatasetBuilder
+T_DatasetBuilder = TypeVar("T_DatasetBuilder", bound=deterministic_data.DatasetBuilder)
 
 
 def _get_dataset_builder(
-    dataset: Union[str, tfds.core.DatasetBuilder,
-                   SubsetDatasetBuilder],
+    dataset: Union[str, T_DatasetBuilder],
     data_dir: Optional[str] = None
-) -> Union[tfds.core.DatasetBuilder, SubsetDatasetBuilder]:
+) -> Union[tfds.core.DatasetBuilder, T_DatasetBuilder]:
   """Returns a dataset builder."""
   if isinstance(dataset, str):
     dataset_builder = tfds.builder(dataset, data_dir=data_dir)
-  elif isinstance(dataset, tfds.core.DatasetBuilder):
-    dataset_builder = dataset
   # clu does not use @runtime_checkable on its protocol classes sadly
   # used to be `isinstance(dataset, deterministic_data.DatasetBuilder)`
   # which is not generic enough for us
-  elif isinstance(dataset, SubsetDatasetBuilder):
+  elif hasattr(dataset, "as_dataset"):
     dataset_builder = dataset
   else:
-    raise ValueError(
-        "`dataset` must be a string or tfds.core.DatasetBuilder or "
-        f" SubsetDatasetBuilder. Received {dataset} instead.")
+    raise ValueError("`dataset` must be a string or deterministic_data.DatasetBuilder. "
+                     f"Received {dataset} instead.")
   return dataset_builder
 
 
@@ -78,8 +73,7 @@ def _get_process_num_examples(builder, split, process_batch_size, process_index,
   return num_examples
 
 
-def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder,
-                                    SubsetDatasetBuilder],
+def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder],
                      split: str,
                      process_batch_size: int,
                      drop_remainder: bool = True,
@@ -150,7 +144,7 @@ def _pad_reshape_batch(batch, flat_batch_size, num_devices):
 
 
 def get_data(
-    dataset: Union[str, tfds.core.DatasetBuilder, SubsetDatasetBuilder],
+    dataset: Union[str, T_DatasetBuilder],
     split: str,
     rng: Union[None, jnp.ndarray, tf.Tensor],
     process_batch_size: int,

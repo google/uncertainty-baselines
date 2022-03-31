@@ -405,7 +405,7 @@ def main(config, output_dir):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
   weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  rescale_value = 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 

@@ -384,7 +384,7 @@ def main(config, output_dir):
     decay_rules = config.get('weight_decay', []) or []
     if isinstance(decay_rules, numbers.Number):
       decay_rules = [('.*kernel.*', decay_rules)]
-    sched_m = lr/config.lr.base if config.get('weight_decay_decouple') else lr
+    sched_m = lr
     def decay_fn(v, wd):
       return (1.0 - sched_m * wd) * v
 

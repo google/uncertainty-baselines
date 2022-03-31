@@ -116,7 +116,7 @@ def get_config():
   config.optim = ml_collections.ConfigDict()
   config.grad_clip_norm = -1.
   config.weight_decay = None  # No explicit weight decay
-  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
   # Best lr.base depends on what pretrained ViT model is used.

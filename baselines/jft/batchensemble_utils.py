@@ -304,8 +304,7 @@ def create_update_fn(model, config):
         batch_loss_fn=batch_loss_fn,
         weight_decay_fn=train_utils.get_weight_decay_fn(
             weight_decay_rules=config.get('weight_decay', []) or [],
-            rescale_value=config.lr.base
-            if config.get('weight_decay_decouple') else 1.),
+            rescale_value=1.),
         max_grad_norm_global=config.get('grad_clip_norm', None),
         fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 

@@ -75,16 +75,19 @@ def main(argv):
 
   ind_dataset_builder = ds.WikipediaToxicityDataset(
       split='test',
-      data_dir=FLAGS.in_dataset_dir,
-      shuffle_buffer_size=data_buffer_size)
+      data_dir=FLAGS.in_dataset_dir if FLAGS.use_local_data else None,
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
   ood_dataset_builder = ds.CivilCommentsDataset(
       split='test',
-      data_dir=FLAGS.ood_dataset_dir,
-      shuffle_buffer_size=data_buffer_size)
+      data_dir=FLAGS.ood_dataset_dir if FLAGS.use_local_data else None,
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
       split='test',
-      data_dir=FLAGS.identity_dataset_dir,
-      shuffle_buffer_size=data_buffer_size)
+      data_dir=FLAGS.identity_dataset_dir if FLAGS.use_local_data else None,
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
 
   test_dataset_builders = {
       'ind': ind_dataset_builder,
@@ -96,16 +99,20 @@ def main(argv):
       if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
         test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
             split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_specific_dataset_dir, dataset_name),
-            shuffle_buffer_size=data_buffer_size)
+            data_dir=(os.path.join(FLAGS.identity_specific_dataset_dir,
+                                   dataset_name)
+                      if FLAGS.use_local_data else None),
+            shuffle_buffer_size=data_buffer_size,
+            tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
     for dataset_name in utils.IDENTITY_TYPES:
       if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
         test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
             split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_type_dataset_dir, dataset_name),
-            shuffle_buffer_size=data_buffer_size)
+            data_dir=(os.path.join(FLAGS.identity_type_dataset_dir,
+                                   dataset_name)
+                      if FLAGS.use_local_data else None),
+            shuffle_buffer_size=data_buffer_size,
+            tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
 
   class_weight = utils.create_class_weight(
       test_dataset_builders=test_dataset_builders)
@@ -404,7 +411,7 @@ def main(argv):
         for policy in ('uncertainty', 'toxicity'):
           # calib_confidence or decreasing toxicity score.
           confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
+          binning_confidence = tf.reshape(confidence, [-1])
 
           metrics['test_{}/calibration_auroc'.format(policy)].update_state(
               ece_labels, pred_labels, confidence)
@@ -456,7 +463,7 @@ def main(argv):
         for policy in ('uncertainty', 'toxicity'):
           # calib_confidence or decreasing toxicity score.
           confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
+          binning_confidence = tf.reshape(confidence, [-1])
 
           metrics['test_{}/calibration_auroc_{}'.format(
               policy, dataset_name)].update_state(ece_labels, pred_labels,

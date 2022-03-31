@@ -65,6 +65,10 @@ from uncertainty_baselines.datasets import toxic_comments as ds
 from tensorboard.plugins.hparams import api as hp
 
 # Data flags
+flags.DEFINE_bool(
+    'use_local_data', True,
+    'Whether to load data from local directory. If False, data will be loaded '
+    'from TFDS.')
 flags.DEFINE_string(
     'in_dataset_dir', None,
     'Path to in-domain dataset (WikipediaToxicityDataset).')
@@ -90,6 +94,11 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'bert_config_dir', None, 'Directory to BERT config files. '
     'If None then then default to {bert_dir}/bert_config.json.')
+flags.DEFINE_string(
+    'bert_tokenizer_tf_hub_url',
+    'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3',
+    'TF Hub URL to BERT tokenizer.')
+
 
 # Normalization flags.
 flags.DEFINE_bool(
@@ -230,23 +239,24 @@ def main(argv):
 
   train_dataset_builder = ds.WikipediaToxicityDataset(
       split='train',
-      data_dir=FLAGS.in_dataset_dir,
-      shuffle_buffer_size=data_buffer_size)
+      data_dir=FLAGS.in_dataset_dir if FLAGS.use_local_data else None,
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
   ind_dataset_builder = ds.WikipediaToxicityDataset(
       split='test',
-      data_dir=FLAGS.in_dataset_dir,
-      drop_remainder=True,
-      shuffle_buffer_size=data_buffer_size)
+      data_dir=FLAGS.in_dataset_dir if FLAGS.use_local_data else None,
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
   ood_dataset_builder = ds.CivilCommentsDataset(
       split='test',
-      data_dir=FLAGS.ood_dataset_dir,
-      drop_remainder=True,
-      shuffle_buffer_size=data_buffer_size)
+      data_dir=FLAGS.ood_dataset_dir if FLAGS.use_local_data else None,
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
       split='test',
-      data_dir=FLAGS.identity_dataset_dir,
-      drop_remainder=True,
-      shuffle_buffer_size=data_buffer_size)
+      data_dir=FLAGS.identity_dataset_dir if FLAGS.use_local_data else None,
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
 
   train_dataset_builders = {
       'wikipedia_toxicity_subtypes': train_dataset_builder
@@ -261,18 +271,20 @@ def main(argv):
       if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
         test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
             split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_specific_dataset_dir, dataset_name),
-            drop_remainder=True,
-            shuffle_buffer_size=data_buffer_size)
+            data_dir=(os.path.join(FLAGS.identity_specific_dataset_dir,
+                                   dataset_name)
+                      if FLAGS.use_local_data else None),
+            shuffle_buffer_size=data_buffer_size,
+            tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
     for dataset_name in utils.IDENTITY_TYPES:
       if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
         test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
             split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_type_dataset_dir, dataset_name),
-            drop_remainder=True,
-            shuffle_buffer_size=data_buffer_size)
+            data_dir=(os.path.join(FLAGS.identity_type_dataset_dir,
+                                   dataset_name)
+                      if FLAGS.use_local_data else None),
+            shuffle_buffer_size=data_buffer_size,
+            tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
 
   class_weight = utils.create_class_weight(
       train_dataset_builders, test_dataset_builders)
@@ -686,9 +698,9 @@ def main(argv):
 
       ce = tf.nn.sigmoid_cross_entropy_with_logits(
           labels=tf.broadcast_to(
-              labels, [FLAGS.num_mc_samples, labels.shape[0]]),
-          logits=tf.squeeze(logits_list, axis=-1)
-      )
+              labels,
+              [FLAGS.num_mc_samples, tf.shape(labels)[0]]),
+          logits=tf.squeeze(logits_list, axis=-1))
       negative_log_likelihood = -tf.reduce_logsumexp(
           -ce, axis=0) + tf.math.log(float(FLAGS.num_mc_samples))
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
@@ -717,7 +729,7 @@ def main(argv):
         for policy in ('uncertainty', 'toxicity'):
           # calib_confidence or decreasing toxicity score.
           confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
+          binning_confidence = tf.reshape(confidence, [-1])
 
           metrics['test_{}/calibration_auroc'.format(policy)].update_state(
               ece_labels, pred_labels, confidence)
@@ -772,7 +784,7 @@ def main(argv):
         for policy in ('uncertainty', 'toxicity'):
           # calib_confidence or decreasing toxicity score.
           confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
+          binning_confidence = tf.reshape(confidence, [-1])
 
           metrics['test_{}/calibration_auroc_{}'.format(
               policy, dataset_name)].update_state(ece_labels, pred_labels,

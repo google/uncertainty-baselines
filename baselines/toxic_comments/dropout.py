@@ -33,7 +33,6 @@ from tensorflow_addons import metrics as tfa_metrics
 import uncertainty_baselines as ub
 import metrics as tc_metrics  # local file import from baselines.toxic_comments
 import utils  # local file import from baselines.toxic_comments
-from uncertainty_baselines.datasets import toxic_comments as ds
 from tensorboard.plugins.hparams import api as hp
 
 # Data flags
@@ -180,87 +179,42 @@ def main(argv):
   test_batch_size = batch_size
   data_buffer_size = batch_size * 10
 
-  train_dataset_builder = ds.WikipediaToxicityDataset(
-      split='train',
-      data_dir=FLAGS.in_dataset_dir if FLAGS.use_local_data else None,
-      shuffle_buffer_size=data_buffer_size,
-      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
-  ind_dataset_builder = ds.WikipediaToxicityDataset(
-      split='test',
-      data_dir=FLAGS.in_dataset_dir if FLAGS.use_local_data else None,
-      shuffle_buffer_size=data_buffer_size,
-      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
-  ood_dataset_builder = ds.CivilCommentsDataset(
-      split='test',
-      data_dir=FLAGS.ood_dataset_dir if FLAGS.use_local_data else None,
-      shuffle_buffer_size=data_buffer_size,
-      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
-  ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
-      split='test',
-      data_dir=FLAGS.identity_dataset_dir if FLAGS.use_local_data else None,
+  # Create dataset builders.
+  dataset_kwargs = dict(
       shuffle_buffer_size=data_buffer_size,
       tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
 
-  train_dataset_builders = {
-      'wikipedia_toxicity_subtypes': train_dataset_builder
-  }
-  test_dataset_builders = {
-      'ind': ind_dataset_builder,
-      'ood': ood_dataset_builder,
-      'ood_identity': ood_identity_dataset_builder,
-  }
-  if FLAGS.prediction_mode and FLAGS.identity_prediction:
-    for dataset_name in utils.IDENTITY_LABELS:
-      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
-        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
-            split='test',
-            data_dir=(os.path.join(FLAGS.identity_specific_dataset_dir,
-                                   dataset_name)
-                      if FLAGS.use_local_data else None),
-            shuffle_buffer_size=data_buffer_size,
-            tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
-    for dataset_name in utils.IDENTITY_TYPES:
-      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
-        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
-            split='test',
-            data_dir=(os.path.join(FLAGS.identity_type_dataset_dir,
-                                   dataset_name)
-                      if FLAGS.use_local_data else None),
-            shuffle_buffer_size=data_buffer_size,
-            tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
+  (train_dataset_builders,
+   test_dataset_builders) = utils.make_train_and_test_dataset_builders(
+       in_dataset_dir=FLAGS.in_dataset_dir,
+       ood_dataset_dir=FLAGS.ood_dataset_dir,
+       identity_dataset_dir=FLAGS.identity_dataset_dir,
+       use_local_data=FLAGS.use_local_data,
+       ds_kwargs=dataset_kwargs)
+
+  if FLAGS.prediction_mode:
+    prediction_dataset_builders = utils.make_prediction_dataset_builders(
+        add_identity_datasets=FLAGS.identity_prediction,
+        identity_dataset_dir=FLAGS.identity_specific_dataset_dir,
+        use_local_data=FLAGS.use_local_data,
+        ds_kwargs=dataset_kwargs)
+
+    test_dataset_builders.update(prediction_dataset_builders)
 
   class_weight = utils.create_class_weight(
       train_dataset_builders, test_dataset_builders)
   logging.info('class_weight: %s', str(class_weight))
 
-  ds_info = train_dataset_builder.tfds_info
+  ds_info = test_dataset_builders['ind'].tfds_info
   # Positive and negative classes.
   num_classes = ds_info.metadata['num_classes']
 
-  train_datasets = {}
-  dataset_steps_per_epoch = {}
-  total_steps_per_epoch = 0
-
-  # TODO(jereliu): Apply strategy.experimental_distribute_dataset to the
-  # dataset_builders.
-  for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = dataset_builder.load(
-        batch_size=FLAGS.per_core_batch_size)
-    dataset_steps_per_epoch[dataset_name] = (
-        dataset_builder.num_examples // batch_size)
-    total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
-
-  test_datasets = {}
-  steps_per_eval = {}
-  for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.load(
-        batch_size=test_batch_size)
-    if dataset_name in ['ind', 'ood', 'ood_identity']:
-      steps_per_eval[dataset_name] = (
-          dataset_builder.num_examples // test_batch_size)
-    else:
-      steps_per_eval[dataset_name] = (
-          utils.NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
+  # Build datasets.
+  train_datasets, test_datasets, dataset_steps_per_epoch, steps_per_eval = (
+      utils.build_datasets(train_dataset_builders, test_dataset_builders,
+                           batch_size, test_batch_size,
+                           per_core_batch_size=FLAGS.per_core_batch_size))
+  total_steps_per_epoch = sum(dataset_steps_per_epoch.values())
 
   if FLAGS.use_bfloat16:
     tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')

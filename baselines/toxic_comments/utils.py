@@ -25,6 +25,8 @@ from absl import logging
 import numpy as np
 import tensorflow as tf
 
+from uncertainty_baselines.datasets import toxic_comments as ds
+
 from tensorflow.core.protobuf import trackable_object_graph_pb2  # pylint: disable=g-direct-tensorflow-import
 from official.nlp import optimization
 from official.nlp.bert import configs
@@ -153,6 +155,80 @@ def _check_dataset_dir_for_identity_prediction(flags_dict):
   return not flags_dict['identity_prediction'] or (
       flags_dict['identity_specific_dataset_dir'] is not None and
       flags_dict['identity_type_dataset_dir'] is not None)
+
+
+def make_train_and_test_dataset_builders(in_dataset_dir, ood_dataset_dir,
+                                         identity_dataset_dir, use_local_data,
+                                         ds_kwargs):
+  """Defines train and evaluation datasets."""
+  maybe_get_dir = lambda ds_dir: ds_dir if use_local_data else None
+
+  train_dataset_builder = ds.WikipediaToxicityDataset(
+      split='train', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
+  ind_dataset_builder = ds.WikipediaToxicityDataset(
+      split='test', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
+  ood_dataset_builder = ds.CivilCommentsDataset(
+      split='test', data_dir=maybe_get_dir(ood_dataset_dir), **ds_kwargs)
+  ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
+      split='test', data_dir=maybe_get_dir(identity_dataset_dir), **ds_kwargs)
+
+  train_dataset_builders = {
+      'wikipedia_toxicity_subtypes': train_dataset_builder
+  }
+  test_dataset_builders = {
+      'ind': ind_dataset_builder,
+      'ood': ood_dataset_builder,
+      'ood_identity': ood_identity_dataset_builder,
+  }
+  return train_dataset_builders, test_dataset_builders
+
+
+def make_prediction_dataset_builders(add_identity_datasets,
+                                     identity_dataset_dir, use_local_data,
+                                     ds_kwargs):
+  """Adds additional test datasets for prediction mode."""
+  maybe_get_identity_dir = (
+      lambda name: os.path.join(identity_dataset_dir, name)  # pylint: disable=g-long-lambda
+      if use_local_data else None)
+
+  dataset_builders = {}
+
+  # Adds identity dataset that has > 100 observations.
+  if add_identity_datasets:
+    for dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
+      if NUM_EXAMPLES[dataset_name]['test'] > 100:
+        identity_data_dir = maybe_get_identity_dir(dataset_name)
+        dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
+            split='test', data_dir=identity_data_dir, **ds_kwargs)
+
+  return dataset_builders
+
+
+def build_datasets(train_dataset_builders, test_dataset_builders,
+                   batch_size, test_batch_size, per_core_batch_size):
+  """Builds train and test datasets."""
+  train_datasets = {}
+  test_datasets = {}
+  train_steps_per_epoch = {}
+  test_steps_per_eval = {}
+
+  for dataset_name, dataset_builder in train_dataset_builders.items():
+    train_datasets[dataset_name] = dataset_builder.load(
+        batch_size=per_core_batch_size)
+    train_steps_per_epoch[dataset_name] = (
+        dataset_builder.num_examples // batch_size)
+
+  for dataset_name, dataset_builder in test_dataset_builders.items():
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=test_batch_size)
+    if dataset_name in ['ind', 'ood', 'ood_identity']:
+      test_steps_per_eval[dataset_name] = (
+          dataset_builder.num_examples // test_batch_size)
+    else:
+      test_steps_per_eval[dataset_name] = (
+          NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
+
+  return train_datasets, test_datasets, train_steps_per_epoch, test_steps_per_eval
 
 
 def make_cv_train_and_eval_splits(num_folds, train_fold_ids):

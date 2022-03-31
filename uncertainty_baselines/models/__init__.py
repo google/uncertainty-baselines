@@ -29,7 +29,6 @@ from uncertainty_baselines.models.efficientnet import efficientnet
 from uncertainty_baselines.models.efficientnet_batch_ensemble import efficientnet_batch_ensemble
 from uncertainty_baselines.models.gat import gat
 from uncertainty_baselines.models.genomics_cnn import genomics_cnn
-from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.movielens import movielens
 from uncertainty_baselines.models.mpnn import mpnn
 from uncertainty_baselines.models.resnet20 import resnet20
@@ -52,6 +51,7 @@ from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
 from uncertainty_baselines.models.resnet50_variational import resnet50_variational
 from uncertainty_baselines.models.textcnn import textcnn
 from uncertainty_baselines.models.unet import unet
+from uncertainty_baselines.models.wide_resnet import get_wide_resnet_hp_keys
 from uncertainty_baselines.models.wide_resnet import wide_resnet
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
 from uncertainty_baselines.models.wide_resnet_condconv import wide_resnet_condconv
@@ -67,7 +67,6 @@ from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be
 from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_variational
 
-# When adding a new model, also add to models.py for easier user access.
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -88,7 +87,6 @@ except ImportError:
 except tf.errors.NotFoundError:
   logging.warning('Skipped ViT models due to NotFoundError.', exc_info=True)
 
-# pylint: disable=g-import-not-at-top
 try:
   # Try to import Segmenter models.
   from uncertainty_baselines.models.segmenter import SegVit

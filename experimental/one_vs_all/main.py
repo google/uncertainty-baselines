@@ -119,7 +119,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         dataset_name=FLAGS.dataset_name,
         split='test')
     model = models_lib.create_model(
-        batch_size=FLAGS.batch_size,
+        input_shape=train_dataset_builder.tfds_info.features['image'].shape,
         num_classes=10,
         distance_logits=FLAGS.distance_logits)
     loss_fn = loss_lib.get(

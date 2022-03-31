@@ -155,6 +155,21 @@ def _check_dataset_dir_for_identity_prediction(flags_dict):
       flags_dict['identity_type_dataset_dir'] is not None)
 
 
+def make_cv_train_and_eval_splits(num_folds, train_fold_ids):
+  """Defines the train and evaluation splits for cross validation."""
+  all_splits = [f'train[{k}%:{k+10}%]' for k in range(0, 100, num_folds)]
+
+  # Collect split names for training and for evaluation.
+  train_split_list = [all_splits[int(fold_id)] for fold_id in train_fold_ids]
+  eval_split_list = list(set(all_splits) - set(train_split_list))
+  eval_split_list.sort()
+
+  # Make the train split name to be used by TFDS loader.
+  train_split = '+'.join(train_split_list)
+  eval_split = '+'.join(eval_split_list)
+  return train_split, eval_split, eval_split_list
+
+
 def save_prediction(data, path):
   """Save the data as numpy array to the path."""
   with (tf.io.gfile.GFile(path + '.npy', 'w')) as test_file:
@@ -194,10 +209,18 @@ def create_config(config_dir: str) -> configs.BertConfig:
 
 def create_feature_and_label(inputs):
   """Creates features and labels from model inputs."""
-  input_ids = inputs['input_ids']
-  input_mask = inputs['input_mask']
-  segment_ids = inputs['segment_ids']
+  # Extracts data and squeezes redundant dimensions.
+  def _may_squeeze_dimension(batch_tensor):
+    """Remove redundant dimensions in the input data."""
+    if len(batch_tensor.shape) == 2:
+      return batch_tensor
+    return tf.squeeze(batch_tensor, axis=1)
 
+  input_ids = _may_squeeze_dimension(inputs['input_ids'])
+  input_mask = _may_squeeze_dimension(inputs['input_mask'])
+  segment_ids = _may_squeeze_dimension(inputs['segment_ids'])
+
+  # Process labels.
   labels = inputs['labels']
   additional_labels = {}
   for additional_label in IDENTITY_LABELS:

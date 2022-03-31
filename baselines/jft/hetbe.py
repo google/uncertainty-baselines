@@ -243,7 +243,7 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.model)
-  model = ub.models.VisionTransformerHetGPBE(
+  model = ub.models.vision_transformer_het_gp_be(
       num_classes=config.num_classes, **config.model)
   ens_size = config.model.transformer.ens_size
 

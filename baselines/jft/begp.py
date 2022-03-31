@@ -266,7 +266,7 @@ def main(config, output_dir):
 
   # Process ViT backbone model configs.
   vit_kwargs = config.get('model')
-  model = ub.models.PatchTransformerBEGP(
+  model = ub.models.vision_transformer_be_gp(
       num_classes=config.num_classes,
       use_gp_layer=use_gp_layer,
       gp_layer_kwargs=gp_layer_kwargs,

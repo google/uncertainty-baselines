@@ -198,7 +198,7 @@ def initialize_sngp_model(config):
 
 def initialize_batchensemble_model(config):
   """Initialize BatchEnsemble model."""
-  model = ub.models.PatchTransformerBE(
+  model = ub.models.vision_transformer_be(
       num_classes=config.num_classes, **config.model)
   return {
       'model': model,

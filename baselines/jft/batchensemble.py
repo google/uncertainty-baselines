@@ -243,7 +243,7 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.model)
-  model = ub.models.PatchTransformerBE(
+  model = ub.models.vision_transformer_be(
       num_classes=config.num_classes, **config.model)
   ens_size = config.model.transformer.ens_size
 

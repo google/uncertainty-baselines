@@ -37,7 +37,7 @@ default_kwarg_dict = lambda: dataclasses.field(default_factory=dict)
 
 
 class VisionTransformerHeteroscedasticGaussianProcess(nn.Module):
-  """VisionTransformer with Gaussian process output head."""
+  """Heteroscedastic Vision Transformer with Gaussian process last layer."""
   num_classes: int
   patches: Any
   transformer: Any

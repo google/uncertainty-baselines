@@ -32,24 +32,24 @@ Params = Mapping[str, Any]
 default_kwarg_dict = lambda: dataclasses.field(default_factory=dict)
 
 
-class PatchTransformerBEGP(nn.Module):
-  """Patch transformer with BatchEnsemble and GP last layer.
+class VisionTransformerBEGP(nn.Module):
+  """BatchEnsemble Vision Transformer with Gaussian process last layer.
 
   You must specify either the vertical and horizontal resolution of the patches
   (patch_size), or the number of vertical and horizontal divisions of the input
   image (patch_grid).
   """
+  num_classes: int
+  transformer: Params
+  hidden_size: int
   patch_size: Optional[Tuple[int, int]] = None
   patch_grid: Optional[Tuple[int, int]] = None
-  num_classes: int = 1000
-  train: Optional[bool] = None
-  hidden_size: int = 1024
   representation_size: Optional[int] = None
-  transformer: Optional[Params] = None
   classifier: str = "token"
   head_kernel_init: InitializeFn = nn.initializers.zeros
   use_gp_layer: bool = True
   gp_layer_kwargs: Mapping[str, Any] = default_kwarg_dict()
+  train: Optional[bool] = None
 
   def setup(self):
     # pylint:disable=not-a-mapping
@@ -83,7 +83,6 @@ class PatchTransformerBEGP(nn.Module):
   def __call__(self, images: jnp.ndarray, train: Optional[bool] = None,
                mean_field_factor: float = -1., **gp_kwargs):
     train = nn.module.merge_param("train", self.train, train)
-    transformer = self.transformer or {}
     # Convert images to patches.
     x = self.patches(images, self.hidden_size, self.patch_size, self.patch_grid)
     # Add "class" token if necessary.
@@ -94,7 +93,7 @@ class PatchTransformerBEGP(nn.Module):
       x = jnp.concatenate([cls, x], axis=1)
     # Encode tokens.
     x, extra_info = vit_batchensemble.BatchEnsembleEncoder(
-        train=train, name="Transformer", **transformer)(
+        train=train, name="Transformer", **self.transformer)(
             x)
     # Reduce tokens to a single vector representation.
     if self.classifier == "token":
@@ -109,12 +108,12 @@ class PatchTransformerBEGP(nn.Module):
       probe = jnp.tile(probe, [x.shape[0], 1, 1])
       attention = nn.MultiHeadDotProductAttention(
           deterministic=not train,
-          num_heads=transformer.get("attention", {}).get("num_heads", 1),
+          num_heads=self.transformer.get("attention", {}).get("num_heads", 1),
           kernel_init=nn.initializers.xavier_uniform())
       x = attention(inputs_q=probe, inputs_kv=x)
       y = nn.LayerNorm()(x)
       y = vit.MlpBlock(
-          mlp_dim=transformer["mlp_dim"], dropout_rate=0)(
+          mlp_dim=self.transformer["mlp_dim"], dropout_rate=0)(
               y, deterministic=not train)
       x = (x + y)[:, 0]
     else:
@@ -148,3 +147,32 @@ class PatchTransformerBEGP(nn.Module):
           name="batchensemble_head")(
               x)
     return x, extra_info
+
+
+def vision_transformer_be_gp(
+    num_classes: int,
+    hidden_size: int,
+    transformer: Params,
+    patch_size: Optional[Tuple[int, int]] = None,
+    patch_grid: Optional[Tuple[int, int]] = None,
+    representation_size: Optional[int] = None,
+    classifier: str = "token",
+    head_kernel_init: InitializeFn = nn.initializers.zeros,
+    use_gp_layer: bool = True,
+    gp_layer_kwargs: Mapping[str, Any] = default_kwarg_dict(),
+    train: Optional[bool] = None):
+  """Builds a BatchEnsemble GP Vision Transformer (ViT) model."""
+  # TODO(dusenberrymw): Add API docs once the config dict in VisionTransformerBE
+  # is cleaned up.
+  return VisionTransformerBEGP(
+      num_classes=num_classes,
+      transformer=transformer,
+      hidden_size=hidden_size,
+      patch_size=patch_size,
+      patch_grid=patch_grid,
+      representation_size=representation_size,
+      classifier=classifier,
+      head_kernel_init=head_kernel_init,
+      use_gp_layer=use_gp_layer,
+      gp_layer_kwargs=gp_layer_kwargs,
+      train=train)

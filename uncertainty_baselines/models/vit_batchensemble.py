@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Patch Transformerm similar to Gshard paper with BatchEnsemble MLPs."""
+"""BatchEnsemble Vision Transformer (ViT) model."""
 
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -230,20 +230,20 @@ class BatchEnsembleEncoder(nn.Module):
     return encoded, extra_info
 
 
-class PatchTransformerBE(nn.Module):
-  """Patch transformer with BE layers in the encoder.
+class VisionTransformerBE(nn.Module):
+  """BatchEnsemble Vision Transformer model.
 
   You must specify either the vertical and horizontal resolution of the patches
   (patch_size).
   """
+  num_classes: int
   patches: Any
-  num_classes: int = 1000
-  train: Optional[bool] = None
-  hidden_size: int = 1024
+  transformer: Params
+  hidden_size: int
   representation_size: Optional[int] = None
-  transformer: Optional[Params] = None
   classifier: str = "token"
   head_kernel_init: InitializeFn = nn.initializers.zeros
+  train: Optional[bool] = None
 
   def embed(self,
             images: jnp.ndarray,
@@ -263,7 +263,6 @@ class PatchTransformerBE(nn.Module):
   @nn.compact
   def __call__(self, images: jnp.ndarray, train: Optional[bool] = None):
     train = nn.module.merge_param("train", self.train, train)
-    transformer = self.transformer or {}
     # Convert images to patches.
     x = self.embed(images, self.hidden_size, self.patches.size)
     # Add "class" token if necessary.
@@ -274,7 +273,7 @@ class PatchTransformerBE(nn.Module):
       x = jnp.concatenate([cls, x], axis=1)
     # Encode tokens.
     x, extra_info = BatchEnsembleEncoder(
-        train=train, name="Transformer", **transformer)(
+        train=train, name="Transformer", **self.transformer)(
             x)
     # Reduce tokens to a single vector representation.
     if self.classifier == "token":
@@ -289,12 +288,12 @@ class PatchTransformerBE(nn.Module):
       probe = jnp.tile(probe, [x.shape[0], 1, 1])
       attention = nn.MultiHeadDotProductAttention(
           deterministic=not train,
-          num_heads=transformer.get("attention", {}).get("num_heads", 1),
+          num_heads=self.transformer.get("attention", {}).get("num_heads", 1),
           kernel_init=nn.initializers.xavier_uniform())
       x = attention(inputs_q=probe, inputs_kv=x)
       y = nn.LayerNorm()(x)
       y = vit.MlpBlock(
-          mlp_dim=transformer["mlp_dim"], dropout_rate=0)(
+          mlp_dim=self.transformer["mlp_dim"], dropout_rate=0)(
               y, deterministic=not train)
       x = (x + y)[:, 0]
     else:
@@ -327,3 +326,26 @@ class PatchTransformerBE(nn.Module):
         kernel_init=self.head_kernel_init,
         name="batchensemble_head")(x)
     return x, extra_info
+
+
+def vision_transformer_be(
+    num_classes: int,
+    patches: Any,
+    transformer: Params,
+    hidden_size: int,
+    representation_size: Optional[int] = None,
+    classifier: str = "token",
+    head_kernel_init: InitializeFn = nn.initializers.zeros,
+    train: Optional[bool] = None):
+  """Builds a BatchEnsemble Vision Transformer (ViT) model."""
+  # TODO(dusenberrymw): Add API docs once the config dict in VisionTransformerBE
+  # is cleaned up.
+  return VisionTransformerBE(
+      num_classes=num_classes,
+      patches=patches,
+      transformer=transformer,
+      hidden_size=hidden_size,
+      representation_size=representation_size,
+      classifier=classifier,
+      head_kernel_init=head_kernel_init,
+      train=train)

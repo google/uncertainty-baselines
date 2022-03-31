@@ -76,13 +76,13 @@ try:
   from uncertainty_baselines.models import vit_batchensemble_gp
   from uncertainty_baselines.models.bit_resnet import bit_resnet
   from uncertainty_baselines.models.vit import vision_transformer
-  from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
-  from uncertainty_baselines.models.vit_batchensemble_gp import PatchTransformerBEGP
+  from uncertainty_baselines.models.vit_batchensemble import vision_transformer_be
+  from uncertainty_baselines.models.vit_batchensemble_gp import vision_transformer_be_gp
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp
-  from uncertainty_baselines.models.vit_hetgpbe import VisionTransformerHetGPBE
+  from uncertainty_baselines.models.vit_hetgpbe import vision_transformer_het_gp_be
   from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
-  from uncertainty_baselines.models.vit_mimo import VisionTransformerMIMO
-  from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
+  from uncertainty_baselines.models.vit_mimo import vision_transformer_mimo
+  from uncertainty_baselines.models.vit_heteroscedastic import vision_transformer_het
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:

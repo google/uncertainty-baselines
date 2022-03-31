@@ -504,7 +504,7 @@ def _get_batchensemble_params():
   config.model.transformer.ens_size = 3
   config.model.transformer.be_layers = (0,)
   config.model.transformer.random_sign_init = .5
-  model = ub.models.vit_batchensemble.PatchTransformerBE(
+  model = ub.models.vision_transformer_be(
       num_classes=config.num_classes, **config.model)
   return _init_model(key, model)
 
@@ -518,7 +518,7 @@ def _get_heteroscedastic_params():
   config.model.mc_samples = 1000
   config.model.num_factors = 50
   config.model.param_efficient = True
-  model = ub.models.het_vision_transformer(
+  model = ub.models.vision_transformer_het(
       num_classes=config.num_classes, **config.get("model", {}))
 
   key, diag_key, noise_key = jax.random.split(key, 3)

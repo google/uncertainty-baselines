@@ -307,9 +307,8 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
-  model = ub.models.VisionTransformerMIMO(
-      num_classes=config.num_classes,
-      **config.get('model', {}))
+  model = ub.models.vision_transformer_mimo(
+      num_classes=config.num_classes, **config.get('model', {}))
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two

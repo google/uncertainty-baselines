@@ -688,7 +688,7 @@ def main(config, output_dir):
     reinit_params = ('batchensemble_head/bias', 'batchensemble_head/kernel',
                      'batchensemble_head/fast_weight_alpha',
                      'batchensemble_head/fast_weight_gamma')
-    model = ub.models.PatchTransformerBE(
+    model = ub.models.vision_transformer_be(
         num_classes=config.num_classes, **config.model)
   else:
     raise ValueError('Expect config.model_type to be "deterministic" or'

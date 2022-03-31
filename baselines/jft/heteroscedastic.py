@@ -238,7 +238,7 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
-  model = ub.models.het_vision_transformer(
+  model = ub.models.vision_transformer_het(
       num_classes=config.num_classes, **config.get('model', {}))
 
   # We want all parameters to be created in host RAM, not on any device, they'll

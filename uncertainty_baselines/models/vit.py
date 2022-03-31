@@ -209,7 +209,7 @@ class Encoder(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-  """VisionTransformer."""
+  """Vision Transformer model."""
 
   num_classes: int
   patches: Any

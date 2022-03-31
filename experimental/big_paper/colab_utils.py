@@ -20,15 +20,30 @@ from typing import Any, Dict, Iterable, List
 import pandas as pd
 
 
-HPARAM_PREFIX = 'config.'
-RANDOM_SEED_COL = HPARAM_PREFIX + 'seed'
-DATASET_COL = HPARAM_PREFIX + 'dataset'
-MODEL_COL = 'model'
+_HPARAM_PREFIX = 'config.'
+_RANDOM_SEED_COL = _HPARAM_PREFIX + 'seed'
+_DATASET_COL = _HPARAM_PREFIX + 'dataset'
+_MODEL_COL = 'model'
 
 
 def _is_higher_better(metric: str) -> bool:
   """Returns True if the metric is to be maximized (e.g., precision)."""
   return 'prec@' in metric or 'auroc' in metric
+
+
+def random_seed_col() -> str:
+  """Returns the name of the column containing the experimental random seed."""
+  return _RANDOM_SEED_COL
+
+
+def dataset_col() -> str:
+  """Returns the name of the column containing the training dataset."""
+  return _DATASET_COL
+
+
+def model_col() -> str:
+  """Returns the name of the column containing the model name."""
+  return _MODEL_COL
 
 
 def get_unique_value(df: pd.DataFrame, col: str) -> Any:
@@ -53,15 +68,16 @@ def get_unique_value(df: pd.DataFrame, col: str) -> Any:
 
 
 def is_hyperparameter(
-    column: str, auxiliary_hparams: Iterable[str] = ('learning_rate', 'model')
+    column: str,
+    auxiliary_hparams: Iterable[str] = ('learning_rate', _MODEL_COL)
 ) -> bool:
   """Returns True if the column corresponds to a hyperparameter."""
-  return column.startswith(HPARAM_PREFIX) or column in auxiliary_hparams
+  return column.startswith(_HPARAM_PREFIX) or column in auxiliary_hparams
 
 
 def get_sweeped_hyperparameters(
     df,
-    marginalization_hparams: Iterable[str] = (RANDOM_SEED_COL,)) -> List[Any]:
+    marginalization_hparams: Iterable[str] = (_RANDOM_SEED_COL,)) -> List[Any]:
   """Identifies the columns that correspond to a hyperparameter tuning sweep."""
   hparams = [c for c in df.columns if is_hyperparameter(c)]
   return [
@@ -73,7 +89,7 @@ def get_sweeped_hyperparameters(
 def get_best_hyperparameters(df: pd.DataFrame,
                              tuning_metric: str,
                              marginalization_hparams: Iterable[str] = (
-                                 RANDOM_SEED_COL,),
+                                 _RANDOM_SEED_COL,),
                              verbose: bool = True) -> Dict[str, Any]:
   """Returns the best choice of hyperparameters for a given model and dataset.
 
@@ -102,8 +118,8 @@ def get_best_hyperparameters(df: pd.DataFrame,
   Returns:
     A dictionary mapping hyperparameters to their optimal values.
   """
-  dataset = get_unique_value(df, DATASET_COL)
-  model = get_unique_value(df, MODEL_COL)
+  dataset = get_unique_value(df, _DATASET_COL)
+  model = get_unique_value(df, _MODEL_COL)
   hps = get_sweeped_hyperparameters(df, marginalization_hparams)
 
   if not hps:  # There is no hyperparameter tuning.
@@ -125,11 +141,11 @@ def get_best_hyperparameters(df: pd.DataFrame,
   return best_hps
 
 
-def get_tuned_results(
-    df: pd.DataFrame, tuning_metric: str,
-    marginalization_hparams: Iterable[str] = (RANDOM_SEED_COL,),
-    verbose: bool = True
-) -> pd.DataFrame:
+def get_tuned_results(df: pd.DataFrame,
+                      tuning_metric: str,
+                      marginalization_hparams: Iterable[str] = (
+                          _RANDOM_SEED_COL,),
+                      verbose: bool = True) -> pd.DataFrame:
   """Returns dataframe rows corresponding to optimal hyperparameter choices.
 
   Args:

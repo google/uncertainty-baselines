@@ -81,6 +81,7 @@ def _subset_generator(*, dataset: tf.data.Dataset,
   return inner
 
 
+# TODO(dusenberrymw): Make this subclass tfds.core.DatasetBuilder instead.
 class SubsetDatasetBuilder(DatasetBuilder):
   """Subset Dataset Builder which is "just right" for clu."""
 

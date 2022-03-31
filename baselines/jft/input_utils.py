@@ -14,11 +14,11 @@
 # limitations under the License.
 
 """Input pipeline utilities for the ViT experiments."""
+
 import math
-from typing import Callable, Optional, Union
+from typing import Callable, Dict, Optional, Union
 
 from absl import logging
-from clu import deterministic_data
 import flax
 import jax
 import jax.numpy as jnp
@@ -27,6 +27,11 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import al_utils  # local file import from baselines.jft
 
+Tensor = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
+Features = Dict[str, Tensor]
+
+# TODO(dusenberrymw): Make al_utils.SubsetDatasetBuilder subclass
+# tfds.core.DatasetBuilder and remove this.
 SubsetDatasetBuilder = al_utils.SubsetDatasetBuilder
 
 
@@ -40,9 +45,6 @@ def _get_dataset_builder(
     dataset_builder = tfds.builder(dataset, data_dir=data_dir)
   elif isinstance(dataset, tfds.core.DatasetBuilder):
     dataset_builder = dataset
-  # clu does not use @runtime_checkable on its protocol classes sadly
-  # used to be `isinstance(dataset, deterministic_data.DatasetBuilder)`
-  # which is not generic enough for us
   elif isinstance(dataset, SubsetDatasetBuilder):
     dataset_builder = dataset
   else:
@@ -149,13 +151,43 @@ def _pad_reshape_batch(batch, flat_batch_size, num_devices):
   return new_batch
 
 
+def _preprocess_with_per_example_rng(ds: tf.data.Dataset,
+                                     preprocess_fn: Callable[[Features],
+                                                             Features], *,
+                                     rng: jnp.ndarray) -> tf.data.Dataset:
+  """Maps `ds` using the preprocess_fn and a deterministic RNG per example.
+
+  Args:
+    ds: Dataset containing Python dictionary with the features. The 'rng'
+      feature should not exist.
+    preprocess_fn: Preprocessing function that takes a Python dictionary of
+      tensors and returns a Python dictionary of tensors. The function should be
+      convertible into a TF graph.
+    rng: Base RNG to use. Per example RNGs will be derived from this by folding
+      in the example index.
+
+  Returns:
+    The dataset mapped by the `preprocess_fn`.
+  """
+
+  def _fn(example_index: int, features: Features) -> Features:
+    example_index = tf.cast(example_index, tf.int32)
+    features["rng"] = tf.random.experimental.stateless_fold_in(
+        tf.cast(rng, tf.int64), example_index)
+    processed = preprocess_fn(features)
+    if isinstance(processed, dict) and "rng" in processed:
+      del processed["rng"]
+    return processed
+
+  return ds.enumerate().map(_fn, num_parallel_calls=tf.data.AUTOTUNE)
+
+
 def get_data(
     dataset: Union[str, tfds.core.DatasetBuilder, SubsetDatasetBuilder],
     split: str,
-    rng: Union[None, jnp.ndarray, tf.Tensor],
+    rng: Optional[jnp.ndarray],
     process_batch_size: int,
-    preprocess_fn: Optional[Callable[[deterministic_data.Features],
-                                     deterministic_data.Features]],
+    preprocess_fn: Optional[Callable[[Features], Features]],
     cache: bool = False,
     num_epochs: Optional[int] = None,
     repeat_after_batching: bool = False,
@@ -174,9 +206,8 @@ def get_data(
     split: Specifies which split of the data to load. Will be sharded across all
       available processes (globally over all "hosts"), and the unique sharded
       subsplit corresponding to the current process will be returned.
-    rng: A jax.random.PRNG key or a tf.Tensor for TF stateless seeds to use for
-      seeding shuffle operations and preprocessing ops. Must be set if
-      shuffling.
+    rng: A jax.random.PRNG key to use for seeding shuffle operations and
+      preprocessing ops. Must be set if shuffling.
     process_batch_size: Per process batch size.
     preprocess_fn: Function for preprocessing individual examples (which should
       be Python dictionary of tensors).
@@ -209,16 +240,15 @@ def get_data(
   """
   assert cache in ("loaded", "batched", False, None)
 
+  rng_available = rng is not None
+  if not rng_available and shuffle:
+    raise ValueError("Please set 'rng' when shuffling.")
+
   if process_index is None:
     process_index = jax.process_index()
 
   if process_count is None:
     process_count = jax.process_count()
-
-  dataset_builder = _get_dataset_builder(dataset, data_dir)
-
-  if rng is not None:
-    rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.
 
   process_split = _get_process_split(
       split,
@@ -226,23 +256,43 @@ def get_data(
       process_count=process_count,
       drop_remainder=drop_remainder)
 
-  dataset = deterministic_data.create_dataset(
-      dataset_builder,
-      split=process_split,
-      batch_dims=(),
-      rng=rng,
-      filter_fn=None,
-      preprocess_fn=preprocess_fn,
-      decoders={"image": tfds.decode.SkipDecoding()},
-      cache=cache == "loaded",
-      num_epochs=num_epochs if not repeat_after_batching else 1,
-      shuffle=shuffle,
-      shuffle_buffer_size=shuffle_buffer_size,
-      prefetch_size=0,
-      pad_up_to_batches=None,
-      drop_remainder=drop_remainder,
-  )
+  if rng_available:
+    rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.
+    rngs = list(jax.random.split(rng, 3))
+  else:
+    rngs = 3 * [[None, None]]
 
+  dataset_builder = _get_dataset_builder(dataset, data_dir)
+
+  dataset_options = tf.data.Options()
+  dataset_options.experimental_optimization.map_parallelization = True
+  dataset_options.experimental_threading.private_threadpool_size = 48
+  dataset_options.experimental_threading.max_intra_op_parallelism = 1
+
+  read_config = tfds.ReadConfig(
+      shuffle_seed=rngs.pop()[0], options=dataset_options)
+
+  ds = dataset_builder.as_dataset(
+      split=process_split,
+      shuffle_files=shuffle,
+      read_config=read_config,
+      decoders={"image": tfds.decode.SkipDecoding()})
+
+  if cache == "loaded":
+    ds = ds.cache()
+
+  if shuffle:
+    ds = ds.shuffle(shuffle_buffer_size, seed=rngs.pop()[0])
+
+  ds = ds.repeat(num_epochs if not repeat_after_batching else 1)
+
+  if preprocess_fn is not None:
+    if rng_available:
+      ds = _preprocess_with_per_example_rng(ds, preprocess_fn, rng=rngs.pop())
+    else:
+      ds = ds.map(preprocess_fn, num_parallel_calls=tf.data.AUTOTUNE)
+
+  # Batch and reshape to [num_devices, batch_size_per_device] with padding.
   num_devices = jax.local_device_count()
   if drop_remainder:
     # If we're dropping the remainder, we can take the fast path of double
@@ -251,9 +301,9 @@ def get_data(
     batch_size_per_device = process_batch_size // num_devices
     batch_dims = [num_devices, batch_size_per_device]
     for batch_size in reversed(batch_dims):
-      dataset = dataset.batch(batch_size, drop_remainder=True)
+      ds = ds.batch(batch_size, drop_remainder=True)
 
-    dataset = dataset.map(
+    ds = ds.map(
         lambda xs: _add_mask(xs, 2), num_parallel_calls=tf.data.AUTOTUNE)
   else:
     # If we're not dropping the remainder, then we define a flattened batch size
@@ -264,20 +314,20 @@ def get_data(
     # [num_devices, batch_size_per_device].
     batch_size_per_device = math.ceil(process_batch_size / num_devices)
     flat_batch_size = batch_size_per_device * num_devices
-    dataset = dataset.batch(flat_batch_size, drop_remainder=drop_remainder)
+    ds = ds.batch(flat_batch_size, drop_remainder=drop_remainder)
 
     def f(xs):
       return _pad_reshape_batch(_add_mask(xs, 1), flat_batch_size, num_devices)
 
-    dataset = dataset.map(f, num_parallel_calls=tf.data.AUTOTUNE)
+    ds = ds.map(f, num_parallel_calls=tf.data.AUTOTUNE)
 
   if cache == "batched":
-    dataset = dataset.cache()
+    ds = ds.cache()
 
   if repeat_after_batching:
-    dataset = dataset.repeat(num_epochs)
+    ds = ds.repeat(num_epochs)
 
-  return dataset.prefetch(prefetch_size)
+  return ds.prefetch(prefetch_size)
 
 
 def start_input_pipeline(dataset, n_prefetch, devices=None):

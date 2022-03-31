@@ -774,10 +774,6 @@ def main(config, output_dir):
   else:
     initial_training_set_batch_ids = []
 
-  # NOTE: if we could `enumerate` before `filter` in `create_dataset` of CLU
-  # then this dataset creation could be simplified.
-  # https://github.com/google/CommonLoopUtils/blob/main/clu/deterministic_data.py#L340
-  # CLU is explicitly not accepting outside contributions at the moment.
   train_subset_data_builder = al_utils.SubsetDatasetBuilder(
       data_builder, subset_ids=set(initial_training_set_batch_ids))
 

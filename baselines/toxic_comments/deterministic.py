@@ -170,8 +170,8 @@ def main(argv):
       shuffle_buffer_size=data_buffer_size,
       tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
 
-  (train_dataset_builders,
-   test_dataset_builders) = utils.make_train_and_test_dataset_builders(
+  (train_dataset_builders, test_dataset_builders,
+   train_split_name) = utils.make_train_and_test_dataset_builders(
        in_dataset_dir=FLAGS.in_dataset_dir,
        ood_dataset_dir=FLAGS.ood_dataset_dir,
        identity_dataset_dir=FLAGS.identity_dataset_dir,
@@ -179,6 +179,7 @@ def main(argv):
        use_cross_validation=FLAGS.use_cross_validation,
        num_folds=FLAGS.num_folds,
        train_fold_ids=FLAGS.train_fold_ids,
+       return_train_split_name=True,
        **dataset_kwargs)
 
   if FLAGS.prediction_mode:
@@ -196,6 +197,7 @@ def main(argv):
   class_weight = utils.create_class_weight(
       train_dataset_builders, test_dataset_builders)
   logging.info('class_weight: %s', str(class_weight))
+  logging.info('train_split_name: %s', train_split_name)
 
   ds_info = test_dataset_builders['ind'].tfds_info
   feature_size = _MAX_SEQ_LENGTH

@@ -157,10 +157,15 @@ def _check_dataset_dir_for_identity_prediction(flags_dict):
       flags_dict['identity_type_dataset_dir'] is not None)
 
 
-def make_train_and_test_dataset_builders(in_dataset_dir, ood_dataset_dir,
-                                         identity_dataset_dir, use_local_data,
-                                         use_cross_validation, num_folds,
-                                         train_fold_ids, **ds_kwargs):
+def make_train_and_test_dataset_builders(in_dataset_dir,
+                                         ood_dataset_dir,
+                                         identity_dataset_dir,
+                                         use_local_data,
+                                         use_cross_validation,
+                                         num_folds,
+                                         train_fold_ids,
+                                         return_train_split_name=False,
+                                         **ds_kwargs):
   """Defines train and evaluation datasets."""
   maybe_get_dir = lambda ds_dir: ds_dir if use_local_data else None
 
@@ -169,22 +174,17 @@ def make_train_and_test_dataset_builders(in_dataset_dir, ood_dataset_dir,
                      'Please set `use_local_data` to False.')
 
   # Create training data and optionally cross-validation eval sets.
+  train_split_name = 'train'
   if use_cross_validation:
-    logging.info('Use cross validation eval.')
-    cv_train_split, cv_eval_split, _, _ = make_cv_train_and_eval_splits(
+    train_split_name, eval_split_name, _, _ = make_cv_train_and_eval_splits(
         num_folds, train_fold_ids)
-
-    train_dataset_builder = ds.WikipediaToxicityDataset(
-        split=cv_train_split, **ds_kwargs)
     cv_eval_dataset_builder = ds.WikipediaToxicityDataset(
-        split=cv_eval_split, **ds_kwargs)
+        split=eval_split_name, **ds_kwargs)
 
-    logging.info('CV train split: %s', cv_train_split)
-    logging.info('CV eval splits: %s', cv_eval_split)
-  else:
-    logging.info('Use standard eval.')
-    train_dataset_builder = ds.WikipediaToxicityDataset(
-        split='train', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
+  train_dataset_builder = ds.WikipediaToxicityDataset(
+      split=train_split_name,
+      data_dir=maybe_get_dir(in_dataset_dir),
+      **ds_kwargs)
 
   # Create testing data.
   ind_dataset_builder = ds.WikipediaToxicityDataset(
@@ -207,13 +207,16 @@ def make_train_and_test_dataset_builders(in_dataset_dir, ood_dataset_dir,
   if use_cross_validation:
     test_dataset_builders['cv_eval'] = cv_eval_dataset_builder
 
+  if return_train_split_name:
+    return train_dataset_builders, test_dataset_builders, train_split_name
+
   return train_dataset_builders, test_dataset_builders
 
 
 def make_prediction_dataset_builders(add_identity_datasets,
-                                     identity_dataset_dir, use_local_data,
-                                     use_cross_validation, num_folds,
-                                     train_fold_ids, **ds_kwargs):
+                                     use_cross_validation, identity_dataset_dir,
+                                     use_local_data, num_folds, train_fold_ids,
+                                     **ds_kwargs):
   """Adds additional test datasets for prediction mode."""
   maybe_get_identity_dir = (
       lambda name: os.path.join(identity_dataset_dir, name)  # pylint: disable=g-long-lambda

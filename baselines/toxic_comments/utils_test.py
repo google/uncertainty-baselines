@@ -24,17 +24,20 @@ class UtilsTest(tf.test.TestCase):
     num_folds = 10
     train_fold_ids = ['2', '5']
 
-    train_split, eval_split, eval_split_list = utils.make_cv_train_and_eval_splits(
-        num_folds, train_fold_ids)
+    (train_split, eval_split, train_folds,
+     eval_folds) = utils.make_cv_train_and_eval_splits(num_folds,
+                                                       train_fold_ids)
 
-    expected_eval_split_list = [
+    expected_train_folds = ['train[20%:30%]', 'train[50%:60%]']
+    expected_eval_folds = [
         'train[0%:10%]', 'train[10%:20%]', 'train[30%:40%]', 'train[40%:50%]',
         'train[60%:70%]', 'train[70%:80%]', 'train[80%:90%]', 'train[90%:100%]'
     ]
 
     self.assertEqual(train_split, 'train[20%:30%]+train[50%:60%]')
-    self.assertEqual(eval_split, '+'.join(expected_eval_split_list))
-    self.assertListEqual(eval_split_list, expected_eval_split_list)
+    self.assertEqual(eval_split, '+'.join(expected_eval_folds))
+    self.assertListEqual(train_folds, expected_train_folds)
+    self.assertListEqual(eval_folds, expected_eval_folds)
 
 
 if __name__ == '__main__':

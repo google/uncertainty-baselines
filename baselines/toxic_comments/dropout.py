@@ -40,6 +40,20 @@ flags.DEFINE_bool(
     'use_local_data', True,
     'Whether to load data from local directory. If False, data will be loaded '
     'from TFDS.')
+flags.DEFINE_bool(
+    'use_cross_validation', False,
+    'Whether to use cross validation for training and evaluation protocol.'
+    ' If True, then divide the official train split into further train and eval'
+    ' sets, and evaluate on both the eval set and the official test splits.')
+flags.DEFINE_integer(
+    'num_folds', 10,
+    'The number of folds to be used for cross-validation training. Ignored if'
+    ' use_cross_validation is False.')
+flags.DEFINE_list(
+    'train_fold_ids', ['1', '2', '3', '4', '5'],
+    'The ids of folds to use for training, the rest of the folds will be used'
+    ' for cross-validation eval. Ignored if use_cross_validation is False.')
+
 flags.DEFINE_string(
     'in_dataset_dir', None,
     'Path to in-domain dataset (WikipediaToxicityDataset).')
@@ -134,7 +148,7 @@ flags.DEFINE_float(
     'Expected Calibration Error (ECE). Default is 0.7 which is the threshold '
     'value recommended by Jigsaw team.')
 
-# Loss type
+# Loss type.
 flags.DEFINE_enum('loss_type', 'cross_entropy',
                   ['cross_entropy', 'focal_cross_entropy', 'mse', 'mae'],
                   'Type of loss function to use.')
@@ -190,14 +204,20 @@ def main(argv):
        ood_dataset_dir=FLAGS.ood_dataset_dir,
        identity_dataset_dir=FLAGS.identity_dataset_dir,
        use_local_data=FLAGS.use_local_data,
-       ds_kwargs=dataset_kwargs)
+       use_cross_validation=FLAGS.use_cross_validation,
+       num_folds=FLAGS.num_folds,
+       train_fold_ids=FLAGS.train_fold_ids,
+       **dataset_kwargs)
 
   if FLAGS.prediction_mode:
     prediction_dataset_builders = utils.make_prediction_dataset_builders(
         add_identity_datasets=FLAGS.identity_prediction,
         identity_dataset_dir=FLAGS.identity_specific_dataset_dir,
         use_local_data=FLAGS.use_local_data,
-        ds_kwargs=dataset_kwargs)
+        use_cross_validation=FLAGS.use_cross_validation,
+        num_folds=FLAGS.num_folds,
+        train_fold_ids=FLAGS.train_fold_ids,
+        **dataset_kwargs)
 
     test_dataset_builders.update(prediction_dataset_builders)
 

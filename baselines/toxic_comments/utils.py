@@ -159,12 +159,34 @@ def _check_dataset_dir_for_identity_prediction(flags_dict):
 
 def make_train_and_test_dataset_builders(in_dataset_dir, ood_dataset_dir,
                                          identity_dataset_dir, use_local_data,
-                                         ds_kwargs):
+                                         use_cross_validation, num_folds,
+                                         train_fold_ids, **ds_kwargs):
   """Defines train and evaluation datasets."""
   maybe_get_dir = lambda ds_dir: ds_dir if use_local_data else None
 
-  train_dataset_builder = ds.WikipediaToxicityDataset(
-      split='train', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
+  if use_cross_validation and use_local_data:
+    raise ValueError('Cannot use local data when in cross_validation mode.'
+                     'Please set `use_local_data` to False.')
+
+  # Create training data and optionally cross-validation eval sets.
+  if use_cross_validation:
+    logging.info('Use cross validation eval.')
+    cv_train_split, cv_eval_split, _, _ = make_cv_train_and_eval_splits(
+        num_folds, train_fold_ids)
+
+    train_dataset_builder = ds.WikipediaToxicityDataset(
+        split=cv_train_split, **ds_kwargs)
+    cv_eval_dataset_builder = ds.WikipediaToxicityDataset(
+        split=cv_eval_split, **ds_kwargs)
+
+    logging.info('CV train split: %s', cv_train_split)
+    logging.info('CV eval splits: %s', cv_eval_split)
+  else:
+    logging.info('Use standard eval.')
+    train_dataset_builder = ds.WikipediaToxicityDataset(
+        split='train', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
+
+  # Create testing data.
   ind_dataset_builder = ds.WikipediaToxicityDataset(
       split='test', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
   ood_dataset_builder = ds.CivilCommentsDataset(
@@ -172,20 +194,26 @@ def make_train_and_test_dataset_builders(in_dataset_dir, ood_dataset_dir,
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
       split='test', data_dir=maybe_get_dir(identity_dataset_dir), **ds_kwargs)
 
+  # Gather datasets builders into dictionaries.
   train_dataset_builders = {
       'wikipedia_toxicity_subtypes': train_dataset_builder
   }
+
   test_dataset_builders = {
       'ind': ind_dataset_builder,
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
+  if use_cross_validation:
+    test_dataset_builders['cv_eval'] = cv_eval_dataset_builder
+
   return train_dataset_builders, test_dataset_builders
 
 
 def make_prediction_dataset_builders(add_identity_datasets,
                                      identity_dataset_dir, use_local_data,
-                                     ds_kwargs):
+                                     use_cross_validation, num_folds,
+                                     train_fold_ids, **ds_kwargs):
   """Adds additional test datasets for prediction mode."""
   maybe_get_identity_dir = (
       lambda name: os.path.join(identity_dataset_dir, name)  # pylint: disable=g-long-lambda
@@ -200,6 +228,19 @@ def make_prediction_dataset_builders(add_identity_datasets,
         identity_data_dir = maybe_get_identity_dir(dataset_name)
         dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
             split='test', data_dir=identity_data_dir, **ds_kwargs)
+
+  # Adds cross validation folds for evaluation.
+  if use_cross_validation:
+    _, _, cv_train_folds, cv_eval_folds = make_cv_train_and_eval_splits(
+        num_folds, train_fold_ids)
+
+    for cv_fold in cv_train_folds:
+      dataset_builders[f'cv_train_{cv_fold}'] = ds.WikipediaToxicityDataset(
+          split=cv_fold, **ds_kwargs)
+
+    for cv_fold in cv_eval_folds:
+      dataset_builders[f'cv_eval_{cv_fold}'] = ds.WikipediaToxicityDataset(
+          split=cv_fold, **ds_kwargs)
 
   return dataset_builders
 
@@ -221,7 +262,7 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
   for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.load(
         batch_size=test_batch_size)
-    if dataset_name in ['ind', 'ood', 'ood_identity']:
+    if dataset_name in ['ind', 'ood', 'ood_identity', 'cv_eval']:
       test_steps_per_eval[dataset_name] = (
           dataset_builder.num_examples // test_batch_size)
     else:
@@ -243,7 +284,7 @@ def make_cv_train_and_eval_splits(num_folds, train_fold_ids):
   # Make the train split name to be used by TFDS loader.
   train_split = '+'.join(train_split_list)
   eval_split = '+'.join(eval_split_list)
-  return train_split, eval_split, eval_split_list
+  return train_split, eval_split, train_split_list, eval_split_list
 
 
 def save_prediction(data, path):
@@ -264,14 +305,24 @@ def create_class_weight(train_dataset_builders=None,
   class_weight = {}
   if train_dataset_builders:
     for dataset_name, dataset_builder in train_dataset_builders.items():
-      class_weight['train/{}'.format(dataset_name)] = generate_weight(
-          NUM_POS_EXAMPLES[dataset_name]['train'],
-          dataset_builder.num_examples)
+      num_positive_examples = NUM_POS_EXAMPLES.get(dataset_name, None)
+      if not num_positive_examples:
+        # Equal weight if not an official split.
+        class_weight['train/{}'.format(dataset_name)] = [0.5, 0.5]
+      else:
+        class_weight['train/{}'.format(dataset_name)] = generate_weight(
+            num_positive_examples['train'], dataset_builder.num_examples)
+
   if test_dataset_builders:
     for dataset_name, dataset_builder in test_dataset_builders.items():
-      class_weight['test/{}'.format(dataset_name)] = generate_weight(
-          NUM_POS_EXAMPLES[dataset_name]['test'],
-          dataset_builder.num_examples)
+      num_positive_examples = NUM_POS_EXAMPLES.get(dataset_name, None)
+      if not num_positive_examples:
+        # Equal weight if not an official split.
+        class_weight['test/{}'.format(dataset_name)] = [0.5, 0.5]
+      else:
+        class_weight['test/{}'.format(dataset_name)] = generate_weight(
+            NUM_POS_EXAMPLES[dataset_name]['test'],
+            dataset_builder.num_examples)
 
   return class_weight
 

@@ -92,14 +92,20 @@ def main(argv):
       ood_dataset_dir=FLAGS.ood_dataset_dir,
       identity_dataset_dir=FLAGS.identity_dataset_dir,
       use_local_data=FLAGS.use_local_data,
-      ds_kwargs=dataset_kwargs)
+      use_cross_validation=FLAGS.use_cross_validation,
+      num_folds=FLAGS.num_folds,
+      train_fold_ids=FLAGS.train_fold_ids,
+      **dataset_kwargs)
 
   if FLAGS.prediction_mode:
     prediction_dataset_builders = utils.make_prediction_dataset_builders(
         add_identity_datasets=FLAGS.identity_prediction,
         identity_dataset_dir=FLAGS.identity_specific_dataset_dir,
         use_local_data=FLAGS.use_local_data,
-        ds_kwargs=dataset_kwargs)
+        use_cross_validation=FLAGS.use_cross_validation,
+        num_folds=FLAGS.num_folds,
+        train_fold_ids=FLAGS.train_fold_ids,
+        **dataset_kwargs)
 
     test_dataset_builders.update(prediction_dataset_builders)
 

@@ -373,7 +373,11 @@ def main(argv):
 
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     if FLAGS.prediction_mode:
-      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.eval_checkpoint_dir)
+      eval_checkpoint_dir = FLAGS.eval_checkpoint_dir
+      if FLAGS.checkpoint_name is not None:
+        eval_checkpoint_dir = os.path.join(eval_checkpoint_dir,
+                                           FLAGS.checkpoint_name)
+      latest_checkpoint = tf.train.latest_checkpoint(eval_checkpoint_dir)
     else:
       latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0

@@ -122,9 +122,15 @@ IDENTITY_TYPES = ('gender', 'sexual_orientation', 'religion', 'race',
 
 # Prediction mode.
 flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
-flags.DEFINE_string('eval_checkpoint_dir', None,
-                    'The directory to restore the model weights from for '
-                    'prediction mode.')
+flags.DEFINE_string(
+    'eval_checkpoint_dir', None,
+    'The top-level directory to restore the model weights from'
+    ' for prediction mode.')
+flags.DEFINE_string(
+    'checkpoint_name', None, 'The sub-directory to load the checkpoint from for'
+    ' prediction mode. If provided then the model will load'
+    ' from `{checkpoint_dir}/{checkpoint_name}`, otherwise it'
+    ' will load from `{checkpoint_dir}/`.')
 flags.DEFINE_bool('identity_prediction', False, 'Whether to do prediction on '
                   'each identity dataset in prediction mode.')
 flags.DEFINE_string('identity_specific_dataset_dir', None,
@@ -265,7 +271,9 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
   for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.load(
         batch_size=test_batch_size)
-    if dataset_name in ['ind', 'ood', 'ood_identity', 'cv_eval']:
+    if dataset_name in ['ind', 'ood', 'ood_identity'] or 'cv_' in dataset_name:
+      # Use official num_examples if using official train / eval splits
+      # or performing cross validation.
       test_steps_per_eval[dataset_name] = (
           dataset_builder.num_examples // test_batch_size)
     else:

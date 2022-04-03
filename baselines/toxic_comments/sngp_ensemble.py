@@ -109,6 +109,8 @@ def main(argv):
         train_fold_ids=FLAGS.train_fold_ids,
         **dataset_kwargs)
 
+    # Removes `cv_eval` since it overlaps with the `cv_eval_fold_*` datasets.
+    test_dataset_builders.pop('cv_eval', None)
     test_dataset_builders.update(prediction_dataset_builders)
 
   class_weight = utils.create_class_weight(

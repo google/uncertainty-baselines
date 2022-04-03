@@ -122,9 +122,15 @@ IDENTITY_TYPES = ('gender', 'sexual_orientation', 'religion', 'race',
 
 # Prediction mode.
 flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
-flags.DEFINE_string('eval_checkpoint_dir', None,
-                    'The directory to restore the model weights from for '
-                    'prediction mode.')
+flags.DEFINE_string(
+    'eval_checkpoint_dir', None,
+    'The top-level directory to restore the model weights from'
+    ' for prediction mode.')
+flags.DEFINE_string(
+    'checkpoint_name', None, 'The sub-directory to load the checkpoint from for'
+    ' prediction mode. If provided then the model will load'
+    ' from `{checkpoint_dir}/{checkpoint_name}`, otherwise it'
+    ' will load from `{checkpoint_dir}/`.')
 flags.DEFINE_bool('identity_prediction', False, 'Whether to do prediction on '
                   'each identity dataset in prediction mode.')
 flags.DEFINE_string('identity_specific_dataset_dir', None,
@@ -176,7 +182,7 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   # Create training data and optionally cross-validation eval sets.
   train_split_name = 'train'
   if use_cross_validation:
-    train_split_name, eval_split_name, _, _ = make_cv_train_and_eval_splits(
+    train_split_name, eval_split_name = make_cv_train_and_eval_splits(
         num_folds, train_fold_ids)
     cv_eval_dataset_builder = ds.WikipediaToxicityDataset(
         split=eval_split_name, **ds_kwargs)
@@ -234,16 +240,22 @@ def make_prediction_dataset_builders(add_identity_datasets,
 
   # Adds cross validation folds for evaluation.
   if use_cross_validation:
-    _, _, cv_train_folds, cv_eval_folds = make_cv_train_and_eval_splits(
-        num_folds, train_fold_ids)
+    # make_cv_train_and_eval_splits returns a 5-tuple when
+    # `return_individual_folds=True`.
+    _, _, train_fold_names, eval_fold_names, eval_fold_ids = make_cv_train_and_eval_splits(  # pylint: disable=unbalanced-tuple-unpacking
+        num_folds,
+        train_fold_ids,
+        return_individual_folds=True)
 
-    for cv_fold in cv_train_folds:
-      dataset_builders[f'cv_train_{cv_fold}'] = ds.WikipediaToxicityDataset(
-          split=cv_fold, **ds_kwargs)
+    for cv_fold_id, cv_fold_name in zip(train_fold_ids, train_fold_names):
+      dataset_builders[
+          f'cv_train_fold_{cv_fold_id}'] = ds.WikipediaToxicityDataset(
+              split=cv_fold_name, **ds_kwargs)
 
-    for cv_fold in cv_eval_folds:
-      dataset_builders[f'cv_eval_{cv_fold}'] = ds.WikipediaToxicityDataset(
-          split=cv_fold, **ds_kwargs)
+    for cv_fold_id, cv_fold_name in zip(eval_fold_ids, eval_fold_names):
+      dataset_builders[
+          f'cv_eval_fold_{cv_fold_id}'] = ds.WikipediaToxicityDataset(
+              split=cv_fold_name, **ds_kwargs)
 
   return dataset_builders
 
@@ -265,7 +277,9 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
   for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.load(
         batch_size=test_batch_size)
-    if dataset_name in ['ind', 'ood', 'ood_identity', 'cv_eval']:
+    if dataset_name in ['ind', 'ood', 'ood_identity'] or 'cv_' in dataset_name:
+      # Use official num_examples if using official train / eval splits
+      # or performing cross validation.
       test_steps_per_eval[dataset_name] = (
           dataset_builder.num_examples // test_batch_size)
     else:
@@ -275,19 +289,32 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
   return train_datasets, test_datasets, train_steps_per_epoch, test_steps_per_eval
 
 
-def make_cv_train_and_eval_splits(num_folds, train_fold_ids):
+def make_cv_train_and_eval_splits(num_folds,
+                                  train_fold_ids,
+                                  return_individual_folds=False):
   """Defines the train and evaluation splits for cross validation."""
-  all_splits = [f'train[{k}%:{k+10}%]' for k in range(0, 100, num_folds)]
+  fold_ranges = np.linspace(0, 100, num_folds + 1, dtype=int)
+  all_splits = [
+      f'train[{fold_ranges[k]}%:{fold_ranges[k+1]}%]' for k in range(num_folds)
+  ]
 
-  # Collect split names for training and for evaluation.
-  train_split_list = [all_splits[int(fold_id)] for fold_id in train_fold_ids]
-  eval_split_list = list(set(all_splits) - set(train_split_list))
-  eval_split_list.sort()
+  # Make train and eval fold IDs.
+  train_fold_ids = [int(fold_id) for fold_id in train_fold_ids]
+  eval_fold_ids = list(set(range(num_folds)) - set(train_fold_ids))
+  eval_fold_ids.sort()
 
-  # Make the train split name to be used by TFDS loader.
+  # Collect split names for train and eval folds.
+  train_split_list = [all_splits[fold_id] for fold_id in train_fold_ids]
+  eval_split_list = [all_splits[fold_id] for fold_id in eval_fold_ids]
+
+  # Make the train and eval split names to be used by TFDS loader.
   train_split = '+'.join(train_split_list)
   eval_split = '+'.join(eval_split_list)
-  return train_split, eval_split, train_split_list, eval_split_list
+
+  if not return_individual_folds:
+    return train_split, eval_split
+
+  return train_split, eval_split, train_split_list, eval_split_list, eval_fold_ids
 
 
 def save_prediction(data, path):

@@ -200,9 +200,6 @@ class GATModel(tf.keras.Model):
   [1]: Petar Veličković, et. al. Graph Attention Networks. ICLR 2018.
        https://arxiv.org/abs/1710.10903
 
-  Reference implementation:
-  http://google3//research/biology/ether/yield_prediction/gat/models.py
-  # END GOOGLE_INTERNAL
   """
 
   def __init__(

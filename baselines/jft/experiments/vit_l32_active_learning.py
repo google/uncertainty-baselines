@@ -166,19 +166,22 @@ def get_sweep(hyper):
 
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(48990, 48991, 1)]
+          for a, b, c in [(100, 200, 10)]
       ]
       cifar10_sweep = hyper.product([
           hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
           hyper.sweep('config.lr.base',
-                      [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+                      [0.03, 0.01, 0.005]),
           hyper.chainit(data_sizes),
       ])
-
+      data_sizes = [
+          hyper.product(set_data_sizes(a, b, c))
+          for a, b, c in [(1000, 2000, 100)]
+      ]
       cifar100_sweep = hyper.product([
           hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
           hyper.sweep('config.lr.base',
-                      [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+                      [0.03, 0.01, 0.005]),
           hyper.chainit(data_sizes),
       ])
 
@@ -200,6 +203,7 @@ def get_sweep(hyper):
         ]),
         hyper.sweep('config.model_init', checkpoints),
         hyper.sweep('config.acquisition_method', acquisition_methods),
+        hyper.sweep('config.seed', [7, 11, 23]),
     ])
 
   return hyper.chainit(

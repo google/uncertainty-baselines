@@ -27,6 +27,8 @@ def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
 
+  config.seed = 0
+
   # Active learning section
   config.model_type = 'batchensemble'
   config.acquisition_method = ''  # set in sweep
@@ -123,17 +125,19 @@ def get_sweep(hyper):
     ]
 
   data_sizes = [
-      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(48990, 48991, 1)]
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(100, 200, 10)]
   ]
   cifar10_sweep = hyper.product([
       hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.005]),
       hyper.chainit(data_sizes),
   ])
-
+  data_sizes = [
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(1000, 2000, 100)]
+  ]
   cifar100_sweep = hyper.product([
       hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.06, 0.03, 0.015, 0.01, 0.005, 0.001]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.005]),
       hyper.chainit(data_sizes),
   ])
 
@@ -162,5 +166,6 @@ def get_sweep(hyper):
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
           hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
           model_specs,
+          hyper.sweep('config.seed', [7, 11, 23]),
       ])
   ])

@@ -33,11 +33,11 @@ from ml_collections import config_dict
 import ml_collections.config_flags
 import numpy as np
 import tensorflow as tf
-import bert_utils  # local file import from baselines.clinc_intent
 from uncertainty_baselines.datasets import datasets
 import data_preprocessor as preprocessor  # local file import from experimental.language_structure.vrnn
 import data_utils  # local file import from experimental.language_structure.vrnn
 import linear_vrnn  # local file import from experimental.language_structure.vrnn
+import model_config  # local file import from experimental.language_structure.vrnn
 import psl_utils  # local file import from experimental.language_structure.vrnn
 import train_lib  # local file import from experimental.language_structure.vrnn
 import utils  # local file import from experimental.language_structure.vrnn
@@ -278,15 +278,19 @@ def _log_metric_results(metrics: _MetricMap, split: str):
 
 def _load_data_from_files(config: config_dict.ConfigDict):
   """Update config by data read from files."""
-  with tf.io.gfile.GFile(config.vocab_file_path, 'r') as f:
-    vocab_size = len(f.read()[:-1].split('\n'))
-  config.model.vocab_size = config.model.vae_cell.vocab_size = vocab_size
 
-  if config.model.vae_cell.shared_bert_embedding:
-    with tf.io.gfile.GFile(os.path.join(config.bert_dir,
-                                        'bert_config.json')) as config_file:
-      config.model.vae_cell.shared_bert_embedding_config = json.load(
-          config_file)
+  def _load_embedding_data_from_files(
+      embedding_config: model_config.EmbeddingConfig):
+    with tf.io.gfile.GFile(embedding_config.vocab_file_path, 'r') as f:
+      embedding_config.vocab_size = len(f.read()[:-1].split('\n'))
+
+    if (embedding_config.embedding_type == model_config.BERT_EMBED and
+        embedding_config.bert_config_file):
+      with tf.io.gfile.GFile(embedding_config.bert_config_file) as config_file:
+        embedding_config.bert_config = json.load(config_file)
+
+  _load_embedding_data_from_files(config.model.vae_cell.encoder_embedding)
+  _load_embedding_data_from_files(config.model.vae_cell.decoder_embedding)
 
   if config.psl_config_file:
     with tf.io.gfile.GFile(config.psl_config_file, 'r') as file:
@@ -409,6 +413,37 @@ def _json_dump(config: config_dict.ConfigDict, filename: str):
     json.dump(config.to_dict(), f)
 
 
+def _build_data_processor(
+    config: config_dict.ConfigDict,
+    labeled_dialog_turn_ids: tf.Tensor) -> preprocessor.DataPreprocessor:
+  """Creates data processor for the dataset."""
+
+  def _get_utterance_feature_fn(embedding_type: str):
+    """Returns the utterance feature function by `embedding_type`."""
+    if embedding_type == model_config.GLOVE_EMBED:
+      return preprocessor.create_utterance_features
+
+    bert_preprocess_model = utils.BertPreprocessor(
+        config.bert_embedding_preprocess_tfhub_url,
+        config.model.vae_cell.max_seq_length)
+    return preprocessor.create_bert_utterance_features_fn(bert_preprocess_model)
+
+  encoder_embedding = config.model.vae_cell.encoder_embedding
+  decoder_embedding = config.model.vae_cell.decoder_embedding
+
+  model_config.verify_embedding_configs(encoder_embedding, decoder_embedding,
+                                        config.shared_embedding)
+
+  encoder_process_fn = _get_utterance_feature_fn(
+      encoder_embedding.embedding_type)
+  decoder_process_fn = _get_utterance_feature_fn(
+      decoder_embedding.embedding_type)
+
+  return preprocessor.DataPreprocessor(encoder_process_fn, decoder_process_fn,
+                                       config.model.num_states,
+                                       labeled_dialog_turn_ids)
+
+
 def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   """Runs training/evaluation experiment."""
   seed = config.get('seed', 0)
@@ -497,39 +532,23 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   else:
     labeled_dialog_turn_ids = None
 
-  # Initialize bert embedding preprocessor.
-  if config.shared_bert_embedding:
-    bert_preprocess_model = utils.BertPreprocessor(
-        config.bert_embedding_preprocess_tfhub_url,
-        config.model.vae_cell.max_seq_length)
-    if bert_preprocess_model.vocab_size != config.model.vocab_size:
-      raise ValueError(
-          'Expect BERT preprocess model vocab size align with the model '
-          'config, found {} and {}.'.format(bert_preprocess_model.vocab_size,
-                                            config.model.vocab_size))
-    preprocess_fn = preprocessor.BertDataPreprocessor(
-        bert_preprocess_model, config.model.num_states,
-        labeled_dialog_turn_ids).create_feature_and_label
-
-  else:
-    preprocess_fn = preprocessor.DataPreprocessor(
-        config.model.num_states,
-        labeled_dialog_turn_ids).create_feature_and_label
+  data_preprocessor = _build_data_processor(config, labeled_dialog_turn_ids)
+  preprocess_fn = data_preprocessor.create_feature_and_label
 
   # Load PSL configs
   psl_learning = config.psl_constraint_learning_weight > 0
   psl_inference = config.psl_constraint_inference_weight > 0
   if psl_learning or psl_inference:
-    with tf.io.gfile.GFile(config.vocab_file_path, 'r') as f:
+    with tf.io.gfile.GFile(
+        config.model.vae_cell.decoder_embedding.vocab_file_path, 'r') as f:
       vocab = f.read()[:-1].split('\n')
     preprocess_fn = psl_utils.psl_feature_mixin(preprocess_fn, config.dataset,
                                                 config.psl, vocab)
 
   # Load datasets
-  # TODO(yquan): invesigate why distributed training fails when using BERT
+  # TODO(yquan): invesigate why distributed training fails in *fish TPU
   # Failure example: https://xm2a.corp.google.com/experiments/33275459
-  distributed_training = (not psl_learning and not psl_inference and
-                          not config.shared_bert_embedding)
+  distributed_training = False
   train_dataset = preprocessor.create_dataset(train_dataset_builder,
                                               config.train_batch_size,
                                               preprocess_fn, strategy,
@@ -545,7 +564,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         dataset_builder, config.eval_batch_size, preprocess_fn, strategy,
         distributed_training)
 
-  distributed_inference = not config.shared_bert_embedding
+  distributed_inference = False
   inference_train_dataset = preprocessor.create_dataset(
       inference_train_dataset_builder, config.inference_batch_size,
       preprocess_fn, strategy, distributed_inference)
@@ -560,7 +579,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       config.inference_batch_size)
 
   # Initialize word weights.
-  word_weights = np.ones((config.model.vocab_size), dtype=np.float32)
+  word_weights = np.ones((config.model.vae_cell.decoder_embedding.vocab_size),
+                         dtype=np.float32)
   if config.word_weights_path:
     w = config.word_weights_file_weight
     if w > 1 or w < 0:
@@ -616,14 +636,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
       logging.info('Loaded checkpoint %s. Initialize from epoch %s',
                    init_checkpoint, initial_epoch)
-    elif config.shared_bert_embedding:
-      # load BERT from initial checkpoint
-      bert_ckpt_dir = config.model.vae_cell.shared_bert_embedding_ckpt_dir
-      (model.vae_cell.shared_embedding_layer, _,
-       _) = bert_utils.load_bert_weight_from_ckpt(
-           bert_model=model.vae_cell.shared_embedding_layer,
-           bert_ckpt_dir=bert_ckpt_dir)
-      logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
+    else:
+      model.vae_cell.init_bert_embedding_layers(config.model.vae_cell)
 
   def train_step(batch_size: int, config: config_dict.ConfigDict):
 
@@ -631,8 +645,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
     def _train_step(inputs: Sequence[tf.Tensor]):
       """Training step function."""
 
-      (input_1, input_2, label_id, label_mask, initial_state, initial_sample,
-       _) = inputs[:7]
+      (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+       label_id, label_mask, initial_state, initial_sample, _) = inputs[:9]
       if psl_learning:
         psl_inputs = inputs[-1]
         # Explicitly specify the batch size as PSL model now requires known
@@ -642,7 +656,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       else:
         psl_inputs = None
 
-      model_inputs = [input_1, input_2, initial_state, initial_sample]
+      model_inputs = [
+          encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+          initial_state, initial_sample
+      ]
       if with_label:
         model_inputs.extend([label_id, label_mask])
 
@@ -651,10 +668,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         model_outputs = model(model_inputs, training=True)
 
         losses = linear_vrnn.compute_loss(
-            input_1[_INPUT_ID_NAME],
-            input_2[_INPUT_ID_NAME],
-            input_1[_INPUT_MASK_NAME],
-            input_2[_INPUT_MASK_NAME],
+            decoder_input_1[_INPUT_ID_NAME][:, :, 1:],
+            decoder_input_2[_INPUT_ID_NAME][:, :, 1:],
+            decoder_input_1[_INPUT_MASK_NAME][:, :, 1:],
+            decoder_input_2[_INPUT_MASK_NAME][:, :, 1:],
             model_outputs,
             latent_label_id=label_id,
             latent_label_mask=label_mask,
@@ -684,8 +701,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
     def _test_step(inputs: Sequence[tf.Tensor]):
       """Evaluation step function."""
 
-      (input_1, input_2, label_id, label_mask, initial_state, initial_sample,
-       _) = inputs[:7]
+      (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+       label_id, label_mask, initial_state, initial_sample, _) = inputs[:9]
       if psl_inference:
         psl_inputs = inputs[-1]
         # Explicitly specify the batch size as PSL model now requires known
@@ -696,14 +713,17 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         psl_inputs = None
 
       # In evaluation, don't provide label as a guidance.
-      model_inputs = [input_1, input_2, initial_state, initial_sample]
+      model_inputs = [
+          encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+          initial_state, initial_sample
+      ]
       model_outputs = model(model_inputs, training=False)
 
       losses = linear_vrnn.compute_loss(
-          input_1[_INPUT_ID_NAME],
-          input_2[_INPUT_ID_NAME],
-          input_1[_INPUT_MASK_NAME],
-          input_2[_INPUT_MASK_NAME],
+          decoder_input_1[_INPUT_ID_NAME][:, :, 1:],
+          decoder_input_2[_INPUT_ID_NAME][:, :, 1:],
+          decoder_input_1[_INPUT_MASK_NAME][:, :, 1:],
+          decoder_input_2[_INPUT_MASK_NAME][:, :, 1:],
           model_outputs,
           latent_label_id=label_id,
           latent_label_mask=label_mask,
@@ -728,9 +748,12 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
     @tf.function
     def _inference_step(inputs: Sequence[tf.Tensor]) -> Sequence[tf.Tensor]:
-      (input_1, input_2, label, _, initial_state, initial_sample,
-       domain_label) = inputs[:7]
-      model_inputs = [input_1, input_2, initial_state, initial_sample]
+      (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+       label, _, initial_state, initial_sample, domain_label) = inputs[:9]
+      model_inputs = [
+          encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+          initial_state, initial_sample
+      ]
       model_outputs = model(model_inputs, training=False)
 
       if psl_inference:

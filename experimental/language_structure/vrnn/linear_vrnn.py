@@ -81,19 +81,36 @@ class _VRNN(tf.keras.Model):
     self.bow_layer_2 = bow_layer_2
 
   def _verify_and_prepare_inputs(self, inputs: Sequence[Any]):
-    if len(inputs) not in (4, 6):
+    if len(inputs) not in (6, 8):
       raise ValueError(
-          'Expect inputs to be a sequence of length 4 (input_1, input_2, state,'
-          ' sample) or 6 (input_1, input_2, state, sample, label_id, label_mask'
-          '), found %s.' % len(inputs))
-    input_1, input_2, state, sample = inputs[:4]
-    if len(inputs) == 6:
-      label_id, label_mask = inputs[4:]
+          'Expect inputs to be a sequence of length 6 (encoder_input_1, '
+          'encoder_input_2, decoder_input_1, decoder_input_2, state, sample) or'
+          ' 8 (encoder_input_1, encoder_input_2, decoder_input_1, '
+          'decoder_input_2, state, sample, label_id, label_mask), found %s.' %
+          len(inputs))
+
+    (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2, state,
+     sample) = inputs[:6]
+    if len(inputs) == 8:
+      label_id, label_mask = inputs[6:]
       label = tf.one_hot(label_id, depth=self._num_states)
+
+      label = self._split_sequence(label)
+      label_mask = self._split_sequence(label_mask)
     else:
       label = None
       label_mask = None
-    return (input_1, input_2, state, sample, label, label_mask)
+
+    encoder_input_1 = self._split_sequence_dict(encoder_input_1)
+    encoder_input_2 = self._split_sequence_dict(encoder_input_2)
+    decoder_input_1 = self._split_sequence_dict(decoder_input_1)
+    decoder_input_2 = self._split_sequence_dict(decoder_input_2)
+
+    if self._is_tuple_state:
+      state = (state, state)
+
+    return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+            state, sample, label, label_mask)
 
   def _split_sequence(self, tensor: tf.Tensor) -> Sequence[tf.Tensor]:
     return tf.unstack(tensor, axis=1)
@@ -113,17 +130,8 @@ class _VRNN(tf.keras.Model):
     return outputs
 
   def call(self, inputs: Sequence[Any]):
-    (input_1, input_2, state, sample, label,
-     label_mask) = self._verify_and_prepare_inputs(inputs)
-
-    input_1 = self._split_sequence_dict(input_1)
-    input_2 = self._split_sequence_dict(input_2)
-
-    if label is not None:
-      label = self._split_sequence(label)
-      label_mask = self._split_sequence(label_mask)
-    if self._is_tuple_state:
-      state = (state, state)
+    (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2, state,
+     sample, label, label_mask) = self._verify_and_prepare_inputs(inputs)
 
     with_bow = self.bow_layer_1 is not None
     latent_samples = []
@@ -141,7 +149,10 @@ class _VRNN(tf.keras.Model):
         hidden_state = state[0] if self._is_tuple_state else state
         p_z_logit = self.prior_latent_state_updater(hidden_state)
 
-      vae_cell_inputs = [input_1[i], input_2[i], state]
+      vae_cell_inputs = [
+          encoder_input_1[i], encoder_input_2[i], decoder_input_1[i],
+          decoder_input_2[i], state
+      ]
       if label is not None:
         vae_cell_inputs.extend([label[i], label_mask[i]])
       (q_z_logit, decoder_output_1, decoder_output_2, state, latent_state,
@@ -211,7 +222,7 @@ class VanillaLinearVRNN(_VRNN):
     if config.with_bow:
       bow_layer_kwargs = dict(
           hidden_sizes=config.bow_hidden_sizes,
-          output_size=config.vocab_size,
+          output_size=config.vae_cell.decoder_embedding.vocab_size,
           dropout=config.dropout,
           final_activation=tf.nn.tanh)
       bow_layer_1 = _MlpWithProjector(**bow_layer_kwargs)
@@ -288,14 +299,10 @@ def compute_loss(labels_1: tf.Tensor,
   else:
     (_, _, p_z_logits, q_z_logits, outputs_1, outputs_2) = model_outputs
 
-  seq_length = tf.reduce_sum(labels_1_mask + labels_2_mask)
-
-  labels_1 = tf.cast(labels_1[:, :, 1:], dtype=tf.float32)
-  labels_2 = tf.cast(labels_2[:, :, 1:], dtype=tf.float32)
-  seq_length = tf.cast(seq_length, dtype=tf.float32)
-
-  labels_1_mask = labels_1_mask[:, :, 1:]
-  labels_2_mask = labels_2_mask[:, :, 1:]
+  labels_1 = tf.cast(labels_1, dtype=tf.float32)
+  labels_2 = tf.cast(labels_2, dtype=tf.float32)
+  seq_length = tf.cast(
+      tf.reduce_sum(labels_1_mask + labels_2_mask), dtype=tf.float32)
 
   # reconstruction loss
   rc_loss_fn = utils.SequentialWordLoss(

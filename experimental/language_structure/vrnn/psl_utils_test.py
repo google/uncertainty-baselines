@@ -42,6 +42,10 @@ class PslUtilsTest(tfds.testing.TestCase):
         'input_word_ids': tf.constant([[[1, 2, 0], [0, 0, 0]]])
     }, {
         'input_word_ids': tf.constant([[[2, 1, 0], [0, 0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[1, 2, 0], [0, 0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[2, 1, 0], [0, 0, 0]]])
     },
               tf.constant([3]),
               tf.constant([4]),
@@ -79,6 +83,10 @@ class PslUtilsTest(tfds.testing.TestCase):
 
   def test_dstc_synth_psl_feature_mixin(self):
     inputs = [{
+        'input_word_ids': tf.constant([[[1, 0], [0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[2, 1], [0, 0]]])
+    }, {
         'input_word_ids': tf.constant([[[1, 0], [0, 0]]])
     }, {
         'input_word_ids': tf.constant([[[2, 1], [0, 0]]])

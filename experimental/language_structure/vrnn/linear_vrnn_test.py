@@ -29,8 +29,14 @@ class LinearVrnnTest(tfds.testing.TestCase):
   def _create_test_vrnn_config(self):
     config = model_config.vanilla_linear_vrnn_config(
         vae_cell=model_config.vanilla_linear_vae_cell_config(
-            vocab_size=5,
-            embed_size=2,
+            encoder_embedding=model_config.embedding_config(
+                vocab_size=5,
+                embed_size=2,
+            ),
+            decoder_embedding=model_config.embedding_config(
+                vocab_size=5,
+                embed_size=2,
+            ),
             max_seq_length=3,
             encoder_hidden_size=2,
             encoder_projection_sizes=(2,),
@@ -48,23 +54,14 @@ class LinearVrnnTest(tfds.testing.TestCase):
     config = self._create_test_vrnn_config()
     test_model = linear_vrnn.VanillaLinearVRNN(config)
 
-    inputs = [
-        {
-            'input_word_ids':
-                tf.keras.Input(
-                    shape=(config.max_dialog_length, None), dtype=tf.int32),
-            'input_mask':
-                tf.keras.Input(
-                    shape=(config.max_dialog_length, None), dtype=tf.int32),
-        },
-        {
-            'input_word_ids':
-                tf.keras.Input(
-                    shape=(config.max_dialog_length, None), dtype=tf.int32),
-            'input_mask':
-                tf.keras.Input(
-                    shape=(config.max_dialog_length, None), dtype=tf.int32),
-        },
+    inputs = [{
+        'input_word_ids':
+            tf.keras.Input(
+                shape=(config.max_dialog_length, None), dtype=tf.int32),
+        'input_mask':
+            tf.keras.Input(
+                shape=(config.max_dialog_length, None), dtype=tf.int32),
+    }] * 4 + [
         tf.keras.Input(shape=(config.num_states,)),
         tf.keras.Input(shape=(config.num_states,)),
         tf.keras.Input(shape=(config.max_dialog_length,), dtype=tf.int32),
@@ -85,13 +82,16 @@ class LinearVrnnTest(tfds.testing.TestCase):
                        output.shape.as_list())
 
     for output in [bow_logits_1, bow_logits_2]:
-      self.assertEqual([None, config.max_dialog_length, config.vocab_size],
-                       output.shape.as_list())
+      self.assertEqual([
+          None, config.max_dialog_length,
+          config.vae_cell.decoder_embedding.vocab_size
+      ], output.shape.as_list())
 
     for output in [decoder_outputs_1, decoder_outputs_2]:
-      self.assertEqual(
-          [None, config.max_dialog_length, None, config.vocab_size],
-          output.shape.as_list())
+      self.assertEqual([
+          None, config.max_dialog_length, None,
+          config.vae_cell.decoder_embedding.vocab_size
+      ], output.shape.as_list())
 
   @tfds.testing.run_in_graph_and_eager_modes
   def test_loss_shape(self):
@@ -135,7 +135,8 @@ class LinearVrnnTest(tfds.testing.TestCase):
         dtype=tf.int32)
     latent_label_mask = tf.keras.Input(
         shape=(config.max_dialog_length,), batch_size=batch_size)
-    word_weights = np.ones((config.vocab_size), dtype=np.float32)
+    word_weights = np.ones((config.vae_cell.decoder_embedding.vocab_size),
+                           dtype=np.float32)
 
     psl_config = psl_test_util.TEST_MULTIWOZ_CONFIG
     rule_weights = (1.0,)

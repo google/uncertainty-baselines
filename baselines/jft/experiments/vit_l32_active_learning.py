@@ -38,6 +38,7 @@ def get_config():
   config.initial_training_set_size = 0  # set in sweep
   config.acquisition_batch_size = 0  # set in sweep
   config.early_stopping_patience = 128
+  config.finetune_head_only = False
 
   # Dataset section
   config.dataset = ''  # set in sweep

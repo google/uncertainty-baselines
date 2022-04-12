@@ -45,6 +45,7 @@ def get_config():
   config.initial_training_set_size = 0
   config.acquisition_batch_size = 10
   config.early_stopping_patience = 64
+  config.finetune_head_only = False
 
   # Dataset section:
   config.val_split = 'train[98%:]'

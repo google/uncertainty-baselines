@@ -556,7 +556,7 @@ def finetune(*,
     val_ds: validation dataset for early stopping.
     evaluation_fn: function used for evaluation on validation set.
     early_stopping_patience: number of steps to wait before stopping training.
-    prefetch_to_device: number of batches to prefetc (default: 1).
+    prefetch_to_device: number of batches to prefetch (default: 1).
     profiler: periodic_actions.Profile.
 
   Returns:
@@ -681,6 +681,7 @@ def main(config, output_dir):
     model_utils = deterministic_utils
     reinit_params = config.get('model_reinit_params',
                                ('head/kernel', 'head/bias'))
+    head_prefix = 'head'
     model = ub.models.vision_transformer(
         num_classes=config.num_classes, **config.get('model', {}))
   elif config.model_type == 'batchensemble':
@@ -688,6 +689,7 @@ def main(config, output_dir):
     reinit_params = ('batchensemble_head/bias', 'batchensemble_head/kernel',
                      'batchensemble_head/fast_weight_alpha',
                      'batchensemble_head/fast_weight_gamma')
+    head_prefix = 'batchensemble_head'
     model = ub.models.vision_transformer_be(
         num_classes=config.num_classes, **config.model)
   else:
@@ -707,6 +709,10 @@ def main(config, output_dir):
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
+  if config.get('finetune_head_only', False):
+    head_params = flax.traverse_util.ModelParamTraversal(
+        lambda path, _: head_prefix in path)
+    opt_def = flax.optim.MultiOptimizer((head_params, opt_def))
 
   # We jit this, such that the arrays that are created on the same
   # device as the input is, in this case the CPU. Else they'd be on device[0].

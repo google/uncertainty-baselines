@@ -52,7 +52,7 @@ def get_config():
   config.test_split = 'test'
   config.num_classes = n_cls
 
-  config.batch_size = 256  # half of config's 512 - due to memory issues
+  config.batch_size = 512
   config.total_steps = 1024
 
   pp_common = '|value_range(-1, 1)'

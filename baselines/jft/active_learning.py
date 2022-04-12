@@ -712,9 +712,10 @@ def main(config, output_dir):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
+  write_note('Loading the model checkpoint...')
   loaded_params = checkpoint_utils.load_checkpoint(
       tree=None, path=config.model_init)
-  loaded = checkpoint_utils.restore_from_pretrained_params(
+  loaded_params = checkpoint_utils.restore_from_pretrained_params(
       params_cpu,
       loaded_params,
       config.model.representation_size,
@@ -722,10 +723,10 @@ def main(config, output_dir):
       reinit_params,
   )
 
-  opt_cpu = opt_cpu.replace(target=loaded)
-
-  # TODO(joost,andreas): This shouldn't be needed but opt_cpu is being
-  # donated otherwise. Ensure opt_cpu is really on the cpu this way.
+  opt_cpu = opt_cpu.replace(target=loaded_params)
+  del loaded_params, params_cpu  # Free up memory.
+  # TODO(dusenberrymw): Remove this once checkpoint_utils is fixed to return
+  # only CPU arrays.
   opt_cpu = jax.device_get(opt_cpu)
 
   update_fn = model_utils.create_update_fn(model, config)

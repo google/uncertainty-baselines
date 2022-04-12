@@ -46,7 +46,7 @@ def get_config():
   config.train_split = ''  # set in sweep
   config.num_classes = None  # set in swee
 
-  config.batch_size = 256  # half of config's 512 - due to memory issues
+  config.batch_size = 512
   config.total_steps = None  # set in sweep
 
   config.pp_train = ''  # set in sweep

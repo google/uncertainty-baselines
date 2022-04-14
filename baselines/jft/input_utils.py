@@ -54,7 +54,8 @@ def _get_dataset_builder(
   return dataset_builder
 
 
-def _get_process_split(split, process_index, process_count, drop_remainder):
+def _get_process_split(split: str, process_index: int, process_count: int,
+                       drop_remainder: bool) -> tfds.typing.SplitArg:
   """Returns the split for the given process given a multi-process setup."""
   splits = tfds.even_splits(
       split, n=process_count, drop_remainder=drop_remainder)
@@ -62,8 +63,9 @@ def _get_process_split(split, process_index, process_count, drop_remainder):
   return process_split
 
 
-def _get_process_num_examples(builder, split, process_batch_size, process_index,
-                              process_count, drop_remainder):
+def _get_process_num_examples(builder: tfds.core.DatasetBuilder, split: str,
+                              process_batch_size: int, process_index: int,
+                              process_count: int, drop_remainder: bool) -> int:
   """Returns the number of examples in a given process's split."""
   process_split = _get_process_split(
       split,
@@ -182,6 +184,36 @@ def _preprocess_with_per_example_rng(ds: tf.data.Dataset,
   return ds.enumerate().map(_fn, num_parallel_calls=tf.data.AUTOTUNE)
 
 
+def _build_dataset(dataset: Union[str, tfds.core.DatasetBuilder,
+                                  SubsetDatasetBuilder],
+                   data_dir: Optional[str], split: str, shuffle_files: bool,
+                   file_shuffle_seed: jnp.ndarray, process_index: int,
+                   process_count: int, drop_remainder: bool) -> tf.data.Dataset:
+  """Builds the dataset."""
+  dataset_builder = _get_dataset_builder(dataset, data_dir)
+
+  dataset_options = tf.data.Options()
+  dataset_options.experimental_optimization.map_parallelization = True
+  dataset_options.experimental_threading.private_threadpool_size = 48
+  dataset_options.experimental_threading.max_intra_op_parallelism = 1
+
+  read_config = tfds.ReadConfig(
+      shuffle_seed=file_shuffle_seed, options=dataset_options)
+
+  process_split = _get_process_split(
+      split,
+      process_index=process_index,
+      process_count=process_count,
+      drop_remainder=drop_remainder)
+
+  ds = dataset_builder.as_dataset(
+      split=process_split,
+      shuffle_files=shuffle_files,
+      read_config=read_config,
+      decoders={"image": tfds.decode.SkipDecoding()})
+  return ds
+
+
 def get_data(
     dataset: Union[str, tfds.core.DatasetBuilder, SubsetDatasetBuilder],
     split: str,
@@ -250,33 +282,21 @@ def get_data(
   if process_count is None:
     process_count = jax.process_count()
 
-  process_split = _get_process_split(
-      split,
-      process_index=process_index,
-      process_count=process_count,
-      drop_remainder=drop_remainder)
-
   if rng_available:
     rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.
     rngs = list(jax.random.split(rng, 3))
   else:
     rngs = 3 * [[None, None]]
 
-  dataset_builder = _get_dataset_builder(dataset, data_dir)
-
-  dataset_options = tf.data.Options()
-  dataset_options.experimental_optimization.map_parallelization = True
-  dataset_options.experimental_threading.private_threadpool_size = 48
-  dataset_options.experimental_threading.max_intra_op_parallelism = 1
-
-  read_config = tfds.ReadConfig(
-      shuffle_seed=rngs.pop()[0], options=dataset_options)
-
-  ds = dataset_builder.as_dataset(
-      split=process_split,
+  ds = _build_dataset(
+      dataset,
+      data_dir=data_dir,
+      split=split,
       shuffle_files=shuffle,
-      read_config=read_config,
-      decoders={"image": tfds.decode.SkipDecoding()})
+      file_shuffle_seed=rngs.pop()[0],
+      process_index=process_index,
+      process_count=process_count,
+      drop_remainder=drop_remainder)
 
   if cache == "loaded":
     ds = ds.cache()

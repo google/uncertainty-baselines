@@ -686,20 +686,22 @@ def main(argv):
     """Final Evaluation StepFn to save prediction to directory."""
 
     def step_fn(inputs):
+      ids = inputs['id']
       bert_features, labels, additional_labels = utils.create_feature_and_label(
           inputs)
       logits = model(bert_features, training=False)
       features = inputs['input_ids']
-      return features, logits, labels, additional_labels
+      return features, logits, labels, additional_labels, ids
 
     (per_replica_texts, per_replica_logits, per_replica_labels,
-     per_replica_additional_labels) = (
+     per_replica_additional_labels, per_replica_ids) = (
          strategy.run(step_fn, args=(next(iterator),)))
 
     if strategy.num_replicas_in_sync > 1:
       texts_list = tf.concat(per_replica_texts.values, axis=0)
       logits_list = tf.concat(per_replica_logits.values, axis=0)
       labels_list = tf.concat(per_replica_labels.values, axis=0)
+      ids_list = tf.concat(per_replica_ids.values, axis=0)
       additional_labels_dict = {}
       for additional_label in utils.IDENTITY_LABELS:
         if additional_label in per_replica_additional_labels:
@@ -709,6 +711,7 @@ def main(argv):
       texts_list = per_replica_texts
       logits_list = per_replica_logits
       labels_list = per_replica_labels
+      ids_list = per_replica_ids
       additional_labels_dict = {}
       for additional_label in utils.IDENTITY_LABELS:
         if additional_label in per_replica_additional_labels:
@@ -716,7 +719,7 @@ def main(argv):
               additional_label] = per_replica_additional_labels[
                   additional_label]
 
-    return texts_list, logits_list, labels_list, additional_labels_dict
+    return texts_list, logits_list, labels_list, additional_labels_dict, ids_list
 
   if FLAGS.prediction_mode:
     # Prediction and exit.
@@ -725,6 +728,7 @@ def main(argv):
       message = 'Final eval on dataset {}'.format(dataset_name)
       logging.info(message)
 
+      ids_all = []
       texts_all = []
       logits_all = []
       labels_all = []
@@ -741,9 +745,10 @@ def main(argv):
                   step, steps_per_eval[dataset_name], dataset_name)
               logging.info(message)
 
-            (text_step, logits_step, labels_step,
-             additional_labels_dict_step) = final_eval_step(test_iterator)
+            (text_step, logits_step, labels_step, additional_labels_dict_step,
+             ids_step) = final_eval_step(test_iterator)
 
+            ids_all.append(ids_step)
             texts_all.append(text_step)
             logits_all.append(logits_step)
             labels_all.append(labels_step)
@@ -756,6 +761,7 @@ def main(argv):
         tf.experimental.async_clear_error()
         logging.info('Done with eval on %s', dataset_name)
 
+      ids_all = tf.concat(ids_all, axis=0)
       texts_all = tf.concat(texts_all, axis=0)
       logits_all = tf.concat(logits_all, axis=0)
       labels_all = tf.concat(labels_all, axis=0)
@@ -767,6 +773,9 @@ def main(argv):
                   additional_labels_all_dict[identity_label_name], axis=0))
       additional_labels_all = tf.convert_to_tensor(additional_labels_all)
 
+      utils.save_prediction(
+          ids_all.numpy(),
+          path=os.path.join(FLAGS.output_dir, 'ids_{}'.format(dataset_name)))
       utils.save_prediction(
           texts_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'texts_{}'.format(dataset_name)))

@@ -325,6 +325,7 @@ def main(argv):
 
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
+    ids_list = []
     texts_list = []
     logits_list = []
     labels_list = []
@@ -337,6 +338,7 @@ def main(argv):
         inputs: Dict[str, tf.Tensor] = next(test_iterator)  # pytype: disable=annotation-type-mismatch
       except StopIteration:
         continue
+      ids = inputs['id']
       features, labels, additional_labels = (
           utils.create_feature_and_label(inputs))
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
@@ -362,6 +364,7 @@ def main(argv):
       # normalize it by maximum value so the confidence is between (0, 1).
       calib_confidence = 1. - probs * (1. - probs) / .25
 
+      ids_list.append(ids)
       texts_list.append(inputs['input_ids'])
       logits_list.append(logits)
       labels_list.append(labels)
@@ -474,6 +477,7 @@ def main(argv):
                 policy, fraction, dataset_name)].update_state(
                     labels, auc_probs, custom_binning_score=binning_confidence)
 
+    ids_all = tf.concat(ids_list, axis=0)
     texts_all = tf.concat(texts_list, axis=0)
     logits_all = tf.concat(logits_list, axis=1)
     labels_all = tf.concat(labels_list, axis=0)
@@ -481,6 +485,9 @@ def main(argv):
     if additional_labels_dict:
       additional_labels_all = list(additional_labels_dict.values())
 
+    utils.save_prediction(
+        ids_all.numpy(),
+        path=os.path.join(FLAGS.output_dir, 'ids_{}'.format(dataset_name)))
     utils.save_prediction(
         texts_all.numpy(),
         path=os.path.join(FLAGS.output_dir, 'texts_{}'.format(dataset_name)))

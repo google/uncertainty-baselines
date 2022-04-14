@@ -195,11 +195,11 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   if use_cross_validation:
     train_split_name, eval_split_name = make_cv_train_and_eval_splits(
         num_folds, train_fold_ids)
-    cv_eval_dataset_builder = IND_DATA_CLS(
-        split=eval_split_name, **ds_kwargs)
+    cv_eval_dataset_builder = IND_DATA_CLS(split=eval_split_name, **ds_kwargs)
 
   train_dataset_builder = IND_DATA_CLS(
       split=train_split_name,
+      is_training=True,
       data_dir=maybe_get_dir(in_dataset_dir),
       **ds_kwargs)
 
@@ -340,6 +340,11 @@ def make_cv_train_and_eval_splits(num_folds,
   ]
 
   # Make train and eval fold IDs.
+  if isinstance(train_fold_ids, str):
+    # If train_fold_ids is a comma-separated string of "{ID1},{ID2},{ID3},.."
+    # split it into list.
+    train_fold_ids = train_fold_ids.split(',')
+
   train_fold_ids = [int(fold_id) for fold_id in train_fold_ids]
   eval_fold_ids = list(set(range(num_folds)) - set(train_fold_ids))
   eval_fold_ids.sort()

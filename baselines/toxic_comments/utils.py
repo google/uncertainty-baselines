@@ -31,6 +31,9 @@ from tensorflow.core.protobuf import trackable_object_graph_pb2  # pylint: disab
 from official.nlp import optimization
 from official.nlp.bert import configs
 
+IND_DATA_CLS = ds.WikipediaToxicityDataset
+OOD_DATA_CLS = ds.CivilCommentsDataset
+
 
 # Number of positive examples for each datasets.
 # For `civil_comments`, the positive examples are based on threshold = 0.7.
@@ -171,9 +174,17 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                                          num_folds,
                                          train_fold_ids,
                                          return_train_split_name=False,
+                                         train_on_identity_subgroup_data=False,
+                                         test_on_identity_subgroup_data=False,
+                                         identity_type_dataset_dir=None,
+                                         identity_specific_dataset_dir=None,
                                          **ds_kwargs):
   """Defines train and evaluation datasets."""
   maybe_get_dir = lambda ds_dir: ds_dir if use_local_data else None
+
+  def get_identity_dir(name):
+    parent_dir = identity_type_dataset_dir if name in IDENTITY_TYPES else identity_specific_dataset_dir
+    return os.path.join(parent_dir, name)
 
   if use_cross_validation and use_local_data:
     raise ValueError('Cannot use local data when in cross_validation mode.'
@@ -184,32 +195,58 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   if use_cross_validation:
     train_split_name, eval_split_name = make_cv_train_and_eval_splits(
         num_folds, train_fold_ids)
-    cv_eval_dataset_builder = ds.WikipediaToxicityDataset(
+    cv_eval_dataset_builder = IND_DATA_CLS(
         split=eval_split_name, **ds_kwargs)
 
-  train_dataset_builder = ds.WikipediaToxicityDataset(
+  train_dataset_builder = IND_DATA_CLS(
       split=train_split_name,
       data_dir=maybe_get_dir(in_dataset_dir),
       **ds_kwargs)
 
+  # Optionally, add identity specific examples to training data.
+  if train_on_identity_subgroup_data:
+    identity_train_dataset_builders = {}
+    for dataset_name in IDENTITY_TYPES:
+      identity_data_dir = get_identity_dir(dataset_name)
+      identity_train_dataset_builders[
+          dataset_name] = ds.CivilCommentsIdentitiesDataset(
+              split='train', data_dir=identity_data_dir, **ds_kwargs)
+
   # Create testing data.
-  ind_dataset_builder = ds.WikipediaToxicityDataset(
+  ind_dataset_builder = IND_DATA_CLS(
       split='test', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
-  ood_dataset_builder = ds.CivilCommentsDataset(
+  ood_dataset_builder = OOD_DATA_CLS(
       split='test', data_dir=maybe_get_dir(ood_dataset_dir), **ds_kwargs)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
       split='test', data_dir=maybe_get_dir(identity_dataset_dir), **ds_kwargs)
 
-  # Gather datasets builders into dictionaries.
-  train_dataset_builders = {
-      'wikipedia_toxicity_subtypes': train_dataset_builder
-  }
+  # Optionally, add identity specific examples to testing data.
+  if test_on_identity_subgroup_data:
+    identity_test_dataset_builders = {}
+    for dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
+      # Add to eval only if number of test examples is large enough (>100).
+      if NUM_EXAMPLES[dataset_name]['test'] > 100:
+        identity_data_dir = get_identity_dir(dataset_name)
+        identity_test_dataset_builders[
+            dataset_name] = ds.CivilCommentsIdentitiesDataset(
+                split='test', data_dir=identity_data_dir, **ds_kwargs)
 
+  # Gather training dataset builders into dictionaries.
+  train_dataset_builders = {
+      'train': train_dataset_builder
+  }
+  if train_on_identity_subgroup_data:
+    train_dataset_builders.update(identity_train_dataset_builders)
+
+  # Gather test dataset builders into dictionaries.
   test_dataset_builders = {
       'ind': ind_dataset_builder,
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
+  if test_on_identity_subgroup_data:
+    test_dataset_builders.update(identity_test_dataset_builders)
+
   if use_cross_validation:
     test_dataset_builders['cv_eval'] = cv_eval_dataset_builder
 
@@ -249,12 +286,12 @@ def make_prediction_dataset_builders(add_identity_datasets,
 
     for cv_fold_id, cv_fold_name in zip(train_fold_ids, train_fold_names):
       dataset_builders[
-          f'cv_train_fold_{cv_fold_id}'] = ds.WikipediaToxicityDataset(
+          f'cv_train_fold_{cv_fold_id}'] = IND_DATA_CLS(
               split=cv_fold_name, **ds_kwargs)
 
     for cv_fold_id, cv_fold_name in zip(eval_fold_ids, eval_fold_names):
       dataset_builders[
-          f'cv_eval_fold_{cv_fold_id}'] = ds.WikipediaToxicityDataset(
+          f'cv_eval_fold_{cv_fold_id}'] = IND_DATA_CLS(
               split=cv_fold_name, **ds_kwargs)
 
   return dataset_builders
@@ -271,20 +308,24 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
   for dataset_name, dataset_builder in train_dataset_builders.items():
     train_datasets[dataset_name] = dataset_builder.load(
         batch_size=per_core_batch_size)
-    train_steps_per_epoch[dataset_name] = (
-        dataset_builder.num_examples // batch_size)
+    if dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
+      train_steps_per_epoch[dataset_name] = (
+          NUM_EXAMPLES[dataset_name]['train'] // batch_size)
+    else:
+      train_steps_per_epoch[dataset_name] = (
+          dataset_builder.num_examples // batch_size)
 
   for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.load(
         batch_size=test_batch_size)
-    if dataset_name in ['ind', 'ood', 'ood_identity'] or 'cv_' in dataset_name:
-      # Use official num_examples if using official train / eval splits
-      # or performing cross validation.
-      test_steps_per_eval[dataset_name] = (
-          dataset_builder.num_examples // test_batch_size)
-    else:
+    if dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
       test_steps_per_eval[dataset_name] = (
           NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
+    else:
+      # Use official `num_examples` for non-identity-specific datasets
+      # (i.e., 'ind', 'ood', 'ood_identity' and 'cv_*' data).
+      test_steps_per_eval[dataset_name] = (
+          dataset_builder.num_examples // test_batch_size)
 
   return train_datasets, test_datasets, train_steps_per_epoch, test_steps_per_eval
 

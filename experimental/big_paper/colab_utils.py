@@ -15,11 +15,15 @@
 
 """Utility functions used to process xmanager experiments."""
 
+import enum
 import itertools
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
+import immutabledict
+import numpy as np
 import pandas as pd
+
 
 _HPARAM_PREFIX = 'config.'
 _RANDOM_SEED_COL = _HPARAM_PREFIX + 'seed'
@@ -39,6 +43,37 @@ _UPSTREAM_DATASETS = ('jft/entity:1.0.0', 'imagenet21k')
 # Fewshot datasets of interest.
 _FEWSHOT_DATASETS = ('imagenet', 'pets', 'birds', 'col_hist', 'cifar100',
                      'caltech', 'cars', 'dtd', 'uc_merced')
+
+_NUM_CLASSES_BY_DATASET = immutabledict.immutabledict({
+    'cifar10': 10,
+    'cifar100': 100,
+    'imagenet2012': 1000,
+    'imagenet21k': 21841,
+    'jft/entity:1.0.0': 18291,
+    'retina_country': 2,
+    'retina_severity': 2,
+})
+
+
+class MetricCategory(enum.Enum):
+  PREDICTION = enum.auto()  # Prediction metrics, e.g., prec@1.
+  UNCERTAINTY = enum.auto()  # Uncertainty metrics, e.g., ECE.
+  ADAPTATION = enum.auto()  # Adaptation metrics, e.g., fewshot metrics.
+
+
+def random_seed_col() -> str:
+  """Returns the name of the column containing the experimental random seed."""
+  return _RANDOM_SEED_COL
+
+
+def dataset_col() -> str:
+  """Returns the name of the column containing the training dataset."""
+  return _DATASET_COL
+
+
+def model_col() -> str:
+  """Returns the name of the column containing the model name."""
+  return _MODEL_COL
 
 
 def default_selected_metrics() -> List[str]:
@@ -73,24 +108,47 @@ def default_selected_metrics() -> List[str]:
   return metrics
 
 
+def get_base_metric(metric: str) -> str:
+  """Validates `metric` and returns the base computed metric.
+
+  Args:
+    metric: A metric name that may contain auxiliary information such as
+      the dataset it was computed on. For example: "ood_cifar10_msp_auroc".
+
+  Returns:
+    The base metric; for example, "auroc".
+
+  Raises:
+    ValueError: If metric does not follow the expected syntax.
+  """
+  if metric in _COMPUTE_METRICS:
+    return metric
+  pattern = r'.*[_/](loss|likelihood|ece|auc|auroc|accuracy|prec@1|\d+shot)'
+  match = re.search(pattern, metric)
+  if match is not None:
+    return match.group(1)
+  else:
+    raise ValueError(f'Unrecognized metric {metric}!')
+
+
+def get_metric_category(metric: str) -> MetricCategory:
+  """Returns which category `metric` belongs to for scoring purposes."""
+  base_metric = get_base_metric(metric)
+  if base_metric in ['loss', 'accuracy', 'likelihood']:
+    return MetricCategory.PREDICTION
+  elif base_metric in ['auc', 'auroc', 'ece']:
+    return MetricCategory.UNCERTAINTY
+  elif base_metric == 'prec@1':
+    if 'shot' in metric:
+      return MetricCategory.ADAPTATION
+    else:
+      return MetricCategory.PREDICTION
+  raise ValueError(f'Metric {metric} is not used for scoring.')
+
+
 def _is_higher_better(metric: str) -> bool:
   """Returns True if the metric is to be maximized (e.g., precision)."""
-  return 'prec@' in metric or 'auroc' in metric
-
-
-def random_seed_col() -> str:
-  """Returns the name of the column containing the experimental random seed."""
-  return _RANDOM_SEED_COL
-
-
-def dataset_col() -> str:
-  """Returns the name of the column containing the training dataset."""
-  return _DATASET_COL
-
-
-def model_col() -> str:
-  """Returns the name of the column containing the model name."""
-  return _MODEL_COL
+  return get_base_metric(metric) not in ['loss', 'likelihood', 'ece']
 
 
 def get_unique_value(df: pd.DataFrame, col: str) -> Any:
@@ -118,8 +176,9 @@ def row_wise_unique_non_nan(df: pd.DataFrame) -> pd.Series:
   """Checks there is exactly one non-NA in each row, and returns its value."""
   non_nan_counts = df.notna().sum(axis=1)
   if not (non_nan_counts <= 1).all():
-    raise ValueError(f'Rows {df[non_nan_counts>=1]} have multiple set values!')
-  return df.fillna(axis=1, method='bfill')[df.columns[0]]
+    num_incorrect_rows = int(np.sum(non_nan_counts > 1))
+    raise ValueError(f'{num_incorrect_rows} rows have multiple set values!')
+  return df.fillna(axis=1, method='bfill').iloc[:, 0]
 
 
 def is_hyperparameter(
@@ -280,13 +339,14 @@ def process_tuned_results(
 
   if relevant_metrics is None:
     relevant_metrics = default_selected_metrics()
+  relevant_metrics = list(relevant_metrics)
 
   df = df.groupby([_MODEL_COL,
                    _DATASET_COL])[relevant_metrics].mean().reset_index()
 
   df = df.pivot(index=_MODEL_COL, columns=_DATASET_COL, values=relevant_metrics)
   df = df.dropna(axis=1, how='all')
-  df.columns.set_names(['metric', 'dataset'], inplace=True)
+  df.columns = df.columns.set_names(['metric', 'dataset'])
 
   # Fewshot metrics are only reported on upstream datasets. For each fewshot
   # metric `m`, `df[m]` is a dataframe with two columns: one for each possible
@@ -302,7 +362,7 @@ def process_tuned_results(
     df[f'{k}shot_prec@1',
        f'few-shot {dset}'] = row_wise_unique_non_nan(df[fewshot_metric])
 
-    df.drop(columns=fewshot_metric, level=0, inplace=True)
+    df = df.drop(columns=fewshot_metric, level=0)
 
   # For now, we only care about compute metrics on upstream datasets, and only
   # one of the two upstream compute columns has a non-NaN value for each model.
@@ -310,7 +370,190 @@ def process_tuned_results(
   compute_metrics = [c for c in df.columns.levels[0] if c in _COMPUTE_METRICS]
   for metric in compute_metrics:
     compute_vals = row_wise_unique_non_nan(df[metric][list(_UPSTREAM_DATASETS)])
-    df.drop(metric, axis=1, level=0, inplace=True)
+    df = df.drop(metric, axis=1, level=0)
     df[metric, 'compute'] = compute_vals
 
   return df
+
+
+def _uniform_entropy(num_classes: int) -> float:
+  """Entropy of the uniform categorical distribution over `num_classes`."""
+  # TODO(zmariet, jsnoek): Consider switching to log2.
+  return np.log(num_classes)  # Typically written as -n * 1/n * log(1/n).
+
+
+def _normalize_scores(df: pd.DataFrame) -> pd.DataFrame:
+  """Normalizes metrics to [0, 1] (except for multiclass NLL); higher is better.
+
+  All metrics are normalized to [0, 1] except for NLL on multiclass datasets;
+  those are normalized to [0, max_entropy / U], where U is the entropy of the
+  categorical uniform distribution. U does not bound multiclass entropy;
+  however, the multiclass uniform entropy is too large to be a meaningful bound.
+
+  Args:
+    df: pd.DataFrame indexed by model name; each column corresponds to a metric,
+      and each row corresponds to a model choice.
+
+  Returns:
+    A copy of `df` where all scores have been normalized and higher values
+    indicate better performance.
+  """
+  df = df.copy()
+  for column in df.columns:
+    metric, dataset = column
+    metric_type = get_base_metric(metric)
+    if metric_type == 'ece':
+      df[column] = 1. - df[column]
+
+    elif metric_type in ['loss', 'likelihood']:
+      num_classes = _NUM_CLASSES_BY_DATASET[dataset]
+      df[column] = 1. - df[column] / _uniform_entropy(num_classes)
+  return df
+
+
+def _drop_unused_measurements(
+    df: pd.DataFrame,
+    drop_compute: bool,
+    drop_1shot: bool,
+    drop_incomplete_measurements: bool,
+    datasets: Optional[Iterable[str]] = None) -> pd.DataFrame:
+  """Drops rows and columns that will not be used for analysis.
+
+  Args:
+    df: pd.DataFrame where each row corresponds to a model in `df`, and each
+      column is a 2-level multiindex of stucture `(metric, dataset)`; in typical
+      usage, `df` was obtained by calling `process_tuned_results`.
+    drop_compute: Whether to drop metrics for compute cost.
+    drop_1shot: Whether to include fewshot@1 results, which tend to have high
+      variance.
+    drop_incomplete_measurements: If True, only models which report values
+      across all metrics will be considered for scoring. Otherwise, only models
+      that report no measurements at all are dropped.
+    datasets: Optional datasets of interest. If None, all datasets are kept.
+
+  Returns:
+    A pd.DataFrame indexed by model name with columns corresponding to scores.
+  """
+  df = df.copy()
+
+  if drop_compute:
+    df = df.drop(columns='compute', level=1, errors='ignore')
+  if drop_1shot:
+    df = df.drop(columns='1shot_prec@1', level=0, errors='ignore')
+  if datasets:
+    df = df.drop(
+        columns=[c for c in df.columns.levels[1] if c not in datasets],
+        level=1)
+
+  if drop_incomplete_measurements:
+    df = df.dropna(how='any')
+  else:
+    df = df.dropna(how='all')
+
+  # Level-0 column indices remain even if level-1 has been removed.
+  df.columns = df.columns.remove_unused_levels()
+  return df
+
+
+def compute_score(df: pd.DataFrame,
+                  drop_incomplete_measurements: bool,
+                  baseline_model: Optional[str] = None,
+                  drop_1shot: bool = True,
+                  datasets: Optional[Iterable[str]] = None) -> pd.DataFrame:
+  """Computes aggregate prediction, uncertainty, and adaptation scores.
+
+  Args:
+    df: pd.DataFrame where each row corresponds to a model in `df`, and each
+      column is a 2-level multiindex of stucture `(metric, dataset)`; in typical
+      usage, `df` was obtained by calling `process_tuned_results`.
+    drop_incomplete_measurements: If True, only models which report values
+      across all metrics will be considered for scoring. Otherwise, only models
+      that report no measurements at all are dropped.
+    baseline_model: If provided, scores will be computed relatively to the
+      metrics of this model.
+    drop_1shot: Whether to include fewshot@1 results, which tend to have high
+      variance.
+    datasets: Optional datasets of interest. If None, all datasets are kept.
+
+  Returns:
+    A pd.DataFrame indexed by model name with columns corresponding to scores.
+  """
+  df = _drop_unused_measurements(
+      df,
+      drop_compute=True,
+      drop_1shot=drop_1shot,
+      datasets=datasets,
+      drop_incomplete_measurements=drop_incomplete_measurements)
+  df = _normalize_scores(df)
+
+  if baseline_model:
+    df /= df.loc[baseline_model]
+
+  categories = {category.name: [] for category in MetricCategory}
+  for metric in df.columns.levels[0]:
+    categories[get_metric_category(metric).name].append(metric)
+
+  scores = df.mean(axis=1, skipna=False).to_frame(name='score')
+  for category, metrics in categories.items():
+    # Don't compute scores for methods that don't report all metrics in the
+    # current category, since this would make metrics such as ranking
+    # meaningless.
+    category_df = df[metrics].dropna(how='any')
+    if category_df.empty:
+      continue
+
+    # Average score per category.
+    scores[f'score_{category.lower()}'] = category_df.mean(axis=1)
+
+    # Number of times each model was the best per category.
+    best_per_task = category_df.idxmax()
+    col_name = f'#_best_{category.lower()}'
+    scores[col_name] = best_per_task.groupby(best_per_task).count()
+    # Fill in column with 0s for tasks that are never the best.
+    scores[col_name] = scores[col_name].fillna(
+        {model: 0 for model in category_df.index})
+
+    # Average rank per category.
+    scores[f'mean_rank_{category.lower()}'] = category_df.rank(
+        ascending=False).mean(axis=1)
+
+  return scores.sort_values(by='score', ascending=False)
+
+
+def rank_models(df: pd.DataFrame,
+                drop_incomplete_measurements: bool,
+                drop_1shot: bool = True,
+                datasets: Optional[Iterable[str]] = None) -> pd.DataFrame:
+  """Ranks models across all metrics of interest; lower rank is better."""
+  df = _drop_unused_measurements(
+      df,
+      drop_compute=True,
+      drop_1shot=drop_1shot,
+      drop_incomplete_measurements=drop_incomplete_measurements,
+      datasets=datasets)
+  df = _normalize_scores(df)
+  return df.rank(ascending=False)
+
+
+def rank_models_by_category(
+    df: pd.DataFrame,
+    drop_incomplete_measurements: bool,
+    drop_1shot: bool = True,
+    datasets: Optional[Iterable[str]] = None) -> Dict[str, pd.DataFrame]:
+  """Returns a dictionary mapping MetricCategory to per-metric model ranking."""
+  df = _drop_unused_measurements(
+      df,
+      drop_compute=True,
+      drop_1shot=drop_1shot,
+      datasets=datasets,
+      drop_incomplete_measurements=drop_incomplete_measurements)
+  df = _normalize_scores(df)
+
+  categories = {category.name: [] for category in MetricCategory}
+  for metric in df.columns.levels[0]:
+    categories[get_metric_category(metric).name].append(metric)
+
+  return {
+      category.lower(): df[metrics].rank(ascending=False)
+      for category, metrics in categories.items()
+  }

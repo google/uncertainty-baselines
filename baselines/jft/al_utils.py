@@ -104,14 +104,16 @@ class SubsetDatasetBuilder(DatasetBuilder):
                  shuffle_files: bool = False,
                  read_config: Optional[tfds.ReadConfig] = None,
                  **kwargs) -> tf.data.Dataset:
-    # We don't allow an empty split by virtue of the parameter declaration,
-    # so we always have a split.
-    read_config = dataclasses.replace(
-        kwargs.pop('read_config', tfds.ReadConfig()))
+    """Constructs a dataset containing a subset of the original dataset."""
     # Add the 'tfds_id' key to the samples which we can then parse.
     # From: https://www.tensorflow.org/datasets/api_docs/python/tfds/ReadConfig
-    read_config.add_tfds_id = True
+    if read_config is None:
+      logging.info('Using an empty ReadConfig!')
+      read_config = tfds.ReadConfig()
+    read_config = dataclasses.replace(read_config, add_tfds_id=True)
 
+    # Since we are selecting a subset of the dataset based on example ids,
+    # shuffling the files isn't necessary.
     dataset = self.base_dataset_builder.as_dataset(
         split=split, shuffle_files=False, read_config=read_config, **kwargs)
 
@@ -128,26 +130,4 @@ class SubsetDatasetBuilder(DatasetBuilder):
             splitwise_id=True),
         output_signature=element_spec,
     )
-
-    # This is a bit more complex: potentially cache before or after calling
-    # .shuffle. BUT don't cache for the pool set as it will be much larger than
-    # the training set.
-    reshuffle_each_iteration = shuffle_files and read_config.shuffle_reshuffle_each_iteration
-    cache_data = self.subset_ids is not None
-
-    if reshuffle_each_iteration and cache_data:
-      dataset = dataset.cache()
-    if shuffle_files:
-      if self.subset_ids is not None:
-        buffer_size = len(self.subset_ids)
-      else:
-        # TODO(andreas): what buffer size do we want actually for shuffling?
-        #   10k seems like a safe thing.
-        buffer_size = 10000
-      dataset = dataset.shuffle(
-          buffer_size=buffer_size,
-          seed=read_config.shuffle_seed,
-          reshuffle_each_iteration=read_config.shuffle_reshuffle_each_iteration)
-    if not reshuffle_each_iteration and cache_data:
-      dataset = dataset.cache()
     return dataset

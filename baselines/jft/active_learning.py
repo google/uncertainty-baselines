@@ -35,7 +35,6 @@ Use `gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/1/checkpoi
 
 from functools import partial  # pylint: disable=g-importing-member standard use
 import logging
-import math
 import multiprocessing
 
 from absl import app
@@ -652,16 +651,20 @@ def main(config, output_dir):
   local_batch_size = batch_size // jax.process_count()
   local_batch_size_eval = batch_size_eval // jax.process_count()
 
+  pp_eval = preprocess_spec.parse(
+      spec=config.pp_eval, available_ops=preprocess_utils.all_ops())
+
   val_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.val_split,
       rng=None,
       process_batch_size=local_batch_size_eval,
-      preprocess_fn=preprocess_spec.parse(
-          spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
+      preprocess_fn=pp_eval,
+      num_epochs=1,
+      repeat_after_batching=True,
       shuffle=False,
       prefetch_size=config.get('prefetch_to_host', 2),
-      num_epochs=1,  # Only repeat once.
+      drop_remainder=False,
   )
 
   test_ds = input_utils.get_data(
@@ -669,11 +672,12 @@ def main(config, output_dir):
       split=config.test_split,
       rng=None,
       process_batch_size=local_batch_size_eval,
-      preprocess_fn=preprocess_spec.parse(
-          spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
+      preprocess_fn=pp_eval,
+      num_epochs=1,
+      repeat_after_batching=True,
       shuffle=False,
       prefetch_size=config.get('prefetch_to_host', 2),
-      num_epochs=1,  # Only repeat once.
+      drop_remainder=False,
   )
 
   # Init model
@@ -753,13 +757,12 @@ def main(config, output_dir):
       split=config.train_split,
       rng=pool_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
-          spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
+      preprocess_fn=pp_eval,
+      num_epochs=1,
+      repeat_after_batching=True,
       shuffle=False,
-      drop_remainder=False,
       prefetch_size=config.get('prefetch_to_host', 2),
-      num_epochs=1,  # Don't repeat
-  )
+      drop_remainder=False)
 
   # Potentially acquire an initial training set.
   initial_training_set_size = config.get('initial_training_set_size', 10)
@@ -809,11 +812,6 @@ def main(config, output_dir):
 
     # Only fine-tune if there is anything to fine-tune with.
     if current_train_ds_length > 0:
-      # Repeat dataset to have oversampled epochs and bootstrap more batches
-      number_of_batches = current_train_ds_length / config.batch_size
-      num_repeats = math.ceil(config.total_steps / number_of_batches)
-      write_note(f'Repeating dataset {num_repeats} times')
-
       # We repeat the dataset several times, such that we can obtain batches
       # of size batch_size, even at start of training. These batches will be
       # effectively 'bootstrap' sampled, meaning they are sampled with
@@ -825,11 +823,9 @@ def main(config, output_dir):
           process_batch_size=local_batch_size,
           preprocess_fn=preprocess_spec.parse(
               spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
+          cache='loaded',
           shuffle_buffer_size=config.shuffle_buffer_size,
           prefetch_size=config.get('prefetch_to_host', 2),
-          # TODO(joost,andreas): double check if below leads to bootstrap
-          # sampling.
-          num_epochs=num_repeats,
       )
 
       # We use this dataset to evaluate how well we perform on the training set,
@@ -841,12 +837,13 @@ def main(config, output_dir):
           split=config.train_split,
           rng=train_ds_rng,
           process_batch_size=local_batch_size,
-          preprocess_fn=preprocess_spec.parse(
-              spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
-          shuffle=False,
-          drop_remainder=False,
-          prefetch_size=config.get('prefetch_to_host', 2),
+          preprocess_fn=pp_eval,
+          cache='loaded',
           num_epochs=1,
+          repeat_after_batching=True,
+          shuffle=False,
+          prefetch_size=config.get('prefetch_to_host', 2),
+          drop_remainder=False,
       )
 
       # NOTE: warmup and decay are not a good fit for the small training set

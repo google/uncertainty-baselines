@@ -220,7 +220,7 @@ def get_data(
     rng: Optional[jnp.ndarray],
     process_batch_size: int,
     preprocess_fn: Optional[Callable[[Features], Features]],
-    cache: bool = False,
+    cache: Union[str, bool] = False,
     num_epochs: Optional[int] = None,
     repeat_after_batching: bool = False,
     shuffle: bool = True,

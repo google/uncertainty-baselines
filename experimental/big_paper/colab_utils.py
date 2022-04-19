@@ -18,7 +18,7 @@
 import enum
 import itertools
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import immutabledict
 import numpy as np
@@ -74,6 +74,11 @@ def dataset_col() -> str:
 def model_col() -> str:
   """Returns the name of the column containing the model name."""
   return _MODEL_COL
+
+
+def default_fewshot_datasets() -> Tuple[str, ...]:
+  """Returns the default fewshot datasets used for reporting results."""
+  return _FEWSHOT_DATASETS
 
 
 def default_selected_metrics() -> List[str]:

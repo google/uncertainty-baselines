@@ -247,7 +247,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
   def _add_enumerate_id(self, enumerate_key: str) -> _EnumeratedPreProcessFn:
     def _add_example_id(enumerate_id, example):
       """Turn an id added by ds.enumerate() as a field in the example dict."""
-      if isinstance(example, tf.Tensor):
+      if isinstance(example, (tf.Tensor, tuple)):
         example = {'features': example}
       example[enumerate_key] = enumerate_id
       return example

@@ -106,39 +106,60 @@ def _get_unmasked_dialog_turn_ids(labels: tf.Tensor, dialog_turn_ids: tf.Tensor,
         'Only support label sample mode: %s, %s. Found %s.' %
         (_LABEL_RATIO_MODE, _LABEL_SHOT_MODE, label_sample_mode))
 
+  rng = np.random.default_rng(seed=seed)
   labels = labels.numpy().flatten()
+  dialog_turn_ids = dialog_turn_ids.numpy().flatten()
+
   if label_sample_mode == _LABEL_RATIO_MODE:
-    # Compute number of labeled examples to be sampled in each class.
+    # In ratio mode, we sample by the probabilities from ratios of examples to
+    # be sampled per class.
+
     label_counts = _label_count_map(labels)
     label_sample_map = {
-        label: round(label_sample_map[label] * label_counts.get(label, 0))
-        for label in label_sample_map
+        label: ratio * float(label_counts[label])
+        for label, ratio in label_sample_map.items()
     }
+
+    # Compute the total number of samples and the sampling probabilities.
+    total_samples = round(sum(label_sample_map.values()))
+    label_sample_prob_map = {
+        label: num_samples / (total_samples * float(label_counts[label]))
+        for label, num_samples in label_sample_map.items()
+    }
+
+    sample_prob = np.zeros_like(labels, dtype=np.float32)
+    for label, prob in label_sample_prob_map.items():
+      sample_prob += prob * (labels == label).astype(np.float32)
+
+    sample_dialog_turn_ids = rng.choice(
+        dialog_turn_ids, total_samples, replace=False, p=sample_prob)
   else:
+    # In shot mode, we sample separately for each class to ensure there are
+    # exact number of examples to be sampled for each class.
     label_sample_map = {
         label: int(num_samples)
         for label, num_samples in label_sample_map.items()
     }
 
-  # Summarize dialog turn ids for each class.
-  label_dialog_turn_id_map = collections.defaultdict(list)
-  for label, dialog_turn_id in zip(labels, dialog_turn_ids.numpy().flatten()):
-    label_dialog_turn_id_map[label].append(dialog_turn_id)
+    # Summarize dialog turn ids for each class.
+    label_dialog_turn_id_map = collections.defaultdict(list)
+    for label, dialog_turn_id in zip(labels, dialog_turn_ids):
+      label_dialog_turn_id_map[label].append(dialog_turn_id)
 
-  # Sample given number of labeled dialog turns.
-  dialog_turn_ids = []
-  rng = np.random.default_rng(seed=seed)
-  for label in sorted(label_sample_map):
-    if label_dialog_turn_id_map[label]:
-      num_samples = min(
-          len(label_dialog_turn_id_map[label]), label_sample_map[label])
-      dialog_turn_ids.append(
-          rng.choice(
-              label_dialog_turn_id_map[label], num_samples, replace=False))
+    # Sample given number of labeled dialog turns.
+    sample_dialog_turn_ids = []
+    for label in sorted(label_sample_map):
+      if label_dialog_turn_id_map[label]:
+        num_samples = min(
+            len(label_dialog_turn_id_map[label]), label_sample_map[label])
+        sample_dialog_turn_ids.append(
+            rng.choice(
+                label_dialog_turn_id_map[label], num_samples, replace=False))
 
-  if dialog_turn_ids:
-    dialog_turn_ids = np.concatenate(dialog_turn_ids)
-  return tf.constant(dialog_turn_ids, dtype=tf.int32)
+    if sample_dialog_turn_ids:
+      sample_dialog_turn_ids = np.concatenate(sample_dialog_turn_ids)
+
+  return tf.constant(sample_dialog_turn_ids, dtype=tf.int32)
 
 
 def _should_generate_labeled_dialog_turn_ids(with_label: bool,
@@ -415,7 +436,8 @@ def _json_dump(config: config_dict.ConfigDict, filename: str):
 
 def _build_data_processor(
     config: config_dict.ConfigDict,
-    labeled_dialog_turn_ids: tf.Tensor) -> preprocessor.DataPreprocessor:
+    labeled_dialog_turn_ids: Optional[tf.Tensor] = None
+) -> preprocessor.DataPreprocessor:
   """Creates data processor for the dataset."""
 
   def _get_utterance_feature_fn(embedding_type: str):
@@ -915,8 +937,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       checkpoint_name = checkpoint.save(os.path.join(output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
       if fixed_train_epoch:
-        _save_model_results(train_model_outputs, output_dir, _TRAIN)
-        _save_model_results(test_model_outputs, output_dir, _TEST)
+        if train_model_outputs:
+          _save_model_results(train_model_outputs, output_dir, _TRAIN)
+        if test_model_outputs:
+          _save_model_results(test_model_outputs, output_dir, _TEST)
 
 
   return False

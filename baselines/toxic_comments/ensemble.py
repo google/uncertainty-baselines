@@ -327,6 +327,7 @@ def main(argv):
     test_iterator = iter(test_dataset)
     ids_list = []
     texts_list = []
+    text_ids_list = []
     logits_list = []
     labels_list = []
     # Use dict to collect additional labels specified by additional label names.
@@ -339,6 +340,7 @@ def main(argv):
       except StopIteration:
         continue
       ids = inputs['id']
+      texts = inputs['features']
       features, labels, additional_labels = (
           utils.create_feature_and_label(inputs))
       logits = logits_dataset[:, (step * batch_size):((step + 1) * batch_size)]
@@ -365,7 +367,8 @@ def main(argv):
       calib_confidence = 1. - probs * (1. - probs) / .25
 
       ids_list.append(ids)
-      texts_list.append(inputs['input_ids'])
+      texts_list.append(texts)
+      text_ids_list.append(inputs['input_ids'])
       logits_list.append(logits)
       labels_list.append(labels)
       if 'identity' in dataset_name:
@@ -479,6 +482,7 @@ def main(argv):
 
     ids_all = tf.concat(ids_list, axis=0)
     texts_all = tf.concat(texts_list, axis=0)
+    text_ids_all = tf.concat(text_ids_list, axis=0)
     logits_all = tf.concat(logits_list, axis=1)
     labels_all = tf.concat(labels_list, axis=0)
     additional_labels_all = []
@@ -491,6 +495,9 @@ def main(argv):
     utils.save_prediction(
         texts_all.numpy(),
         path=os.path.join(FLAGS.output_dir, 'texts_{}'.format(dataset_name)))
+    utils.save_prediction(
+        text_ids_all.numpy(),
+        path=os.path.join(FLAGS.output_dir, 'text_ids_{}'.format(dataset_name)))
     utils.save_prediction(
         labels_all.numpy(),
         path=os.path.join(FLAGS.output_dir, 'labels_{}'.format(dataset_name)))

@@ -126,43 +126,48 @@ def get_sweep(hyper):
     ]
 
   data_sizes = [
-      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(100, 200, 10)]
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(20, 20, 1)]
   ]
   cifar10_sweep = hyper.product([
       hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.005]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
       hyper.chainit(data_sizes),
   ])
   data_sizes = [
-      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(1000, 2000, 100)]
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(200, 200, 1)]
   ]
+
   cifar100_sweep = hyper.product([
       hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.005]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
       hyper.chainit(data_sizes),
   ])
-
-  # Temporarity disable imagenet and places due to OOM.
-  # pylint: disable=unused-variable
+  data_sizes = [
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(2000, 2000, 1)]
+  ]
   imagenet_sweep = hyper.product([
       hyper.product(sweep_utils.imagenet(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.06, 0.03]),
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+      hyper.chainit(data_sizes),
   ])
-
+  data_sizes = [
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(730, 730, 1)]
+  ]
   places365_sweep = hyper.product([
       hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.06, 0.03]),
+      hyper.sweep('config.lr.base', [0.09, 0.06, 0.03, 0.01, 0.003]),
+      hyper.chainit(data_sizes),
   ])
-  # pylint: enable=unused-variable
 
   return hyper.product([
       hyper.sweep('config.acquisition_method', acquisition_methods),
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
-          # imagenet_sweep,
-          # places365_sweep,
+          imagenet_sweep,
+          places365_sweep,
       ]),
+      # use mean of performance for choosing hyperparameters.
       hyper.product([
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
           hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),

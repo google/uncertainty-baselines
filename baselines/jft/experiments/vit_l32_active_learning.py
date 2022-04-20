@@ -112,7 +112,7 @@ def get_sweep(hyper):
   # Adapted the sweep over checkpoints from vit_l32_finetune.py.
 
   sweep_lr = True  # whether to sweep over learning rates
-  acquisition_methods = ['uniform']  # ['uniform', 'entropy', 'margin']
+  acquisition_methods = ['uniform', 'entropy', 'margin']
   #. ['uniform', 'entropy', 'margin', 'density']
   def sweep_checkpoints(use_jft, sweep_lr=sweep_lr):
     """whether to use JFT-300M or ImageNet-21K settings."""
@@ -167,40 +167,48 @@ def get_sweep(hyper):
 
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(100, 200, 10)]
+          for a, b, c in [(20, 20, 1)]
       ]
       cifar10_sweep = hyper.product([
           hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
           hyper.sweep('config.lr.base',
-                      [0.03, 0.01, 0.005]),
+                      [0.03, 0.01, 0.003, 0.001]),
           hyper.chainit(data_sizes),
       ])
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(1000, 2000, 100)]
+          for a, b, c in [(200, 200, 1)]
       ]
       cifar100_sweep = hyper.product([
           hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
           hyper.sweep('config.lr.base',
-                      [0.03, 0.01, 0.005]),
+                      [0.03, 0.01, 0.003, 0.001]),
           hyper.chainit(data_sizes),
       ])
-
+      data_sizes = [
+          hyper.product(set_data_sizes(a, b, c))
+          for a, b, c in [(2000, 2000, 1)]
+      ]
       imagenet_sweep = hyper.product([
           hyper.product(sweep_utils.imagenet(hyper)),
           hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+          hyper.chainit(data_sizes),
       ])
-
+      data_sizes = [
+          hyper.product(set_data_sizes(a, b, c))
+          for a, b, c in [(730, 730, 1)]
+      ]
       places365_sweep = hyper.product([
           hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
-          hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+          hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003, 0.001]),
+          hyper.chainit(data_sizes),
       ])
     return hyper.product([
         hyper.chainit([
             cifar10_sweep,
             cifar100_sweep,
-            # places365_sweep,
-            # imagenet_sweep,
+            places365_sweep,
+            imagenet_sweep,
         ]),
         hyper.sweep('config.model_init', checkpoints),
         hyper.sweep('config.acquisition_method', acquisition_methods),

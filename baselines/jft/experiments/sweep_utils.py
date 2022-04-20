@@ -229,7 +229,7 @@ def imagenet_fewshot(hyper,
   return fixed(hyper, config)
 
 
-def places365_small(hyper, size=384, steps=1000):
+def places365_small(hyper, size=384, steps=10_000):
   """A fixed sweep for places365_small specific settings."""
   n_cls = 365
 
@@ -240,7 +240,6 @@ def places365_small(hyper, size=384, steps=1000):
   config.test_split = 'validation'
   config.num_classes = n_cls
 
-  config.batch_size = 256  # half of config's 512 - due to memory issues
   config.total_steps = steps
 
   pp_common = '|value_range(-1, 1)'

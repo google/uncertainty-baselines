@@ -802,12 +802,9 @@ def main(config, output_dir):
 
   measurements = {}
   accumulated_steps = 0
-  while True:
-    current_train_ds_length = len(train_subset_data_builder.subset_ids)
-    write_note(f'Training set size: {current_train_ds_length}')
-    if current_train_ds_length >= config.get('max_training_set_size', 150):
-      break
-
+  current_train_ds_length = len(train_subset_data_builder.subset_ids)
+  write_note(f'Initial training set size: {current_train_ds_length}')
+  while current_train_ds_length <= config.get('max_training_set_size'):
     current_opt_repl = flax_utils.replicate(opt_cpu)
 
     # Only fine-tune if there is anything to fine-tune with.
@@ -883,6 +880,9 @@ def main(config, output_dir):
     write_note(f'Accuracy at {current_train_ds_length}: {test_accuracy}')
 
     test_accuracies.append(test_accuracy)
+    training_subset_ids = train_subset_data_builder.subset_ids
+
+    # Start picking the next training points.
     training_sizes.append(current_train_ds_length)
 
     acquisition_batch_ids, rng_loop = acquire_points(
@@ -892,6 +892,13 @@ def main(config, output_dir):
 
     measurements.update({'test_accuracy': test_accuracy})
     writer.write_scalars(current_train_ds_length, measurements)
+    write_note(f'Training set ids at train set size {current_train_ds_length}:'
+               f'{training_subset_ids}')
+    write_note(f'Selected ids at train set size {current_train_ds_length}:'
+               f'{acquisition_batch_ids}')
+    current_train_ds_length = len(train_subset_data_builder.subset_ids)
+    write_note(
+        f'Training set size after acquisition: {current_train_ds_length}')
 
   write_note(f'Final acquired training ids: '
              f'{train_subset_data_builder.subset_ids}'

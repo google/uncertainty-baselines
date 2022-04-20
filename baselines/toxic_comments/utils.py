@@ -166,6 +166,22 @@ def _check_dataset_dir_for_identity_prediction(flags_dict):
       flags_dict['identity_type_dataset_dir'] is not None)
 
 
+def get_num_examples(dataset_builder, dataset_name, split_name):
+  """Extracts number of examples in a dataset."""
+  custom_num_examples = dataset_builder._dataset_builder.info.metadata.get(  # pylint:disable=protected-access
+      'num_examples')
+
+  if dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
+    return NUM_EXAMPLES[dataset_name][split_name]
+  elif custom_num_examples and custom_num_examples.get(split_name, False):
+    # Return custom number of examples if it exists.
+    return custom_num_examples[split_name]
+  else:
+    # Use official `num_examples` for non-identity-specific and non-custom
+    # TFDS datasets (i.e., 'ind', 'ood', 'ood_identity' and 'cv_*' data).
+    return dataset_builder.num_examples
+
+
 def make_train_and_test_dataset_builders(in_dataset_dir,
                                          ood_dataset_dir,
                                          identity_dataset_dir,
@@ -308,24 +324,16 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
   for dataset_name, dataset_builder in train_dataset_builders.items():
     train_datasets[dataset_name] = dataset_builder.load(
         batch_size=per_core_batch_size)
-    if dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
-      train_steps_per_epoch[dataset_name] = (
-          NUM_EXAMPLES[dataset_name]['train'] // batch_size)
-    else:
-      train_steps_per_epoch[dataset_name] = (
-          dataset_builder.num_examples // batch_size)
+    train_num_examples = get_num_examples(
+        dataset_builder, dataset_name, split_name='train')
+    train_steps_per_epoch[dataset_name] = train_num_examples // batch_size
 
   for dataset_name, dataset_builder in test_dataset_builders.items():
     test_datasets[dataset_name] = dataset_builder.load(
         batch_size=test_batch_size)
-    if dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
-      test_steps_per_eval[dataset_name] = (
-          NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
-    else:
-      # Use official `num_examples` for non-identity-specific datasets
-      # (i.e., 'ind', 'ood', 'ood_identity' and 'cv_*' data).
-      test_steps_per_eval[dataset_name] = (
-          dataset_builder.num_examples // test_batch_size)
+    test_num_examples = get_num_examples(
+        dataset_builder, dataset_name, split_name='test')
+    test_steps_per_eval[dataset_name] = test_num_examples // test_batch_size
 
   return train_datasets, test_datasets, train_steps_per_epoch, test_steps_per_eval
 

@@ -44,8 +44,7 @@ class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
   def testDatasetSize(self, split, dataset_class):
     batch_size = 9 if split == tfds.Split.TRAIN else 5
     dataset_builder = dataset_class(
-        split=split,
-        shuffle_buffer_size=20)
+        split=split, dataset_type='tfds', shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
 
@@ -71,6 +70,7 @@ class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
     batch_size = 9 if split == tfds.Split.TRAIN else 5
     dataset_builder = dataset_class(
         split=split,
+        dataset_type='tfds',
         shuffle_buffer_size=20,
         tf_hub_preprocessor_url=HUB_PREPROCESS_URL)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
@@ -93,6 +93,7 @@ class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
     batch_size = 9
     dataset_builder = dataset_class(
         split=tfds.Split.TRAIN,
+        dataset_type='tfds',
         shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))

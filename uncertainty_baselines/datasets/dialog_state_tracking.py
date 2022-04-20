@@ -71,14 +71,15 @@ FILENAME_TOKENIZER_DOMAIN_LABEL = 'id_to_vocab_domain_label.json'
 FILENAME_TRAIN = 'train.tfrecord'
 FILENAME_TEST = 'test.tfrecord'
 
-MAX_UTT_LEN = dict(simdial=40, multiwoz_synth=42, sgd_synth=76)
-MAX_DIALOG_LEN = dict(simdial=13, multiwoz_synth=7, sgd_synth=24)
+MAX_UTT_LEN = dict(simdial=40, multiwoz_synth=42, sgd_synth=76, sgd=79)
+MAX_DIALOG_LEN = dict(simdial=13, multiwoz_synth=7, sgd_synth=24, sgd=25)
 
-VOCAB_SIZE_UTT = dict(simdial=474, multiwoz_synth=1506, sgd_synth=6709)
-VOCAB_SIZE_LABEL = dict(simdial=52, multiwoz_synth=10, sgd_synth=39)
+VOCAB_SIZE_UTT = dict(
+    simdial=474, multiwoz_synth=1506, sgd_synth=6709, sgd=11468)
+VOCAB_SIZE_LABEL = dict(simdial=52, multiwoz_synth=10, sgd_synth=39, sgd=75)
 
-NUM_TRAIN = dict(simdial=6400, multiwoz_synth=7500, sgd_synth=8100)
-NUM_TEST = dict(simdial=1600, multiwoz_synth=1500, sgd_synth=2700)
+NUM_TRAIN = dict(simdial=6400, multiwoz_synth=7500, sgd_synth=8100, sgd=8151)
+NUM_TEST = dict(simdial=1600, multiwoz_synth=1500, sgd_synth=2700, sgd=3945)
 
 # Use test as stand-in for val. In practice we never use this dataset.
 NUM_VAL = NUM_TEST
@@ -144,13 +145,33 @@ _CITATION = {
   journal={arXiv preprint arXiv:1805.04803},
   year={2018}
 }
-"""
+""",
+    'sgd':
+        """
+@inproceedings{rastogi2020towards,
+  title={Towards scalable multi-domain conversational agents: The schema-guided dialogue dataset},
+  author={Rastogi, Abhinav and Zang, Xiaoxue and Sunkara, Srinivas and Gupta, Raghav and Khaitan, Pranav},
+  booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
+  volume={34},
+  number={05},
+  pages={8689--8696},
+  year={2020}
 }
-_HOMEPAGE = {'simdial': 'https://github.com/snakeztc/SimDial'}
+""",
+}
+_HOMEPAGE = {
+    'simdial':
+        'https://github.com/snakeztc/SimDial',
+    'sgd':
+        'https://github.com/google-research-datasets/dstc8-schema-guided-dialogue'
+}
 _DESCRIPTION = {
     'simdial':
         ('Simulated goal-oriented conversations [1] generated for information '
-         'requests in four domains: bus, restaurant, weather, and movie.')
+         'requests in four domains: bus, restaurant, weather, and movie.'),
+    'sgd': ('Schema-Guided Dialogues consisting of over 20k annotated '
+            'multi-domain, task-oriented conversations between a human and a '
+            'virtual assistant'),
 }
 
 
@@ -403,3 +424,10 @@ class SGDSynthDataset(_DialogStateTrackingDataset):
 
   def __init__(self, data_dir=None, **kwargs):
     super().__init__(name='sgd_synth', data_dir=data_dir, **kwargs)
+
+
+class SGDDataset(_DialogStateTrackingDataset):
+  """SGD dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='sgd', data_dir=data_dir, **kwargs)

@@ -87,6 +87,7 @@ def main(argv):
        num_folds=FLAGS.num_folds,
        train_fold_ids=FLAGS.train_fold_ids,
        return_train_split_name=True,
+       cv_split_name=FLAGS.train_cv_split_name,
        train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
        test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
        identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
@@ -100,6 +101,7 @@ def main(argv):
         use_cross_validation=FLAGS.use_cross_validation,
         num_folds=FLAGS.num_folds,
         train_fold_ids=FLAGS.train_fold_ids,
+        cv_split_name=FLAGS.test_cv_split_name,
         **dataset_kwargs)
 
     # Removes `cv_eval` since it overlaps with the `cv_eval_fold_*` datasets.

@@ -81,6 +81,12 @@ flags.DEFINE_list(
     'train_fold_ids', ['1', '2', '3', '4', '5'],
     'The ids of folds to use for training, the rest of the folds will be used'
     ' for cross-validation eval. Ignored if use_cross_validation is False.')
+flags.DEFINE_string(
+    'train_cv_split_name', 'train',
+    'The name of the split to create cross-validation training data from.')
+flags.DEFINE_string(
+    'test_cv_split_name', 'train',
+    'The name of the split to create cross-validation testing data from.')
 
 flags.DEFINE_bool(
     'train_on_identity_subgroup_data', False,
@@ -277,6 +283,7 @@ def main(argv):
        num_folds=FLAGS.num_folds,
        train_fold_ids=FLAGS.train_fold_ids,
        return_train_split_name=True,
+       cv_split_name=FLAGS.train_cv_split_name,
        **dataset_kwargs)
 
   if FLAGS.prediction_mode:
@@ -286,6 +293,7 @@ def main(argv):
         use_cross_validation=FLAGS.use_cross_validation,
         num_folds=FLAGS.num_folds,
         train_fold_ids=FLAGS.train_fold_ids,
+        cv_split_name=FLAGS.test_cv_split_name,
         **dataset_kwargs)
 
     # Removes `cv_eval` since it overlaps with the `cv_eval_fold_*` datasets.

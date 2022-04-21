@@ -192,6 +192,7 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                                          num_folds,
                                          train_fold_ids,
                                          return_train_split_name=False,
+                                         cv_split_name='train',
                                          train_on_identity_subgroup_data=False,
                                          test_on_identity_subgroup_data=False,
                                          identity_type_dataset_dir=None,
@@ -213,7 +214,7 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   train_split_name = 'train'
   if use_cross_validation:
     train_split_name, eval_split_name = make_cv_train_and_eval_splits(
-        num_folds, train_fold_ids)
+        num_folds, train_fold_ids, split_name=cv_split_name)
     cv_eval_dataset_builder = IND_DATA_CLS(split=eval_split_name, **ds_kwargs)
 
   train_dataset_builder = IND_DATA_CLS(
@@ -282,8 +283,12 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
 
 
 def make_prediction_dataset_builders(add_identity_datasets,
-                                     use_cross_validation, identity_dataset_dir,
-                                     num_folds, train_fold_ids, **ds_kwargs):
+                                     use_cross_validation,
+                                     identity_dataset_dir,
+                                     num_folds,
+                                     train_fold_ids,
+                                     cv_split_name='train',
+                                     **ds_kwargs):
   """Adds additional test datasets for prediction mode."""
   get_identity_dir = lambda name: os.path.join(identity_dataset_dir, name)
 
@@ -304,6 +309,7 @@ def make_prediction_dataset_builders(add_identity_datasets,
     _, _, train_fold_names, eval_fold_names, eval_fold_ids = make_cv_train_and_eval_splits(  # pylint: disable=unbalanced-tuple-unpacking
         num_folds,
         train_fold_ids,
+        split_name=cv_split_name,
         return_individual_folds=True)
 
     for cv_fold_id, cv_fold_name in zip(train_fold_ids, train_fold_names):
@@ -344,11 +350,13 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
 
 def make_cv_train_and_eval_splits(num_folds,
                                   train_fold_ids,
+                                  split_name='train',
                                   return_individual_folds=False):
   """Defines the train and evaluation splits for cross validation."""
   fold_ranges = np.linspace(0, 100, num_folds + 1, dtype=int)
   all_splits = [
-      f'train[{fold_ranges[k]}%:{fold_ranges[k+1]}%]' for k in range(num_folds)
+      f'{split_name}[{fold_ranges[k]}%:{fold_ranges[k+1]}%]'
+      for k in range(num_folds)
   ]
 
   # Make train and eval fold IDs.

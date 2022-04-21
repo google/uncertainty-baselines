@@ -167,7 +167,7 @@ def get_sweep(hyper):
 
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(20, 200, 5)]
+          for a, b, c in [(0, 200, 5)]
       ]
       cifar10_sweep = hyper.product([
           hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
@@ -177,7 +177,7 @@ def get_sweep(hyper):
       ])
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(200, 2000, 50)]
+          for a, b, c in [(0, 2000, 50)]
       ]
       cifar100_sweep = hyper.product([
           hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
@@ -187,7 +187,7 @@ def get_sweep(hyper):
       ])
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(2000, 20000, 500)]
+          for a, b, c in [(0, 20000, 500)]
       ]
       imagenet_sweep = hyper.product([
           hyper.product(sweep_utils.imagenet(hyper, steps=5000)),
@@ -196,7 +196,7 @@ def get_sweep(hyper):
       ])
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(730, 7300, 182)]
+          for a, b, c in [(0, 7300, 182)]
       ]
       places365_sweep = hyper.product([
           hyper.product(sweep_utils.places365_small(hyper, steps=2000)),

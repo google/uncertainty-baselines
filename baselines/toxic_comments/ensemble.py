@@ -87,6 +87,10 @@ def main(argv):
        num_folds=FLAGS.num_folds,
        train_fold_ids=FLAGS.train_fold_ids,
        return_train_split_name=True,
+       train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
+       test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
+       identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
+       identity_specific_dataset_dir=FLAGS.identity_specific_dataset_dir,
        **dataset_kwargs)
 
   if FLAGS.prediction_mode:

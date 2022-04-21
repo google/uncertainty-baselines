@@ -81,8 +81,17 @@ flags.DEFINE_list(
     'train_fold_ids', ['1', '2', '3', '4', '5'],
     'The ids of folds to use for training, the rest of the folds will be used'
     ' for cross-validation eval. Ignored if use_cross_validation is False.')
+
 flags.DEFINE_bool(
-    'eval_collab_metrics', True,
+    'train_on_identity_subgroup_data', False,
+    'Whether to add minority examples (CivilCommentsIdentity) to the training'
+    ' data.')
+flags.DEFINE_bool(
+    'test_on_identity_subgroup_data', True,
+    'Whether to add minority examples (CivilCommentsIdentity) to the testing'
+    ' data.')
+flags.DEFINE_bool(
+    'eval_collab_metrics', False,
     'Whether to compute collaboration effectiveness by score type.')
 
 flags.DEFINE_string(

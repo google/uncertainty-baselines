@@ -53,8 +53,17 @@ flags.DEFINE_list(
     'train_fold_ids', ['1', '2', '3', '4', '5'],
     'The ids of folds to use for training, the rest of the folds will be used'
     ' for cross-validation eval. Ignored if use_cross_validation is False.')
+
 flags.DEFINE_bool(
-    'eval_collab_metrics', True,
+    'train_on_identity_subgroup_data', False,
+    'Whether to add minority examples (CivilCommentsIdentity) to the training'
+    ' data.')
+flags.DEFINE_bool(
+    'test_on_identity_subgroup_data', True,
+    'Whether to add minority examples (CivilCommentsIdentity) to the testing'
+    ' data.')
+flags.DEFINE_bool(
+    'eval_collab_metrics', False,
     'Whether to compute collaboration effectiveness by score type.')
 
 flags.DEFINE_string(
@@ -184,6 +193,10 @@ def main(argv):
        num_folds=FLAGS.num_folds,
        train_fold_ids=FLAGS.train_fold_ids,
        return_train_split_name=True,
+       train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
+       test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
+       identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
+       identity_specific_dataset_dir=FLAGS.identity_specific_dataset_dir,
        **dataset_kwargs)
 
   if FLAGS.prediction_mode:

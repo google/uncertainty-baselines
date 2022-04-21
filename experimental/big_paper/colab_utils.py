@@ -37,6 +37,8 @@ _RETINA_METRICS = ('accuracy', 'negative_log_likelihood', 'ece',
                    'retention_auroc_auc', 'retention_accuracy_auc')
 # Compute cost metrics.
 _COMPUTE_METRICS = ('exaflops', 'tpu_days', 'gflops', 'ms_step')
+# Shifted dataset metrics.
+_SHIFTED_METRICS = ('nll', 'ece', 'brier', 'accuracy')
 
 # Pretraining datasets.
 _UPSTREAM_DATASETS = ('jft/entity:1.0.0', 'imagenet21k')
@@ -98,6 +100,17 @@ def default_selected_metrics() -> List[str]:
       for dset in ['cifar10', 'cifar100', 'svhn_cropped', 'places365_small']
   )
 
+  # Shifted metrics
+  metrics.extend(
+      f'{dset}/{m}/mean'
+      for dset, m in itertools.product(['imagenet_c'], _SHIFTED_METRICS))
+  metrics.extend(f'imagenet_c/{m}' for m in ['mce', 'relative_mce'])
+  metrics.extend(f'{dset}/{m}' for dset, m in itertools.product(
+      ['imagenet_a', 'imagenet_r', 'imagenet_v2'], _SHIFTED_METRICS))
+  metrics.extend(f'{dset}/{m}' for dset, m in itertools.product(
+      ['imagenet_vid_robust', 'ytbb_robust'],
+      ['accuracy_drop', 'accuracy_pmk', 'anchor_accuracy']))
+
   # Fewshot metrics
   metrics.extend(
       f'z/{dset}_{k}shot'
@@ -128,10 +141,15 @@ def get_base_metric(metric: str) -> str:
   """
   if metric in _COMPUTE_METRICS:
     return metric
-  pattern = r'.*[_/](loss|likelihood|ece|auc|auroc|accuracy|prec@1|\d+shot)'
+  # NOTE: `(?<!...)` means not preceded by `...`, and `(?!...)` means not
+  # followed by `...`. `(?P<metric>)` gives the name `metric` to the group.
+  pattern = (r'.*[_/](?P<metric>loss|likelihood|ece|auc|auroc|prec@1|\d+shot'
+             r'|nll|brier|relative\_mce|(?<!relative\_)mce|accuracy\_drop'
+             r'|accuracy\_pmk|anchor\_accuracy'
+             r'|(?<!anchor\_)accuracy(?!(:\_pmk|\_drop)))')
   match = re.search(pattern, metric)
   if match is not None:
-    return match.group(1)
+    return match.group('metric')
   else:
     raise ValueError(f'Unrecognized metric {metric}!')
 
@@ -139,7 +157,10 @@ def get_base_metric(metric: str) -> str:
 def get_metric_category(metric: str) -> MetricCategory:
   """Returns which category `metric` belongs to for scoring purposes."""
   base_metric = get_base_metric(metric)
-  if base_metric in ['loss', 'accuracy', 'likelihood']:
+  if base_metric in [
+      'loss', 'accuracy', 'likelihood', 'nll', 'brier', 'mce', 'relative_mce',
+      'accuracy_drop', 'accuracy_pmk', 'anchor_accuracy'
+  ]:
     return MetricCategory.PREDICTION
   elif base_metric in ['auc', 'auroc', 'ece']:
     return MetricCategory.UNCERTAINTY
@@ -151,9 +172,21 @@ def get_metric_category(metric: str) -> MetricCategory:
   raise ValueError(f'Metric {metric} is not used for scoring.')
 
 
-def _is_higher_better(metric: str) -> bool:
+def is_higher_better(metric: str) -> bool:
   """Returns True if the metric is to be maximized (e.g., precision)."""
-  return get_base_metric(metric) not in ['loss', 'likelihood', 'ece']
+  maximized_metrics = ['prec@1', 'accuracy', 'auc', 'auroc', 'anchor_accuracy']
+  minimized_metrics = [
+      'loss', 'likelihood', 'ece', 'nll', 'brier', 'mce', 'relative_mce',
+      'accuracy_drop', 'accuracy_pmk'
+  ]
+  base_metric = get_base_metric(metric)
+  if base_metric in maximized_metrics or 'shot' in base_metric:
+    return True
+  elif base_metric in minimized_metrics:
+    return False
+  else:
+    raise ValueError(f'Metric {metric} is unrecognized. It was parsed as a '
+                     f'{base_metric} base metric.')
 
 
 def get_unique_value(df: pd.DataFrame, col: str) -> Any:
@@ -246,7 +279,7 @@ def get_best_hyperparameters(df: pd.DataFrame,
 
   aggregated_results = df.groupby(hps)[tuning_metric].agg('mean').reset_index()
 
-  if _is_higher_better(tuning_metric):
+  if is_higher_better(tuning_metric):
     best_value_idx = aggregated_results[tuning_metric].idxmax()
   else:
     best_value_idx = aggregated_results[tuning_metric].idxmin()

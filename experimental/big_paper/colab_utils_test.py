@@ -102,11 +102,38 @@ class ColabUtilsTest(parameterized.TestCase):
       ('test_prec@1', 'prec@1'),
       ('ood_test/negative_log_likelihood', 'likelihood'),
       ('ms_step', 'ms_step'),
+      ('imagenet_c/nll/mean', 'nll'),
+      ('imagenet_c/mce', 'mce'),
+      ('imagenet_c/relative_mce', 'relative_mce'),
+      ('imagenet_vid_robust/accuracy_pmk', 'accuracy_pmk'),
+      ('imagenet_vid_robust/accuracy_drop', 'accuracy_drop'),
+      ('imagenet_vid_robust/anchor_accuracy', 'anchor_accuracy'),
+      ('1shot_prec@1', 'prec@1'),
+      ('ood_cifar100_msp_auroc_ece', 'ece'),
+      ('a/imagenet_10shot', '10shot'),
   )
   def test_get_base_metric(self, metric_name, expected_result):
     self.assertEqual(colab_utils.get_base_metric(metric_name), expected_result)
 
-  @parameterized.parameters('Det', 'jft/entity:1.0.0', 'cifar10_nll')
+  @parameterized.parameters(
+      ('ood_cifar10_msp_auroc', True),
+      ('in_domain_test/accuracy', True),
+      ('test_prec@1', True),
+      ('ood_test/negative_log_likelihood', False),
+      ('imagenet_c/nll/mean', False),
+      ('imagenet_c/mce', False),
+      ('imagenet_c/relative_mce', False),
+      ('imagenet_vid_robust/accuracy_pmk', False),
+      ('imagenet_vid_robust/accuracy_drop', False),
+      ('imagenet_vid_robust/anchor_accuracy', True),
+      ('1shot_prec@1', True),
+      ('ood_cifar100_msp_auroc_ece', False),
+      ('a/imagenet_10shot', True),
+  )
+  def test_is_higher_better(self, metric_name, expected_result):
+    self.assertEqual(colab_utils.is_higher_better(metric_name), expected_result)
+
+  @parameterized.parameters('Det', 'jft/entity:1.0.0', 'imagenet_c/contrast/ce')
   def test_get_base_metric_fails(self, metric_name):
     with self.assertRaisesRegex(ValueError, 'Unrecognized metric'):
       colab_utils.get_base_metric(metric_name)

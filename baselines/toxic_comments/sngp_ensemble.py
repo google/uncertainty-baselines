@@ -92,7 +92,8 @@ def main(argv):
        in_dataset_dir=FLAGS.in_dataset_dir,
        ood_dataset_dir=FLAGS.ood_dataset_dir,
        identity_dataset_dir=FLAGS.identity_dataset_dir,
-       use_local_data=FLAGS.use_local_data,
+       train_dataset_type=FLAGS.dataset_type,
+       test_dataset_type='tfds',
        use_cross_validation=FLAGS.use_cross_validation,
        num_folds=FLAGS.num_folds,
        train_fold_ids=FLAGS.train_fold_ids,
@@ -103,7 +104,6 @@ def main(argv):
     prediction_dataset_builders = utils.make_prediction_dataset_builders(
         add_identity_datasets=FLAGS.identity_prediction,
         identity_dataset_dir=FLAGS.identity_specific_dataset_dir,
-        use_local_data=FLAGS.use_local_data,
         use_cross_validation=FLAGS.use_cross_validation,
         num_folds=FLAGS.num_folds,
         train_fold_ids=FLAGS.train_fold_ids,

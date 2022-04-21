@@ -64,10 +64,10 @@ import utils  # local file import from baselines.toxic_comments
 from tensorboard.plugins.hparams import api as hp
 
 # Data flags
-flags.DEFINE_bool(
-    'use_local_data', True,
-    'Whether to load data from local directory. If False, data will be loaded '
-    'from TFDS.')
+flags.DEFINE_enum(
+    'dataset_type', 'tfrecord', ['tfrecord', 'csv', 'tfds'],
+    'Must be one of ["tfrecord", "csv", "tfds"]. If "tfds", data will be loaded'
+    ' from TFDS. Otherwise it will be loaded from local directory.')
 flags.DEFINE_bool(
     'use_cross_validation', False,
     'Whether to use cross validation for training and evaluation protocol.'
@@ -262,7 +262,8 @@ def main(argv):
        in_dataset_dir=FLAGS.in_dataset_dir,
        ood_dataset_dir=FLAGS.ood_dataset_dir,
        identity_dataset_dir=FLAGS.identity_dataset_dir,
-       use_local_data=FLAGS.use_local_data,
+       train_dataset_type=FLAGS.dataset_type,
+       test_dataset_type='tfds',
        use_cross_validation=FLAGS.use_cross_validation,
        num_folds=FLAGS.num_folds,
        train_fold_ids=FLAGS.train_fold_ids,
@@ -273,7 +274,6 @@ def main(argv):
     prediction_dataset_builders = utils.make_prediction_dataset_builders(
         add_identity_datasets=FLAGS.identity_prediction,
         identity_dataset_dir=FLAGS.identity_specific_dataset_dir,
-        use_local_data=FLAGS.use_local_data,
         use_cross_validation=FLAGS.use_cross_validation,
         num_folds=FLAGS.num_folds,
         train_fold_ids=FLAGS.train_fold_ids,

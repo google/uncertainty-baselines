@@ -174,7 +174,8 @@ def get_num_examples(dataset_builder, dataset_name, split_name):
   if dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
     return NUM_EXAMPLES[dataset_name][split_name]
   elif custom_num_examples and custom_num_examples.get(split_name, False):
-    # Return custom number of examples if it exists.
+    # Return custom number of examples if it exists. This is usually true for
+    # custom datasets in csv format.
     return custom_num_examples[split_name]
   else:
     # Use official `num_examples` for non-identity-specific and non-custom
@@ -185,7 +186,8 @@ def get_num_examples(dataset_builder, dataset_name, split_name):
 def make_train_and_test_dataset_builders(in_dataset_dir,
                                          ood_dataset_dir,
                                          identity_dataset_dir,
-                                         use_local_data,
+                                         train_dataset_type,
+                                         test_dataset_type,
                                          use_cross_validation,
                                          num_folds,
                                          train_fold_ids,
@@ -196,15 +198,16 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                                          identity_specific_dataset_dir=None,
                                          **ds_kwargs):
   """Defines train and evaluation datasets."""
-  maybe_get_dir = lambda ds_dir: ds_dir if use_local_data else None
+  maybe_get_train_dir = lambda ds_dir: ds_dir if train_dataset_type != 'tfds' else None
+  maybe_get_test_dir = lambda ds_dir: ds_dir if test_dataset_type != 'tfds' else None
 
   def get_identity_dir(name):
     parent_dir = identity_type_dataset_dir if name in IDENTITY_TYPES else identity_specific_dataset_dir
     return os.path.join(parent_dir, name)
 
-  if use_cross_validation and use_local_data:
+  if use_cross_validation and train_dataset_type != 'tfds':
     raise ValueError('Cannot use local data when in cross_validation mode.'
-                     'Please set `use_local_data` to False.')
+                     'Please set `train_dataset_type` to "tfds".')
 
   # Create training data and optionally cross-validation eval sets.
   train_split_name = 'train'
@@ -216,7 +219,8 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   train_dataset_builder = IND_DATA_CLS(
       split=train_split_name,
       is_training=True,
-      data_dir=maybe_get_dir(in_dataset_dir),
+      dataset_type=train_dataset_type,
+      data_dir=maybe_get_train_dir(in_dataset_dir),
       **ds_kwargs)
 
   # Optionally, add identity specific examples to training data.
@@ -230,11 +234,16 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
 
   # Create testing data.
   ind_dataset_builder = IND_DATA_CLS(
-      split='test', data_dir=maybe_get_dir(in_dataset_dir), **ds_kwargs)
+      split='test',
+      data_dir=maybe_get_test_dir(in_dataset_dir),
+      dataset_type=test_dataset_type,
+      **ds_kwargs)
   ood_dataset_builder = OOD_DATA_CLS(
-      split='test', data_dir=maybe_get_dir(ood_dataset_dir), **ds_kwargs)
+      split='test', data_dir=maybe_get_test_dir(ood_dataset_dir), **ds_kwargs)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
-      split='test', data_dir=maybe_get_dir(identity_dataset_dir), **ds_kwargs)
+      split='test',
+      data_dir=maybe_get_test_dir(identity_dataset_dir),
+      **ds_kwargs)
 
   # Optionally, add identity specific examples to testing data.
   if test_on_identity_subgroup_data:
@@ -274,12 +283,9 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
 
 def make_prediction_dataset_builders(add_identity_datasets,
                                      use_cross_validation, identity_dataset_dir,
-                                     use_local_data, num_folds, train_fold_ids,
-                                     **ds_kwargs):
+                                     num_folds, train_fold_ids, **ds_kwargs):
   """Adds additional test datasets for prediction mode."""
-  maybe_get_identity_dir = (
-      lambda name: os.path.join(identity_dataset_dir, name)  # pylint: disable=g-long-lambda
-      if use_local_data else None)
+  get_identity_dir = lambda name: os.path.join(identity_dataset_dir, name)
 
   dataset_builders = {}
 
@@ -287,7 +293,7 @@ def make_prediction_dataset_builders(add_identity_datasets,
   if add_identity_datasets:
     for dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
       if NUM_EXAMPLES[dataset_name]['test'] > 100:
-        identity_data_dir = maybe_get_identity_dir(dataset_name)
+        identity_data_dir = get_identity_dir(dataset_name)
         dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
             split='test', data_dir=identity_data_dir, **ds_kwargs)
 
@@ -301,14 +307,12 @@ def make_prediction_dataset_builders(add_identity_datasets,
         return_individual_folds=True)
 
     for cv_fold_id, cv_fold_name in zip(train_fold_ids, train_fold_names):
-      dataset_builders[
-          f'cv_train_fold_{cv_fold_id}'] = IND_DATA_CLS(
-              split=cv_fold_name, **ds_kwargs)
+      dataset_builders[f'cv_train_fold_{cv_fold_id}'] = IND_DATA_CLS(
+          split=cv_fold_name, dataset_type='tfds', **ds_kwargs)
 
     for cv_fold_id, cv_fold_name in zip(eval_fold_ids, eval_fold_names):
-      dataset_builders[
-          f'cv_eval_fold_{cv_fold_id}'] = IND_DATA_CLS(
-              split=cv_fold_name, **ds_kwargs)
+      dataset_builders[f'cv_eval_fold_{cv_fold_id}'] = IND_DATA_CLS(
+          split=cv_fold_name, dataset_type='tfds', **ds_kwargs)
 
   return dataset_builders
 

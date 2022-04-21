@@ -126,36 +126,44 @@ def get_sweep(hyper):
     ]
 
   data_sizes = [
-      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(20, 20, 1)]
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(20, 200, 5)]
   ]
   cifar10_sweep = hyper.product([
       hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      hyper.sweep('config.lr.base', [0.03, 0.06]),
+      hyper.sweep('config.fast_weight_lr_multiplier', [1.0]),
+      hyper.sweep('config.model.transformer.random_sign_init', [-0.5]),
       hyper.chainit(data_sizes),
   ])
   data_sizes = [
-      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(200, 200, 1)]
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(200, 2000, 50)]
   ]
 
   cifar100_sweep = hyper.product([
       hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+      hyper.sweep('config.lr.base', [0.03, 0.06]),
+      hyper.sweep('config.fast_weight_lr_multiplier', [2.0]),
+      hyper.sweep('config.model.transformer.random_sign_init', [-0.5]),
       hyper.chainit(data_sizes),
   ])
   data_sizes = [
-      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(2000, 2000, 1)]
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(2000, 20000, 500)]
   ]
   imagenet_sweep = hyper.product([
-      hyper.product(sweep_utils.imagenet(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
+      hyper.product(sweep_utils.imagenet(hyper, steps=5000)),
+      hyper.sweep('config.lr.base', [0.01]),
+      hyper.sweep('config.fast_weight_lr_multiplier', [2.0]),
+      hyper.sweep('config.model.transformer.random_sign_init', [-0.5]),
       hyper.chainit(data_sizes),
   ])
   data_sizes = [
-      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(730, 730, 1)]
+      hyper.product(set_data_sizes(a, b, c)) for a, b, c in [(730, 7300, 182)]
   ]
   places365_sweep = hyper.product([
-      hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.09, 0.06, 0.03, 0.01, 0.003]),
+      hyper.product(sweep_utils.places365_small(hyper, steps=2000)),
+      hyper.sweep('config.lr.base', [0.01]),
+      hyper.sweep('config.fast_weight_lr_multiplier', [2.0]),
+      hyper.sweep('config.model.transformer.random_sign_init', [-0.5]),
       hyper.chainit(data_sizes),
   ])
 
@@ -169,8 +177,6 @@ def get_sweep(hyper):
       ]),
       # use mean of performance for choosing hyperparameters.
       hyper.product([
-          hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-          hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
           model_specs,
           hyper.sweep('config.seed', [7, 11, 23]),
       ])

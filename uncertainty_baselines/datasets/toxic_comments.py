@@ -67,8 +67,8 @@ def _build_csv_dataset(glob_dir: str, is_training: bool) -> tf.data.Dataset:
   dataset = tf.data.Dataset.list_files(glob_dir, shuffle=is_training)
 
   def _csv_ds(path):
-    # ids, texts, labels, noise, bias, uncertainty.
-    column_types = [str()] * 2 + [float()] * 4
+    # ids, texts, labels, noise, bias, uncertainty, margin.
+    column_types = [str()] * 2 + [float()] * 5
     return tf.data.experimental.CsvDataset(
         path, record_defaults=column_types, header=True)
 

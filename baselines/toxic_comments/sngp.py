@@ -97,6 +97,10 @@ flags.DEFINE_bool(
     'Whether to add minority examples (CivilCommentsIdentity) to the testing'
     ' data.')
 flags.DEFINE_bool(
+    'test_on_challenge_data', True,
+    'Whether to add challenge examples (biased, noisy or uncertain examples) to'
+    ' the testing data.')
+flags.DEFINE_bool(
     'eval_collab_metrics', False,
     'Whether to compute collaboration effectiveness by score type.')
 
@@ -284,6 +288,12 @@ def main(argv):
        train_fold_ids=FLAGS.train_fold_ids,
        return_train_split_name=True,
        cv_split_name=FLAGS.train_cv_split_name,
+       train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
+       test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
+       test_on_challenge_data=FLAGS.test_on_challenge_data,
+       identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
+       identity_specific_dataset_dir=FLAGS.identity_specific_dataset_dir,
+       challenge_dataset_dir=FLAGS.challenge_dataset_dir,
        **dataset_kwargs)
 
   if FLAGS.prediction_mode:

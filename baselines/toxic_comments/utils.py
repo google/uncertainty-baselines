@@ -123,6 +123,8 @@ IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
 IDENTITY_TYPES = ('gender', 'sexual_orientation', 'religion', 'race',
                   'disability')
 
+CHALLENGE_DATASET_NAMES = ('bias', 'uncertainty', 'noise')
+
 # Prediction mode.
 flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
 flags.DEFINE_string(
@@ -142,6 +144,10 @@ flags.DEFINE_string('identity_specific_dataset_dir', None,
 flags.DEFINE_string('identity_type_dataset_dir', None,
                     'Path to specific out-of-domain dataset with identity '
                     'types (CivilCommentsIdentitiesDataset).')
+flags.DEFINE_string('challenge_dataset_dir', None,
+                    'Path to challenge eval datasets that are stored in CSV '
+                    'format and under the directory '
+                    '{challenge_dataset_dir}/challenge_eval_{dataset_name}')
 
 FLAGS = flags.FLAGS
 
@@ -195,8 +201,10 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                                          cv_split_name='train',
                                          train_on_identity_subgroup_data=False,
                                          test_on_identity_subgroup_data=False,
+                                         test_on_challenge_data=False,
                                          identity_type_dataset_dir=None,
                                          identity_specific_dataset_dir=None,
+                                         challenge_dataset_dir=None,
                                          **ds_kwargs):
   """Defines train and evaluation datasets."""
   maybe_get_train_dir = lambda ds_dir: ds_dir if train_dataset_type != 'tfds' else None
@@ -205,6 +213,9 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   def get_identity_dir(name):
     parent_dir = identity_type_dataset_dir if name in IDENTITY_TYPES else identity_specific_dataset_dir
     return os.path.join(parent_dir, name)
+
+  def get_challenge_dir(name):
+    return os.path.join(challenge_dataset_dir, f'challenge_eval_{name}')
 
   if use_cross_validation and train_dataset_type != 'tfds':
     raise ValueError('Cannot use local data when in cross_validation mode.'
@@ -264,6 +275,17 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                 dataset_type='tfrecord',
                 data_dir=identity_data_dir,
                 **ds_kwargs)
+
+  # Optionally, add challenge eval sets.
+  if test_on_challenge_data:
+    challenge_test_dataset_builders = {}
+    for dataset_name in CHALLENGE_DATASET_NAMES:
+      identity_data_dir = get_challenge_dir(dataset_name)
+      challenge_test_dataset_builders[dataset_name] = ds.CivilCommentsDataset(
+          split='test',
+          dataset_type='csv',
+          data_dir=identity_data_dir,
+          **ds_kwargs)
 
   # Gather training dataset builders into dictionaries.
   train_dataset_builders = {

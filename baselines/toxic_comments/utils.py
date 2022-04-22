@@ -215,7 +215,8 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   if use_cross_validation:
     train_split_name, eval_split_name = make_cv_train_and_eval_splits(
         num_folds, train_fold_ids, split_name=cv_split_name)
-    cv_eval_dataset_builder = IND_DATA_CLS(split=eval_split_name, **ds_kwargs)
+    cv_eval_dataset_builder = IND_DATA_CLS(
+        split=eval_split_name, dataset_type=train_dataset_type, **ds_kwargs)
 
   train_dataset_builder = IND_DATA_CLS(
       split=train_split_name,
@@ -236,13 +237,17 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   # Create testing data.
   ind_dataset_builder = IND_DATA_CLS(
       split='test',
-      data_dir=maybe_get_test_dir(in_dataset_dir),
       dataset_type=test_dataset_type,
+      data_dir=maybe_get_test_dir(in_dataset_dir),
       **ds_kwargs)
   ood_dataset_builder = OOD_DATA_CLS(
-      split='test', data_dir=maybe_get_test_dir(ood_dataset_dir), **ds_kwargs)
+      split='test',
+      dataset_type=test_dataset_type,
+      data_dir=maybe_get_test_dir(ood_dataset_dir),
+      **ds_kwargs)
   ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
       split='test',
+      dataset_type=test_dataset_type,
       data_dir=maybe_get_test_dir(identity_dataset_dir),
       **ds_kwargs)
 
@@ -255,7 +260,10 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
         identity_data_dir = get_identity_dir(dataset_name)
         identity_test_dataset_builders[
             dataset_name] = ds.CivilCommentsIdentitiesDataset(
-                split='test', data_dir=identity_data_dir, **ds_kwargs)
+                split='test',
+                dataset_type='tfrecord',
+                data_dir=identity_data_dir,
+                **ds_kwargs)
 
   # Gather training dataset builders into dictionaries.
   train_dataset_builders = {
@@ -300,7 +308,10 @@ def make_prediction_dataset_builders(add_identity_datasets,
       if NUM_EXAMPLES[dataset_name]['test'] > 100:
         identity_data_dir = get_identity_dir(dataset_name)
         dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
-            split='test', data_dir=identity_data_dir, **ds_kwargs)
+            split='test',
+            dataset_type='tfrecord',
+            data_dir=identity_data_dir,
+            **ds_kwargs)
 
   # Adds cross validation folds for evaluation.
   if use_cross_validation:

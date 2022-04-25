@@ -865,16 +865,19 @@ def main(argv):
 
       logits = ed.layers.utils.mean_field_logits(
           logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
-      return texts, text_ids, logits, labels, additional_labels, ids
+      variances = tf.linalg.diag_part(covmat)
+      return texts, text_ids, logits, variances, labels, additional_labels, ids
 
     (per_replica_texts, per_replica_text_ids, per_replica_logits,
-     per_replica_labels, per_replica_additional_labels, per_replica_ids) = (
+     per_replica_variances, per_replica_labels, per_replica_additional_labels,
+     per_replica_ids) = (
          strategy.run(step_fn, args=(next(iterator),)))
 
     if strategy.num_replicas_in_sync > 1:
       texts_list = tf.concat(per_replica_texts.values, axis=0)
       text_ids_list = tf.concat(per_replica_text_ids.values, axis=0)
       logits_list = tf.concat(per_replica_logits.values, axis=0)
+      variances_list = tf.concat(per_replica_variances.values, axis=0)
       labels_list = tf.concat(per_replica_labels.values, axis=0)
       ids_list = tf.concat(per_replica_ids.values, axis=0)
       additional_labels_dict = {}
@@ -886,6 +889,7 @@ def main(argv):
       texts_list = per_replica_texts
       text_ids_list = per_replica_text_ids
       logits_list = per_replica_logits
+      variances_list = per_replica_variances
       labels_list = per_replica_labels
       ids_list = per_replica_ids
       additional_labels_dict = {}
@@ -895,7 +899,7 @@ def main(argv):
               additional_label] = per_replica_additional_labels[
                   additional_label]
 
-    return (texts_list, text_ids_list, logits_list, labels_list,
+    return (texts_list, text_ids_list, logits_list, variances_list, labels_list,
             additional_labels_dict, ids_list)
 
   if FLAGS.prediction_mode:
@@ -909,6 +913,7 @@ def main(argv):
       texts_all = []
       text_ids_all = []
       logits_all = []
+      variances_all = []
       labels_all = []
       additional_labels_all_dict = {}
       if 'identity' in dataset_name:
@@ -923,7 +928,7 @@ def main(argv):
                   step, steps_per_eval[dataset_name], dataset_name)
               logging.info(message)
 
-            (text_step, text_ids_step, logits_step, labels_step,
+            (text_step, text_ids_step, logits_step, variances_step, labels_step,
              additional_labels_dict_step,
              ids_step) = final_eval_step(test_iterator)
 
@@ -931,6 +936,7 @@ def main(argv):
             texts_all.append(text_step)
             text_ids_all.append(text_ids_step)
             logits_all.append(logits_step)
+            variances_all.append(variances_step)
             labels_all.append(labels_step)
             if 'identity' in dataset_name:
               for identity_label_name in utils.IDENTITY_LABELS:
@@ -946,6 +952,7 @@ def main(argv):
       text_ids_all = tf.concat(text_ids_all, axis=0)
       logits_all = tf.concat(logits_all, axis=0)
       labels_all = tf.concat(labels_all, axis=0)
+      variances_all = tf.concat(variances_all, axis=0)
       additional_labels_all = []
       if additional_labels_all_dict:
         for identity_label_name in utils.IDENTITY_LABELS:
@@ -970,6 +977,11 @@ def main(argv):
       utils.save_prediction(
           logits_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'logits_{}'.format(dataset_name)))
+      utils.save_prediction(
+          variances_all.numpy(),
+          path=os.path.join(FLAGS.output_dir,
+                            'variances_{}'.format(dataset_name)))
+
       if 'identity' in dataset_name:
         utils.save_prediction(
             additional_labels_all.numpy(),

@@ -18,10 +18,15 @@
 
 import os
 import time
+from typing import Tuple
 
 from absl import app
 from absl import flags
 from absl import logging
+import chex
+import jax
+from jax.experimental import jax2tf
+import jax.numpy as jnp
 import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -78,6 +83,155 @@ APPROX_IMAGENET_TRAIN_IMAGES = 1281167
 # Number of images in eval dataset.
 IMAGENET_VALIDATION_IMAGES = 50000
 NUM_CLASSES = 1000
+
+################################################################################
+################################################################################
+# Create dyadic sampling TF function by hacky copy/paste
+
+
+def make_batch_logits_labels(
+    logits: chex.Array,
+    labels: chex.Array,
+    batch_size: int = 10) -> Tuple[chex.Array, chex.Array]:
+  """Splits logits, labels into batches of size batch_size.
+
+  In case the size of logits and labels are such that they cannot be equally
+  divided into batches of size batch_size, extra data is discarded.
+
+  Args:
+    logits: has shape [num_enn_sample, num_data, num_classes]
+    labels: has shape [num_data, 1]
+    batch_size: size of each batch.
+
+  Returns:
+    A tuple of batched_logits and batched_labels with shapes
+      batched_logits: (num_batches, num_enn_samples, batch_size, num_classes)
+      batched_labels: (num_batches, batch_size, 1)
+      where num_batches = num_data // batch_size.
+  """
+  assert logits.ndim == 3
+  num_enn_samples, num_data, num_classes = logits.shape
+  chex.assert_shape(labels, [num_data, 1])
+
+  ##############################################################################
+  # 1. We split num_data to batches of size batch_size. To ensure that the split
+  # is possible, we might need to discard extra data.
+  num_batches = num_data // batch_size
+  num_extra_data = num_data % batch_size
+  num_data -= num_extra_data
+  # 1.1. Discard extra data if needed.
+  logits = logits[:, :num_data, :]
+  labels = labels[:num_data, :]
+  chex.assert_shape(logits, [num_enn_samples, num_data, num_classes])
+  chex.assert_shape(labels, [num_data, 1])
+
+  # 1.2. Split num_data to batches of size batch_size
+  batched_logits = logits.reshape(
+      [num_enn_samples, num_batches, batch_size, num_classes])
+  batched_labels = labels.reshape([num_batches, batch_size, 1])
+
+  ##############################################################################
+  # 2. We want num_batches to be the leading axis. It is already the case for
+  # batched_labels, but we need to change axes for batched_logits.
+  batched_logits = batched_logits.swapaxes(0, 1)
+  chex.assert_shape(batched_logits,
+                    [num_batches, num_enn_samples, batch_size, num_classes])
+
+  return (batched_logits, batched_labels)
+
+
+def average_sampled_log_likelihood(x: chex.Array) -> float:
+  """Computes average log likelihood from samples.
+
+  This method takes several samples of log-likelihood, converts
+  them to likelihood (by exp), then takes the average, then
+  returns the logarithm over the average  LogSumExp
+  trick is used for numerical stability.
+
+  Args:
+    x: chex.Array
+  Returns:
+    log-mean-exponential
+  """
+  return jax.lax.cond(
+      jnp.isneginf(jnp.max(x)),
+      lambda x: -jnp.inf,
+      lambda x: jnp.log(jnp.mean(jnp.exp(x - jnp.max(x)))) + jnp.max(x),
+      operand=x,
+  )
+
+
+def categorical_log_likelihood(probs: chex.Array, labels: chex.Array) -> float:
+  """Computes joint log likelihood based on probs and labels."""
+  num_data, unused_num_classes = probs.shape
+  assert len(labels) == num_data
+  assigned_probs = probs[jnp.arange(num_data), jnp.squeeze(labels)]
+  return jnp.sum(jnp.log(assigned_probs))
+
+
+def make_nll_joint_with_repeat_calculator(
+    num_repeats: int):
+  """Returns a nll joint calculator based on logits and labels repeated num_repeats times."""
+
+  def calculate_nll_joint_with_repeat(logits: chex.Array,
+                                      labels: chex.Array) -> float:
+    """Calculates joint nll based on logits and labels repeated num_repeats times."""
+    num_enn_samples, num_data, unused_num_classes = logits.shape
+    assert len(labels) == num_data
+
+    probs = jax.nn.softmax(logits)
+    chex.assert_equal_shape([probs, logits])
+
+    batched_ll = jax.vmap(categorical_log_likelihood,
+                          in_axes=[0, None])
+    sampled_ll = batched_ll(probs, labels)
+    # We multiply sampled_ll by num_repeats. The results are the same as the
+    # results obtained by first repeating probs and labels num_repeats times
+    # along num_data axis and then pass them to batched_ll.
+    sampled_ll_repeat = sampled_ll * num_repeats
+    chex.assert_shape(sampled_ll_repeat, (num_enn_samples,))
+
+    return -1 * average_sampled_log_likelihood(sampled_ll_repeat)
+
+  return calculate_nll_joint_with_repeat
+
+
+def make_nll_joint_polyadic_calculator(
+    tau: int = 10,
+    kappa: int = 2):
+  """Returns a MetricCalculator that computes d_{KL}^{tau, kappa} metric."""
+
+  def calculate_nll_joint_polyadic(logits: chex.Array,
+                                   labels: chex.Array) -> float:
+    """Calculates joint nll based on polyadic test sampling."""
+    num_data = labels.shape[0]
+    assert num_data >= kappa, f'num_data={num_data} should be at least kappa!'
+
+    batched_logits, batched_labels = make_batch_logits_labels(
+        logits=logits,
+        labels=labels,
+        batch_size=kappa,
+    )
+    num_batches = batched_labels.shape[0]
+
+    assert tau % kappa == 0
+    num_repeats = tau // kappa
+    batched_nll = jax.vmap(make_nll_joint_with_repeat_calculator(num_repeats))
+
+    sampled_nll = batched_nll(batched_logits, batched_labels)
+    chex.assert_shape(sampled_nll, (num_batches,))
+
+    return jnp.mean(sampled_nll)
+
+  return calculate_nll_joint_polyadic
+
+
+dyadic_nll = jax2tf.convert(
+    fun=make_nll_joint_polyadic_calculator(tau=10, kappa=2),
+    with_gradient=False,
+)
+################################################################################
+################################################################################
 
 
 def main(argv):
@@ -178,6 +332,7 @@ def main(argv):
         'train/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'test/joint_nll': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
@@ -290,9 +445,15 @@ def main(argv):
           -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
           tf.math.log(float(num_dropout_samples)))
 
+      # TODO(iosband): Evaluate joint NLL
+      print('logits_list', tf.shape(logits_list))
+      print('labels', tf.shape(labels))
+      joint_nll = dyadic_nll(logits_list, labels)
+
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
+        metrics['test/joint_nll'].update_state(joint_nll)
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
       elif dataset_name != 'confidence_validation':

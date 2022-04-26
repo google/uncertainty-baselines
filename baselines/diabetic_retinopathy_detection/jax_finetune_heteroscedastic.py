@@ -525,108 +525,108 @@ def main(config):
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
 
-      # Report validation performance
-      if train_utils.itstime(step, config.log_eval_steps, total_steps):
-        write_note('Evaluating on the validation set...')
-        chrono.pause()
+    # Report validation performance
+    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+      write_note('Evaluating on the validation set...')
+      chrono.pause()
 
-        all_eval_results = {}
+      all_eval_results = {}
 
-        for eval_name, (eval_iter, eval_steps) in eval_iter_splits.items():
-          start_time = time.time()
+      for eval_name, (eval_iter, eval_steps) in eval_iter_splits.items():
+        start_time = time.time()
 
-          # Runs evaluation loop.
-          results_arrs = {
-            'y_true': [],
-            'y_pred': [],
-            'y_pred_entropy': []
-          }
+        # Runs evaluation loop.
+        results_arrs = {
+          'y_true': [],
+          'y_pred': [],
+          'y_pred_entropy': []
+        }
 
-          for _, batch in zip(range(eval_steps), eval_iter):
-            batch_ncorrect, batch_losses, batch_n, batch_metric_args = (  # pylint: disable=unused-variable
-              evaluation_fn(
-                opt_repl.target, batch['image'], batch['labels']))
+        for _, batch in zip(range(eval_steps), eval_iter):
+          batch_ncorrect, batch_losses, batch_n, batch_metric_args = (  # pylint: disable=unused-variable
+            evaluation_fn(
+              opt_repl.target, batch['image'], batch['labels']))
 
-            # All results are a replicated array shaped as follows:
-            # (local_devices, per_device_batch_size, elem_shape...)
-            # with each local device's entry being identical as they got psum'd.
-            # So let's just take the first one to the host as numpy.
+          # All results are a replicated array shaped as follows:
+          # (local_devices, per_device_batch_size, elem_shape...)
+          # with each local device's entry being identical as they got psum'd.
+          # So let's just take the first one to the host as numpy.
 
-            # Here we parse batch_metric_args to compute uncertainty metrics.
-            logits, labels, _ = batch_metric_args
-            logits = np.array(logits[0])
-            probs = jax.nn.softmax(logits)
+          # Here we parse batch_metric_args to compute uncertainty metrics.
+          logits, labels, _ = batch_metric_args
+          logits = np.array(logits[0])
+          probs = jax.nn.softmax(logits)
 
-            # From one-hot to integer labels.
-            int_labels = np.argmax(np.array(labels[0]), axis=-1)
+          # From one-hot to integer labels.
+          int_labels = np.argmax(np.array(labels[0]), axis=-1)
 
-            probs = np.reshape(probs, (probs.shape[0] * probs.shape[1], -1))
-            int_labels = int_labels.flatten()
-            y_pred = probs[:, 1]
-            results_arrs['y_true'].append(int_labels)
-            results_arrs['y_pred'].append(y_pred)
+          probs = np.reshape(probs, (probs.shape[0] * probs.shape[1], -1))
+          int_labels = int_labels.flatten()
+          y_pred = probs[:, 1]
+          results_arrs['y_true'].append(int_labels)
+          results_arrs['y_pred'].append(y_pred)
 
-            # Entropy is computed at the per-epoch level (see below).
-            results_arrs['y_pred_entropy'].append(probs)
+          # Entropy is computed at the per-epoch level (see below).
+          results_arrs['y_pred_entropy'].append(probs)
 
-          results_arrs['y_true'] = np.concatenate(results_arrs['y_true'],
-                                                  axis=0)
-          results_arrs['y_pred'] = np.concatenate(
-            results_arrs['y_pred'], axis=0).astype('float64')
-          results_arrs['y_pred_entropy'] = vit_utils.entropy(
-            np.concatenate(results_arrs['y_pred_entropy'], axis=0), axis=-1)
+        results_arrs['y_true'] = np.concatenate(results_arrs['y_true'],
+                                                axis=0)
+        results_arrs['y_pred'] = np.concatenate(
+          results_arrs['y_pred'], axis=0).astype('float64')
+        results_arrs['y_pred_entropy'] = vit_utils.entropy(
+          np.concatenate(results_arrs['y_pred_entropy'], axis=0), axis=-1)
 
-          time_elapsed = time.time() - start_time
-          results_arrs['total_ms_elapsed'] = time_elapsed * 1e3
-          results_arrs['dataset_size'] = eval_steps * batch_size_eval
+        time_elapsed = time.time() - start_time
+        results_arrs['total_ms_elapsed'] = time_elapsed * 1e3
+        results_arrs['dataset_size'] = eval_steps * batch_size_eval
 
-          all_eval_results[eval_name] = results_arrs
+        all_eval_results[eval_name] = results_arrs
 
-        per_pred_results, metrics_results = vit_utils.evaluate_vit_predictions(
-          # pylint: disable=unused-variable
-          dataset_split_to_containers=all_eval_results,
-          is_deterministic=True,
-          num_bins=15,
-          return_per_pred_results=True
-        )
+      per_pred_results, metrics_results = vit_utils.evaluate_vit_predictions(
+        # pylint: disable=unused-variable
+        dataset_split_to_containers=all_eval_results,
+        is_deterministic=True,
+        num_bins=15,
+        return_per_pred_results=True
+      )
 
-        # `metrics_results` is a dict of {str: jnp.ndarray} dicts, one for each
-        # dataset. Flatten this dict so we can pass to the writer and remove empty
-        # entries.
-        flattened_metric_results = {}
-        for dic in metrics_results.values():
-          for key, value in dic.items():
-            if value is not None:
-              flattened_metric_results[key] = value
-        writer.write_scalars(step, flattened_metric_results)
+      # `metrics_results` is a dict of {str: jnp.ndarray} dicts, one for each
+      # dataset. Flatten this dict so we can pass to the writer and remove empty
+      # entries.
+      flattened_metric_results = {}
+      for dic in metrics_results.values():
+        for key, value in dic.items():
+          if value is not None:
+            flattened_metric_results[key] = value
+      writer.write_scalars(step, flattened_metric_results)
 
-        # Optionally log to wandb
-        if config.use_wandb:
-          wandb.log(metrics_results, step=step)
+      # Optionally log to wandb
+      if config.use_wandb:
+        wandb.log(metrics_results, step=step)
 
-        # Save per-prediction metrics
-        results_storage_utils.save_per_prediction_results(
-          output_dir, step, per_pred_results, verbose=False)
-        chrono.resume()
+      # Save per-prediction metrics
+      results_storage_utils.save_per_prediction_results(
+        output_dir, step, per_pred_results, verbose=False)
+      chrono.resume()
 
-      # End of step.
-      if config.get('testing_failure_step'):
-        # Break early to simulate infra failures in test cases.
-        if config.testing_failure_step == step:
-          break
+    # End of step.
+    if config.get('testing_failure_step'):
+      # Break early to simulate infra failures in test cases.
+      if config.testing_failure_step == step:
+        break
 
-    write_note(f'Done!\n{chrono.note}')
-    pool.close()
-    pool.join()
-    writer.close()
+  write_note(f'Done!\n{chrono.note}')
+  pool.close()
+  pool.join()
+  writer.close()
 
-    if wandb_run is not None:
-      wandb_run.finish()
+  if wandb_run is not None:
+    wandb_run.finish()
 
-    # Return final training loss, validation loss, and fewshot results for
-    # reproducibility test cases.
-    # return train_loss, val_loss, results
-    # TODO(nband): fix result reporting for DR ViT-16 reproducibility unit tests
+  # Return final training loss, validation loss, and fewshot results for
+  # reproducibility test cases.
+  # return train_loss, val_loss, results
+  # TODO(nband): fix result reporting for DR ViT-16 reproducibility unit tests
 
 
 if __name__ == '__main__':

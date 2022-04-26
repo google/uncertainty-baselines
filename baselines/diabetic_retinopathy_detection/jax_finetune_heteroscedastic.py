@@ -92,15 +92,17 @@ def main(config):
   batch_size = config.batch_size
   grad_clip_norm = config.grad_clip_norm
   weight_decay = config.weight_decay
-  raise Exception('TODO: add the tuning hypers')
   print('wandb hyperparameters:')
   print({
       'batch_size': batch_size,
       'grad_clip_norm': grad_clip_norm,
       'weight_decay': weight_decay,
       'total_steps': config.total_steps,
+      'warmup_steps': config.lr.warmup_steps,
       'lr': config.lr
   })
+  print('Heteroscedastic hyperparameters:')
+  print('temperature', config.model.temperature)
 
   # Reweighting loss for class imbalance
   # class_reweight_mode = config.class_reweight_mode

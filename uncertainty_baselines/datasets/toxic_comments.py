@@ -52,6 +52,8 @@ _DATASET_TYPES = ['tfrecord', 'csv', 'tfds']
 
 NUM_EXAMPLES_JSON = 'num_examples.json'
 
+BIAS_EXAMPLE_IDS_JSON = 'bias_ids.json'
+
 
 def _build_tfrecord_dataset(glob_dir: str,
                             is_training: bool) -> tf.data.Dataset:
@@ -107,36 +109,57 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
                **kwargs):
     self._tfds_dataset_builder = tfds_dataset_builder
     self._max_seq_length = max_seq_length
-    self._split_num_examples = self._maybe_get_num_examples(data_dir)
+    self._split_num_examples = self._maybe_load_json(data_dir,
+                                                     NUM_EXAMPLES_JSON)
 
-    super().__init__(
-        data_dir=data_dir, **kwargs)
+    # (Optional) lookup table of example ids to their bias labels.
+    self._bias_example_ids = self._maybe_load_json(data_dir,
+                                                   BIAS_EXAMPLE_IDS_JSON)
+    self.bias_label_lookup = self._make_bias_label_lookup_table()
+
+    super().__init__(data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
     self._data_dir = data_dir
     self._dataset_type = dataset_type
 
-  def _maybe_get_num_examples(self, data_dir):
+  def _maybe_load_json(self, data_dir, json_name):
     """Reads the number of examples from directory if available."""
     # Returns None if `data_dir` is empty.
     if not data_dir:
       return None
 
-    # For custom data with its num_examples that is different from the official
-    # TFDS split (e.g., a subset of CivilComments that is used for active
-    # learning), It should contain a `num_examples.json` that stores a
-    # dictionary of {split_name: num_examples} under the data_dir folder.
-    # If it doesn't exist, we will return None and do not add num_example
-    # information to the info.metadata.
-    num_examples_file_path = os.path.join(data_dir, NUM_EXAMPLES_JSON)
+    # For custom data with its meta data (e.g., num_examples) that is different
+    # from the official TFDS split (e.g., a subset of CivilComments that is used
+    # for active learning), It should contain a corresponding file like
+    # `num_examples.json` that stores a dictionary of metadata under the
+    # data_dir folder.
+    # If it doesn't exist, we will return None and do not add these information
+    # to the info.metadata.
+    json_file_path = os.path.join(data_dir, json_name)
 
-    if not tf.io.gfile.exists(num_examples_file_path):
+    if not tf.io.gfile.exists(json_file_path):
       return None
 
     # If the json file exist, load from directory and return it.
-    with tf.io.gfile.GFile(num_examples_file_path, 'r') as f:
-      # A dictionary of {split_name: num_examples_in_split}
+    with tf.io.gfile.GFile(json_file_path, 'r') as f:
       return json.load(f)
+
+  def _make_bias_label_lookup_table(self):
+    """Makes a Hash lookup table for example ids to bias labels."""
+    if self._bias_example_ids is None:
+      return None
+
+    bias_example_ids = self._bias_example_ids['id']
+    num_bias_examples = len(bias_example_ids)
+
+    # Assign bias label = 1 for all bias_example_ids, and assign 0 otherwise.
+    ids_tensor = tf.constant(bias_example_ids)
+    bias_labels_tensor = tf.constant([1.] * num_bias_examples)
+
+    return tf.lookup.StaticHashTable(
+        tf.lookup.KeyValueTensorInitializer(ids_tensor, bias_labels_tensor),
+        default_value=0.)
 
   def _download_and_prepare(self, dl_manager, download_config=None):
     """Downloads and prepares dataset for reading."""
@@ -278,6 +301,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
     self.split_names = _DATA_SPLIT_NAMES
     self._data_dir = data_dir
     self._dataset_type = dataset_type
+    self._bias_label_lookup = dataset_builder.bias_label_lookup
 
     if self.tf_hub_preprocessor_url:
       preprocessor = hub.load(self.tf_hub_preprocessor_url)
@@ -355,7 +379,11 @@ class _JigsawToxicityDataset(base.BaseDataset):
             'segment_ids': bert_inputs['input_type_ids'],
         })
 
-      # Add additional labels.
+      # Add optional bias labels.
+      if self._bias_label_lookup is not None:
+        parsed_example['bias_labels'] = self._bias_label_lookup[feature_id]
+
+      # Add additional toxicity subtype labels.
       if self.additional_labels:
         parsed_example.update({
             subtype_name: example[subtype_name]

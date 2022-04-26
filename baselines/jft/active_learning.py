@@ -39,6 +39,7 @@ import multiprocessing
 
 from absl import app
 from absl import flags
+from absl import logging
 from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
@@ -49,6 +50,7 @@ import jax
 import jax.numpy as jnp
 from ml_collections.config_flags import config_flags
 import numpy as np
+import tensorflow as tf
 import tensorflow_datasets as tfds
 import tqdm
 import uncertainty_baselines as ub
@@ -74,6 +76,9 @@ flags.DEFINE_string('tpu', None,
 FLAGS = flags.FLAGS
 
 NINF_SCORE = float('-inf')
+
+tf.keras.utils.set_random_seed(1)
+tf.config.experimental.enable_op_determinism()
 
 
 def get_ids_logits_masks(*,
@@ -119,19 +124,16 @@ def get_ids_logits_masks(*,
       else:
         raise ValueError(f'Loss name: {loss_name} not supported.')
 
-      if use_pre_logits:
+    if use_pre_logits:
+      if config and config.model_type == 'batchensemble':
         # pre_logits [batch_size, hidden_size, ens_size]
         pre_logits = jnp.transpose(
             jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
         output = pre_logits
       else:
-        output = logits
-    else:
-      if use_pre_logits:
-        # pre_logits [batch_size, hidden_size]
         output = out['pre_logits']
-      else:
-        output = logits
+    else:
+      output = logits
 
     # TODO(joost,andreas): For multi host this requires:
     # output = jax.lax.all_gather(output, axis_name='batch')
@@ -331,7 +333,7 @@ def get_density_scores(*,
   # train_embeds [batch_size, hidden_size, ens_size]
   # batch_size = num_cores * per_core_batch_size
   train_embeds = train_pre_logits[train_masks_bool]
-  train_labels = np.argmax(train_labels[train_masks_bool], axis=-1).ravel()
+  train_labels = jnp.argmax(train_labels[train_masks_bool], axis=-1).ravel()
 
   use_ens = False
   if len(train_embeds.shape) == 3:
@@ -432,15 +434,15 @@ def select_acquisition_batch_indices(*,
     assert rng is not None, ('rng should not be None if power acquisition is '
                              'used.')
     beta = 1
-    selected_scorers = power_score_acquisition(scores, acquisition_batch_size,
-                                               beta, rng)
+    selected_scores, selected_ids = power_score_acquisition(
+        scores, acquisition_batch_size, beta, rng)
   else:
     # Use top-k otherwise.
-    partitioned_scorers = np.argpartition(-scores, acquisition_batch_size)
-    selected_scorers = partitioned_scorers[:acquisition_batch_size]
+    selected_scores, selected_ids = jax.lax.top_k(scores,
+                                                  acquisition_batch_size)
 
-  selected_ids = ids[selected_scorers].tolist()
-  selected_scores = scores[selected_scorers].tolist()
+  selected_ids = selected_ids.tolist()
+  selected_scores = selected_scores.tolist()
 
   logging.info(
       msg=f'Data selected - ids: {selected_ids}, with scores: {selected_scores}'
@@ -513,18 +515,15 @@ def get_accuracy(*, evaluation_fn, opt_repl, ds, prefetch_to_device=1):
   """
   iter_ds = input_utils.start_input_pipeline(ds, prefetch_to_device)
 
-  ncorrect, nseen = [], []
+  ncorrect, nseen = 0, 0
   for batch in iter_ds:
     batch_ncorrect, _, batch_n, _ = evaluation_fn(opt_repl.target,
                                                   batch['image'],
                                                   batch['labels'],
                                                   batch['mask'])
 
-    ncorrect += [batch_ncorrect[0]]
-    nseen += [batch_n[0]]
-
-  ncorrect = np.sum(ncorrect)
-  nseen = np.sum(nseen)
+    ncorrect += np.sum(batch_ncorrect[0])
+    nseen += np.sum(batch_n[0])
 
   return ncorrect / nseen
 
@@ -576,13 +575,15 @@ def finetune(*,
                                        train_batch['labels'], rngs_loop)
     if jax.process_index() == 0 and profiler is not None:
       profiler(current_step)
-    if current_step % 5 == 0:
+    if train_utils.itstime(
+        current_step, every_n_steps=5, total_steps=total_steps):
       train_accuracy = get_accuracy(
           evaluation_fn=evaluation_fn, opt_repl=opt_repl, ds=train_eval_ds)
       val_accuracy = get_accuracy(
           evaluation_fn=evaluation_fn, opt_repl=opt_repl, ds=val_ds)
       logging.info(
-          msg=f'Current accuracy - train:{train_accuracy}, val: {val_accuracy}')
+          msg=f'Step {current_step}: Current accuracy - train:{train_accuracy},'
+          f'val: {val_accuracy}')
       train_val_accuracies.append((current_step, train_accuracy, val_accuracy))
 
       if val_accuracy >= best_opt_accuracy:

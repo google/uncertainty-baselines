@@ -25,32 +25,24 @@ import jax.numpy as jnp
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import al_utils  # local file import from baselines.jft
 
 Tensor = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
 Features = Dict[str, Tensor]
 
-# TODO(dusenberrymw): Make al_utils.SubsetDatasetBuilder subclass
-# tfds.core.DatasetBuilder and remove this.
-SubsetDatasetBuilder = al_utils.SubsetDatasetBuilder
 
 
 def _get_dataset_builder(
-    dataset: Union[str, tfds.core.DatasetBuilder,
-                   SubsetDatasetBuilder],
-    data_dir: Optional[str] = None
-) -> Union[tfds.core.DatasetBuilder, SubsetDatasetBuilder]:
+    dataset: Union[str, tfds.core.DatasetBuilder],
+    data_dir: Optional[str] = None) -> tfds.core.DatasetBuilder:
   """Returns a dataset builder."""
   if isinstance(dataset, str):
     dataset_builder = tfds.builder(dataset, data_dir=data_dir)
   elif isinstance(dataset, tfds.core.DatasetBuilder):
     dataset_builder = dataset
-  elif isinstance(dataset, SubsetDatasetBuilder):
-    dataset_builder = dataset
   else:
     raise ValueError(
-        "`dataset` must be a string or tfds.core.DatasetBuilder or "
-        f" SubsetDatasetBuilder. Received {dataset} instead.")
+        "`dataset` must be a string or tfds.core.DatasetBuilder. Received "
+        f"{dataset} instead.")
   return dataset_builder
 
 
@@ -82,8 +74,7 @@ def _get_process_num_examples(builder: tfds.core.DatasetBuilder, split: str,
   return num_examples
 
 
-def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder,
-                                    SubsetDatasetBuilder],
+def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder],
                      split: str,
                      process_batch_size: int,
                      drop_remainder: bool = True,
@@ -184,8 +175,7 @@ def _preprocess_with_per_example_rng(ds: tf.data.Dataset,
   return ds.enumerate().map(_fn, num_parallel_calls=tf.data.AUTOTUNE)
 
 
-def _build_dataset(dataset: Union[str, tfds.core.DatasetBuilder,
-                                  SubsetDatasetBuilder],
+def _build_dataset(dataset: Union[str, tfds.core.DatasetBuilder],
                    data_dir: Optional[str], split: str, shuffle_files: bool,
                    file_shuffle_seed: jnp.ndarray, process_index: int,
                    process_count: int, drop_remainder: bool) -> tf.data.Dataset:
@@ -193,9 +183,10 @@ def _build_dataset(dataset: Union[str, tfds.core.DatasetBuilder,
   dataset_builder = _get_dataset_builder(dataset, data_dir)
 
   dataset_options = tf.data.Options()
+  dataset_options.deterministic = True
   dataset_options.experimental_optimization.map_parallelization = True
-  dataset_options.experimental_threading.private_threadpool_size = 48
-  dataset_options.experimental_threading.max_intra_op_parallelism = 1
+  dataset_options.threading.private_threadpool_size = 48
+  dataset_options.threading.max_intra_op_parallelism = 1
 
   read_config = tfds.ReadConfig(
       shuffle_seed=file_shuffle_seed, options=dataset_options)
@@ -215,7 +206,7 @@ def _build_dataset(dataset: Union[str, tfds.core.DatasetBuilder,
 
 
 def get_data(
-    dataset: Union[str, tfds.core.DatasetBuilder, SubsetDatasetBuilder],
+    dataset: Union[str, tfds.core.DatasetBuilder],
     split: str,
     rng: Optional[jnp.ndarray],
     process_batch_size: int,

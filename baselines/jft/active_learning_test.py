@@ -17,7 +17,8 @@
 # TODO(joost,andreas): Refactor active_learning.py and use this test for smaller
 # components including acquisition functions and other utility functions.
 # pylint: disable=pointless-string-statement
-import os.path
+
+import os
 import pathlib
 import tempfile
 
@@ -41,29 +42,59 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
-
     baseline_root_dir = pathlib.Path(__file__).parents[1]
     self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
 
   @parameterized.parameters(
-      # First acquisition batch (2 elements) is same for uniform and density.
-      ('uniform', [1829114898, 2022464325, 808104751, 1167338319]),
-      ('density', [1829114898, 2022464325, 298464138, 934744266]),
-      ('margin', [1321476171, 1943658980, 1452077357, 1019530438]),
-      ('entropy', [506568176, 1321476171, 1943658980, 809552352]),
+      # NOTE: For max_training_set_size == initial_training_set_size, all
+      # methods should yield the same ids since no aquisition step takes place.
+      # Uniform.
+      ('deterministic', 'uniform', 4, 4, [0, 1, 3, 7]),
+      ('deterministic', 'uniform', 4, 0, [17, 24, 34, 43]),
+      ('batchensemble', 'uniform', 4, 1, [0, 1, 3, 7]),
+      # Entropy.
+      ('deterministic', 'entropy', 4, 4, [0, 1, 3, 7]),
+      ('batchensemble', 'entropy', 4, 1, [0, 1, 2, 6]),
+      # Margin.
+      ('deterministic', 'margin', 4, 4, [0, 1, 3, 7]),
+      ('batchensemble', 'margin', 4, 1, [0, 1, 6, 8]),
+      # MSP.
+      ('deterministic', 'msp', 4, 4, [0, 1, 3, 7]),
+      ('batchensemble', 'msp', 4, 1, [0, 1, 6, 9]),
+      # BALD
+      ('batchensemble', 'bald', 4, 4, [0, 1, 3, 7]),
+      ('batchensemble', 'bald', 4, 1, [0, 1, 2, 4]),
+      # Density
+      ('deterministic', 'density', 4, 4, [0, 1, 3, 7]),
+      ('batchensemble', 'density', 4, 1, [0, 1, 3, 8]),
   )
-  def test_active_learning_script(self, acquisition_method, gt_ids):
-
+  def test_active_learning_script(self, model_type, acquisition_method,
+                                  max_training_set_size,
+                                  initial_training_set_size, gt_ids):
     data_dir = self.data_dir
 
     # Create a dummy checkpoint
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
 
+    dataset_name = 'cifar10'
     config = test_utils.get_config(
-        dataset_name='cifar10', classifier='token', representation_size=2)
+        dataset_name=dataset_name, classifier='token', representation_size=2)
 
-    model = ub.models.vision_transformer(
-        num_classes=config.num_classes, **config.get('model', {}))
+    config.model_type = model_type
+
+    if model_type == 'batchensemble':
+      config.model.transformer.num_layers = 2
+      config.model.transformer.ens_size = 2
+      config.model.transformer.random_sign_init = 0.5
+      config.model.transformer.be_layers = (1,)
+      config.fast_weight_lr_multiplier = 1.0
+      config.weight_decay = 0.1
+      model = ub.models.vision_transformer_be(
+          num_classes=config.num_classes, **config.model)
+      config.total_steps = 5
+    else:
+      model = ub.models.vision_transformer(
+          num_classes=config.num_classes, **config.get('model', {}))
 
     rng = jax.random.PRNGKey(42)
     rng, rng_init = jax.random.split(rng)
@@ -75,22 +106,17 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
     checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
     checkpoint_utils.save_checkpoint(params, checkpoint_path)
 
-    config.dataset = 'cifar10'
-    config.val_split = 'train[98%:]'
-    config.train_split = 'train[:98%]'
-    config.batch_size = 8
-    config.total_steps = 6
-    config.dataset_dir = data_dir
     config.model_init = checkpoint_path
+    config.test_split = 'test'
 
     # Active learning settings
     config.acquisition_method = acquisition_method
-    config.max_training_set_size = 4
-    config.initial_training_set_size = 0
-    config.acquisition_batch_size = 2
+    config.max_training_set_size = max_training_set_size
+    config.initial_training_set_size = initial_training_set_size
+    config.acquisition_batch_size = 1
     config.early_stopping_patience = 6  # not tested yet
 
-    with tfds.testing.mock_data(num_examples=50, data_dir=data_dir):
+    with tfds.testing.mock_data(num_examples=10, data_dir=data_dir):
       ids, _ = active_learning.main(config, output_dir)
 
     # Get the warmup batch

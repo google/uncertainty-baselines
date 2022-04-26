@@ -122,8 +122,10 @@ def get_config(
   config.fewshot.representation_layer = 'pre_logits'
   config.fewshot.log_steps = config.total_steps
   config.fewshot.datasets = {
-      'pets': ('oxford_iiit_pet', 'train', 'test'),
-      'imagenet': ('imagenet2012_subset/10pct', 'train', 'validation'),
+      'pets': ('oxford_iiit_pet', f'train[:{num_examples}]',
+               f'test[:{num_examples}]'),
+      'imagenet': ('imagenet2012_subset/1pct', f'train[:{num_examples}]',
+                   f'validation[:{num_examples}]'),
   }
   config.fewshot.pp_train = 'decode|resize(256)|central_crop(224)|value_range(-1,1)|drop("segmentation_mask")'
   config.fewshot.pp_eval = 'decode|resize(256)|central_crop(224)|value_range(-1,1)|drop("segmentation_mask")'

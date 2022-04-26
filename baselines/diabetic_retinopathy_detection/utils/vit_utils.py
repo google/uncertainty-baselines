@@ -206,10 +206,20 @@ def initialize_batchensemble_model(config):
   }
 
 
+def initialize_heteroscedastic_model(config):
+  """Initialize Heteroscedastic model."""
+  model = ub.models.vision_transformer_het(
+      num_classes=config.num_classes, **config.model)
+  return {
+      'model': model
+  }
+
+
 VIT_MODEL_INIT_MAP = {
     'deterministic': initialize_deterministic_model,
     'sngp': initialize_sngp_model,
     'batchensemble': initialize_batchensemble_model,
+    'heteroscedastic': initialize_heteroscedastic_model
 }
 
 

@@ -35,78 +35,6 @@ import metrics as tc_metrics  # local file import from baselines.toxic_comments
 import utils  # local file import from baselines.toxic_comments
 from tensorboard.plugins.hparams import api as hp
 
-# Data flags
-flags.DEFINE_enum(
-    'dataset_type', 'tfrecord', ['tfrecord', 'csv', 'tfds'],
-    'Must be one of ["tfrecord", "csv", "tfds"]. If "tfds", data will be loaded'
-    ' from TFDS. Otherwise it will be loaded from local directory.')
-flags.DEFINE_bool(
-    'use_cross_validation', False,
-    'Whether to use cross validation for training and evaluation protocol.'
-    ' If True, then divide the official train split into further train and eval'
-    ' sets, and evaluate on both the eval set and the official test splits.')
-flags.DEFINE_integer(
-    'num_folds', 10,
-    'The number of folds to be used for cross-validation training. Ignored if'
-    ' use_cross_validation is False.')
-flags.DEFINE_list(
-    'train_fold_ids', ['1', '2', '3', '4', '5'],
-    'The ids of folds to use for training, the rest of the folds will be used'
-    ' for cross-validation eval. Ignored if use_cross_validation is False.')
-flags.DEFINE_string(
-    'train_cv_split_name', 'train',
-    'The name of the split to create cross-validation training data from.')
-flags.DEFINE_string(
-    'test_cv_split_name', 'train',
-    'The name of the split to create cross-validation testing data from.')
-
-flags.DEFINE_bool(
-    'train_on_identity_subgroup_data', False,
-    'Whether to add minority examples (CivilCommentsIdentity) to the training'
-    ' data.')
-flags.DEFINE_bool(
-    'test_on_identity_subgroup_data', True,
-    'Whether to add minority examples (CivilCommentsIdentity) to the testing'
-    ' data.')
-flags.DEFINE_bool(
-    'test_on_challenge_data', True,
-    'Whether to add challenge examples (biased, noisy or uncertain examples) to'
-    ' the testing data.')
-flags.DEFINE_bool(
-    'eval_collab_metrics', False,
-    'Whether to compute collaboration effectiveness by score type.')
-
-flags.DEFINE_string(
-    'in_dataset_dir', None,
-    'Path to in-domain dataset (WikipediaToxicityDataset).')
-flags.DEFINE_string(
-    'ood_dataset_dir', None,
-    'Path to out-of-domain dataset (CivilCommentsDataset).')
-flags.DEFINE_string(
-    'identity_dataset_dir', None,
-    'Path to out-of-domain dataset with identity labels '
-    '(CivilCommentsIdentitiesDataset).')
-
-# Model flags
-flags.DEFINE_string('model_family', 'bert',
-                    'Types of model to use. Can be either TextCNN or BERT.')
-
-# Model flags, BERT.
-flags.DEFINE_string(
-    'bert_dir', None,
-    'Directory to BERT pre-trained checkpoints and config files.')
-flags.DEFINE_string(
-    'bert_ckpt_dir', None, 'Directory to BERT pre-trained checkpoints. '
-    'If None then then default to {bert_dir}/bert_model.ckpt.')
-flags.DEFINE_string(
-    'bert_config_dir', None, 'Directory to BERT config files. '
-    'If None then then default to {bert_dir}/bert_config.json.')
-flags.DEFINE_string(
-    'bert_tokenizer_tf_hub_url',
-    'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3',
-    'TF Hub URL to BERT tokenizer.')
-
-
 # Dropout flags
 flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate.')
 flags.DEFINE_bool(
@@ -135,7 +63,7 @@ flags.DEFINE_bool(
     'use_mc_dropout_output', False,
     'Whether to apply Monte Carlo dropout to the dense output layer.')
 
-# Optimization and evaluation flags
+# Optimization flags.
 flags.DEFINE_integer('seed', 8, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 32, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float(
@@ -143,32 +71,17 @@ flags.DEFINE_float(
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_float(
+    'warmup_proportion', 0.1,
+    'Proportion of training to perform linear learning rate warmup for. '
+    'E.g., 0.1 = 10% of training.')
 flags.DEFINE_integer(
     'checkpoint_interval', 5,
     'Number of epochs between saving checkpoints. Use -1 to '
     'never save checkpoints.')
 flags.DEFINE_integer('evaluation_interval', 1,
                      'Number of epochs between evaluation.')
-flags.DEFINE_integer('num_ece_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_integer(
-    'num_approx_bins', 1000,
-    'Number of bins for approximating collaborative and abstention metrics.')
-flags.DEFINE_list(
-    'fractions',
-    ['0.0', '0.001', '0.005', '0.01', '0.02', '0.05', '0.1', '0.15', '0.2'],
-    'A list of fractions of total examples to send to '
-    'the moderators (up to 1).')
-flags.DEFINE_string('output_dir', '/tmp/toxic_comments', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 5, 'Number of training epochs.')
-flags.DEFINE_float(
-    'warmup_proportion', 0.1,
-    'Proportion of training to perform linear learning rate warmup for. '
-    'E.g., 0.1 = 10% of training.')
-flags.DEFINE_float(
-    'ece_label_threshold', 0.7,
-    'Threshold used to convert toxicity score into binary labels for computing '
-    'Expected Calibration Error (ECE). Default is 0.7 which is the threshold '
-    'value recommended by Jigsaw team.')
 
 # Loss type.
 flags.DEFINE_enum('loss_type', 'cross_entropy',
@@ -181,12 +94,6 @@ flags.DEFINE_float('focal_loss_gamma', 5.,
                    'Exponentiate factor used in the focal loss [1]-[2] to '
                    'push model to minimize in-confident examples.')
 
-# Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
 

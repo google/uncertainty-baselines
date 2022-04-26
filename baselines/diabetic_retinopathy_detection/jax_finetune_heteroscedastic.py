@@ -18,10 +18,15 @@
 import functools
 import itertools
 import multiprocessing
-import numbers
 import os
 import time
 
+import flax
+import jax
+import jax.numpy as jnp
+import ml_collections.config_flags
+import numpy as np
+import tensorflow as tf
 from absl import app
 from absl import flags
 from absl import logging
@@ -29,12 +34,6 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
-import flax
-import jax
-import jax.numpy as jnp
-import ml_collections.config_flags
-import numpy as np
-import tensorflow as tf
 
 tf.config.experimental.set_visible_devices([], 'GPU')
 tf.config.experimental.set_visible_devices([], 'TPU_SYSTEM')
@@ -335,7 +334,7 @@ def main(config):
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
-  @partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, lr, images, labels, rng):
     """Update step."""
 
@@ -445,13 +444,13 @@ def main(config):
       map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
 
   write_note(f'Replicating...\n{chrono.note}')
-  opt_repl = flax_utils.replicate(opt_cpu)
+  opt_repl = flax.jax_utils.replicate(opt_cpu)
 
   checkpoint_writer = None
 
   # Note: we return the train / val loss for use in reproducibility unit tests.
-  train_loss = -jnp.inf
-  val_loss = {val_name: -jnp.inf for val_name, _ in val_ds_splits.items()}
+  # train_loss = -jnp.inf
+  # eval_loss = {eval_name: -jnp.inf for eval_name, _ in eval_ds_splits.items()}
 
   write_note(f'First step compilations...\n{chrono.note}')
   logging.info('first_step = %s', first_step)

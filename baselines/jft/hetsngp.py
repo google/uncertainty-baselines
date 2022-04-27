@@ -561,13 +561,11 @@ def main(argv):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl, reset_covmat_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter,
-      reset_covmat_iter):
-
-    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
+      reset_covmat_repl = next(reset_covmat_iter)
       # TODO(jereliu): Expand to allow precision matrix resetting.
       (opt_repl, states_repl, loss_value, train_loop_rngs,
        extra_measurements) = update_fn(

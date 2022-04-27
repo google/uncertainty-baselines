@@ -21,6 +21,7 @@ from typing import Dict, Iterable, List, Optional, Set, Union
 
 from clu.deterministic_data import DatasetBuilder
 import jax
+import jax.numpy as jnp
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -131,3 +132,62 @@ class SubsetDatasetBuilder(DatasetBuilder):
         output_signature=element_spec,
     )
     return dataset
+
+
+def sample_class_balanced_ids(
+    n,
+    dataset,
+    num_classes,
+    # shuffle_buffer_size=50_000,
+    shuffle_rng):
+  """Return n class balanced sampled ids."""
+  logging.info('Preparing dataset.')
+  assert n % num_classes == 0, (f'Total #samples {n} is not a '
+                                f'multiplier of num_classes {num_classes}.')
+  # The commented-out implementation has OOM issues.
+
+  # dataset = dataset.shuffle(shuffle_buffer_size, seed=shuffle_seed)
+  # dataset = dataset.prefetch(1)
+  # def _make_filter_fn(label):
+  #   return lambda x: x['label'] == label
+
+  # datasets = []
+  # for label in range(num_classes):
+  #   datasets.append(dataset.filter(_make_filter_fn(label)))
+  # choice_dataset = tf.data.Dataset.range(num_classes).repeat(n // num_classes)
+  # dataset = tf.data.Dataset.choose_from_datasets(datasets, choice_dataset)
+  # result = dataset.map(lambda x: x['id'], num_parallel_calls=tf.data.AUTOTUNE)
+  # result = result.prefetch(1)
+  # logging.info('Result obtained.')
+  # return list(result.as_numpy_iterator())
+
+  iter_ds = iter_ds = iter(dataset)
+
+  ids = []
+  labels = []
+  masks = []
+  for _, batch in enumerate(iter_ds):
+    batch_id = batch['id'].numpy()
+    batch_label = batch['labels'].numpy()
+    batch_mask = batch['mask'].numpy()
+
+    # TODO(joost,andreas): if we run on multi host, we need to index
+    # batch_outputs: batch_outputs[0]
+    ids.append(batch_id)
+    labels.append(batch_label)
+    masks.append(batch_mask)
+
+  ids = jnp.concatenate(ids, axis=1).flatten()
+  labels = jnp.concatenate(labels, axis=1)
+  labels = jnp.argmax(labels, axis=2).flatten()
+  masks = jnp.concatenate(masks, axis=1).flatten()
+  labels = jnp.where(masks, labels, -1)
+  shuffled_index = jax.random.permutation(shuffle_rng, len(ids))
+  ids = ids[shuffled_index]
+  labels = labels[shuffled_index]
+  result = []
+  for label in range(num_classes):
+    index_with_label = jnp.argwhere(label == labels, size=n // num_classes)
+    index_with_label = index_with_label.flatten()
+    result.extend(ids[index_with_label].tolist())
+  return result

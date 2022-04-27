@@ -38,7 +38,8 @@ def get_config():
   config.initial_training_set_size = 0  # set in sweep
   config.acquisition_batch_size = 0  # set in sweep
   config.early_stopping_patience = 128
-  config.finetune_head_only = False
+  config.finetune_head_only = True
+  config.power_acquisition = True
 
   # Dataset section
   config.dataset = ''  # set in sweep
@@ -109,110 +110,44 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweeps over datasets."""
-  # Adapted the sweep over checkpoints from vit_l32_finetune.py.
+  data_size_mode = 'num_classes/2'
+  acquisition_methods = ['uniform', 'entropy', 'margin', 'msp', 'density']
+  hparam_sweep = sweep_utils.get_hparam_best('Det')
+  if data_size_mode == 'tuning':
+    hparam_sweep = sweep_utils.get_hparam_sweep('Det')
+    acquisition_methods = ['uniform']
 
-  sweep_lr = True  # whether to sweep over learning rates
-  acquisition_methods = ['uniform', 'entropy', 'margin']
-  #. ['uniform', 'entropy', 'margin', 'density']
-  def sweep_checkpoints(use_jft, sweep_lr=sweep_lr):
+  def sweep_checkpoints(use_jft):
     """whether to use JFT-300M or ImageNet-21K settings."""
     checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-    if use_jft:
-      cifar10_sweep = sweep_utils.cifar10(hyper, steps=1000)
-      cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
-      cifar10_sweep = hyper.product(cifar10_sweep)
 
-      cifar100_sweep = sweep_utils.cifar100(hyper, steps=1000)
-      cifar100_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
-      cifar100_sweep = hyper.product(cifar100_sweep)
-
-      # Temporarity disable imagenet and places due to OOM.
-      # pylint: disable=unused-variable
-      imagenet_sweep = sweep_utils.imagenet(hyper, steps=1000)
-      imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
-      imagenet_sweep = hyper.product(imagenet_sweep)
-
-      places365_sweep = hyper.product([
-          hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
-          hyper.sweep('config.lr.base', [0.03]),
-      ])
-      # pylint: enable=unused-variable
-    else:
-      cifar10_sweep = sweep_utils.cifar10(hyper, steps=1000)
-      cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
-      cifar10_sweep = hyper.product(cifar10_sweep)
-
-      cifar100_sweep = sweep_utils.cifar100(hyper, steps=1000)
-      cifar100_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
-      cifar100_sweep = hyper.product(cifar100_sweep)
-
-      imagenet_sweep = sweep_utils.imagenet(hyper, steps=1000)
-      imagenet_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
-      imagenet_sweep = hyper.product(imagenet_sweep)
-
-      places365_sweep = hyper.product([
-          hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
-          hyper.sweep('config.lr.base', [0.01]),
-      ])
-    if sweep_lr:
-      # Apply a learning rate sweep following Table 4 of Vision Transformer
-      # paper.
-      checkpoints = [checkpoints[0]]
-      def set_data_sizes(a, b, c):
-        return [
-            hyper.fixed('config.initial_training_set_size', a, length=1),
-            hyper.fixed('config.max_training_set_size', b, length=1),
-            hyper.fixed('config.acquisition_batch_size', c, length=1),
-        ]
-
+    def set_data_sizes(a, b, c):
+      return [
+          hyper.fixed('config.initial_training_set_size', a, length=1),
+          hyper.fixed('config.max_training_set_size', b, length=1),
+          hyper.fixed('config.acquisition_batch_size', c, length=1),
+      ]
+    all_data_sizes = sweep_utils.get_data_sizes(data_size_mode)
+    all_sweeps = []
+    for dataset, sweep_func in sweep_utils.get_dataset_sweep().items():
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(0, 200, 5)]
+          for a, b, c in all_data_sizes[dataset]
       ]
-      cifar10_sweep = hyper.product([
-          hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-          hyper.sweep('config.lr.base',
-                      [0.01]),
+      hparam = 'config.lr.base'
+      sweep_list = [
+          hyper.product(sweep_func(hyper, steps=2000)),
           hyper.chainit(data_sizes),
-      ])
-      data_sizes = [
-          hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(0, 2000, 50)]
+          hyper.sweep(hparam, hparam_sweep[dataset])
       ]
-      cifar100_sweep = hyper.product([
-          hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-          hyper.sweep('config.lr.base',
-                      [0.03]),
-          hyper.chainit(data_sizes),
-      ])
-      data_sizes = [
-          hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(0, 20000, 500)]
-      ]
-      imagenet_sweep = hyper.product([
-          hyper.product(sweep_utils.imagenet(hyper, steps=5000)),
-          hyper.sweep('config.lr.base', [0.01]),
-          hyper.chainit(data_sizes),
-      ])
-      data_sizes = [
-          hyper.product(set_data_sizes(a, b, c))
-          for a, b, c in [(0, 7300, 182)]
-      ]
-      places365_sweep = hyper.product([
-          hyper.product(sweep_utils.places365_small(hyper, steps=2000)),
-          hyper.sweep('config.lr.base', [0.01]),
-          hyper.chainit(data_sizes),
-      ])
+      dataset_sweep = hyper.product(sweep_list)
+      all_sweeps.append(dataset_sweep)
+
     return hyper.product([
-        hyper.chainit([
-            cifar10_sweep,
-            cifar100_sweep,
-            places365_sweep,
-            imagenet_sweep,
-        ]),
+        hyper.chainit(all_sweeps),
         hyper.sweep('config.model_init', checkpoints),
         hyper.sweep('config.acquisition_method', acquisition_methods),
-        hyper.sweep('config.seed', [7, 11, 23]),
+        hyper.sweep('config.seed', [189, 827, 905, 964, 952]),
     ])
 
   return hyper.chainit(

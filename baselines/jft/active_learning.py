@@ -389,8 +389,11 @@ def power_score_acquisition(scores, acquisition_batch_size, beta, rng):
   noise = jax.random.gumbel(rng, [len(scores)])
   noised_scores = scores + noise / beta
 
-  selected_scores, selected_indices = jax.lax.top_k(noised_scores,
-                                                    acquisition_batch_size)
+  selected_noised_scores, selected_indices = jax.lax.top_k(
+      noised_scores, acquisition_batch_size)
+  selected_scores = scores[selected_indices]
+  logging.info(msg=f'selected_noised_scores = {selected_noised_scores}; '
+                   f'selected_scores = {selected_scores}')
 
   return selected_scores, selected_indices
 
@@ -400,7 +403,7 @@ def select_acquisition_batch_indices(*,
                                      scores,
                                      ids,
                                      ignored_ids,
-                                     power_acquisition=False,
+                                     power_acquisition=True,
                                      rng=None):
   """Select what data points to acquire from the pool set.
 
@@ -432,15 +435,17 @@ def select_acquisition_batch_indices(*,
     assert rng is not None, ('rng should not be None if power acquisition is '
                              'used.')
     beta = 1
-    selected_scorers = power_score_acquisition(scores, acquisition_batch_size,
-                                               beta, rng)
+    selected_scores, selected_ids = power_score_acquisition(
+        scores, acquisition_batch_size, beta, rng)
+    selected_ids = selected_ids.tolist()
+    selected_scores = selected_scores.tolist()
   else:
     # Use top-k otherwise.
     partitioned_scorers = np.argpartition(-scores, acquisition_batch_size)
-    selected_scorers = partitioned_scorers[:acquisition_batch_size]
+    selected_scores = partitioned_scorers[:acquisition_batch_size]
 
-  selected_ids = ids[selected_scorers].tolist()
-  selected_scores = scores[selected_scorers].tolist()
+    selected_ids = ids[selected_scores].tolist()
+    selected_scores = scores[selected_scores].tolist()
 
   logging.info(
       msg=f'Data selected - ids: {selected_ids}, with scores: {selected_scores}'
@@ -489,11 +494,11 @@ def acquire_points(model, current_opt_repl, pool_train_ds, train_eval_ds,
 
   rng_loop, rng_acq = jax.random.split(rng_loop, 2)
   acquisition_batch_ids, _ = select_acquisition_batch_indices(
-      acquisition_batch_size=config.get('acquisition_batch_size', 10),
+      acquisition_batch_size=config.get('acquisition_batch_size'),
       scores=pool_scores,
       ids=pool_ids,
       ignored_ids=train_subset_data_builder.subset_ids,
-      power_acquisition=config.get('power_acquisition', False),
+      power_acquisition=config.get('power_acquisition', True),
       rng=rng_acq)
 
   return acquisition_batch_ids, rng_loop
@@ -700,6 +705,49 @@ def main(config, output_dir):
     raise ValueError('Expect config.model_type to be "deterministic" or'
                      f'"batchensemble", but received {config.model_type}.')
 
+  update_fn = model_utils.create_update_fn(model, config)
+  evaluation_fn = model_utils.create_evaluation_fn(model, config)
+
+  # NOTE: We need this because we need an Id field of type int.
+  # TODO(andreas): Rename to IdSubsetDatasetBuilder?
+  # The original tf dataset builder but with int ids.
+  pool_subset_data_builder = al_utils.SubsetDatasetBuilder(
+      data_builder, subset_ids=None)
+
+  # NOTE: below line is necessary on multi host setup
+  # pool_ds_rng = jax.random.fold_in(pool_ds_rng, jax.process_index())
+  rng, pool_ds_rng = jax.random.split(rng)
+  pool_train_ds = input_utils.get_data(
+      dataset=pool_subset_data_builder,
+      split=config.train_split,
+      rng=pool_ds_rng,
+      process_batch_size=local_batch_size,
+      preprocess_fn=pp_eval,
+      num_epochs=1,
+      repeat_after_batching=True,
+      shuffle=False,
+      prefetch_size=config.get('prefetch_to_host', 2),
+      drop_remainder=False)
+
+  # Potentially acquire an initial training set.
+  initial_training_set_size = config.get('initial_training_set_size', 10)
+
+  if initial_training_set_size > 0:
+    write_note(f'Creating {initial_training_set_size} initial training ids.')
+    rng, rng_initial = jax.random.split(rng)
+    initial_training_set_batch_ids = al_utils.sample_class_balanced_ids(
+        initial_training_set_size,
+        pool_train_ds,
+        config.num_classes,
+        shuffle_rng=rng_initial)
+  else:
+    initial_training_set_batch_ids = []
+  write_note(f'{len(initial_training_set_batch_ids)} initial training ids '
+             f'= {initial_training_set_batch_ids}')
+
+  train_subset_data_builder = al_utils.SubsetDatasetBuilder(
+      data_builder, subset_ids=initial_training_set_batch_ids)
+
   init = model_utils.create_init(model, config, test_ds)
 
   rng, rng_init = jax.random.split(rng)
@@ -738,54 +786,6 @@ def main(config, output_dir):
   # TODO(dusenberrymw): Remove this once checkpoint_utils is fixed to return
   # only CPU arrays.
   opt_cpu = jax.device_get(opt_cpu)
-
-  update_fn = model_utils.create_update_fn(model, config)
-  evaluation_fn = model_utils.create_evaluation_fn(model, config)
-
-  # NOTE: We need this because we need an Id field of type int.
-  # TODO(andreas): Rename to IdSubsetDatasetBuilder?
-  pool_subset_data_builder = al_utils.SubsetDatasetBuilder(
-      data_builder, subset_ids=None)
-
-  rng, pool_ds_rng = jax.random.split(rng)
-
-  # NOTE: below line is necessary on multi host setup
-  # pool_ds_rng = jax.random.fold_in(pool_ds_rng, jax.process_index())
-
-  pool_train_ds = input_utils.get_data(
-      dataset=pool_subset_data_builder,
-      split=config.train_split,
-      rng=pool_ds_rng,
-      process_batch_size=local_batch_size,
-      preprocess_fn=pp_eval,
-      num_epochs=1,
-      repeat_after_batching=True,
-      shuffle=False,
-      prefetch_size=config.get('prefetch_to_host', 2),
-      drop_remainder=False)
-
-  # Potentially acquire an initial training set.
-  initial_training_set_size = config.get('initial_training_set_size', 10)
-
-  if initial_training_set_size > 0:
-    current_opt_repl = flax_utils.replicate(opt_cpu)
-    pool_ids, _, _, pool_masks = get_ids_logits_masks(
-        model=model, opt_repl=current_opt_repl, ds=pool_train_ds, config=config)
-
-    rng, initial_uniform_rng = jax.random.split(rng)
-    pool_scores = get_uniform_scores(pool_masks, initial_uniform_rng)
-
-    initial_training_set_batch_ids, _ = select_acquisition_batch_indices(
-        acquisition_batch_size=initial_training_set_size,
-        scores=pool_scores,
-        ids=pool_ids,
-        ignored_ids=set(),
-    )
-  else:
-    initial_training_set_batch_ids = []
-
-  train_subset_data_builder = al_utils.SubsetDatasetBuilder(
-      data_builder, subset_ids=set(initial_training_set_batch_ids))
 
   test_accuracies = []
   training_sizes = []
@@ -880,6 +880,9 @@ def main(config, output_dir):
     write_note(f'Accuracy at {current_train_ds_length}: {test_accuracy}')
 
     test_accuracies.append(test_accuracy)
+    measurements.update({'test_accuracy': test_accuracy})
+    writer.write_scalars(current_train_ds_length, measurements)
+
     training_subset_ids = train_subset_data_builder.subset_ids
 
     # Start picking the next training points.
@@ -890,8 +893,6 @@ def main(config, output_dir):
         train_subset_data_builder, acquisition_method, config, rng_loop)
     train_subset_data_builder.subset_ids.update(acquisition_batch_ids)
 
-    measurements.update({'test_accuracy': test_accuracy})
-    writer.write_scalars(current_train_ds_length, measurements)
     write_note(f'Training set ids at train set size {current_train_ds_length}:'
                f'{training_subset_ids}')
     write_note(f'Selected ids at train set size {current_train_ds_length}:'

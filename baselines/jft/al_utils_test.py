@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for al_utils."""
+"""Tests for al_utils.py."""
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -86,6 +86,22 @@ class AlUtilsTest(tf.test.TestCase):
       ds_ids.sort()
 
       self.assertEqual(ds_ids, ids)
+
+  def test_sample_class_balanced_ids(self):
+    cifar10_builder = tfds.builder('cifar10')
+    num_classes = 10
+    cifar10_builder.download_and_prepare()
+    data_builder = al_utils.SubsetDatasetBuilder(
+        cifar10_builder, subset_ids=None)
+    dataset = data_builder.as_dataset(split='train')
+    ids = al_utils.sample_class_balanced_ids(2 * num_classes + 1, dataset,
+                                             num_classes)
+    for i, example_id in enumerate(ids):
+      # pylint: disable=cell-var-from-loop
+      examples = dataset.filter(lambda x: x['id'] == example_id)
+      examples = examples.as_numpy_iterator()
+      self.assertLen(examples, 1)
+      self.assertEqual(examples.next(), i%num_classes)
 
 
 if __name__ == '__main__':

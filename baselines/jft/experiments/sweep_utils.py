@@ -258,3 +258,95 @@ def places365_small(hyper, size=384, steps=10_000):
   config.prefetch_to_device = 2
   config.trial = 0
   return fixed(hyper, config)
+
+
+# Define helper functions for active learning.
+def get_dataset_sweep():
+  return {
+      'cifar10': cifar10,
+      'cifar100': cifar100,
+      'imagenet': imagenet,
+      'places365': places365_small,
+  }
+
+
+def get_data_sizes(mode):
+  if mode == 'tuning':
+    return {
+        'cifar10': [(20, 20, 1)],
+        'cifar100': [(200, 200, 1)],
+        'imagenet': [(2000, 2000, 1)],
+        'places365': [(730, 730, 1)]
+    }
+  elif mode == 'num_classes/2':
+    return {
+        'cifar10': [(20, 200, 5)],
+        'cifar100': [(200, 2000, 50)],
+        'imagenet': [(2000, 20000, 500)],
+        'places365': [(730, 7300, 182)]
+    }
+
+
+def get_hparam_sweep(model):
+  """Hyperparameter sweep by model."""
+  if model == 'BE':
+    return {
+        'config.lr.base': {
+            'cifar10': [0.06, 0.03, 0.01, 0.003, 0.001],
+            'cifar100': [0.06, 0.03, 0.01, 0.003, 0.001],
+            'imagenet': [0.09, 0.06, 0.03, 0.01, 0.003],
+            'places365': [0.09, 0.06, 0.03, 0.01, 0.003],
+        },
+        'config.fast_weight_lr_multiplier': {
+            'cifar10': [0.5, 1.0, 2.0],
+            'cifar100': [0.5, 1.0, 2.0],
+            'imagenet': [0.5, 1.0, 2.0],
+            'places365': [0.5, 1.0, 2.0],
+        },
+        'config.model.transformer.random_sign_init': {
+            'cifar10': [-0.5, 0.5],
+            'cifar100': [-0.5, 0.5],
+            'imagenet': [-0.5, 0.5],
+            'places365': [-0.5, 0.5],
+        },
+    }
+  elif model == 'Det':
+    return {
+        'cifar10': [0.06, 0.03, 0.01, 0.003, 0.001],
+        'cifar100': [0.06, 0.03, 0.01, 0.003, 0.001],
+        'imagenet': [0.09, 0.06, 0.03, 0.01, 0.003],
+        'places365': [0.09, 0.06, 0.03, 0.01, 0.003],
+    }
+
+
+def get_hparam_best(model):
+  """Best hyperparameter by model."""
+  # TODO(wangzi): Fill in the best hyperparameters.
+  if model == 'BE':
+    return {
+        'config.lr.base': {
+            'cifar10': [0.01],
+            'cifar100': [0.001],
+            'imagenet': [0.003],
+            'places365': [0.01],
+        },
+        'config.fast_weight_lr_multiplier': {
+            'cifar10': [0.5],
+            'cifar100': [2.0],
+            'imagenet': [2.0],
+            'places365': [0.5],
+        },
+        'config.model.transformer.random_sign_init': {
+            'cifar10': [-0.5],
+            'cifar100': [-0.5],
+            'imagenet': [-0.5],
+            'places365': [0.5],
+        },
+    }
+  elif model == 'Det':
+    return {
+        'cifar10': [0.01],
+        'cifar100': [0.001],
+        'imagenet': [0.01],
+        'places365': [0.01],
+    }

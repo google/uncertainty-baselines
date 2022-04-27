@@ -70,8 +70,7 @@ def create_bert_utterance_features_fn(bert_preprocess_model: tf.keras.Model):
     """Converts utterances into features for BERT embedding."""
     features = []
     for key in [USR_UTT_RAW_NAME, SYS_UTT_RAW_NAME]:
-      features_by_step = bert_preprocess_model(
-          tf.unstack(inputs[key], axis=1))
+      features_by_step = bert_preprocess_model(tf.unstack(inputs[key], axis=1))
       merged_features = _merge_utterance_features(features_by_step)
       features.append(merged_features)
     return features
@@ -86,12 +85,14 @@ class DataPreprocessor:
                encoder_feature_fn: Any,
                decoder_feature_fn: Any,
                num_states: int,
-               labeled_dialog_turn_ids: Optional[tf.Tensor] = None):
+               labeled_dialog_turn_ids: Optional[tf.Tensor] = None,
+               in_domains: Optional[tf.Tensor] = None):
     self._encoder_feature_fn = encoder_feature_fn
     self._decoder_feature_fn = decoder_feature_fn
 
     self._num_states = num_states
     self._labeled_dialog_turn_ids = labeled_dialog_turn_ids
+    self._in_domains = in_domains
 
   def create_feature_and_label(self, inputs: tf.Tensor):
     """Creates the features and labels for training and evaluating."""
@@ -102,17 +103,26 @@ class DataPreprocessor:
     if self._labeled_dialog_turn_ids is None or DIAL_TURN_ID_NAME not in inputs:
       label_mask = tf.sign(label_id)
     else:
-      label_mask = utils.value_in_tensor(inputs[DIAL_TURN_ID_NAME],
-                                         self._labeled_dialog_turn_ids)
+      label_mask = tf.cast(
+          utils.value_in_tensor(inputs[DIAL_TURN_ID_NAME],
+                                self._labeled_dialog_turn_ids),
+          dtype=tf.int32)
 
     initial_state = tf.zeros_like(
         tf.tile(label_id[:, :1], [1, self._num_states]), dtype=tf.float32)
     initial_sample = tf.ones_like(
         tf.tile(label_id[:, :1], [1, self._num_states]), dtype=tf.float32)
 
+    domain = inputs[DOMAIN_LABEL_NAME]
+    if self._in_domains is not None:
+      ind_mask = tf.cast(
+          utils.value_in_tensor(domain, self._in_domains), dtype=tf.int32)
+    else:
+      ind_mask = None
+
     return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
-            label_id, label_mask, initial_state, initial_sample,
-            inputs[DOMAIN_LABEL_NAME])
+            label_id, label_mask, initial_state, initial_sample, (domain,
+                                                                  ind_mask))
 
 
 def get_full_dataset_outputs(dataset_builder: base.BaseDataset) -> tf.Tensor:

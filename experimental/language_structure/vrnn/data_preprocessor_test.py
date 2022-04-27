@@ -110,7 +110,9 @@ class DataPreprocessorTest(parameterized.TestCase):
     dataset = dataset.map(preprocessor.create_feature_and_label)
     (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2, label,
      label_mask, initial_state, initial_sample,
-     domain_label) = more_itertools.first(dataset)
+     domains) = more_itertools.first(dataset)
+
+    domain_label, _ = domains
 
     for inputs in [
         encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2
@@ -152,6 +154,31 @@ class DataPreprocessorTest(parameterized.TestCase):
           self.assertEqual(val, 1)
         else:
           self.assertEqual(val, 0)
+
+  @parameterized.named_parameters(('sgd', 'sgd'))
+  def test_in_domain_mask(self, dataset_name):
+    in_domains = [2, 3]
+    num_states = data_utils.get_dataset_num_latent_states(dataset_name)
+
+    encoder_feature_fn = data_preprocessor.create_utterance_features
+    decoder_feature_fn = data_preprocessor.create_utterance_features
+    preprocessor = data_preprocessor.DataPreprocessor(
+        encoder_feature_fn,
+        decoder_feature_fn,
+        num_states,
+        in_domains=tf.constant(in_domains))
+
+    dataset = self._load_dataset(dataset_name)
+    dataset = dataset.map(preprocessor.create_feature_and_label)
+    (_, _, _, _, _, _, _, _, domains) = more_itertools.first(dataset)
+
+    domain_label_id, ind_mask = domains
+    for domain_label, mask in zip(domain_label_id.numpy(), ind_mask.numpy()):
+      for l, m in zip(domain_label, mask):
+        if l in in_domains:
+          self.assertEqual(m, 1)
+        else:
+          self.assertEqual(m, 0)
 
 
 if __name__ == '__main__':

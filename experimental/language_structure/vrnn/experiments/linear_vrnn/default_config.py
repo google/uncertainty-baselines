@@ -127,6 +127,8 @@ def get_config(dataset: str,
   config.dataset = dataset
   config.dataset_dir = data_utils.get_dataset_dir(dataset)
 
+  config.domain_adaptation = False
+
   config.train_epochs = 10
   config.train_batch_size = 16
   config.eval_batch_size = 16

@@ -379,7 +379,7 @@ def process_tuned_results(
 
   if relevant_metrics is None:
     relevant_metrics = default_selected_metrics()
-  relevant_metrics = list(relevant_metrics)
+  relevant_metrics = [m for m in relevant_metrics if m in df.columns]
 
   df = df.groupby([_MODEL_COL,
                    _DATASET_COL])[relevant_metrics].mean().reset_index()

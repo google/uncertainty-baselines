@@ -255,7 +255,7 @@ def get_margin_scores(logits, masks):
 
   # Lower margin means higher uncertainty, so we invert the scores.
   # Then higer margin score means higher uncertainty.
-  margin_scores = -margins
+  margin_scores = 1.0 - margins
   margin_scores = jnp.where(masks, margin_scores, NINF_SCORE)
 
   return margin_scores
@@ -275,7 +275,7 @@ def get_msp_scores(logits, masks):
   max_probs = jnp.max(probs, axis=-1)
 
   # High max prob means low uncertainty, so we invert the value.
-  msp_scores = -max_probs
+  msp_scores = 1.0 - max_probs
   msp_scores = jnp.where(masks, msp_scores, NINF_SCORE)
 
   return msp_scores
@@ -384,8 +384,8 @@ def get_density_scores(*,
   return scores
 
 
-def power_score_acquisition(scores, acquisition_batch_size, beta, rng):
-  """Power method for batch selection https://arxiv.org/abs/2106.12059."""
+def stochastic_score_acquisition(scores, acquisition_batch_size, beta, rng):
+  """Stochastic acquisition method for batch selection https://arxiv.org/abs/2106.12059."""
   noise = jax.random.gumbel(rng, [len(scores)])
   noised_scores = scores + noise / beta
 
@@ -393,7 +393,7 @@ def power_score_acquisition(scores, acquisition_batch_size, beta, rng):
       noised_scores, acquisition_batch_size)
   selected_scores = scores[selected_indices]
   logging.info(msg=f'selected_noised_scores = {selected_noised_scores}; '
-                   f'selected_scores = {selected_scores}')
+               f'selected_scores = {selected_scores}')
 
   return selected_scores, selected_indices
 
@@ -435,8 +435,8 @@ def select_acquisition_batch_indices(*,
     assert rng is not None, ('rng should not be None if power acquisition is '
                              'used.')
     beta = 1
-    selected_scores, selected_ids = power_score_acquisition(
-        scores, acquisition_batch_size, beta, rng)
+    selected_scores, selected_ids = stochastic_score_acquisition(
+        jnp.log(scores), acquisition_batch_size, beta, rng)
     selected_ids = selected_ids.tolist()
     selected_scores = selected_scores.tolist()
   else:

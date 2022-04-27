@@ -29,6 +29,7 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import batchensemble  # local file import from baselines.jft
 import batchensemble_utils  # local file import from baselines.jft
+import checkpoint_utils  # local file import from baselines.jft
 import test_utils  # local file import from baselines.jft
 
 flags.adopt_module_key_flags(batchensemble)
@@ -86,27 +87,50 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
                                rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 611.4291, 580.2454969618055),
-      ('imagenet2012', 'token', None, 551.31506, 657.0848659939236),
-      ('imagenet2012', 'gap', 2, 617.892, 595.8379313151041),
-      ('imagenet2012', 'gap', None, 591.90234, 591.7898356119791),
+      ('imagenet2012', 'token', 2, 611.4291, 580.2454969618055, False),
+      ('imagenet2012', 'token', 2, 611.4291, 580.2454969618055, True),
+      ('imagenet2012', 'token', None, 551.31506, 657.0848659939236, False),
+      ('imagenet2012', 'gap', 2, 617.892, 595.8379313151041, False),
+      ('imagenet2012', 'gap', None, 591.90234, 591.7898356119791, False),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, dataset_name, classifier,
                                 representation_size, correct_train_loss,
-                                correct_val_loss):
+                                correct_val_loss, simulate_failure):
+    data_dir = self.data_dir
     config = get_config(
         dataset_name=dataset_name,
         classifier=classifier,
         representation_size=representation_size)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
-    config.dataset_dir = self.data_dir
+    config.dataset_dir = data_dir
     num_examples = config.batch_size * config.total_steps
 
-    # Check for any errors.
-    with tfds.testing.mock_data(
-        num_examples=num_examples, data_dir=self.data_dir):
-      train_loss, val_loss, _ = batchensemble.main(config, output_dir)
+    if not simulate_failure:
+      # Check for any errors.
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
+        # TODO(dusenberrymw): Test the fewshot results once deterministic.
+        train_loss, val_loss, _ = batchensemble.main(config, output_dir)
+    else:
+      # Check for the ability to restart from a previous checkpoint (after
+      # failure, etc.).
+      # NOTE: Use this flag to simulate failing at a certain step.
+      config.testing_failure_step = config.total_steps - 1
+      config.checkpoint_steps = config.testing_failure_step
+      config.keep_checkpoint_steps = config.checkpoint_steps
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
+        batchensemble.main(config, output_dir)
+
+      checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
+      self.assertTrue(os.path.exists(checkpoint_path))
+      checkpoint = checkpoint_utils.load_checkpoint(None, checkpoint_path)
+      self.assertEqual(
+          int(checkpoint['opt']['state']['step']), config.testing_failure_step)
+
+      # This should resume from the failed step.
+      del config.testing_failure_step
+      with tfds.testing.mock_data(num_examples=num_examples, data_dir=data_dir):
+        train_loss, val_loss, _ = batchensemble.main(config, output_dir)
 
     # Check for reproducibility.
     logging.info('(train_loss, val_loss) = %s, %s', train_loss, val_loss['val'])

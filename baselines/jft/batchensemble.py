@@ -674,6 +674,10 @@ def main(config, output_dir):
 
     if config.get('only_eval', False):
       break
+    elif config.get('testing_failure_step'):
+      # Break early to simulate infra failures in test cases.
+      if config.testing_failure_step == step:
+        break
 
   write_note(f'Done!\n{chrono.note}')
   pool.close()

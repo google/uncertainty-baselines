@@ -174,10 +174,12 @@ def get_metric_category(metric: str) -> MetricCategory:
 
 def is_higher_better(metric: str) -> bool:
   """Returns True if the metric is to be maximized (e.g., precision)."""
-  maximized_metrics = ['prec@1', 'accuracy', 'auc', 'auroc', 'anchor_accuracy']
+  maximized_metrics = [
+      'prec@1', 'accuracy', 'auc', 'auroc', 'anchor_accuracy', 'accuracy_pmk'
+  ]
   minimized_metrics = [
       'loss', 'likelihood', 'ece', 'nll', 'brier', 'mce', 'relative_mce',
-      'accuracy_drop', 'accuracy_pmk'
+      'accuracy_drop'
   ]
   base_metric = get_base_metric(metric)
   if base_metric in maximized_metrics or 'shot' in base_metric:

@@ -123,7 +123,7 @@ class ColabUtilsTest(parameterized.TestCase):
       ('imagenet_c/nll/mean', False),
       ('imagenet_c/mce', False),
       ('imagenet_c/relative_mce', False),
-      ('imagenet_vid_robust/accuracy_pmk', False),
+      ('imagenet_vid_robust/accuracy_pmk', True),
       ('imagenet_vid_robust/accuracy_drop', False),
       ('imagenet_vid_robust/anchor_accuracy', True),
       ('1shot_prec@1', True),

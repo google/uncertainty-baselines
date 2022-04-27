@@ -43,16 +43,18 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 65.89198, 70.65269470214844, 0.56, False),
-      ('imagenet2012', 'token', 2, 65.89198, 70.65269470214844, 0.56, True),
-      ('imagenet2012', 'token', None, 9.569044, 11.68548117743598, 1.11, False),
-      ('imagenet2012', 'gap', 2, 65.891975, 70.65279981825087, 1.00, False),
-      ('imagenet2012', 'gap', None, 27.400314, 96.92751587761774, 1.56, False),
-      ('imagenet2012', 'gap', None, 27.400314, 96.92751587761774, 1.56, True),
+      ('imagenet2012', 'token', 2, None, 65.89198, 70.6526947021, 0.56, False),
+      ('imagenet2012', 'token', 2, None, 65.89198, 70.65269470218, 0.56, True),
+      ('imagenet2012', 'token', 2, 0.999, 65.89198, 70.652694702, 0.56, False),
+      ('imagenet2012', 'token', 2, -1, 65.89198, 70.65269470214, 0.56, False),
+      ('imagenet2012', 'token', None, None, 9.569044, 11.6854811, 1.11, False),
+      ('imagenet2012', 'gap', 2, None, 65.891975, 70.65279981825, 1.00, False),
+      ('imagenet2012', 'gap', None, None, 27.400314, 96.92751587, 1.56, False),
+      ('imagenet2012', 'gap', None, None, 27.400314, 96.927515877, 1.56, True),
   )
   @flagsaver.flagsaver
   def test_sngp_script(self, dataset_name, classifier, representation_size,
-                       correct_train_loss, correct_val_loss,
+                       covmat_momentum, correct_train_loss, correct_val_loss,
                        correct_fewshot_acc_sum, simulate_failure):
     data_dir = self.data_dir
     config = test_utils.get_config(
@@ -61,6 +63,8 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
         representation_size=representation_size,
         use_sngp=True,
         use_gp_layer=True)
+    if covmat_momentum is not None:
+      config.gp_layer = {'covmat_momentum': covmat_momentum}
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = data_dir
     num_examples = config.batch_size * config.total_steps
@@ -97,10 +101,18 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
-    np.testing.assert_allclose(train_loss, correct_train_loss,
-                               atol=0.025, rtol=0.3)
-    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
-                               atol=0.02, rtol=0.3)
+    np.testing.assert_allclose(
+        train_loss,
+        correct_train_loss,
+        #atol=0.02, rtol=0.3)
+        rtol=1e-06,
+        atol=1e-06)
+    np.testing.assert_allclose(
+        val_loss['val'],
+        correct_val_loss,
+        #atol=0.02, rtol=0.3)
+        rtol=1e-06,
+        atol=1e-06)
 
   @parameterized.parameters(
       ('imagenet2012', 'token', None, True, 29.3086, 17.3351, 0.67, 'imagenet'),

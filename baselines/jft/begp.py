@@ -16,7 +16,6 @@
 """BatchEnsemble of GP version of Vision Transformer."""
 
 import functools
-import itertools
 import multiprocessing
 import os
 
@@ -140,10 +139,6 @@ def main(config, output_dir):
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=config.get('data_dir'))
-
-  # Start prefetching already.
-  train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
 
@@ -536,8 +531,10 @@ def main(config, output_dir):
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  logging.info('first_step = %s', first_step)
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
+
   chrono = train_utils.Chrono(
       first_step, total_steps, batch_size, accumulated_train_time)
 
@@ -548,21 +545,7 @@ def main(config, output_dir):
       # problems and assure we get similar performance in every run.
       logdir=output_dir, first_profile=first_step + 10)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
-  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
-  # necessary for TPUs.
-  lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
-
-  # Prepare the precision matrix resetting schedule, and pre-fetch it to device.
-  reset_steps = steps_per_epoch * 1
-  reset_covmat_fn = lambda step: float(step % reset_steps == 0)
-  reset_covmat_iter = train_utils.prefetch_scalar(
-      map(reset_covmat_fn, range(first_step, total_steps)),
-      nprefetch=config.get('prefetch_to_device', 1))
-
+  # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax.jax_utils.replicate(opt_cpu)
   states_repl = flax.jax_utils.replicate(states_cpu)
@@ -576,6 +559,36 @@ def main(config, output_dir):
 
   checkpoint_writer = None
 
+  # Make sure log_eval_steps is same as steps_per_epoch. This is because
+  # the precision matrix needs to be updated fully (at the end of each epoch)
+  # when eval takes place.
+  log_eval_steps = config.log_eval_steps
+  if use_gp_layer:
+    log_eval_steps = max(steps_per_epoch, 2)
+
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+  # Prepare the precision matrix resetting schedule.
+  reset_steps = steps_per_epoch * 1
+  reset_covmat_fn = lambda step: float(step % reset_steps == 0)
+
+  # Prefetch all iterators, starting at the current first step.
+  if first_step > 0:
+    write_note('Advancing the dataset after resuming from a checkpoint...')
+    # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+    train_ds = train_ds.skip(first_step)
+
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
+  reset_covmat_iter = train_utils.prefetch_scalar(
+      map(reset_covmat_fn, range(first_step, total_steps)),
+      nprefetch=config.get('prefetch_to_device', 1))
+
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
@@ -583,26 +596,11 @@ def main(config, output_dir):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  logging.info('first_step = %s', first_step)
-  # Make sure log_eval_steps is same as steps_per_epoch. This is because
-  # the precision matrix needs to be updated fully (at the end of each epoch)
-  # when eval takes place.
-  log_eval_steps = config.log_eval_steps
-  if use_gp_layer:
-    log_eval_steps = max(steps_per_epoch, 2)
-  # Advance the iterators if we are restarting from an earlier checkpoint.
-  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
-  if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
-    lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
-
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl, reset_covmat_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter,
-      reset_covmat_iter):
-    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
+      reset_covmat_repl = next(reset_covmat_iter)
       if not config.get('only_eval', False):
         opt_repl, states_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,

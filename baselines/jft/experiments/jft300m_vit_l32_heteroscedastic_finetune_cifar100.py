@@ -60,7 +60,7 @@ def get_config():
   config.ood_datasets = ['cifar10', 'svhn_cropped']
   config.ood_num_classes = [10, 10]
   config.ood_split = 'test'
-  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha']
+  config.ood_methods = ['msp', 'entropy', 'maha', 'rmaha', 'mlogit']
   pp_eval_ood = []
   for num_classes in config.ood_num_classes:
     if num_classes > config.num_classes:

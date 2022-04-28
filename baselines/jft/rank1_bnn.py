@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BatchEnsemble Vision Transformer."""
+"""Rank-1 BNN Vision Transformer."""
 
 import functools
 import multiprocessing
 import os
+import re
+from typing import Any, Callable, Iterable, Mapping
 
 from absl import app
 from absl import flags
@@ -32,8 +34,8 @@ import jax.numpy as jnp
 import ml_collections.config_flags
 import numpy as np
 import robustness_metrics as rm
-
 import tensorflow as tf
+import tensorflow_probability.substrates.jax as tfp
 import uncertainty_baselines as ub
 import batchensemble_utils  # local file import from baselines.jft
 import checkpoint_utils  # local file import from baselines.jft
@@ -57,6 +59,160 @@ flags.DEFINE_string('tpu', None,
                     'Unused. Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
+
+DType = type(jnp.float32)
+InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
+Params = Mapping[str, Any]
+
+
+def _tree_map_with_pattern(f, tree, regex_patterns, *rest, is_leaf=None):
+  """Performs a JAX-style tree_map with filtering based on regex rules.
+
+  Args:
+    f: A function that takes in `1 + len(rest)` arguments, to be applied at the
+      corresponding leaves of the pytrees that match the pattern.
+    tree: A pytree to be mapped over, with each leaf providing the first
+      positional argument to ``f``. The top level should be a dict.
+    regex_patterns: A list of regex pattern used for variable name matching
+      based on the flattened path. For variables with a matching name, the value
+      is replaced by the output of the `f` applied to the value of the variable.
+    *rest: A tuple of pytrees, each of which has the same structure as tree or
+      has tree as a prefix.
+    is_leaf: an optional function that takes the next nested dictionary and
+      nested keys and returns True if the nested dictionary is a leaf (i.e.,
+      should not be flattened further).
+
+  Returns:
+    A tree, transformed by `f` according to the given rules.
+  """
+
+  def _f(path_tuple, v, *r):
+    vname = '/'.join(path_tuple)
+    for pattern in regex_patterns:
+      if re.match(pattern, vname):
+        if jax.process_index() == 0:
+          logging.info('Updating %s due to `%s`', vname, pattern)
+        return f(v, *r)
+    return v
+
+  flat_tree = flax.traverse_util.flatten_dict(tree, is_leaf=is_leaf)
+  keys = flat_tree.keys()
+  values = flat_tree.values()
+  rest_values = [flax.traverse_util.flatten_dict(r).values() for r in rest]
+  updated_flat_tree = {
+      k: _f(k, v, *r) for k, v, *r in zip(keys, values, *rest_values)
+  }
+  updated_tree = flax.traverse_util.unflatten_dict(updated_flat_tree)
+  return updated_tree
+
+
+def _create_key_tree(tree, key, is_leaf=None):
+  """Create a new tree of random keys with the same structure as `tree`."""
+  flat_tree = flax.traverse_util.flatten_dict(tree, is_leaf=is_leaf)
+  rng_keys = jax.random.split(key, len(flat_tree.keys()))
+  flat_key_tree = {k: r for k, r in zip(flat_tree.keys(), rng_keys)}
+  key_tree = flax.traverse_util.unflatten_dict(flat_key_tree)
+  return key_tree
+
+
+def _pointwise_to_loc_scale(x, key):
+  """Convert a point value x into the parameters for a location-scale dist."""
+  loc = x
+  # Initialize the unconstrained scale params such that after a softplus the
+  # value would be close to zero.
+  mean = -3.
+  std = 0.1
+  unconstrained_scale = mean + std * jax.random.truncated_normal(
+      key, lower=-2, upper=2, shape=x.shape)
+  params = {'loc': loc, 'unconstrained_scale': unconstrained_scale}
+  return params
+
+
+def _sample_mean_field_gaussian(dist_params, key, eps=1e-8):
+  assert isinstance(dist_params, dict), dist_params
+  loc = dist_params['loc']
+  unconstrained_scale = dist_params['unconstrained_scale']
+  scale = jax.nn.softplus(unconstrained_scale) + eps
+  return loc + scale * jax.random.normal(key=key, shape=loc.shape)
+
+
+def _compute_gaussian_kl_divergence(dist_params,
+                                    prior_mean,
+                                    prior_std,
+                                    eps=1e-8):
+  """Computes the KL divergence between Gaussian posterior and prior dists."""
+  assert isinstance(dist_params, dict), dist_params
+  loc = dist_params['loc']
+  unconstrained_scale = dist_params['unconstrained_scale']
+  scale = jax.nn.softplus(unconstrained_scale) + eps
+  posterior_dist = tfp.distributions.Normal(loc, scale)
+  prior_dist = tfp.distributions.Normal(prior_mean, prior_std)
+  kl = jnp.sum(tfp.distributions.kl_divergence(posterior_dist, prior_dist))
+  return kl
+
+
+def _get_rank1_params(params, rank1_regex_patterns=None):
+  """Returns a list containing only the rank-1 parameter subtrees."""
+  if not rank1_regex_patterns:
+    rank1_regex_patterns = ['.*fast_weight.*']
+
+  def is_rank1(prefix):
+    path = '/'.join(prefix)
+    return any(re.match(pattern, path) for pattern in rank1_regex_patterns)
+
+  def is_leaf(prefix, xs):
+    del xs
+    return is_rank1(prefix)
+
+  flat_params = flax.traverse_util.flatten_dict(params, is_leaf=is_leaf)
+  filtered_flat_params = [v for k, v, in flat_params.items() if is_rank1(k)]
+  return filtered_flat_params
+
+
+def init_gaussian_rank1(params, key, rank1_regex_patterns=None):
+  """Initializes the rank-1 vectors as parameters for mean-field Gaussians."""
+  if not rank1_regex_patterns:
+    rank1_regex_patterns = ['.*fast_weight.*']
+  key_tree = _create_key_tree(params, key)
+  return _tree_map_with_pattern(_pointwise_to_loc_scale, params,
+                                rank1_regex_patterns, key_tree)
+
+
+def sample_gaussian_rank1(params, key, rank1_regex_patterns=None):
+  """Samples the rank-1 mean-field Gaussians to yield sampled parameters."""
+  if not rank1_regex_patterns:
+    rank1_regex_patterns = ['.*fast_weight.*']
+
+  def is_leaf(prefix, xs):
+    del xs
+    path = '/'.join(prefix)
+    return any(re.match(pattern, path) for pattern in rank1_regex_patterns)
+
+  key_tree = _create_key_tree(params, key, is_leaf=is_leaf)
+  return _tree_map_with_pattern(
+      _sample_mean_field_gaussian,
+      params,
+      rank1_regex_patterns,
+      key_tree,
+      is_leaf=is_leaf)
+
+
+def gaussian_rank1_kl_divergence(params,
+                                 prior_mean,
+                                 prior_std,
+                                 rank1_regex_patterns=None):
+  """Computes the KL(q||p) between rank-1 Gaussian posterior & prior dists."""
+  if not rank1_regex_patterns:
+    rank1_regex_patterns = ['.*fast_weight.*']
+  rank1_params = _get_rank1_params(params, rank1_regex_patterns)
+
+  kls = []
+  for dist_params in rank1_params:
+    kls.append(
+        _compute_gaussian_kl_divergence(
+            dist_params, prior_mean=prior_mean, prior_std=prior_std))
+  kl = jnp.sum(jnp.asarray(kls))
+  return kl
 
 
 def main(config, output_dir):
@@ -241,6 +397,7 @@ def main(config, output_dir):
   model = ub.models.vision_transformer_be(
       num_classes=config.num_classes, **config.model)
   ens_size = config.model.transformer.ens_size
+  rank1_regex_patterns = ['.*fast_weight.*']
 
   # We want all parameters to be created in host RAM, not on any device, they'll
   # be sent there later as needed, otherwise we already encountered two
@@ -250,7 +407,8 @@ def main(config, output_dir):
     image_size = tuple(train_ds.element_spec['image'].shape[2:])
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
-    params = flax.core.unfreeze(model.init(rng, dummy_input,
+    init_rng, rank1_init_rng = jax.random.split(rng)
+    params = flax.core.unfreeze(model.init(init_rng, dummy_input,
                                            train=False))['params']
 
     # Set bias in the head to a low value, such that loss is small initially.
@@ -262,6 +420,11 @@ def main(config, output_dir):
       params['batchensemble_head']['kernel'] = jnp.full_like(
           params['batchensemble_head']['kernel'], 0)
 
+    # Initialize the rank-1 weights as parameters for a mean-field Gaussian
+    # variational posterior.
+    params = init_gaussian_rank1(
+        params, rank1_init_rng, rank1_regex_patterns=rank1_regex_patterns)
+
     return params
 
   rng, rng_init = jax.random.split(rng)
@@ -272,72 +435,112 @@ def main(config, output_dir):
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 
+  # TODO(dusenberrymw): Update this to not require replication for params or
+  # rngs.
   @functools.partial(jax.pmap, axis_name='batch')
-  def evaluation_fn(params, images, labels, mask):
+  def evaluation_fn(params, images, labels, mask, rng):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    tiled_logits, out = model.apply({'params': flax.core.freeze(params)},
-                                    images,
-                                    train=False)
-
     label_indices = config.get('label_indices')
     logging.info('mask %s, label_indices %s', mask, label_indices)
-    if label_indices:
-      tiled_logits = tiled_logits[:, label_indices]
 
-    loss_name = config.get('loss', 'sigmoid_xent')
+    def apply_model(apply_rng):
+      # Sample rank-1 parameter values from the variational posteriors.
+      sampled_params = sample_gaussian_rank1(
+          params, apply_rng, rank1_regex_patterns=rank1_regex_patterns)
+
+      tiled_logits, out = model.apply(
+          {'params': flax.core.freeze(sampled_params)}, images, train=False)
+
+      if label_indices:
+        tiled_logits = tiled_logits[:, label_indices]
+
+      # Both are [ens_size, batch_size, hidden_size].
+      ens_logits = jnp.asarray(jnp.split(tiled_logits, ens_size))
+      ens_pre_logits = jnp.asarray(jnp.split(out['pre_logits'], ens_size))
+      return ens_logits, ens_pre_logits
+
+    # Vmap over a number of samples from the rank-1 variational distributions.
+    # Outputs are [eval_samples, ens_size, ...]. Collapse first two dimensions.
+    apply_rngs = jax.random.split(rng, num=config.eval_samples)
+    (sampled_ens_logits, sampled_ens_pre_logits) = jax.vmap(apply_model)(
+        apply_rngs)
+    all_logits = jnp.reshape(sampled_ens_logits,
+                             [-1] + list(sampled_ens_logits.shape[2:]))
+    all_pre_logits = jnp.reshape(sampled_ens_pre_logits,
+                                 [-1] + list(sampled_ens_pre_logits.shape[2:]))
+    # Transpose to [batch_size, hidden_size, ens_size*eval_samples]
+    all_pre_logits = jnp.transpose(all_pre_logits, axes=[1, 2, 0])
+
     # TODO(dusenberrymw,zmariet): Clean up and generalize this.
+    loss_name = config.get('loss', 'sigmoid_xent')
     if loss_name == 'sigmoid_xent':
-      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+      logits = batchensemble_utils.log_average_sigmoid_probs(all_logits)
     else:  # softmax
-      ens_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
-    # pre_logits [batch_size, hidden_size, ens_size]
-    pre_logits = jnp.transpose(
-        jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
+      logits = batchensemble_utils.log_average_softmax_probs(all_logits)
 
     losses = getattr(train_utils, loss_name)(
-        logits=ens_logits,
-        labels=labels[:, :(len(label_indices) if label_indices
-                           else config.num_classes)],
+        logits=logits,
+        labels=labels[:, :(
+            len(label_indices) if label_indices else config.num_classes)],
         reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
-    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_idx = jnp.argmax(logits, axis=1)
     top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
     ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
     n = jax.lax.psum(mask, axis_name='batch')
 
-    metric_args = jax.lax.all_gather(
-        [ens_logits, labels, pre_logits, mask],
-        axis_name='batch')
+    metric_args = jax.lax.all_gather([logits, labels, all_pre_logits, mask],
+                                     axis_name='batch')
     return ncorrect, loss, n, metric_args
 
+  # TODO(dusenberrymw): Update this to not require replication for params or
+  # rngs.
   @functools.partial(jax.pmap, axis_name='batch')
-  def cifar_10h_evaluation_fn(params, images, labels, mask):
-    tiled_logits, out = model.apply({'params': flax.core.freeze(params)},
-                                    images,
-                                    train=False)
-    loss_name = config.get('loss', 'softmax_xent')
-    if loss_name == 'sigmoid_xent':
-      ens_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
-    else:  # softmax
-      ens_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(tiled_logits, ens_size)))
-    pre_logits = jnp.concatenate(
-        jnp.split(out['pre_logits'], ens_size), axis=-1)
-
+  def cifar_10h_evaluation_fn(params, images, labels, mask, rng):
     label_indices = config.get('label_indices')
-    if label_indices:
-      ens_logits = ens_logits[:, label_indices]
 
-    losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
-        logits=ens_logits, labels=labels, reduction=False)
+    def apply_model(apply_rng):
+      # Sample rank-1 parameter values from the variational posteriors.
+      sampled_params = sample_gaussian_rank1(
+          params, apply_rng, rank1_regex_patterns=rank1_regex_patterns)
+
+      tiled_logits, out = model.apply(
+          {'params': flax.core.freeze(sampled_params)}, images, train=False)
+
+      if label_indices:
+        tiled_logits = tiled_logits[:, label_indices]
+
+      # Both are [ens_size, batch_size, hidden_size].
+      ens_logits = jnp.asarray(jnp.split(tiled_logits, ens_size))
+      ens_pre_logits = jnp.asarray(jnp.split(out['pre_logits'], ens_size))
+      return ens_logits, ens_pre_logits
+
+    # Vmap over a number of samples from the rank-1 variational distributions.
+    # Outputs are [eval_samples, ens_size, ...]. Collapse first two dimensions.
+    apply_rngs = jax.random.split(rng, num=config.eval_samples)
+    (sampled_ens_logits, sampled_ens_pre_logits) = jax.vmap(apply_model)(
+        apply_rngs)
+    all_logits = jnp.reshape(sampled_ens_logits,
+                             [-1] + list(sampled_ens_logits.shape[2:]))
+    all_pre_logits = jnp.reshape(sampled_ens_pre_logits,
+                                 [-1] + list(sampled_ens_pre_logits.shape[2:]))
+    # Transpose to [batch_size, hidden_size, ens_size*eval_samples]
+    all_pre_logits = jnp.transpose(all_pre_logits, axes=[1, 2, 0])
+
+    # TODO(dusenberrymw,zmariet): Clean up and generalize this.
+    loss_name = config.get('loss', 'sigmoid_xent')
+    if loss_name == 'sigmoid_xent':
+      logits = batchensemble_utils.log_average_sigmoid_probs(all_logits)
+    else:  # softmax
+      logits = batchensemble_utils.log_average_softmax_probs(all_logits)
+
+    losses = getattr(train_utils, loss_name)(
+        logits=logits, labels=labels, reduction=False)
     loss = jax.lax.psum(losses, axis_name='batch')
 
-    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_idx = jnp.argmax(logits, axis=1)
     # Extracts the label at the highest logit index for each image.
     one_hot_labels = jnp.eye(10)[jnp.argmax(labels, axis=1)]
 
@@ -346,25 +549,42 @@ def main(config, output_dir):
     ncorrect = jax.lax.psum(top1_correct, axis_name='batch')
     n = jax.lax.psum(one_hot_labels, axis_name='batch')
 
-    metric_args = jax.lax.all_gather([ens_logits, labels, pre_logits, mask],
+    metric_args = jax.lax.all_gather([logits, labels, all_pre_logits, mask],
                                      axis_name='batch')
     return ncorrect, loss, n, metric_args
 
   # Setup function for computing representation.
+  # TODO(dusenberrymw): Update this to not require replication for params or
+  # rngs.
   @functools.partial(jax.pmap, axis_name='batch')
-  def representation_fn(params, images, labels, mask):
-    # Return shape [batch_size, representation_size * ensemble_size]. During
-    # few-shot eval, a single linear regressor is applied over all dimensions.
-    _, outputs = model.apply({'params': flax.core.freeze(params)},
-                             images,
-                             train=False)
-    representation = outputs[config.fewshot.representation_layer]
-    representation = jnp.concatenate(
-        jnp.split(representation, ens_size), axis=-1)
-    representation = jax.lax.all_gather(representation, 'batch')
+  def representation_fn(params, images, labels, mask, rng):
+
+    def apply_model(apply_rng):
+      # Sample rank-1 parameter values from the variational posteriors.
+      sampled_params = sample_gaussian_rank1(
+          params, apply_rng, rank1_regex_patterns=rank1_regex_patterns)
+
+      _, out = model.apply({'params': flax.core.freeze(sampled_params)},
+                           images,
+                           train=False)
+
+      # Shape: [ens_size, batch_size, hidden_size].
+      representation = out[config.fewshot.representation_layer]
+      representation = jnp.asarray(jnp.split(representation, ens_size))
+      return representation
+
+    # Vmap over a number of samples from the rank-1 variational distributions.
+    apply_rngs = jax.random.split(rng, num=config.eval_samples)
+    # Output is [eval_samples, ens_size, batch_size, hidden_size]. Convert to
+    # [batch_size, hidden_size*eval_samples*ens_size].
+    sampled_representations = jax.vmap(apply_model)(apply_rngs)
+    all_representations = jnp.transpose(sampled_representations, [2, 3, 0, 1])
+    all_representations = jnp.reshape(all_representations,
+                                      [all_representations.shape[0], -1])
+    all_representations = jax.lax.all_gather(all_representations, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
     mask = jax.lax.all_gather(mask, 'batch')
-    return representation, labels, mask
+    return all_representations, labels, mask
 
   opt_name = config.get('optim_name')
   write_note(f'Initializing {opt_name} optimizer...')
@@ -380,15 +600,28 @@ def main(config, output_dir):
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
   def batch_loss_fn(params, images, labels, rng):
-    logits, _ = model.apply({'params': flax.core.freeze(params)},
+    sample_rng, train_rng = jax.random.split(rng)
+    # Sample rank-1 parameter values from the variational posteriors.
+    sampled_params = sample_gaussian_rank1(
+        params, sample_rng, rank1_regex_patterns=rank1_regex_patterns)
+    logits, _ = model.apply({'params': flax.core.freeze(sampled_params)},
                             images,
                             train=True,
-                            rngs={'dropout': rng})
+                            rngs={'dropout': train_rng})
     labels = jnp.tile(labels, (ens_size, 1))
     loss_fn = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
-    loss = jnp.mean(loss_fn(logits=logits, labels=labels))
+    nll = jnp.mean(loss_fn(logits=logits, labels=labels))
+    kl = gaussian_rank1_kl_divergence(
+        params,
+        prior_mean=config.prior_mean,
+        prior_std=config.prior_std,
+        rank1_regex_patterns=rank1_regex_patterns)
+    loss = nll + kl
     return loss, dict()
 
+  # TODO(dusenberrymw): Include num_samples for the posterior sampling.
+  # TODO(dusenberrymw): Update this to not require replication for params or
+  # rngs.
   @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
   def update_fn(opt, rng, lr, images, labels):
     return batchensemble_utils.update_fn_be(
@@ -402,20 +635,27 @@ def main(config, output_dir):
         max_grad_norm_global=config.get('grad_clip_norm', None),
         fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
-  reint_params = ('batchensemble_head/bias',
-                  'batchensemble_head/kernel',
-                  'batchensemble_head/fast_weight_alpha',
-                  'batchensemble_head/fast_weight_gamma')
+  reinit_params = ('batchensemble_head/bias', 'batchensemble_head/kernel',
+                   'batchensemble_head/fast_weight_alpha',
+                   'batchensemble_head/fast_weight_gamma')
   if config.get('only_eval', False) or not config.get('reint_head', True):
-    reint_params = []
+    reinit_params = []
+
+  rng, train_rng = jax.random.split(rng)
+  # TODO(dusenberrymw): Fix the existing handling of keys.
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
-      train_loop_rngs=rng,
+      train_loop_rngs=train_rng,
       save_checkpoint_path=save_checkpoint_path,
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=None,
-      default_reinit_params=reint_params,
+      default_reinit_params=reinit_params,
       config=config)
+
+  # TODO(dusenberrymw): Remove manual replication of keys.
+  if isinstance(checkpoint_data.train_loop_rngs, dict):
+    assert list(checkpoint_data.train_loop_rngs.keys()) == ['dropout']
+    checkpoint_data.train_loop_rngs = checkpoint_data.train_loop_rngs['dropout']
   train_loop_rngs = checkpoint_data.train_loop_rngs
   opt_cpu = checkpoint_data.optimizer
 
@@ -427,15 +667,16 @@ def main(config, output_dir):
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
 
-  chrono = train_utils.Chrono(
-      first_step, total_steps, batch_size, accumulated_train_time)
+  chrono = train_utils.Chrono(first_step, total_steps, batch_size,
+                              accumulated_train_time)
 
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
       # Create profile after every restart to analyze pre-emption related
       # problems and assure we get similar performance in every run.
-      logdir=output_dir, first_profile=first_step + 10)
+      logdir=output_dir,
+      first_profile=first_step + 10)
 
   # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
@@ -545,14 +786,14 @@ def main(config, output_dir):
         auc_num_bins = config.get('auc_num_bins', 1000)
         ece = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)
         calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)
-        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.005,
-                                                       num_bins=auc_num_bins)
-        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.01,
-                                                     num_bins=auc_num_bins)
-        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.02,
-                                                     num_bins=auc_num_bins)
-        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(oracle_fraction=0.05,
-                                                     num_bins=auc_num_bins)
+        oc_auc_0_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.005, num_bins=auc_num_bins)
+        oc_auc_1 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.01, num_bins=auc_num_bins)
+        oc_auc_2 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.02, num_bins=auc_num_bins)
+        oc_auc_5 = rm.metrics.OracleCollaborativeAUC(
+            oracle_fraction=0.05, num_bins=auc_num_bins)
         label_diversity = tf.keras.metrics.Mean()
         sample_diversity = tf.keras.metrics.Mean()
         ged = tf.keras.metrics.Mean()
@@ -564,12 +805,20 @@ def main(config, output_dir):
         for batch in val_iter:
           if val_name == 'cifar_10h':
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                cifar_10h_evaluation_fn(opt_repl.target, batch['image'],
-                                        batch['labels'], batch['mask']))
+                cifar_10h_evaluation_fn(
+                    opt_repl.target,
+                    batch['image'],
+                    batch['labels'],
+                    batch['mask'],
+                    rng=train_loop_rngs))
           else:
             batch_ncorrect, batch_losses, batch_n, batch_metric_args = (
-                evaluation_fn(opt_repl.target, batch['image'],
-                              batch['labels'], batch['mask']))
+                evaluation_fn(
+                    opt_repl.target,
+                    batch['image'],
+                    batch['labels'],
+                    batch['mask'],
+                    rng=train_loop_rngs))
           # All results are a replicated array shaped as follows:
           # (local_devices, per_device_batch_size, elem_shape...)
           # with each local device's entry being identical as they got psum'd.
@@ -615,16 +864,16 @@ def main(config, output_dir):
         }
         if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
           val_measurements[f'{val_name}_ece'] = ece.result()['ece']
-          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[
-              'calibration_auc']
-          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[
-              'collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[
-              'collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[
-              'collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[
-              'collaborative_auc']
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result(
+          )['calibration_auc']
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result(
+          )['collaborative_auc']
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result(
+          )['collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h' or val_name == 'imagenet_real':
@@ -646,7 +895,7 @@ def main(config, output_dir):
             ood_ds,
             ood_ds_names,
             config.ood_methods,
-            evaluation_fn,
+            functools.partial(evaluation_fn, rng=train_loop_rngs),
             opt_repl.target,
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
@@ -659,8 +908,8 @@ def main(config, output_dir):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
-        fewshot_results, best_l2 = fewshotter.run_all(opt_repl.target,
-                                                      config.fewshot.datasets)
+        fewshot_results, best_l2 = fewshotter.run_all(
+            opt_repl.target, config.fewshot.datasets, rng=train_loop_rngs)
 
         # TODO(dusenberrymw): Remove this once fewshot.py is updated.
         def make_writer_measure_fn(step):
@@ -689,6 +938,7 @@ def main(config, output_dir):
   # Return final training loss, validation loss, and fewshot results for
   # reproducibility test cases.
   return train_loss, val_loss, fewshot_results
+
 
 if __name__ == '__main__':
   # Adds jax flags to the program.

@@ -23,14 +23,16 @@ def get_config(
     dataset_name,
     classifier,
     representation_size,
+    batch_size=3,
+    total_steps=3,
     use_sngp=False,
     use_gp_layer=False):
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
   config.seed = 0
 
-  config.batch_size = 3
-  config.total_steps = 3
+  config.batch_size = batch_size
+  config.total_steps = total_steps
 
   num_examples = config.batch_size * config.total_steps
 

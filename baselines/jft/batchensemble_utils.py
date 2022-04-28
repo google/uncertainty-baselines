@@ -137,21 +137,17 @@ def tree_rngs_split(rngs, num_splits=2):
   return tuple(slice_rngs(rngs, i) for i in range(num_splits))
 
 
-def update_fn_be(
-    opt: flax.optim.Optimizer,
-    rngs: Mapping[str, jnp.ndarray],
-    lr: jnp.ndarray,
-    images: jnp.ndarray,
-    labels: jnp.ndarray,
-    batch_loss_fn: Callable[..., jnp.ndarray],
-    weight_decay_fn: Optional[Callable[[Any, float], Any]],
-    max_grad_norm_global: Optional[float],
-    fast_weight_lr_multiplier: float):
+def update_fn_be(opt: flax.optim.Optimizer, rng: jnp.ndarray, lr: jnp.ndarray,
+                 images: jnp.ndarray, labels: jnp.ndarray,
+                 batch_loss_fn: Callable[..., jnp.ndarray],
+                 weight_decay_fn: Optional[Callable[[Any, float], Any]],
+                 max_grad_norm_global: Optional[float],
+                 fast_weight_lr_multiplier: float):
   """Updates a model on the given inputs for one step.
 
   Args:
     opt: Flax optimizer used during training.
-    rngs: A random number generator to be passed by stochastic operations.
+    rng: A random number generator to be passed by stochastic operations.
     lr: The learning rate to use in each device.
     images: Array containing the images in a batch.
     labels: Array containing the labels in a batch.
@@ -174,9 +170,10 @@ def update_fn_be(
   """
 
   # If rng is provided: split rng, and return next_rng for the following step.
-  rngs, next_rngs = tree_rngs_split(rngs, num_splits=2)
+  rng, next_rng = jax.random.split(rng)
   (loss, aux), grads = jax.value_and_grad(
-      batch_loss_fn, has_aux=True)(opt.target, images, labels, rngs=rngs)
+      batch_loss_fn, has_aux=True)(
+          opt.target, images, labels, rng=rng)
 
   # Average gradients.
   grads = jax.lax.pmean(grads, axis_name='batch')
@@ -202,7 +199,7 @@ def update_fn_be(
     opt = opt.replace(target=params)
 
   aux['learning_rate'] = lr
-  return opt, next_rngs, aux
+  return opt, next_rng, aux
 
 
 def broadcast_batchensemble_biases(params, be_layers, ensemble_size):
@@ -297,7 +294,7 @@ def create_update_fn(model, config):
   def update_fn(opt, lr, images, labels, rngs):
     return update_fn_be(
         opt=opt,
-        rngs=rngs,
+        rng=rngs,
         lr=lr,
         images=images,
         labels=labels,

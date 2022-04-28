@@ -47,13 +47,13 @@ class CheckpointData:
   fixed_model_states: Optional[Params] = None
 
 
-def _convert_and_recover_bfloat16(x):
-  """Converts to JAX arrays, while correctly loading any bfloat16 arrays."""
+def _recover_bfloat16(x):
+  """Recovers the dtype of any bfloat16 array without making a copy."""
   if hasattr(x, "dtype") and x.dtype.type is np.void:
     assert x.itemsize == 2, "Unknown dtype!"
-    return jnp.array(x.view(jnp.bfloat16))
+    return x.view(jnp.bfloat16)
   else:
-    return jnp.array(x)
+    return x
 
 
 def _recover_tree(keys, values):
@@ -102,7 +102,7 @@ def load_checkpoint(tree, path):
   keys, values = zip(
       *list(np.load(io.BytesIO(data), allow_pickle=False).items()))
   # NOTE: NumPy loses any bfloat16 dtypes when saving, so we recover them here.
-  values = jax.tree_util.tree_map(_convert_and_recover_bfloat16, values)
+  values = jax.tree_util.tree_map(_recover_bfloat16, values)
   if tree:
     treedef = jax.tree_util.tree_structure(tree)
     tree = jax.tree_util.tree_unflatten(treedef, values)
@@ -332,7 +332,7 @@ def restore_from_pretrained_params(init_params, loaded_params,
       zoom = (gs_new / gs_old, gs_new / gs_old, 1)
       posemb_grid = scipy.ndimage.zoom(posemb_grid, zoom, order=1)
       posemb_grid = posemb_grid.reshape(1, gs_new * gs_new, -1)
-      posemb = jnp.array(np.concatenate([posemb_tok, posemb_grid], axis=1))
+      posemb = np.concatenate([posemb_tok, posemb_grid], axis=1)
       restored_params["Transformer"]["posembed_input"]["pos_embedding"] = posemb
 
   return restored_params

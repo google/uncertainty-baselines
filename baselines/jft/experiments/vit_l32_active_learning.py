@@ -38,8 +38,8 @@ def get_config():
   config.initial_training_set_size = 0  # set in sweep
   config.acquisition_batch_size = 0  # set in sweep
   config.early_stopping_patience = 128
-  config.finetune_head_only = True
-  config.power_acquisition = True
+  config.finetune_head_only = False
+  config.power_acquisition = False
 
   # Dataset section
   config.dataset = ''  # set in sweep
@@ -111,7 +111,7 @@ def get_config():
 def get_sweep(hyper):
   """Sweeps over datasets."""
   data_size_mode = 'num_classes/2'
-  acquisition_methods = ['uniform', 'entropy', 'margin', 'msp', 'density']
+  acquisition_methods = ['uniform', 'entropy', 'margin']
   hparam_sweep = sweep_utils.get_hparam_best('Det')
   if data_size_mode == 'tuning':
     hparam_sweep = sweep_utils.get_hparam_sweep('Det')

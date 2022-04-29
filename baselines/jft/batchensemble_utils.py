@@ -264,11 +264,11 @@ def create_batch_loss_fn(model, config):
     The function that updates the model for one step.
   """
 
-  def batch_loss_fn(params, images, labels, rngs):
+  def batch_loss_fn(params, images, labels, rng):
     logits, _ = model.apply({'params': flax.core.freeze(params)},
                             images,
                             train=True,
-                            rngs=rngs)
+                            rngs={'dropout': rng})
     labels = jnp.tile(labels, (config.model.transformer.ens_size, 1))
     loss_fn = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
     loss = jnp.mean(loss_fn(logits=logits, labels=labels))

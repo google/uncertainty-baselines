@@ -393,7 +393,7 @@ def stochastic_score_acquisition(scores, acquisition_batch_size, beta, rng):
       noised_scores, acquisition_batch_size)
   selected_scores = scores[selected_indices]
   logging.info(msg=f'selected_noised_scores = {selected_noised_scores}; '
-               f'selected_scores = {selected_scores}')
+                   f'selected_scores = {selected_scores}')
 
   return selected_scores, selected_indices
 
@@ -418,14 +418,14 @@ def select_acquisition_batch_indices(*,
   Returns:
     a tuple of lists with the ids to be acquired and their scores.
   """
-  scores = np.array(scores.ravel())
-  ids = np.array(ids.ravel())
+  scores = jnp.array(scores.ravel())
+  ids = jnp.array(ids.ravel())
 
   # Ignore already acquired ids
   # TODO(joost,andreas): vectorize this
   ids_list = ids.tolist()
   for ignored_id in ignored_ids:
-    scores[ids_list.index(ignored_id)] = NINF_SCORE
+    scores = scores.at[ids_list.index(ignored_id)].set(NINF_SCORE)
 
   f_ent = scores[scores > NINF_SCORE]
   logging.info(msg=f'Score statistics pool set - '
@@ -435,17 +435,16 @@ def select_acquisition_batch_indices(*,
     assert rng is not None, ('rng should not be None if power acquisition is '
                              'used.')
     beta = 1
-    selected_scores, selected_ids = stochastic_score_acquisition(
+    _, selected_indices = stochastic_score_acquisition(
         jnp.log(scores), acquisition_batch_size, beta, rng)
-    selected_ids = selected_ids.tolist()
-    selected_scores = selected_scores.tolist()
   else:
     # Use top-k otherwise.
-    partitioned_scorers = np.argpartition(-scores, acquisition_batch_size)
-    selected_scores = partitioned_scorers[:acquisition_batch_size]
+    selected_scores, selected_indices = jax.lax.top_k(scores,
+                                                      acquisition_batch_size)
+    logging.info(msg=f'Top-k scores: {selected_scores}')
 
-    selected_ids = ids[selected_scores].tolist()
-    selected_scores = scores[selected_scores].tolist()
+  selected_ids = ids[selected_indices].tolist()
+  selected_scores = scores[selected_indices].tolist()
 
   logging.info(
       msg=f'Data selected - ids: {selected_ids}, with scores: {selected_scores}'
@@ -792,8 +791,6 @@ def main(config, output_dir):
 
   rng, rng_loop = jax.random.split(rng)
   rngs_loop = flax_utils.replicate(rng_loop)
-  if config.model_type == 'batchensemble':
-    rngs_loop = {'dropout': rngs_loop}
 
   # TODO(joost,andreas): double check if below is still necessary
   # (train_split is independent of this)

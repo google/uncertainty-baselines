@@ -515,9 +515,14 @@ def main(argv):
                      metrics['test/auroc'].result())
 
         # record results
-        total_results = {
-            name: metric.result() for name, metric in metrics.items()
-        }
+        total_results = {}
+        for name, metric in metrics.items():
+          try:
+            total_results[name] = metric.result()
+          except tf.errors.InvalidArgumentError:
+            logging.info('Error for metric "%s". Recording 0.', name)
+            total_results[name] = 0
+
         # Metrics from Robustness Metrics (like ECE) will return a dict with a
         # single key/value, instead of a scalar.
         total_results = {

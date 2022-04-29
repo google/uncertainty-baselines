@@ -20,6 +20,7 @@ https://github.com/google-research/vision_transformer.
 """
 
 import collections
+from concurrent.futures import thread
 import dataclasses
 import io
 from typing import Any, Iterable, MutableMapping, Optional
@@ -85,20 +86,68 @@ def _recover_tree(keys, values):
   return tree
 
 
-def load_checkpoint(tree, path):
+def _read_file(path: str, pool_size: int, buf_size: int) -> bytearray:
+  """Reads the contents of a file in parallel, if possible.
+
+  Args:
+    path: A path to a file.
+    pool_size: Number of threads to use to read chunks of the file in parallel,
+      if possible.
+    buf_size: The size of each file chunk to be read in parallel, if possible.
+      Defaults to 128M buffer sizes.
+
+  Returns:
+    The contents of the file.
+  """
+  with gfile.GFile(path, "rb") as f:
+    if f.seekable():
+      read_in_parallel = True
+      num_bufs = f.size() / buf_size
+      logging.debug("num_bufs: %d", num_bufs)
+      data = bytearray(f.size())  # Empty array, to be filled below.
+    else:
+      read_in_parallel = False
+      data = f.read()
+
+  if read_in_parallel:
+
+    # Chunked reading from flax.training.checkpoints.restore_checkpoint.
+    def read_chunk(i):
+      with gfile.GFile(path, "rb") as f:
+        f.seek(i * buf_size)
+        buf = f.read(buf_size)
+        if buf:
+          data[i * buf_size:i * buf_size + len(buf)] = buf
+        return len(buf) / buf_size
+
+    # Fill in the empty `data` array in parallel.
+    pool = thread.ThreadPoolExecutor(pool_size)
+    results = pool.map(read_chunk, range(int(num_bufs) + 1))
+    pool.shutdown(wait=False)
+    logging.debug("results: %s", list(results))
+  return data
+
+
+def load_checkpoint(tree: Optional[Params],
+                    path: str,
+                    pool_size: int = 32,
+                    buf_size: int = 128 << 20) -> Params:
   """Loads JAX pytrees that were stored on disk in a NumPy `.npz` file.
 
   Args:
     tree: Optional JAX pytree to be restored. If None, then the tree will be
       recovered from the naming scheme used within the checkpoint.
     path: A path to the checkpoint.
+    pool_size: Number of threads to use to read chunks of the checkpoint file in
+      parallel, if possible.
+    buf_size: The size of each file chunk to be read in parallel, if possible.
+      Defaults to 128M buffer sizes.
 
   Returns:
     A JAX pytree with the same structure as `tree`, but with the leaf values
     restored from the saved checkpoint.
   """
-  with gfile.GFile(path, "rb") as f:
-    data = f.read()
+  data = _read_file(path, pool_size=pool_size, buf_size=buf_size)
   keys, values = zip(
       *list(np.load(io.BytesIO(data), allow_pickle=False).items()))
   # NOTE: NumPy loses any bfloat16 dtypes when saving, so we recover them here.

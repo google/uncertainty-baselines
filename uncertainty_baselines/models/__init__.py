@@ -91,6 +91,7 @@ try:
   # Try to import Segmenter models.
   from uncertainty_baselines.models.segmenter import SegVit
   from uncertainty_baselines.models.segmenter_be import SegVitBE
+  from uncertainty_baselines.models.segmenter_gp import SegVitGP
 except ImportError:
   logging.warning('Skipped Segmenter models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:

@@ -498,6 +498,14 @@ def main(config, output_dir):
 
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
+  # TODO(zmariet): this should happen as part of `adapt_upstream_architecture`
+  # and be tested as such.
+  adapted_params = batchensemble_utils.maybe_broadcast_batchensemble_biases(
+      opt_cpu.target,
+      be_layers=config.model.transformer.be_layers,
+      ensemble_size=ens_size)
+  opt_cpu = opt_cpu.replace(target=adapted_params)
+
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
   logging.info('first_step = %s', first_step)

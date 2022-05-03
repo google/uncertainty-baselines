@@ -419,6 +419,14 @@ def main(config, output_dir):
   train_loop_rngs = checkpoint_data.train_loop_rngs
   opt_cpu = checkpoint_data.optimizer
 
+  # TODO(zmariet): this should happen as part of `adapt_upstream_architecture`
+  # and be tested as such.
+  adapted_params = batchensemble_utils.maybe_broadcast_batchensemble_biases(
+      opt_cpu.target,
+      be_layers=config.model.transformer.be_layers,
+      ensemble_size=ens_size)
+  opt_cpu = opt_cpu.replace(target=adapted_params)
+
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
   write_note('Kicking off misc stuff...')

@@ -202,7 +202,7 @@ def update_fn_be(opt: flax.optim.Optimizer, rng: jnp.ndarray, lr: jnp.ndarray,
   return opt, next_rng, aux
 
 
-def broadcast_batchensemble_biases(params, be_layers, ensemble_size):
+def maybe_broadcast_batchensemble_biases(params, be_layers, ensemble_size):
   """Tiles BE biases when seeding downstream weights from a deterministic model."""
   for layer in be_layers:
     for block in [0, 1]:

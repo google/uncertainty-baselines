@@ -523,10 +523,11 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
     train_steps_per_epoch[dataset_name] = train_num_examples // batch_size
 
   for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.load(
-        batch_size=test_batch_size)
+    # Set `split_name` to dataset_builder.split in case we want to eval on
+    # `csv` data that is generated as training data. This will be the case
+    # for k-fold cross validation.
     test_num_examples = get_num_examples(
-        dataset_builder, dataset_name, split_name='test')
+        dataset_builder, dataset_name, split_name=dataset_builder.split)
     test_steps_per_eval[dataset_name] = test_num_examples // test_batch_size
 
   return train_datasets, test_datasets, train_steps_per_epoch, test_steps_per_eval

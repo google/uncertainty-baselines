@@ -154,6 +154,10 @@ flags.DEFINE_string(
     'The name of the split to create cross-validation testing data from.')
 
 flags.DEFINE_bool(
+    'train_on_bias_label', False,
+    'Whether to add bias labels (a binary label for whether the model is likely'
+    ' to belong to a minority or tail data group) to the training output.')
+flags.DEFINE_bool(
     'train_on_identity_subgroup_data', False,
     'Whether to add minority examples (CivilCommentsIdentity) to the training'
     ' data.')
@@ -299,6 +303,7 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                                          return_train_split_name=False,
                                          cv_split_name='train',
                                          train_on_identity_subgroup_data=False,
+                                         train_on_bias_label=False,
                                          test_on_identity_subgroup_data=False,
                                          test_on_challenge_data=False,
                                          identity_type_dataset_dir=None,
@@ -306,8 +311,8 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                                          challenge_dataset_dir=None,
                                          **ds_kwargs):
   """Defines train and evaluation datasets."""
-  maybe_get_train_dir = lambda ds_dir: ds_dir if train_dataset_type != 'tfds' else None
-  maybe_get_test_dir = lambda ds_dir: ds_dir if test_dataset_type != 'tfds' else None
+  maybe_get_train_dir = lambda ds_dir: None if train_dataset_type == 'tfds' else ds_dir
+  maybe_get_test_dir = lambda ds_dir: None if test_dataset_type == 'tfds' else ds_dir
 
   def get_identity_dir(name):
     parent_dir = identity_type_dataset_dir if name in IDENTITY_TYPES else identity_specific_dataset_dir
@@ -316,23 +321,45 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   def get_challenge_dir(name):
     return os.path.join(challenge_dataset_dir, f'challenge_eval_{name}')
 
-  if use_cross_validation and train_dataset_type != 'tfds':
+  if use_cross_validation and train_dataset_type == 'tfrecord':
     raise ValueError('Cannot use local data when in cross_validation mode.'
-                     'Please set `train_dataset_type` to "tfds".')
+                     'Please set `train_dataset_type` to "tfds" or "csv".')
 
   # Create training data and optionally cross-validation eval sets.
   train_split_name = 'train'
+  eval_split_name = 'validation'
+
   if use_cross_validation:
-    train_split_name, eval_split_name = make_cv_train_and_eval_splits(
-        num_folds, train_fold_ids, split_name=cv_split_name)
+    cv_train_split_name, cv_eval_split_name = make_cv_train_and_eval_splits(
+        num_folds,
+        train_fold_ids,
+        use_tfds_format=train_dataset_type == 'tfds',
+        split_name=cv_split_name)
+
+    if train_dataset_type == 'csv':
+      # Overwrite `in_dataset_dir` to point to a split-specific directory.
+      in_dataset_dir = os.path.join(in_dataset_dir, cv_train_split_name)
+    elif train_dataset_type == 'tfds':
+      # Update split name to TFDS' reading-instruction format.
+      train_split_name = cv_train_split_name
+      eval_split_name = cv_eval_split_name
+    else:
+      raise ValueError(
+          '`train_dataset_type` must be one of ("csv", "tfds") when'
+          f'use_cross_validation=True. Got {train_dataset_type}.')
+
     cv_eval_dataset_builder = IND_DATA_CLS(
-        split=eval_split_name, dataset_type=train_dataset_type, **ds_kwargs)
+        split=eval_split_name,
+        dataset_type=train_dataset_type,
+        data_dir=maybe_get_train_dir(in_dataset_dir),
+        **ds_kwargs)
 
   train_dataset_builder = IND_DATA_CLS(
       split=train_split_name,
       is_training=True,
       dataset_type=train_dataset_type,
       data_dir=maybe_get_train_dir(in_dataset_dir),
+      bias_labels=train_on_bias_label,
       **ds_kwargs)
 
   # Optionally, add identity specific examples to training data.
@@ -384,6 +411,7 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
           split='test',
           dataset_type='csv',
           data_dir=identity_data_dir,
+          bias_labels=train_on_bias_label,
           **ds_kwargs)
 
   # Gather training dataset builders into dictionaries.
@@ -412,14 +440,29 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
 
 
 def make_prediction_dataset_builders(add_identity_datasets,
-                                     use_cross_validation,
                                      identity_dataset_dir,
+                                     add_cross_validation_datasets,
+                                     cv_dataset_dir,
                                      num_folds,
                                      train_fold_ids,
+                                     cv_dataset_type='tfds',
                                      cv_split_name='train',
                                      **ds_kwargs):
   """Adds additional test datasets for prediction mode."""
   get_identity_dir = lambda name: os.path.join(identity_dataset_dir, name)
+  maybe_get_cv_dir = (
+      lambda name: None  # pylint:disable=g-long-lambda
+      if cv_dataset_type == 'tfds' else os.path.join(cv_dataset_dir, name))
+
+  def _standardize_split_name(name):
+    """Maps split name to a canonical name (e.g., 'train_0_1' to 'train')."""
+    for standard_name in ds.DATA_SPLIT_NAMES:
+      if standard_name in name:
+        return standard_name
+
+    raise ValueError(
+        f'split name `{name}` does not match any of the offical split '
+        f'names {ds.DATA_SPLIT_NAMES}.')
 
   dataset_builders = {}
 
@@ -435,22 +478,31 @@ def make_prediction_dataset_builders(add_identity_datasets,
             **ds_kwargs)
 
   # Adds cross validation folds for evaluation.
-  if use_cross_validation:
+  if add_cross_validation_datasets:
     # make_cv_train_and_eval_splits returns a 5-tuple when
     # `return_individual_folds=True`.
     _, _, train_fold_names, eval_fold_names, eval_fold_ids = make_cv_train_and_eval_splits(  # pylint: disable=unbalanced-tuple-unpacking
         num_folds,
         train_fold_ids,
         split_name=cv_split_name,
+        use_tfds_format=(cv_dataset_type == 'tfds'),
         return_individual_folds=True)
 
     for cv_fold_id, cv_fold_name in zip(train_fold_ids, train_fold_names):
       dataset_builders[f'cv_train_fold_{cv_fold_id}'] = IND_DATA_CLS(
-          split=cv_fold_name, dataset_type='tfds', **ds_kwargs)
+          split=_standardize_split_name(cv_fold_name),
+          dataset_type=cv_dataset_type,
+          is_training=False,
+          data_dir=maybe_get_cv_dir(cv_fold_name),
+          **ds_kwargs)
 
     for cv_fold_id, cv_fold_name in zip(eval_fold_ids, eval_fold_names):
       dataset_builders[f'cv_eval_fold_{cv_fold_id}'] = IND_DATA_CLS(
-          split=cv_fold_name, dataset_type='tfds', **ds_kwargs)
+          split=_standardize_split_name(cv_fold_name),
+          dataset_type=cv_dataset_type,
+          is_training=False,
+          data_dir=maybe_get_cv_dir(cv_fold_name),
+          **ds_kwargs)
 
   return dataset_builders
 
@@ -483,13 +535,17 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
 def make_cv_train_and_eval_splits(num_folds,
                                   train_fold_ids,
                                   split_name='train',
+                                  use_tfds_format=True,
                                   return_individual_folds=False):
   """Defines the train and evaluation splits for cross validation."""
   fold_ranges = np.linspace(0, 100, num_folds + 1, dtype=int)
-  all_splits = [
-      f'{split_name}[{fold_ranges[k]}%:{fold_ranges[k+1]}%]'
-      for k in range(num_folds)
-  ]
+  if use_tfds_format:
+    # Uses the format for TFDS splicing.
+    split_fn = lambda k: f'{split_name}[{fold_ranges[k]}%:{fold_ranges[k+1]}%]'
+  else:
+    split_fn = lambda k: f'{split_name}_{fold_ranges[k]}_{fold_ranges[k+1]}'
+
+  all_splits = [split_fn(k) for k in range(num_folds)]
 
   # Make train and eval fold IDs.
   if isinstance(train_fold_ids, str):

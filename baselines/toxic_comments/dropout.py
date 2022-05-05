@@ -137,6 +137,7 @@ def main(argv):
        return_train_split_name=True,
        cv_split_name=FLAGS.train_cv_split_name,
        train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
+       train_on_bias_label=FLAGS.train_on_bias_label,
        test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
        test_on_challenge_data=FLAGS.test_on_challenge_data,
        identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
@@ -148,7 +149,9 @@ def main(argv):
     prediction_dataset_builders = utils.make_prediction_dataset_builders(
         add_identity_datasets=FLAGS.identity_prediction,
         identity_dataset_dir=FLAGS.identity_specific_dataset_dir,
-        use_cross_validation=FLAGS.use_cross_validation,
+        add_cross_validation_datasets=FLAGS.use_cross_validation,
+        cv_dataset_dir=FLAGS.in_dataset_dir,
+        cv_dataset_type=FLAGS.dataset_type,
         num_folds=FLAGS.num_folds,
         train_fold_ids=FLAGS.train_fold_ids,
         cv_split_name=FLAGS.test_cv_split_name,

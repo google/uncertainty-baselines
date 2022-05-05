@@ -39,14 +39,14 @@ _IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
                     'intellectual_or_learning_disability',
                     'psychiatric_or_mental_illness', 'other_disability')
 
-_DATA_SPLIT_NAMES = list(
+DATA_SPLIT_NAMES = list(
     map(str, [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]))
 
 _TF_RECORD_NAME_PATTERNS = {
-    name: name + '_*.tfrecord' for name in _DATA_SPLIT_NAMES
+    name: name + '_*.tfrecord' for name in DATA_SPLIT_NAMES
 }
 
-_CSV_NAME_PATTERNS = {name: name + '*.csv' for name in _DATA_SPLIT_NAMES}
+_CSV_NAME_PATTERNS = {name: name + '*.csv' for name in DATA_SPLIT_NAMES}
 
 _DATASET_TYPES = ['tfrecord', 'csv', 'tfds']
 
@@ -115,7 +115,6 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
     # (Optional) lookup table of example ids to their bias labels.
     self._bias_example_ids = self._maybe_load_json(data_dir,
                                                    BIAS_EXAMPLE_IDS_JSON)
-    self.bias_label_lookup = self._make_bias_label_lookup_table()
 
     super().__init__(data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
@@ -144,22 +143,6 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
     # If the json file exist, load from directory and return it.
     with tf.io.gfile.GFile(json_file_path, 'r') as f:
       return json.load(f)
-
-  def _make_bias_label_lookup_table(self):
-    """Makes a Hash lookup table for example ids to bias labels."""
-    if self._bias_example_ids is None:
-      return None
-
-    bias_example_ids = self._bias_example_ids['id']
-    num_bias_examples = len(bias_example_ids)
-
-    # Assign bias label = 1 for all bias_example_ids, and assign 0 otherwise.
-    ids_tensor = tf.constant(bias_example_ids)
-    bias_labels_tensor = tf.constant([1.] * num_bias_examples)
-
-    return tf.lookup.StaticHashTable(
-        tf.lookup.KeyValueTensorInitializer(ids_tensor, bias_labels_tensor),
-        default_value=0.)
 
   def _download_and_prepare(self, dl_manager, download_config=None):
     """Downloads and prepares dataset for reading."""
@@ -240,6 +223,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
                name: str,
                split: str,
                additional_labels: Tuple[str] = (),
+               bias_labels: bool = False,
+               bias_threshold: float = 0.25,
                validation_percent: float = 0.0,
                shuffle_buffer_size: Optional[int] = None,
                max_seq_length: Optional[int] = 512,
@@ -260,6 +245,10 @@ class _JigsawToxicityDataset(base.BaseDataset):
         names.
       additional_labels: names of additional labels (e.g. toxicity subtypes),
         as well as identity labels for the case of CivilCommentsIdentities.
+      bias_labels: whether to add bias label for multi-task training.
+        Available only for dataset_type='csv'.
+      bias_threshold: threshold used to produce binary bias label from the bias
+        score, i.e., bias_label = I(bias_score > bias_threshold).
       validation_percent: the percent of the training set to use as a
         validation set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
@@ -296,12 +285,13 @@ class _JigsawToxicityDataset(base.BaseDataset):
         dataset_type)
     self.tf_hub_preprocessor_url = tf_hub_preprocessor_url
     self.additional_labels = additional_labels
+    self.bias_labels = bias_labels
+    self.bias_threshold = bias_threshold
 
     self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
-    self.split_names = _DATA_SPLIT_NAMES
+    self.split_names = DATA_SPLIT_NAMES
     self._data_dir = data_dir
     self._dataset_type = dataset_type
-    self._bias_label_lookup = dataset_builder.bias_label_lookup
 
     if self.tf_hub_preprocessor_url:
       preprocessor = hub.load(self.tf_hub_preprocessor_url)
@@ -360,7 +350,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
       # Load example depending on dataset type.
       if self._dataset_type == 'csv':
-        feature_id, feature, label = example['features'][:3]
+        feature_id, feature, label, _, bias = example['features'][:5]
       else:
         label = example['toxicity']
         feature = example['text']
@@ -380,8 +370,13 @@ class _JigsawToxicityDataset(base.BaseDataset):
         })
 
       # Add optional bias labels.
-      if self._bias_label_lookup is not None:
-        parsed_example['bias_labels'] = self._bias_label_lookup[feature_id]
+      if self.bias_labels:
+        if self._dataset_type != 'csv':
+          raise ValueError('dataset_type must be "csv" when bias_labels=True.'
+                           f' Got {self._dataset_type}.')
+
+        if_bias = tf.math.greater_equal(bias, self.bias_threshold)
+        parsed_example['bias_labels'] = tf.cast(if_bias, dtype=tf.float32)
 
       # Add additional toxicity subtype labels.
       if self.additional_labels:

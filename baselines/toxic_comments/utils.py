@@ -618,7 +618,8 @@ def create_train_and_test_metrics(test_datasets,
                                   ece_label_threshold,
                                   eval_collab_metrics,
                                   num_approx_bins,
-                                  log_eval_time=True):
+                                  log_eval_time=True,
+                                  train_on_bias_label=False):
   """Creates metrics for train and test eval."""
   # Train metrics.
   metrics = {
@@ -644,6 +645,23 @@ def create_train_and_test_metrics(test_datasets,
               average='micro',
               threshold=ece_label_threshold),
   }
+
+  if train_on_bias_label:
+    metrics.update({
+        'train/bias_accuracy':
+            tf.keras.metrics.Accuracy(),
+        'train/bias_aupr':
+            tf.keras.metrics.AUC(curve='PR'),
+        'train/bias_auroc':
+            tf.keras.metrics.AUC(curve='ROC'),
+        'train/bias_precision':
+            tf.keras.metrics.Precision(),
+        'train/bias_recall':
+            tf.keras.metrics.Recall(),
+        'train/bias_f1':
+            tfa_metrics.F1Score(
+                num_classes=num_classes, average='micro', threshold=0.5),
+    })
 
   # Main test metrics.
   metrics.update({
@@ -676,6 +694,23 @@ def create_train_and_test_metrics(test_datasets,
 
   if log_eval_time:
     metrics['test/eval_time'] = tf.keras.metrics.Mean()
+
+  if train_on_bias_label:
+    metrics.update({
+        'test/bias_accuracy':
+            tf.keras.metrics.Accuracy(),
+        'test/bias_aupr':
+            tf.keras.metrics.AUC(curve='PR'),
+        'test/bias_auroc':
+            tf.keras.metrics.AUC(curve='ROC'),
+        'test/bias_precision':
+            tf.keras.metrics.Precision(),
+        'test/bias_recall':
+            tf.keras.metrics.Recall(),
+        'test/bias_f1':
+            tfa_metrics.F1Score(
+                num_classes=num_classes, average='micro', threshold=0.5),
+    })
 
   # Main collaborative metrics.
   if eval_collab_metrics:
@@ -745,6 +780,23 @@ def create_train_and_test_metrics(test_datasets,
       metrics['test/eval_time_{}'.format(
           dataset_name)] = tf.keras.metrics.Mean()
 
+    if train_on_bias_label and dataset_name in CHALLENGE_DATASET_NAMES:
+      metrics.update({
+          'test/bias_accuracy_{}'.format(dataset_name):
+              tf.keras.metrics.Accuracy(),
+          'test/bias_aupr_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='PR'),
+          'test/bias_auroc_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='ROC'),
+          'test/bias_precision_{}'.format(dataset_name):
+              tf.keras.metrics.Precision(),
+          'test/bias_recall_{}'.format(dataset_name):
+              tf.keras.metrics.Recall(),
+          'test/bias_f1_{}'.format(dataset_name):
+              tfa_metrics.F1Score(
+                  num_classes=num_classes, average='micro', threshold=0.5),
+      })
+
     if eval_collab_metrics:
       for policy in ('uncertainty', 'toxicity'):
         metrics.update({
@@ -787,17 +839,39 @@ def create_train_and_test_metrics(test_datasets,
 
 def make_test_metrics_update_fn(dataset_name,
                                 sample_weight,
+                                num_classes,
                                 labels,
-                                pred_labels,
-                                one_hot_labels,
                                 probs,
-                                auc_probs,
-                                ece_labels,
-                                ece_probs,
-                                calib_confidence,
+                                bias_labels,
+                                bias_probs,
                                 negative_log_likelihood,
-                                eval_time=None):
+                                eval_time=None,
+                                ece_label_threshold=0.5,
+                                train_on_bias_label=False,
+                                eval_collab_metrics=False):
   """Makes an update function for test step metrics."""
+  # Cast labels to discrete for ECE computation.
+  ece_labels = tf.cast(labels > ece_label_threshold, tf.float32)
+  one_hot_labels = tf.one_hot(tf.cast(ece_labels, tf.int32), depth=num_classes)
+  ece_probs = tf.concat([1. - probs, probs], axis=1)
+  pred_labels = tf.math.argmax(ece_probs, axis=-1)
+  auc_probs = tf.squeeze(probs, axis=1)
+
+  # Use normalized binary predictive variance as the confidence score.
+  # Since the prediction variance p*(1-p) is within range (0, 0.25),
+  # normalize it by maximum value so the confidence is between (0, 1).
+  calib_confidence = 1. - probs * (1. - probs) / .25
+
+  # Compute bias prediction results.
+  update_bias_metrics = (
+      train_on_bias_label and isinstance(bias_labels, tf.Tensor) and
+      isinstance(bias_probs, tf.Tensor))
+  if update_bias_metrics:
+    bias_ece_probs = tf.concat([1. - bias_probs, bias_probs], axis=1)
+    bias_preds = tf.math.argmax(bias_ece_probs, axis=-1)
+    bias_one_hot_labels = tf.one_hot(
+        tf.cast(bias_labels, tf.int32), depth=num_classes)
+    bias_auc_probs = tf.squeeze(bias_probs, axis=1)
 
   def update_fn(metrics):
     if dataset_name == 'ind':
@@ -819,7 +893,16 @@ def make_test_metrics_update_fn(dataset_name,
       if eval_time:
         metrics['test/eval_time'].update_state(eval_time)
 
-      if FLAGS.eval_collab_metrics:
+      if update_bias_metrics:
+        metrics['test/bias_accuracy'].update_state(bias_labels, bias_preds)
+        metrics['test/bias_auroc'].update_state(bias_labels, bias_auc_probs)
+        metrics['test/bias_aupr'].update_state(bias_labels, bias_auc_probs)
+        metrics['test/bias_precision'].update_state(bias_labels, bias_preds)
+        metrics['test/bias_recall'].update_state(bias_labels, bias_preds)
+        metrics['test/bias_f1'].update_state(bias_one_hot_labels,
+                                             bias_ece_probs)
+
+      if eval_collab_metrics:
         for policy in ('uncertainty', 'toxicity'):
           # calib_confidence or decreasing toxicity score.
           confidence = 1. - probs if policy == 'toxicity' else calib_confidence
@@ -876,7 +959,21 @@ def make_test_metrics_update_fn(dataset_name,
         metrics['test/eval_time_{}'.format(dataset_name)].update_state(
             eval_time)
 
-      if FLAGS.eval_collab_metrics:
+      if update_bias_metrics:
+        metrics['test/bias_accuracy_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_preds)
+        metrics['test/bias_auroc_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_auc_probs)
+        metrics['test/bias_aupr_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_auc_probs)
+        metrics['test/bias_precision_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_preds)
+        metrics['test/bias_recall_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_preds)
+        metrics['test/bias_f1_{}'.format(dataset_name)].update_state(
+            bias_one_hot_labels, bias_ece_probs)
+
+      if eval_collab_metrics:
         for policy in ('uncertainty', 'toxicity'):
           # calib_confidence or decreasing toxicity score.
           confidence = 1. - probs if policy == 'toxicity' else calib_confidence

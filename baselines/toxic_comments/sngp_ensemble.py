@@ -238,6 +238,8 @@ def main(argv):
       ece_label_threshold=FLAGS.ece_label_threshold,
       eval_collab_metrics=FLAGS.eval_collab_metrics,
       num_approx_bins=FLAGS.num_approx_bins,
+      # Do not eval on bias predictions for now.
+      train_on_bias_label=False,
       log_eval_time=False)
 
   @tf.function
@@ -291,18 +293,6 @@ def main(argv):
 
       per_probs = tf.nn.sigmoid(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
-      # Cast labels to discrete for ECE computation
-      ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
-      one_hot_labels = tf.one_hot(tf.cast(ece_labels, tf.int32),
-                                  depth=num_classes)
-      ece_probs = tf.concat([1. - probs, probs], axis=1)
-      pred_labels = tf.math.argmax(ece_probs, axis=-1)
-      auc_probs = tf.squeeze(probs, axis=1)
-
-      # Use normalized binary predictive variance as the confidence score.
-      # Since the prediction variance p*(1-p) is within range (0, 0.25),
-      # normalize it by maximum value so the confidence is between (0, 1).
-      calib_confidence = 1. - probs * (1. - probs) / .25
 
       ids_list.append(ids)
       texts_list.append(texts)
@@ -323,10 +313,17 @@ def main(argv):
       # Avoid directly modifying global variable `metrics` (which leads to an
       # assign-before-use error) by creating an update function instead.
       update_fn = utils.make_test_metrics_update_fn(
-          dataset_name, sample_weight, labels,
-          pred_labels, one_hot_labels, probs, auc_probs,
-          ece_labels, ece_probs, calib_confidence,
-          negative_log_likelihood, eval_time=None)
+          dataset_name,
+          sample_weight,
+          num_classes,
+          labels,
+          probs,
+          negative_log_likelihood=negative_log_likelihood,
+          eval_collab_metrics=FLAGS.eval_collab_metrics,
+          # Do not eval on bias predictions for now.
+          train_on_bias_label=False,
+          bias_labels=None,
+          bias_probs=None)
       update_fn(metrics)
 
     ids_all = tf.concat(ids_list, axis=0)

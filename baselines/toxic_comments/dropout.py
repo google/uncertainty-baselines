@@ -197,6 +197,7 @@ def main(argv):
     model, bert_encoder = ub.models.bert_dropout_model(
         num_classes=num_classes,
         bert_config=bert_config,
+        num_heads=2 if FLAGS.train_on_bias_label else 1,
         use_mc_dropout_mha=FLAGS.use_mc_dropout_mha,
         use_mc_dropout_att=FLAGS.use_mc_dropout_att,
         use_mc_dropout_ffn=FLAGS.use_mc_dropout_ffn,
@@ -245,7 +246,8 @@ def main(argv):
         num_ece_bins=FLAGS.num_ece_bins,
         ece_label_threshold=FLAGS.ece_label_threshold,
         eval_collab_metrics=FLAGS.eval_collab_metrics,
-        num_approx_bins=FLAGS.num_approx_bins)
+        num_approx_bins=FLAGS.num_approx_bins,
+        train_on_bias_label=FLAGS.train_on_bias_label)
 
   @tf.function
   def generate_sample_weight(labels, class_weight, label_threshold=0.7):
@@ -270,8 +272,12 @@ def main(argv):
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
 
+        if FLAGS.train_on_bias_label:
+          logits, bias_logits = logits
+
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
+          bias_logits = tf.cast(bias_logits, tf.float32)
 
         loss_logits = tf.squeeze(logits, axis=1)
         if FLAGS.loss_type == 'cross_entropy':
@@ -299,6 +305,14 @@ def main(argv):
 
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
+
+        if FLAGS.train_on_bias_label:
+          bias_logits = tf.squeeze(bias_logits, axis=1)
+          bias_labels = inputs['bias_labels']
+          bias_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+              bias_labels, bias_logits)
+          loss += bias_loss
+
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
@@ -346,23 +360,17 @@ def main(argv):
 
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
-      probs = tf.nn.sigmoid(logits)
-      # Cast labels to discrete for ECE computation.
-      ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
-      one_hot_labels = tf.one_hot(tf.cast(ece_labels, tf.int32),
-                                  depth=num_classes)
-      ece_probs = tf.concat([1. - probs, probs], axis=1)
-      pred_labels = tf.math.argmax(ece_probs, axis=-1)
-      auc_probs = tf.squeeze(probs, axis=1)
 
+      bias_probs, bias_labels = None, None
+      if FLAGS.train_on_bias_label:
+        logits, bias_logits = logits
+        bias_probs = tf.nn.sigmoid(bias_logits)
+        bias_labels = inputs.get('bias_labels', None)
+
+      probs = tf.nn.sigmoid(logits)
       loss_logits = tf.squeeze(logits, axis=1)
       negative_log_likelihood = tf.reduce_mean(
           tf.nn.sigmoid_cross_entropy_with_logits(labels, loss_logits))
-
-      # Use normalized binary predictive variance as the confidence score.
-      # Since the prediction variance p*(1-p) is within range (0, 0.25),
-      # normalize it by maximum value so the confidence is between (0, 1).
-      calib_confidence = 1. - probs * (1. - probs) / .25
 
       sample_weight = generate_sample_weight(
           labels, class_weight['test/{}'.format(dataset_name)],
@@ -371,10 +379,17 @@ def main(argv):
       # Avoid directly modifying global variable `metrics` (which leads to an
       # assign-before-use error) by creating an update function instead.
       update_fn = utils.make_test_metrics_update_fn(
-          dataset_name, sample_weight, labels,
-          pred_labels, one_hot_labels, probs, auc_probs,
-          ece_labels, ece_probs, calib_confidence,
-          negative_log_likelihood, eval_time)
+          dataset_name,
+          sample_weight,
+          num_classes,
+          labels,
+          probs,
+          bias_labels,
+          bias_probs,
+          negative_log_likelihood,
+          eval_time=eval_time,
+          train_on_bias_label=FLAGS.train_on_bias_label,
+          eval_collab_metrics=FLAGS.eval_collab_metrics)
       update_fn(metrics)
 
     strategy.run(step_fn, args=(next(iterator),))
@@ -390,6 +405,12 @@ def main(argv):
       bert_features, labels, additional_labels = utils.create_feature_and_label(
           inputs)
       logits = model(bert_features, training=False)
+
+      if FLAGS.train_on_bias_label:
+        logits, bias_logits = logits
+        # Not recording bias prediction for now.
+        del bias_logits
+
       return texts, text_ids, logits, labels, additional_labels, ids
 
     (per_replica_texts, per_replica_text_ids, per_replica_logits,

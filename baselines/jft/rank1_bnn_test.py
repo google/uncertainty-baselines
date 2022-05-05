@@ -436,7 +436,8 @@ class Rank1BNNTest(parameterized.TestCase, tf.test.TestCase):
         representation_size=representation_size)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = self.data_dir
-    config.total_steps = 2
+    config.total_steps = 1
+    config.lr.warmup_steps = 0
     num_examples = config.batch_size * config.total_steps
 
     with tfds.testing.mock_data(

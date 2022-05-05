@@ -41,7 +41,11 @@ def get_config(dataset_name, classifier, representation_size):
   config = test_utils.get_config(
       dataset_name=dataset_name,
       classifier=classifier,
-      representation_size=representation_size)
+      representation_size=representation_size,
+      batch_size=2,
+      total_steps=2)
+
+  config.model.patches.size = [4, 4]
 
   # BatchEnsemble parameters
   config.model.transformer.num_layers = 2
@@ -63,7 +67,7 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('data_dir contents: %s', os.listdir(data_dir))
     self.data_dir = data_dir
 
-  @parameterized.parameters(1, 3, 5)
+  @parameterized.parameters(1, 3)
   def test_log_average_probs(self, ensemble_size):
     batch_size, num_classes = 16, 3
     logits_shape = (ensemble_size, batch_size, num_classes)
@@ -87,11 +91,11 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
                                rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 611.4291, 580.2454969618055, False),
-      ('imagenet2012', 'token', 2, 611.4291, 580.2454969618055, True),
-      ('imagenet2012', 'token', None, 551.31506, 657.0848659939236, False),
-      ('imagenet2012', 'gap', 2, 617.892, 595.8379313151041, False),
-      ('imagenet2012', 'gap', None, 591.90234, 591.7898356119791, False),
+      ('imagenet2012', 'token', 2, 693.64636, 614.0311584472656, False),
+      ('imagenet2012', 'token', 2, 693.64636, 614.0311584472656, True),
+      ('imagenet2012', 'token', None, 693.64636, 573.0804138183594, False),
+      ('imagenet2012', 'gap', 2, 693.64636, 632.758056640625, False),
+      ('imagenet2012', 'gap', None, 693.64636, 609.6657104492188, False),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, dataset_name, classifier,
@@ -153,7 +157,8 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
         representation_size=representation_size)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = self.data_dir
-    config.total_steps = 2
+    config.total_steps = 1
+    config.lr.warmup_steps = 0
     num_examples = config.batch_size * config.total_steps
 
     with tfds.testing.mock_data(

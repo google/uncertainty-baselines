@@ -768,17 +768,20 @@ def main(config, output_dir):
   # We jit this, such that the arrays that are created on the same
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
-
-  write_note('Loading the model checkpoint...')
-  loaded_params = checkpoint_utils.load_checkpoint(
-      tree=None, path=config.model_init)
-  loaded_params = checkpoint_utils.restore_from_pretrained_params(
-      params_cpu,
-      loaded_params,
-      config.model.representation_size,
-      config.model.classifier,
-      reinit_params,
-  )
+  if config.model_init:
+    write_note('Loading the model checkpoint...')
+    loaded_params = checkpoint_utils.load_checkpoint(
+        tree=None, path=config.model_init)
+    loaded_params = checkpoint_utils.restore_from_pretrained_params(
+        params_cpu,
+        loaded_params,
+        config.model.representation_size,
+        config.model.classifier,
+        reinit_params,
+    )
+  else:
+    write_note('Use random model initialization.')
+    loaded_params = params_cpu
 
   opt_cpu = opt_cpu.replace(target=loaded_params)
   del loaded_params, params_cpu  # Free up memory.

@@ -111,13 +111,13 @@ def get_config():
 def get_sweep(hyper):
   """Sweeps over datasets."""
   data_size_mode = 'num_classes/2'
-  acquisition_methods = ['uniform', 'entropy', 'margin']
+  acquisition_methods = ['uniform', 'margin']
   hparam_sweep = sweep_utils.get_hparam_best('Det')
   if data_size_mode == 'tuning':
     hparam_sweep = sweep_utils.get_hparam_sweep('Det')
     acquisition_methods = ['uniform']
 
-  def sweep_checkpoints(use_jft):
+  def sweep_checkpoints(cp_option):
     """whether to use JFT-300M or ImageNet-21K settings."""
     checkpoints = ['/path/to/pretrained_model_ckpt.npz']
 
@@ -129,7 +129,8 @@ def get_sweep(hyper):
       ]
     all_data_sizes = sweep_utils.get_data_sizes(data_size_mode)
     all_sweeps = []
-    for dataset, sweep_func in sweep_utils.get_dataset_sweep().items():
+    for dataset in ['cifar10', 'cifar100', 'imagenet', 'places365']:
+      sweep_func = sweep_utils.get_dataset_sweep()[dataset]
       data_sizes = [
           hyper.product(set_data_sizes(a, b, c))
           for a, b, c in all_data_sizes[dataset]
@@ -151,4 +152,4 @@ def get_sweep(hyper):
     ])
 
   return hyper.chainit(
-      [sweep_checkpoints(use_jft) for use_jft in [True, False]])
+      [sweep_checkpoints(use_jft) for use_jft in ['']])

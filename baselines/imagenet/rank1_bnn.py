@@ -37,6 +37,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import metrics as metrics_lib  # local file import from baselines.imagenet
 import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
@@ -107,6 +108,8 @@ NUM_CLASSES = 1000
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=NUM_CLASSES, tau=10, kappa=2)
   del argv  # unused arg
   tf.random.set_seed(FLAGS.seed)
 
@@ -205,6 +208,7 @@ def main(argv):
         'train/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
         'train/diversity': rm.metrics.AveragePairwiseDiversity(),
+        'test/joint_nll': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/kl': tf.keras.metrics.Mean(),
         'test/elbo': tf.keras.metrics.Mean(),
@@ -360,6 +364,12 @@ def main(argv):
           -tf.reduce_logsumexp(log_likelihoods, axis=[0, 1]) +
           tf.math.log(float(FLAGS.num_eval_samples * FLAGS.ensemble_size)))
 
+      # TODO(iosband): Work out the semantic meaning of logits
+      num_enn_samples = FLAGS.num_eval_samples * FLAGS.ensemble_size
+      logits_list = tf.reshape(logits, [num_enn_samples, -1, NUM_CLASSES])
+      joint_nll = dyadic_nll(logits_list, tf.expand_dims(labels, axis=1))
+
+
       l2_loss = compute_l2_loss(model)
       kl = sum(model.losses) / IMAGENET_VALIDATION_IMAGES
       elbo = -(negative_log_likelihood + l2_loss + kl)
@@ -382,6 +392,7 @@ def main(argv):
 
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
+        metrics['test/joint_nll'].update_state(joint_nll)
         metrics['test/kl'].update_state(kl)
         metrics['test/elbo'].update_state(elbo)
         metrics['test/accuracy'].update_state(labels, probs)

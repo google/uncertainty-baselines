@@ -54,6 +54,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import metrics as metrics_lib  # local file import from baselines.imagenet
 import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
@@ -160,6 +161,9 @@ NUM_CLASSES = 1000
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=NUM_CLASSES, tau=10, kappa=2)
+
   del argv  # unused arg
 
   # Number of images in eval dataset.
@@ -274,6 +278,7 @@ def main(argv):
             num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
+        'test/joint_nll': tf.keras.metrics.Mean(),
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
         'test/stddev': tf.keras.metrics.Mean(),
@@ -404,9 +409,12 @@ def main(argv):
           -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
           tf.math.log(float(FLAGS.num_dropout_samples)))
 
+      joint_nll = dyadic_nll(logits_list, tf.expand_dims(labels, axis=1))
+
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
+        metrics['test/joint_nll'].update_state(joint_nll)
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
         metrics['test/stddev'].update_state(stddev)

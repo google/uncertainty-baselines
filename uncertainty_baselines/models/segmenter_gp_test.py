@@ -86,9 +86,10 @@ class SegVitGPTest(parameterized.TestCase):
                      (num_examples, num_tokens, hidden_size))
     self.assertEqual(
         outputs['logits_gp'].shape,
-        (num_examples, img_h // patch_size, img_w // patch_size, num_classes))
-    self.assertEqual(outputs['covmat_gp'].shape,
-                     (num_examples, img_h // patch_size, img_w // patch_size))
+        (num_examples * img_h // patch_size * img_w // patch_size, num_classes))
+    self.assertEqual(
+        outputs['covmat_gp'].shape,
+        (num_examples * img_h // patch_size * img_w // patch_size,))
     self.assertEqual(outputs['logits'].shape,
                      (num_examples, img_h, img_w, num_classes))
 

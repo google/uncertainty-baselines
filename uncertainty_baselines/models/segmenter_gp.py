@@ -100,7 +100,6 @@ class SegVitGP(nn.Module):
       x = x[..., 1:, :]
 
     ens_size = self.backbone_configs.get('ens_size', 1)
-    x = jnp.reshape(x, [b * ens_size, gh, gw, -1])
 
     if self.decoder_configs.type == 'linear':
      # Linear head only, like Segmenter baseline:
@@ -110,6 +109,7 @@ class SegVitGP(nn.Module):
           kernel_init=self.head_kernel_init,
           name='output_projection')
 
+      x = jnp.reshape(x, [b * ens_size, gh, gw, -1])
       x = output_projection(x)
 
     elif self.decoder_configs.type == 'gp':
@@ -120,15 +120,11 @@ class SegVitGP(nn.Module):
           name='output_projection',
           **self.decoder_configs.gp_layer)
 
+      x = jnp.reshape(x, [b*ens_size*gh*gw, -1])
+
       x_gp = output_projection(x)
-      logits_gp = x_gp[0]
-      covmat_gp = x_gp[1]
-
-      out['logits_gp'] = logits_gp
-
-      if covmat_gp is not None:
-        covmat_gp = covmat_gp.reshape(logits_gp.shape[:-1])
-      out['covmat_gp'] = covmat_gp
+      out['logits_gp'] = x_gp[0]
+      out['covmat_gp'] = x_gp[1]
 
       if len(x_gp) > 2:
         out['random_features_gp'] = x_gp[2]
@@ -137,11 +133,13 @@ class SegVitGP(nn.Module):
         # During inference, compute posterior mean by adjusting the original
         # logits with predictive uncertainty.
         x = ed.nn.utils.mean_field_logits(
-            logits=logits_gp,
-            covmat=covmat_gp,
+            logits=x_gp[0],
+            covmat=x_gp[1],
             mean_field_factor=self.decoder_configs.mean_field_factor)
       else:
-        x = logits_gp
+        x = x_gp[0]
+
+      x = jnp.reshape(x, [b*ens_size, gh, gw, -1])
 
     elif self.decoder_configs.type == 'linear_be':
       output_projection = ed.nn.DenseBatchEnsemble(

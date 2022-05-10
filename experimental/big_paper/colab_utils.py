@@ -78,9 +78,19 @@ def model_col() -> str:
   return _MODEL_COL
 
 
+def upstream_datasets() -> Tuple[str, ...]:
+  """Returns the datasets used for upstream pretraining."""
+  return _UPSTREAM_DATASETS
+
+
 def default_fewshot_datasets() -> Tuple[str, ...]:
   """Returns the default fewshot datasets used for reporting results."""
   return _FEWSHOT_DATASETS
+
+
+def compute_metrics() -> Tuple[str, ...]:
+  """Returns the metrics corresponding to computational requirements."""
+  return _COMPUTE_METRICS
 
 
 def default_selected_metrics() -> List[str]:
@@ -407,8 +417,8 @@ def process_tuned_results(
   # For now, we only care about compute metrics on upstream datasets, and only
   # one of the two upstream compute columns has a non-NaN value for each model.
   # We process the compute metrics similarly to the fewshot metrics.
-  compute_metrics = [c for c in df.columns.levels[0] if c in _COMPUTE_METRICS]
-  for metric in compute_metrics:
+  compute_cols = [c for c in df.columns.levels[0] if c in _COMPUTE_METRICS]
+  for metric in compute_cols:
     compute_vals = row_wise_unique_non_nan(df[metric][list(_UPSTREAM_DATASETS)])
     df = df.drop(metric, axis=1, level=0)
     df[metric, 'compute'] = compute_vals

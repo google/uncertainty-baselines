@@ -33,16 +33,17 @@ from ml_collections import config_dict
 import ml_collections.config_flags
 import numpy as np
 import tensorflow as tf
-import bert_utils  # local file import from baselines.clinc_intent
 from uncertainty_baselines.datasets import datasets
 import data_preprocessor as preprocessor  # local file import from experimental.language_structure.vrnn
 import data_utils  # local file import from experimental.language_structure.vrnn
 import linear_vrnn  # local file import from experimental.language_structure.vrnn
+import model_config  # local file import from experimental.language_structure.vrnn
 import psl_utils  # local file import from experimental.language_structure.vrnn
 import train_lib  # local file import from experimental.language_structure.vrnn
 import utils  # local file import from experimental.language_structure.vrnn
 
 
+_DOMAIN_LABEL_NAME = preprocessor.DOMAIN_LABEL_NAME
 _STATE_LABEL_NAME = preprocessor.STATE_LABEL_NAME
 _DIAL_TURN_ID_NAME = preprocessor.DIAL_TURN_ID_NAME
 
@@ -56,6 +57,7 @@ _LABEL_SHOT_MODE = 'shots'
 _TRAIN = 'train'
 _TEST = 'test'
 _SPLITS = [_TRAIN, _TEST]
+_FEWSHOT_NAMESPACE = 'fewshot'
 
 # The metric used for early stopping.
 _PRIMARY_METRIC_KEY = f'{_TEST}/hidden_state_class_balanced_mixed_accuracy'
@@ -106,39 +108,60 @@ def _get_unmasked_dialog_turn_ids(labels: tf.Tensor, dialog_turn_ids: tf.Tensor,
         'Only support label sample mode: %s, %s. Found %s.' %
         (_LABEL_RATIO_MODE, _LABEL_SHOT_MODE, label_sample_mode))
 
+  rng = np.random.default_rng(seed=seed)
   labels = labels.numpy().flatten()
+  dialog_turn_ids = dialog_turn_ids.numpy().flatten()
+
   if label_sample_mode == _LABEL_RATIO_MODE:
-    # Compute number of labeled examples to be sampled in each class.
+    # In ratio mode, we sample by the probabilities from ratios of examples to
+    # be sampled per class.
+
     label_counts = _label_count_map(labels)
     label_sample_map = {
-        label: round(label_sample_map[label] * label_counts.get(label, 0))
-        for label in label_sample_map
+        label: ratio * float(label_counts[label])
+        for label, ratio in label_sample_map.items()
     }
+
+    # Compute the total number of samples and the sampling probabilities.
+    total_samples = round(sum(label_sample_map.values()))
+    label_sample_prob_map = {
+        label: num_samples / (total_samples * float(label_counts[label]))
+        for label, num_samples in label_sample_map.items()
+    }
+
+    sample_prob = np.zeros_like(labels, dtype=np.float32)
+    for label, prob in label_sample_prob_map.items():
+      sample_prob += prob * (labels == label).astype(np.float32)
+
+    sample_dialog_turn_ids = rng.choice(
+        dialog_turn_ids, total_samples, replace=False, p=sample_prob)
   else:
+    # In shot mode, we sample separately for each class to ensure there are
+    # exact number of examples to be sampled for each class.
     label_sample_map = {
         label: int(num_samples)
         for label, num_samples in label_sample_map.items()
     }
 
-  # Summarize dialog turn ids for each class.
-  label_dialog_turn_id_map = collections.defaultdict(list)
-  for label, dialog_turn_id in zip(labels, dialog_turn_ids.numpy().flatten()):
-    label_dialog_turn_id_map[label].append(dialog_turn_id)
+    # Summarize dialog turn ids for each class.
+    label_dialog_turn_id_map = collections.defaultdict(list)
+    for label, dialog_turn_id in zip(labels, dialog_turn_ids):
+      label_dialog_turn_id_map[label].append(dialog_turn_id)
 
-  # Sample given number of labeled dialog turns.
-  dialog_turn_ids = []
-  rng = np.random.default_rng(seed=seed)
-  for label in sorted(label_sample_map):
-    if label_dialog_turn_id_map[label]:
-      num_samples = min(
-          len(label_dialog_turn_id_map[label]), label_sample_map[label])
-      dialog_turn_ids.append(
-          rng.choice(
-              label_dialog_turn_id_map[label], num_samples, replace=False))
+    # Sample given number of labeled dialog turns.
+    sample_dialog_turn_ids = []
+    for label in sorted(label_sample_map):
+      if label_dialog_turn_id_map[label]:
+        num_samples = min(
+            len(label_dialog_turn_id_map[label]), label_sample_map[label])
+        sample_dialog_turn_ids.append(
+            rng.choice(
+                label_dialog_turn_id_map[label], num_samples, replace=False))
 
-  if dialog_turn_ids:
-    dialog_turn_ids = np.concatenate(dialog_turn_ids)
-  return tf.constant(dialog_turn_ids, dtype=tf.int32)
+    if sample_dialog_turn_ids:
+      sample_dialog_turn_ids = np.concatenate(sample_dialog_turn_ids)
+
+  return tf.constant(sample_dialog_turn_ids, dtype=tf.int32)
 
 
 def _should_generate_labeled_dialog_turn_ids(with_label: bool,
@@ -177,22 +200,32 @@ def _generate_labeled_dialog_turn_ids(label_sampling_path: str,
   return labeled_dialog_turn_ids
 
 
+def _metric_namespace(split: str, in_domain: Optional[bool] = None) -> str:
+  """Creates the metric namespace."""
+  if in_domain is None:
+    return split
+  if split == _TRAIN:
+    return split
+  suffix = 'ind' if in_domain else 'ood'
+  return f'{split}-{suffix}'
+
+
+def _create_metrics_of_type(namespaces: Sequence[str],
+                            metric_names: Sequence[str],
+                            metric_type: Any) -> _MetricMap:
+  """Creates a set of metrics of the same type under each of the namespace."""
+  metrics = {}
+  for namespace in namespaces:
+    for metric_name in metric_names:
+      metrics['{}/{}'.format(namespace, metric_name)] = metric_type()
+  return metrics
+
+
 # TODO(yquan): Create a class to manage metrics and re-organize namespaces.
 def _create_metrics(
-    splits: Sequence[str], few_shots: Sequence[int],
-    few_shots_l2_weights: Sequence[float],
+    namespaces: Sequence[str],
     psl_constraint_rule_names: Optional[Sequence[str]]) -> _MetricMap:
   """Creates metrics to be tracked in the training."""
-
-  def _create_metrics_of_type(
-      metric_names: Sequence[str],
-      metric_type: Any,
-      namespaces: Optional[Sequence[str]] = splits) -> _MetricMap:
-    metrics = {}
-    for namespace in namespaces:
-      for metric_name in metric_names:
-        metrics['{}/{}'.format(namespace, metric_name)] = metric_type()
-    return metrics
 
   mean_type_metrics = [
       'total_loss',
@@ -219,36 +252,39 @@ def _create_metrics(
 
   accuracy_type_metrics = ['accuracy', 'class_balanced_accuracy']
 
-
   return {
-      **_create_metrics_of_type(mean_type_metrics, tf.keras.metrics.Mean),
-      **_create_metrics_of_type(accuracy_type_metrics,
+      **_create_metrics_of_type(namespaces, mean_type_metrics,
+                                tf.keras.metrics.Mean),
+      **_create_metrics_of_type(namespaces, accuracy_type_metrics,
                                 tf.keras.metrics.Accuracy),
   }
 
 
-def _update_loss_metrics(metrics: _MetricMap, split: str, losses: Sequence[Any],
+
+
+def _update_loss_metrics(metrics: _MetricMap, namespace: str,
+                         losses: Sequence[Any],
                          psl_constraint_rule_names: Optional[Sequence[str]]):
   """Updates loss metrics."""
 
   (total_loss, rc_loss, kl_loss, bow_loss, classification_loss, constraint_loss,
    elbo, constraint_loss_per_rule) = losses
-  metrics['{}/total_loss'.format(split)].update_state(total_loss)
-  metrics['{}/elbo'.format(split)].update_state(elbo)
-  metrics['{}/rc_loss'.format(split)].update_state(rc_loss)
-  metrics['{}/kl_loss'.format(split)].update_state(kl_loss)
-  metrics['{}/bow_loss'.format(split)].update_state(bow_loss)
-  metrics['{}/cls_loss'.format(split)].update_state(classification_loss)
-  metrics['{}/constraint_loss'.format(split)].update_state(constraint_loss)
+  metrics['{}/total_loss'.format(namespace)].update_state(total_loss)
+  metrics['{}/elbo'.format(namespace)].update_state(elbo)
+  metrics['{}/rc_loss'.format(namespace)].update_state(rc_loss)
+  metrics['{}/kl_loss'.format(namespace)].update_state(kl_loss)
+  metrics['{}/bow_loss'.format(namespace)].update_state(bow_loss)
+  metrics['{}/cls_loss'.format(namespace)].update_state(classification_loss)
+  metrics['{}/constraint_loss'.format(namespace)].update_state(constraint_loss)
 
   if constraint_loss_per_rule is not None:
     for rule_name, rule_loss in zip(psl_constraint_rule_names,
                                     constraint_loss_per_rule):
-      metrics['{}/constraint_loss_{}'.format(split,
+      metrics['{}/constraint_loss_{}'.format(namespace,
                                              rule_name)].update_state(rule_loss)
 
 
-def _log_metric_results(metrics: _MetricMap, split: str):
+def _log_metric_results(metrics: _MetricMap, namespace: str):
   logging.info(
       '%s Accuracy: %.4f, Adjusted_Mutual_Information:'
       ' %.4f, Cluster_Purity: %.4f, Total Loss: %.4f, '
@@ -256,37 +292,41 @@ def _log_metric_results(metrics: _MetricMap, split: str):
       'PSL_Loss: %.4f, ELBO: %.4f, Hidden_State_Loss: %.4f, '
       'Hidden_State_Accuracy: %.4f, Hidden_State_Accuracy (balanced): %.4f, '
       'Hidden_State_Domain_Loss: %.4f, Hidden_State_Domain_Accuracy: %.4f, '
-      'Hidden_State_Domain_Accuracy (balanced): %.4f', split,
-      metrics['{}/accuracy'.format(split)].result(),
-      metrics['{}/adjusted_mutual_info'.format(split)].result(),
-      metrics['{}/cluster_purity'.format(split)].result(),
-      metrics['{}/total_loss'.format(split)].result(),
-      metrics['{}/rc_loss'.format(split)].result(),
-      metrics['{}/kl_loss'.format(split)].result(),
-      metrics['{}/bow_loss'.format(split)].result(),
-      metrics['{}/cls_loss'.format(split)].result(),
-      metrics['{}/constraint_loss'.format(split)].result(),
-      metrics['{}/elbo'.format(split)].result(),
-      metrics['{}/hidden_state_loss'.format(split)].result(),
-      metrics['{}/hidden_state_accuracy'.format(split)].result(),
-      metrics['{}/hidden_state_class_balanced_accuracy'.format(split)].result(),
-      metrics['{}/hidden_state_domain_loss'.format(split)].result(),
-      metrics['{}/hidden_state_domain_accuracy'.format(split)].result(),
+      'Hidden_State_Domain_Accuracy (balanced): %.4f', namespace,
+      metrics['{}/accuracy'.format(namespace)].result(),
+      metrics['{}/adjusted_mutual_info'.format(namespace)].result(),
+      metrics['{}/cluster_purity'.format(namespace)].result(),
+      metrics['{}/total_loss'.format(namespace)].result(),
+      metrics['{}/rc_loss'.format(namespace)].result(),
+      metrics['{}/kl_loss'.format(namespace)].result(),
+      metrics['{}/bow_loss'.format(namespace)].result(),
+      metrics['{}/cls_loss'.format(namespace)].result(),
+      metrics['{}/constraint_loss'.format(namespace)].result(),
+      metrics['{}/elbo'.format(namespace)].result(),
+      metrics['{}/hidden_state_loss'.format(namespace)].result(),
+      metrics['{}/hidden_state_accuracy'.format(namespace)].result(), metrics[
+          '{}/hidden_state_class_balanced_accuracy'.format(namespace)].result(),
+      metrics['{}/hidden_state_domain_loss'.format(namespace)].result(),
+      metrics['{}/hidden_state_domain_accuracy'.format(namespace)].result(),
       metrics['{}/hidden_state_domain_class_balanced_accuracy'.format(
-          split)].result())
+          namespace)].result())
 
 
 def _load_data_from_files(config: config_dict.ConfigDict):
   """Update config by data read from files."""
-  with tf.io.gfile.GFile(config.vocab_file_path, 'r') as f:
-    vocab_size = len(f.read()[:-1].split('\n'))
-  config.model.vocab_size = config.model.vae_cell.vocab_size = vocab_size
 
-  if config.model.vae_cell.shared_bert_embedding:
-    with tf.io.gfile.GFile(os.path.join(config.bert_dir,
-                                        'bert_config.json')) as config_file:
-      config.model.vae_cell.shared_bert_embedding_config = json.load(
-          config_file)
+  def _load_embedding_data_from_files(
+      embedding_config: model_config.EmbeddingConfig):
+    with tf.io.gfile.GFile(embedding_config.vocab_file_path, 'r') as f:
+      embedding_config.vocab_size = len(f.read()[:-1].split('\n'))
+
+    if (embedding_config.embedding_type == model_config.BERT_EMBED and
+        embedding_config.bert_config_file):
+      with tf.io.gfile.GFile(embedding_config.bert_config_file) as config_file:
+        embedding_config.bert_config = json.load(config_file)
+
+  _load_embedding_data_from_files(config.model.vae_cell.encoder_embedding)
+  _load_embedding_data_from_files(config.model.vae_cell.decoder_embedding)
 
   if config.psl_config_file:
     with tf.io.gfile.GFile(config.psl_config_file, 'r') as file:
@@ -307,8 +347,8 @@ def _save_model_results(outputs: Sequence[tf.Tensor], output_dir: str,
 
 
 def _update_hidden_state_model_metrics(
-    metrics: _MetricMap, splits: Sequence[str],
-    evaluation_results: Sequence[Sequence[float]]):
+    metrics: _MetricMap, namespaces: Sequence[str],
+    eval_results: Tuple[Sequence[Sequence[float]], Sequence[Sequence[float]]]):
   """Updates hidden state model specific metrics."""
   hidden_state_model_metrics = [
       'hidden_state_loss',
@@ -318,31 +358,34 @@ def _update_hidden_state_model_metrics(
       'hidden_state_domain_accuracy',
       'hidden_state_domain_class_balanced_accuracy',
   ]
-  for split, split_evaluation_results in zip(splits, evaluation_results):
-    for key, value in zip(hidden_state_model_metrics, split_evaluation_results):
-      metrics['{}/{}'.format(split, key)].update_state(value)
+
+  for namespace, state_eval_result, domain_eval_result in zip(
+      namespaces, eval_results[0], eval_results[1]):
+    for key, value in zip(hidden_state_model_metrics,
+                          state_eval_result + domain_eval_result):
+      metrics['{}/{}'.format(namespace, key)].update_state(value)
     metrics['{}/hidden_state_class_balanced_mixed_accuracy'.format(
-        split)].update_state(
-            (split_evaluation_results[2] + split_evaluation_results[5]) / 2)
+        namespace)].update_state(
+            (state_eval_result[2] + domain_eval_result[2]) / 2)
 
 
-def _update_model_prediction_metrics(metrics: _MetricMap, split: str,
+def _update_model_prediction_metrics(metrics: _MetricMap, namespace: str,
                                      label_id: tf.Tensor,
                                      prediction: tf.Tensor):
   """Updates metrics related to model prediction quality."""
   # Updates clustering related metrics.
-  metrics['{}/adjusted_mutual_info'.format(split)].update_state(
+  metrics['{}/adjusted_mutual_info'.format(namespace)].update_state(
       utils.adjusted_mutual_info(label_id, prediction))
-  metrics['{}/cluster_purity'.format(split)].update_state(
+  metrics['{}/cluster_purity'.format(namespace)].update_state(
       utils.cluster_purity(label_id, prediction))
   prediction_classes, _ = tf.unique(tf.reshape(prediction, shape=[-1]))
-  metrics['{}/unique_prediction_class_count'.format(split)].update_state(
+  metrics['{}/unique_prediction_class_count'.format(namespace)].update_state(
       tf.size(prediction_classes))
   # Updates accuracies.
-  metrics['{}/accuracy'.format(split)].update_state(label_id, prediction,
-                                                    tf.sign(label_id))
+  metrics['{}/accuracy'.format(namespace)].update_state(label_id, prediction,
+                                                        tf.sign(label_id))
   class_balanced_weight = utils.create_rebalanced_sample_weights(label_id)
-  metrics['{}/class_balanced_accuracy'.format(split)].update_state(
+  metrics['{}/class_balanced_accuracy'.format(namespace)].update_state(
       label_id, prediction, class_balanced_weight)
 
 
@@ -362,26 +405,34 @@ def _transform_hidden_representation(
 def _evaluate_hidden_state_model(input_size: int, num_classes: int,
                                  train_x: tf.Tensor, train_y: tf.Tensor,
                                  test_x: tf.Tensor, test_y: tf.Tensor,
+                                 test_masks: Sequence[tf.Tensor],
                                  train_epochs: int, learning_rate: float):
   """Evaluates the hidden state representation."""
   train_x, train_y = _transform_hidden_representation(train_x, train_y)
-  test_x, test_y = _transform_hidden_representation(test_x, test_y)
 
   model = train_lib.build_hidden_state_model(input_size, num_classes,
                                              learning_rate)
   model.fit(train_x, train_y, epochs=train_epochs, verbose=0)
-  train_results = model.evaluate(
-      train_x,
-      train_y,
-      sample_weight=utils.create_rebalanced_sample_weights(train_y),
-      verbose=0)
 
-  test_results = model.evaluate(
-      test_x,
-      test_y,
-      sample_weight=utils.create_rebalanced_sample_weights(test_y),
-      verbose=0)
-  return train_results, test_results
+  results = []
+  results.append(
+      model.evaluate(
+          train_x,
+          train_y,
+          sample_weight=utils.create_rebalanced_sample_weights(train_y),
+          verbose=0))
+
+  for mask in test_masks:
+    test_x_transformed, test_y_transformed = _transform_hidden_representation(
+        tf.boolean_mask(test_x, mask), tf.boolean_mask(test_y, mask))
+    results.append(
+        model.evaluate(
+            test_x_transformed,
+            test_y_transformed,
+            sample_weight=utils.create_rebalanced_sample_weights(
+                test_y_transformed),
+            verbose=0))
+  return results
 
 
 def _load_class_map(file_path: str) -> Dict[int, str]:
@@ -407,6 +458,38 @@ def _json_dump(config: config_dict.ConfigDict, filename: str):
   """Dumps the config into a json file."""
   with tf.io.gfile.GFile(filename, 'w') as f:
     json.dump(config.to_dict(), f)
+
+
+def _build_data_processor(
+    config: config_dict.ConfigDict,
+    labeled_dialog_turn_ids: Optional[tf.Tensor] = None,
+    in_domains: Optional[tf.Tensor] = None) -> preprocessor.DataPreprocessor:
+  """Creates data processor for the dataset."""
+
+  def _get_utterance_feature_fn(embedding_type: str):
+    """Returns the utterance feature function by `embedding_type`."""
+    if embedding_type == model_config.GLOVE_EMBED:
+      return preprocessor.create_utterance_features
+
+    bert_preprocess_model = utils.BertPreprocessor(
+        config.bert_embedding_preprocess_tfhub_url,
+        config.model.vae_cell.max_seq_length)
+    return preprocessor.create_bert_utterance_features_fn(bert_preprocess_model)
+
+  encoder_embedding = config.model.vae_cell.encoder_embedding
+  decoder_embedding = config.model.vae_cell.decoder_embedding
+
+  model_config.verify_embedding_configs(encoder_embedding, decoder_embedding,
+                                        config.shared_embedding)
+
+  encoder_process_fn = _get_utterance_feature_fn(
+      encoder_embedding.embedding_type)
+  decoder_process_fn = _get_utterance_feature_fn(
+      decoder_embedding.embedding_type)
+
+  return preprocessor.DataPreprocessor(encoder_process_fn, decoder_process_fn,
+                                       config.model.num_states,
+                                       labeled_dialog_turn_ids, in_domains)
 
 
 def run_experiment(config: config_dict.ConfigDict, output_dir: str):
@@ -497,39 +580,43 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   else:
     labeled_dialog_turn_ids = None
 
-  # Initialize bert embedding preprocessor.
-  if config.shared_bert_embedding:
-    bert_preprocess_model = utils.BertPreprocessor(
-        config.bert_embedding_preprocess_tfhub_url,
-        config.model.vae_cell.max_seq_length)
-    if bert_preprocess_model.vocab_size != config.model.vocab_size:
-      raise ValueError(
-          'Expect BERT preprocess model vocab size align with the model '
-          'config, found {} and {}.'.format(bert_preprocess_model.vocab_size,
-                                            config.model.vocab_size))
-    preprocess_fn = preprocessor.BertDataPreprocessor(
-        bert_preprocess_model, config.model.num_states,
-        labeled_dialog_turn_ids).create_feature_and_label
-
+  if config.domain_adaptation:
+    inputs = preprocessor.get_full_dataset_outputs(train_dataset_builder)
+    # Notice domain label id 0 is also treated as in-domain: ood should have
+    # a different id from it.
+    in_domains, _ = tf.unique(tf.reshape(inputs[_DOMAIN_LABEL_NAME], [-1]))
+    metric_namespaces = [
+        _metric_namespace(_TRAIN),
+        _metric_namespace(_TEST, True),
+        _metric_namespace(_TEST, False)
+    ]
+    fewshot_metric_namespaces = [
+        _metric_namespace(_FEWSHOT_NAMESPACE, True),
+        _metric_namespace(_FEWSHOT_NAMESPACE, False)
+    ]
   else:
-    preprocess_fn = preprocessor.DataPreprocessor(
-        config.model.num_states,
-        labeled_dialog_turn_ids).create_feature_and_label
+    in_domains = None
+    metric_namespaces = [_metric_namespace(split) for split in _SPLITS]
+    fewshot_metric_namespaces = [_metric_namespace(_FEWSHOT_NAMESPACE)]
+
+  data_preprocessor = _build_data_processor(config, labeled_dialog_turn_ids,
+                                            in_domains)
+  preprocess_fn = data_preprocessor.create_feature_and_label
 
   # Load PSL configs
   psl_learning = config.psl_constraint_learning_weight > 0
   psl_inference = config.psl_constraint_inference_weight > 0
   if psl_learning or psl_inference:
-    with tf.io.gfile.GFile(config.vocab_file_path, 'r') as f:
+    with tf.io.gfile.GFile(
+        config.model.vae_cell.decoder_embedding.vocab_file_path, 'r') as f:
       vocab = f.read()[:-1].split('\n')
     preprocess_fn = psl_utils.psl_feature_mixin(preprocess_fn, config.dataset,
                                                 config.psl, vocab)
 
   # Load datasets
-  # TODO(yquan): invesigate why distributed training fails when using BERT
+  # TODO(yquan): invesigate why distributed training fails in *fish TPU
   # Failure example: https://xm2a.corp.google.com/experiments/33275459
-  distributed_training = (not psl_learning and not psl_inference and
-                          not config.shared_bert_embedding)
+  distributed_training = False
   train_dataset = preprocessor.create_dataset(train_dataset_builder,
                                               config.train_batch_size,
                                               preprocess_fn, strategy,
@@ -545,7 +632,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         dataset_builder, config.eval_batch_size, preprocess_fn, strategy,
         distributed_training)
 
-  distributed_inference = not config.shared_bert_embedding
+  distributed_inference = False
   inference_train_dataset = preprocessor.create_dataset(
       inference_train_dataset_builder, config.inference_batch_size,
       preprocess_fn, strategy, distributed_inference)
@@ -560,7 +647,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       config.inference_batch_size)
 
   # Initialize word weights.
-  word_weights = np.ones((config.model.vocab_size), dtype=np.float32)
+  word_weights = np.ones((config.model.vae_cell.decoder_embedding.vocab_size),
+                         dtype=np.float32)
   if config.word_weights_path:
     w = config.word_weights_file_weight
     if w > 1 or w < 0:
@@ -579,8 +667,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
     optimizer = tf.keras.optimizers.Adam(
         config.base_learning_rate, beta_1=1.0 - config.one_minus_momentum)
 
-    metrics = _create_metrics(_SPLITS, config.few_shots,
-                              config.few_shots_l2_weights,
+    metrics = _create_metrics(metric_namespaces,
                               config.psl_constraint_rule_names)
 
     if psl_learning or psl_inference:
@@ -616,14 +703,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
       logging.info('Loaded checkpoint %s. Initialize from epoch %s',
                    init_checkpoint, initial_epoch)
-    elif config.shared_bert_embedding:
-      # load BERT from initial checkpoint
-      bert_ckpt_dir = config.model.vae_cell.shared_bert_embedding_ckpt_dir
-      (model.vae_cell.shared_embedding_layer, _,
-       _) = bert_utils.load_bert_weight_from_ckpt(
-           bert_model=model.vae_cell.shared_embedding_layer,
-           bert_ckpt_dir=bert_ckpt_dir)
-      logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
+    else:
+      model.vae_cell.init_bert_embedding_layers(config.model.vae_cell)
 
   def train_step(batch_size: int, config: config_dict.ConfigDict):
 
@@ -631,8 +712,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
     def _train_step(inputs: Sequence[tf.Tensor]):
       """Training step function."""
 
-      (input_1, input_2, label_id, label_mask, initial_state, initial_sample,
-       _) = inputs[:7]
+      (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+       label_id, label_mask, initial_state, initial_sample, _) = inputs[:9]
       if psl_learning:
         psl_inputs = inputs[-1]
         # Explicitly specify the batch size as PSL model now requires known
@@ -642,7 +723,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       else:
         psl_inputs = None
 
-      model_inputs = [input_1, input_2, initial_state, initial_sample]
+      model_inputs = [
+          encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+          initial_state, initial_sample
+      ]
       if with_label:
         model_inputs.extend([label_id, label_mask])
 
@@ -651,10 +735,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         model_outputs = model(model_inputs, training=True)
 
         losses = linear_vrnn.compute_loss(
-            input_1[_INPUT_ID_NAME],
-            input_2[_INPUT_ID_NAME],
-            input_1[_INPUT_MASK_NAME],
-            input_2[_INPUT_MASK_NAME],
+            decoder_input_1[_INPUT_ID_NAME][:, :, 1:],
+            decoder_input_2[_INPUT_ID_NAME][:, :, 1:],
+            decoder_input_1[_INPUT_MASK_NAME][:, :, 1:],
+            decoder_input_2[_INPUT_MASK_NAME][:, :, 1:],
             model_outputs,
             latent_label_id=label_id,
             latent_label_mask=label_mask,
@@ -673,7 +757,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       grads = tape.gradient(total_loss, model.trainable_variables)
       optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
-      _update_loss_metrics(metrics, _TRAIN, losses,
+      _update_loss_metrics(metrics, _metric_namespace(_TRAIN), losses,
                            config.psl_constraint_rule_names)
 
     return _train_step
@@ -684,8 +768,12 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
     def _test_step(inputs: Sequence[tf.Tensor]):
       """Evaluation step function."""
 
-      (input_1, input_2, label_id, label_mask, initial_state, initial_sample,
-       _) = inputs[:7]
+      (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+       label_id, label_mask, initial_state, initial_sample,
+       domains) = inputs[:9]
+
+      _, ind_mask = domains
+
       if psl_inference:
         psl_inputs = inputs[-1]
         # Explicitly specify the batch size as PSL model now requires known
@@ -696,30 +784,43 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         psl_inputs = None
 
       # In evaluation, don't provide label as a guidance.
-      model_inputs = [input_1, input_2, initial_state, initial_sample]
+      model_inputs = [
+          encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+          initial_state, initial_sample
+      ]
       model_outputs = model(model_inputs, training=False)
 
-      losses = linear_vrnn.compute_loss(
-          input_1[_INPUT_ID_NAME],
-          input_2[_INPUT_ID_NAME],
-          input_1[_INPUT_MASK_NAME],
-          input_2[_INPUT_MASK_NAME],
-          model_outputs,
-          latent_label_id=label_id,
-          latent_label_mask=label_mask,
-          word_weights=word_weights,
-          with_bpr=config.with_bpr,
-          kl_loss_weight=config.kl_loss_weight,
-          with_bow=config.with_bow,
-          bow_loss_weight=config.bow_loss_weight,
-          num_latent_states=num_latent_states,
-          classification_loss_weight=config.classification_loss_weight,
-          psl_constraint_model=psl_model,
-          psl_inputs=psl_inputs,
-          psl_constraint_loss_weight=config.psl_constraint_inference_weight)
+      if ind_mask is not None:
+        ood_mask = 1 - ind_mask
+        label_masks = {
+            _metric_namespace(split, True): ind_mask * label_mask,
+            _metric_namespace(split, False): ood_mask * label_mask
+        }
+      else:
+        label_masks = {_metric_namespace(split): label_mask}
 
-      _update_loss_metrics(metrics, split, losses,
-                           config.psl_constraint_rule_names)
+      for namespace, label_mask in label_masks.items():
+        losses = linear_vrnn.compute_loss(
+            decoder_input_1[_INPUT_ID_NAME][:, :, 1:],
+            decoder_input_2[_INPUT_ID_NAME][:, :, 1:],
+            decoder_input_1[_INPUT_MASK_NAME][:, :, 1:],
+            decoder_input_2[_INPUT_MASK_NAME][:, :, 1:],
+            model_outputs,
+            latent_label_id=label_id,
+            latent_label_mask=label_mask,
+            word_weights=word_weights,
+            with_bpr=config.with_bpr,
+            kl_loss_weight=config.kl_loss_weight,
+            with_bow=config.with_bow,
+            bow_loss_weight=config.bow_loss_weight,
+            num_latent_states=num_latent_states,
+            classification_loss_weight=config.classification_loss_weight,
+            psl_constraint_model=psl_model,
+            psl_inputs=psl_inputs,
+            psl_constraint_loss_weight=config.psl_constraint_inference_weight)
+
+        _update_loss_metrics(metrics, namespace, losses,
+                             config.psl_constraint_rule_names)
 
     return _test_step
 
@@ -728,9 +829,12 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
     @tf.function
     def _inference_step(inputs: Sequence[tf.Tensor]) -> Sequence[tf.Tensor]:
-      (input_1, input_2, label, _, initial_state, initial_sample,
-       domain_label) = inputs[:7]
-      model_inputs = [input_1, input_2, initial_state, initial_sample]
+      (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+       label, _, initial_state, initial_sample, domains) = inputs[:9]
+      model_inputs = [
+          encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+          initial_state, initial_sample
+      ]
       model_outputs = model(model_inputs, training=False)
 
       if psl_inference:
@@ -749,8 +853,11 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
       prediction = linear_vrnn.get_prediction(logits)
       latent_state = model_outputs[0]
+      domain_label, ind_mask = domains
+      if ind_mask is None:
+        ind_mask = tf.ones_like(domain_label)
 
-      return latent_state, label, prediction, domain_label
+      return latent_state, label, prediction, domain_label, ind_mask
 
     return _inference_step
 
@@ -779,7 +886,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       inference_step(psl_inference, config.inference_batch_size, config),
       strategy,
       distributed=distributed_inference,
-      output_dtypes=[tf.float32, tf.int32, tf.int32, tf.int32],
+      output_dtypes=[tf.float32, tf.int32, tf.int32, tf.int32, tf.int32],
   )
 
   fixed_train_epoch = config.patience < 0
@@ -820,38 +927,46 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
                                                  tf.int32))
         logging.info('Done with testing on %s', dataset_name)
 
-      (train_hidden_state, train_label, train_prediction,
-       train_domain_label) = run_inference_steps(
+      (train_hidden_state, train_label, train_prediction, train_domain_label,
+       _) = run_inference_steps(
            iter(inference_train_dataset), num_inference_train_steps)
-      (test_hidden_state, test_label, test_prediction,
-       test_domain_label) = run_inference_steps(
+      (test_hidden_state, test_label, test_prediction, test_domain_label,
+       ind_mask) = run_inference_steps(
            iter(inference_test_dataset), num_inference_test_steps)
+
+      if config.domain_adaptation:
+        test_example_masks = [ind_mask, 1 - ind_mask]
+      else:
+        test_example_masks = [ind_mask]
 
 
       logging.info('Evaluating hidden representation learning.')
 
       input_size = config.model.vae_cell.encoder_projection_sizes[-1]
-      train_results, test_results = _evaluate_hidden_state_model(
+      results = _evaluate_hidden_state_model(
           input_size, config.model.num_states, train_hidden_state, train_label,
-          test_hidden_state, test_label, config.hidden_state_model_train_epochs,
+          test_hidden_state, test_label, test_example_masks,
+          config.hidden_state_model_train_epochs,
           config.hidden_state_model_learning_rate)
-      domain_train_results, domain_test_results = _evaluate_hidden_state_model(
+      domain_results = _evaluate_hidden_state_model(
           input_size, data_utils.get_dataset_num_domains(config.dataset),
           train_hidden_state, train_domain_label, test_hidden_state,
-          test_domain_label, config.hidden_state_model_train_epochs,
+          test_domain_label, test_example_masks,
+          config.hidden_state_model_train_epochs,
           config.hidden_state_model_learning_rate)
-      _update_hidden_state_model_metrics(metrics, _SPLITS, [
-          train_results + domain_train_results,
-          test_results + domain_test_results
-      ])
 
-      _update_model_prediction_metrics(metrics, _TRAIN, train_label,
-                                       train_prediction)
-      _update_model_prediction_metrics(metrics, _TEST, test_label,
-                                       test_prediction)
+      _update_hidden_state_model_metrics(metrics, metric_namespaces,
+                                         (results, domain_results))
 
-      for split in _SPLITS:
-        _log_metric_results(metrics, split)
+      _update_model_prediction_metrics(metrics, _metric_namespace(_TRAIN),
+                                       train_label, train_prediction)
+      for namespace, mask in zip(metric_namespaces[1:], test_example_masks):
+        _update_model_prediction_metrics(metrics, namespace,
+                                         tf.boolean_mask(test_label, mask),
+                                         tf.boolean_mask(test_prediction, mask))
+
+      for namespace in metric_namespaces:
+        _log_metric_results(metrics, namespace)
 
       total_results = {
           name: metric.result() for name, metric in metrics.items()
@@ -866,22 +981,23 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       test_model_outputs = [
           test_hidden_state, test_label, test_prediction, test_domain_label
       ]
-      if _primary_metric_improved(total_results, primary_metric,
-                                  config.min_delta):
-        primary_metric = total_results[_PRIMARY_METRIC_KEY]
-        out_of_patience = 0
-        if best_summary_writer:
-          with best_summary_writer.as_default():
-            for name, result in total_results.items():
-              tf.summary.scalar(name, result, step=epoch)
-        if model_dir:
-          checkpoint_name = checkpoint.save(
-              os.path.join(model_dir, 'checkpoint'))
-          logging.info('Saved checkpoint to %s', checkpoint_name)
-          _save_model_results(train_model_outputs, model_dir, _TRAIN)
-          _save_model_results(test_model_outputs, model_dir, _TEST)
-      else:
-        out_of_patience += 1
+      if not fixed_train_epoch:
+        if _primary_metric_improved(
+            total_results, primary_metric, config.min_delta):
+          primary_metric = total_results[_PRIMARY_METRIC_KEY]
+          out_of_patience = 0
+          if best_summary_writer:
+            with best_summary_writer.as_default():
+              for name, result in total_results.items():
+                tf.summary.scalar(name, result, step=epoch)
+          if model_dir:
+            checkpoint_name = checkpoint.save(
+                os.path.join(model_dir, 'checkpoint'))
+            logging.info('Saved checkpoint to %s', checkpoint_name)
+            _save_model_results(train_model_outputs, model_dir, _TRAIN)
+            _save_model_results(test_model_outputs, model_dir, _TEST)
+        else:
+          out_of_patience += 1
 
 
     for metric in metrics.values():
@@ -892,8 +1008,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       checkpoint_name = checkpoint.save(os.path.join(output_dir, 'checkpoint'))
       logging.info('Saved checkpoint to %s', checkpoint_name)
       if fixed_train_epoch:
-        _save_model_results(train_model_outputs, output_dir, _TRAIN)
-        _save_model_results(test_model_outputs, output_dir, _TEST)
+        if train_model_outputs:
+          _save_model_results(train_model_outputs, output_dir, _TRAIN)
+        if test_model_outputs:
+          _save_model_results(test_model_outputs, output_dir, _TEST)
 
 
   return False

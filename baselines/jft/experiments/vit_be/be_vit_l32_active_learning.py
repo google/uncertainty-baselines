@@ -27,13 +27,17 @@ def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
 
+  config.seed = 0
+
   # Active learning section
   config.model_type = 'batchensemble'
   config.acquisition_method = ''  # set in sweep
-  config.max_training_set_size = 200
-  config.initial_training_set_size = 0
-  config.acquisition_batch_size = 1
-  config.early_stopping_patience = 64
+  config.max_training_set_size = 0  # set in sweep
+  config.initial_training_set_size = 0  # set in sweep
+  config.acquisition_batch_size = 0  # set in sweep
+  config.early_stopping_patience = 128
+  config.finetune_head_only = False
+  config.power_acquisition = False
 
   config.dataset = ''  # set in sweep
   config.val_split = ''  # set in sweep
@@ -41,8 +45,8 @@ def get_config():
   config.test_split = ''  # set in sweep
   config.num_classes = None  # set in sweep
 
-  config.batch_size = 128
-  config.batch_size_eval = 128
+  config.batch_size = 512
+  config.batch_size_eval = 512
   config.total_steps = None  # set in sweep
 
   config.pp_train = ''  # set in sweep
@@ -101,7 +105,7 @@ def get_config():
   config.optim = ml_collections.ConfigDict()
   config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
-  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 1e-3  # Set in sweep.
@@ -113,41 +117,51 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
+  data_size_mode = 'num_classes/2'
+  acquisition_methods = [
+      'uniform', 'margin'
+  ]
+  cp_options = ['']
+
+  hparam_sweep = sweep_utils.get_hparam_best('BE')
+  if data_size_mode == 'tuning':
+    hparam_sweep = sweep_utils.get_hparam_sweep('BE')
+    acquisition_methods = ['uniform']
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-  cifar10_sweep = hyper.product([
-      hyper.product(sweep_utils.cifar10(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.015, 0.005, 0.0015, 0.0005]),
-  ])
+  model_specs = hyper.sweep('config.model_init', checkpoints)
+  def set_data_sizes(a, b, c):
+    return [
+        hyper.fixed('config.initial_training_set_size', a, length=1),
+        hyper.fixed('config.max_training_set_size', b, length=1),
+        hyper.fixed('config.acquisition_batch_size', c, length=1),
+    ]
 
-  cifar100_sweep = hyper.product([
-      hyper.product(sweep_utils.cifar100(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.015, 0.005, 0.0015, 0.0005]),
-  ])
-
-  # Temporarity disable imagenet and places due to OOM.
-  # pylint: disable=unused-variable
-  imagenet_sweep = hyper.product([
-      hyper.product(sweep_utils.imagenet(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.06, 0.03]),
-  ])
-
-  places365_sweep = hyper.product([
-      hyper.product(sweep_utils.places365_small(hyper, steps=1000)),
-      hyper.sweep('config.lr.base', [0.06, 0.03]),
-  ])
-  # pylint: enable=unused-variable
+  all_data_sizes = sweep_utils.get_data_sizes(data_size_mode)
+  all_sweeps = []
+  for dataset in ['cifar10', 'cifar100', 'imagenet', 'places365']:
+    sweep_func = sweep_utils.get_dataset_sweep()[dataset]
+    data_sizes = [
+        hyper.product(set_data_sizes(a, b, c))
+        for a, b, c in all_data_sizes[dataset]
+    ]
+    sweep_list = [
+        hyper.product(sweep_func(hyper, steps=2000)),
+        hyper.chainit(data_sizes)
+    ]
+    for hparam in [
+        'config.lr.base', 'config.fast_weight_lr_multiplier',
+        'config.model.transformer.random_sign_init'
+    ]:
+      sweep_list.append(hyper.sweep(hparam, hparam_sweep[hparam][dataset]))
+    dataset_sweep = hyper.product(sweep_list)
+    all_sweeps.append(dataset_sweep)
 
   return hyper.product([
       hyper.sweep('config.acquisition_method', acquisition_methods),
-      hyper.chainit([
-          cifar10_sweep,
-          cifar100_sweep,
-          # imagenet_sweep,
-          # places365_sweep,
-      ]),
+      hyper.chainit(all_sweeps),
+      # use mean of performance for choosing hyperparameters.
       hyper.product([
-          hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-          hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
-          hyper.sweep('config.model_init', checkpoints),
+          model_specs,
+          hyper.sweep('config.seed', [189, 827, 905, 964, 952]),
       ])
   ])

@@ -59,7 +59,4 @@ def get_config():
 def get_sweep(hyper):
   return hyper.product([
       hyper.sweep('seed', list(range(10))),
-      hyper.sweep('use_spec_norm', hyper.categorical([False, True])),
-      hyper.sweep('use_gp_layer', hyper.categorical([False, True])),
-      hyper.sweep('dempster_shafer_ood', hyper.categorical([False, True])),
   ])

@@ -111,7 +111,8 @@ class SegVitBE(nn.Module):
   patches: ml_collections.ConfigDict
   backbone_configs: ml_collections.ConfigDict
   decoder_configs: ml_collections.ConfigDict
-  head_kernel_init: InitializeFn = nn.initializers.zeros
+  head_kernel_init: InitializeFn = nn.initializers.variance_scaling(
+      0.02, 'fan_in', 'truncated_normal')
 
   @nn.compact
   def __call__(self, x: Array, *, train: bool, debug: bool = False):
@@ -163,6 +164,10 @@ class SegVitBE(nn.Module):
     else:
       raise ValueError(f'Unknown backbone: {self.backbone_configs.type}.')
 
+    # remove CLS tokens for decoding
+    if self.backbone_configs.classifier == 'token':
+      x = x[..., 1:, :]
+
     if self.decoder_configs.type == 'linear':
       output_projection = nn.Dense(
           self.num_classes,
@@ -191,7 +196,7 @@ class SegVitBE(nn.Module):
     x = output_projection(x)
 
     # Resize bilinearly:
-    x = jax.image.resize(x, [b * ens_size, h, w, x.shape[-1]], 'linear')
+    x = jax.image.resize(x, [b * ens_size, h, w, x.shape[-1]], 'bilinear')
     out['logits'] = x
 
     new_input_shape = tuple([

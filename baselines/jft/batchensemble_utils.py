@@ -117,8 +117,8 @@ def tree_map_with_names(f, param_tree, match_name_fn=lambda name: True):
     f: The function to be applied to each parameter in `param_tree`.
     param_tree: The tree of parameters `f` should be applied to.
     match_name_fn: This function is called with each tree leave's path name,
-      which has a path-like format ("a/b/c"), and decides whether `f` should
-      be applied to that leaf or the leaf should be kept as-is.
+      which has a path-like format ("a/b/c"), and decides whether `f` should be
+      applied to that leaf or the leaf should be kept as-is.
 
   Returns:
     A tree identical in structure to `param_tree` but with the leaves the
@@ -137,21 +137,17 @@ def tree_rngs_split(rngs, num_splits=2):
   return tuple(slice_rngs(rngs, i) for i in range(num_splits))
 
 
-def update_fn_be(
-    opt: flax.optim.Optimizer,
-    rngs: Mapping[str, jnp.ndarray],
-    lr: jnp.ndarray,
-    images: jnp.ndarray,
-    labels: jnp.ndarray,
-    batch_loss_fn: Callable[..., jnp.ndarray],
-    weight_decay_fn: Optional[Callable[[Any, float], Any]],
-    max_grad_norm_global: Optional[float],
-    fast_weight_lr_multiplier: float):
+def update_fn_be(opt: flax.optim.Optimizer, rng: jnp.ndarray, lr: jnp.ndarray,
+                 images: jnp.ndarray, labels: jnp.ndarray,
+                 batch_loss_fn: Callable[..., jnp.ndarray],
+                 weight_decay_fn: Optional[Callable[[Any, float], Any]],
+                 max_grad_norm_global: Optional[float],
+                 fast_weight_lr_multiplier: float):
   """Updates a model on the given inputs for one step.
 
   Args:
     opt: Flax optimizer used during training.
-    rngs: A random number generator to be passed by stochastic operations.
+    rng: A random number generator to be passed by stochastic operations.
     lr: The learning rate to use in each device.
     images: Array containing the images in a batch.
     labels: Array containing the labels in a batch.
@@ -174,9 +170,10 @@ def update_fn_be(
   """
 
   # If rng is provided: split rng, and return next_rng for the following step.
-  rngs, next_rngs = tree_rngs_split(rngs, num_splits=2)
+  rng, next_rng = jax.random.split(rng)
   (loss, aux), grads = jax.value_and_grad(
-      batch_loss_fn, has_aux=True)(opt.target, images, labels, rngs=rngs)
+      batch_loss_fn, has_aux=True)(
+          opt.target, images, labels, rng=rng)
 
   # Average gradients.
   grads = jax.lax.pmean(grads, axis_name='batch')
@@ -202,10 +199,10 @@ def update_fn_be(
     opt = opt.replace(target=params)
 
   aux['learning_rate'] = lr
-  return opt, next_rngs, aux
+  return opt, next_rng, aux
 
 
-def broadcast_batchensemble_biases(params, be_layers, ensemble_size):
+def maybe_broadcast_batchensemble_biases(params, be_layers, ensemble_size):
   """Tiles BE biases when seeding downstream weights from a deterministic model."""
   for layer in be_layers:
     for block in [0, 1]:
@@ -267,11 +264,11 @@ def create_batch_loss_fn(model, config):
     The function that updates the model for one step.
   """
 
-  def batch_loss_fn(params, images, labels, rngs):
+  def batch_loss_fn(params, images, labels, rng):
     logits, _ = model.apply({'params': flax.core.freeze(params)},
                             images,
                             train=True,
-                            rngs=rngs)
+                            rngs={'dropout': rng})
     labels = jnp.tile(labels, (config.model.transformer.ens_size, 1))
     loss_fn = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
     loss = jnp.mean(loss_fn(logits=logits, labels=labels))
@@ -293,19 +290,18 @@ def create_update_fn(model, config):
 
   batch_loss_fn = create_batch_loss_fn(model, config)
 
-  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0))
   def update_fn(opt, lr, images, labels, rngs):
     return update_fn_be(
         opt=opt,
-        rngs=rngs,
+        rng=rngs,
         lr=lr,
         images=images,
         labels=labels,
         batch_loss_fn=batch_loss_fn,
         weight_decay_fn=train_utils.get_weight_decay_fn(
             weight_decay_rules=config.get('weight_decay', []) or [],
-            rescale_value=config.lr.base
-            if config.get('weight_decay_decouple') else 1.),
+            rescale_value=1.),
         max_grad_norm_global=config.get('grad_clip_norm', None),
         fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
 
@@ -361,4 +357,3 @@ def create_evaluation_fn(model, config):
     return ncorrect, loss, n, metric_args
 
   return evaluation_fn
-

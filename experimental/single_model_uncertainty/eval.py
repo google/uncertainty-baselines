@@ -24,6 +24,7 @@ import edward2 as ed
 import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
+import ood_utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
 _EVAL_SLEEP_SECS = 5
@@ -47,6 +48,7 @@ def eval_step_fn(model: tf.keras.Model,
                  strategy: tf.distribute.Strategy,
                  metrics: Dict[str, Union[tf.keras.metrics.Metric,
                                           rm.metrics.KerasMetric]],
+                 dempster_shafer_ood: bool,
                  iterations_per_loop: int,
                  label_key: str = 'labels',
                  mean_field_factor: float = -1) -> EvalStepFn:
@@ -69,8 +71,14 @@ def eval_step_fn(model: tf.keras.Model,
           logits, covmat, mean_field_factor=mean_field_factor)
 
       predictions = tf.nn.softmax(logits, axis=-1)
+
+      # Consistent with uncertainty_baselines/baselines/cifar/sngp.py;l=591
       if label_key != 'labels':
-        predictions = tf.reduce_max(predictions, axis=-1)
+        if dempster_shafer_ood:
+          predictions = ood_utils.DempsterShaferUncertainty(logits)
+        else:
+          predictions = 1 - tf.reduce_max(predictions, axis=-1)
+        labels = 1 - labels
       # Later when metric.result() is called, it will return the computed
       # result, averaged across replicas.
       for metric in metrics.values():
@@ -153,6 +161,7 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
                model: tf.keras.Model,
                metrics: Dict[str, Union[tf.keras.metrics.Metric,
                                         rm.metrics.KerasMetric]],
+               dempster_shafer_ood: bool = False,
                ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
                ood_metrics: Optional[Dict[str, tf.keras.metrics.Metric]] = None,
                mean_field_factor: float = -1) -> _EvalSetupResult:
@@ -166,6 +175,7 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
       model,
       strategy,
       metrics,
+      dempster_shafer_ood=dempster_shafer_ood,
       iterations_per_loop=num_test_steps,
       mean_field_factor=mean_field_factor)
   ood_fn = None
@@ -181,12 +191,13 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
     ood_dataset = strategy.experimental_distribute_dataset(ood_dataset)
     ood_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'ood'))
-    num_ood_steps = ood_dataset_builder.num_examples // batch_size
+    num_ood_steps = ood_dataset_builder.num_examples() // batch_size
 
     ood_fn = eval_step_fn(
         model,
         strategy,
         ood_metrics,
+        dempster_shafer_ood=dempster_shafer_ood,
         iterations_per_loop=num_ood_steps,
         label_key='is_in_distribution',
         mean_field_factor=mean_field_factor)
@@ -212,6 +223,7 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
           model,
           strategy,
           metrics,
+          dempster_shafer_ood=dempster_shafer_ood,
           iterations_per_loop=num_val_steps,
           mean_field_factor=mean_field_factor)
 
@@ -235,13 +247,14 @@ def run_eval_loop(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
                   ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
                   ood_metrics: Optional[Dict[str,
                                              tf.keras.metrics.Metric]] = None,
-                  mean_field_factor: float = -1):
+                  mean_field_factor: float = -1,
+                  dempster_shafer_ood: bool = False):
   """Evaluate the model on the validation and test splits and record metrics."""
   (test_fn, test_dataset, test_summary_writer, val_fn, val_dataset,
    val_summary_writer, ood_fn, ood_dataset, ood_summary_writer) = setup_eval(
        validation_dataset_builder, test_dataset_builder, batch_size, strategy,
-       trial_dir, model, metrics, ood_dataset_builder, ood_metrics,
-       mean_field_factor)
+       trial_dir, model, metrics, dempster_shafer_ood, ood_dataset_builder,
+       ood_metrics, mean_field_factor)
 
   checkpoint = tf.train.Checkpoint(model=model)
   last_eval_step = -1

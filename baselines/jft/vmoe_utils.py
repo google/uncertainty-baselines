@@ -19,6 +19,7 @@ from typing import Any, Mapping
 import flax
 import jax
 from jax.experimental import pjit
+import jax.numpy as jnp
 import ml_collections
 
 
@@ -54,5 +55,32 @@ def get_variables_partition_spec(oss_params):
   variables_partition_spec = flax.core.freeze(
       flax.traverse_util.unflatten_dict(variables_partition_spec))
   return variables_partition_spec
+
+
+def deep_ensemble_reshape_outputs_fn(logits_and_prelogits):
+  ens_logits = [logits for logits, _ in logits_and_prelogits]
+  ens_prelogits = [prelogits for _, prelogits in logits_and_prelogits]
+  return jnp.asarray(ens_logits), jnp.asarray(ens_prelogits)
+
+
+def efficient_ensemble_reshape_outputs_fn(logits_and_prelogits, ensemble_size):
+  """Reshapes (pre)logits into tensors (ensemble size, batch size, dim)."""
+  ens_logits = [logits for logits, _ in logits_and_prelogits]
+  ens_prelogits = [prelogits for _, prelogits in logits_and_prelogits]
+
+  if not (len(ens_logits) == 1 and len(ens_prelogits) == 1):
+    raise ValueError(('For efficient ensembles, we expect a single logits and a'
+                      f' single prelogits; got instead {len(ens_logits)} logits'
+                      f' and {len(ens_prelogits)} prelogits.'))
+
+  ens_logits = ens_logits[0]
+  ens_prelogits = ens_prelogits[0]
+
+  def reshape(a):
+    assert a.ndim == 2, a.shape
+    # The (pre)logits have a jnp.repeat(..., ensemble_size, axis=0) structure.
+    return a.reshape((-1, ensemble_size, a.shape[1])).transpose((1, 0, 2))
+
+  return reshape(ens_logits), reshape(ens_prelogits)
 
 

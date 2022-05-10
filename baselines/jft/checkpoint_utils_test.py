@@ -172,22 +172,13 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     leaves = jax.tree_util.tree_leaves(tree)
     new_leaves = jax.tree_util.tree_leaves(new_tree)
     for arr, new_arr in zip(leaves, new_leaves):
-      # Cast from bfloat16 as np.testing does not support it.
-      arr = arr.astype(np.float32) if arr.dtype == jax.dtypes.bfloat16 else arr
-      new_arr = (new_arr.astype(np.float32)
-                 if new_arr.dtype == jax.dtypes.bfloat16 else new_arr)
-      np.testing.assert_raises(
-          AssertionError, np.testing.assert_allclose, arr, new_arr)
+      self.assertFalse(jnp.allclose(arr, new_arr), msg=(arr, new_arr))
 
     restored_tree = checkpoint_utils.load_checkpoint(new_tree, checkpoint_path)
     restored_leaves = jax.tree_util.tree_leaves(restored_tree)
     for arr, restored_arr in zip(leaves, restored_leaves):
-      # Cast from bfloat16 as np.testing does not support it.
-      arr = arr.astype(np.float32) if arr.dtype == jax.dtypes.bfloat16 else arr
-      restored_arr = (
-          restored_arr.astype(np.float32)
-          if restored_arr.dtype == jax.dtypes.bfloat16 else restored_arr)
-      np.testing.assert_allclose(arr, restored_arr)
+      self.assertIsInstance(restored_arr, np.ndarray)
+      self.assertTrue(jnp.allclose(arr, restored_arr), msg=(arr, restored_arr))
 
   def test_checkpointing_model(self):
     key = jax.random.PRNGKey(42)
@@ -205,6 +196,7 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     restored_leaves = jax.tree_util.tree_leaves(restored_params)
     leaves = jax.tree_util.tree_leaves(params)
     for arr, restored_arr in zip(leaves, restored_leaves):
+      self.assertIsInstance(restored_arr, np.ndarray)
       np.testing.assert_allclose(arr, restored_arr)
 
     key, subkey = jax.random.split(key)
@@ -282,6 +274,7 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
       leaves1 = jax.tree_util.tree_leaves(dict1)
       leaves2 = jax.tree_util.tree_leaves(dict2)
       for arr1, arr2 in zip(leaves1, leaves2):
+        self.assertIsInstance(arr2, np.ndarray)
         np.testing.assert_allclose(arr1, arr2)
 
     assert_dict_allclose(params, checkpoint_data.optimizer.target)
@@ -504,7 +497,7 @@ def _get_batchensemble_params():
   config.model.transformer.ens_size = 3
   config.model.transformer.be_layers = (0,)
   config.model.transformer.random_sign_init = .5
-  model = ub.models.vit_batchensemble.PatchTransformerBE(
+  model = ub.models.vision_transformer_be(
       num_classes=config.num_classes, **config.model)
   return _init_model(key, model)
 
@@ -518,7 +511,7 @@ def _get_heteroscedastic_params():
   config.model.mc_samples = 1000
   config.model.num_factors = 50
   config.model.param_efficient = True
-  model = ub.models.het_vision_transformer(
+  model = ub.models.vision_transformer_het(
       num_classes=config.num_classes, **config.get("model", {}))
 
   key, diag_key, noise_key = jax.random.split(key, 3)

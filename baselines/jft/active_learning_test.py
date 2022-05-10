@@ -17,7 +17,6 @@
 # TODO(joost,andreas): Refactor active_learning.py and use this test for smaller
 # components including acquisition functions and other utility functions.
 # pylint: disable=pointless-string-statement
-"""
 import os.path
 import pathlib
 import tempfile
@@ -100,4 +99,3 @@ class ActiveLearningTest(parameterized.TestCase, tf.test.TestCase):
 
 if __name__ == '__main__':
   tf.test.main()
-"""

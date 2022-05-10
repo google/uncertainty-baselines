@@ -150,8 +150,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         dataset_name=FLAGS.dataset_name,
         split='test',
         data_dir=FLAGS.data_dir)
-    model = ub.models.get(
-        FLAGS.model_name,
+    model = getattr(ub.models, FLAGS.model_name)(
         batch_size=FLAGS.batch_size,
         num_motifs=FLAGS.num_motifs,
         len_motifs=FLAGS.len_motifs,

@@ -22,6 +22,7 @@ import tensorflow_datasets as tfds
 
 from uncertainty_baselines.datasets import toxic_comments
 
+HUB_PREPROCESS_URL = 'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3'
 
 CCDataClass = toxic_comments.CivilCommentsDataset
 CCIdentitiesDataClass = toxic_comments.CivilCommentsIdentitiesDataset
@@ -43,15 +44,45 @@ class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
   def testDatasetSize(self, split, dataset_class):
     batch_size = 9 if split == tfds.Split.TRAIN else 5
     dataset_builder = dataset_class(
-        split=split,
-        shuffle_buffer_size=20)
+        split=split, dataset_type='tfds', shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))
+
     features = element['features']
     labels = element['labels']
+    ids = element['id']
 
     self.assertEqual(features.shape[0], batch_size)
     self.assertEqual(labels.shape[0], batch_size)
+    self.assertEqual(ids.shape[0], batch_size)
+
+  @parameterized.named_parameters(
+      ('civil_train', tfds.Split.TRAIN, CCDataClass),
+      ('civil_valid', tfds.Split.VALIDATION, CCDataClass),
+      ('civil_test', tfds.Split.TEST, CCDataClass),
+      ('civil_identities_train', tfds.Split.TRAIN, CCIdentitiesDataClass),
+      ('civil_identities_valid', tfds.Split.VALIDATION, CCIdentitiesDataClass),
+      ('civil_identities_test', tfds.Split.TEST, CCIdentitiesDataClass),
+      ('wiki_train', tfds.Split.TRAIN, WTDataClass),
+      ('wiki_valid', tfds.Split.VALIDATION, WTDataClass),
+      ('wiki_test', tfds.Split.TEST, WTDataClass))
+  def testTFHubProcessor(self, split, dataset_class):
+    batch_size = 9 if split == tfds.Split.TRAIN else 5
+    dataset_builder = dataset_class(
+        split=split,
+        dataset_type='tfds',
+        shuffle_buffer_size=20,
+        tf_hub_preprocessor_url=HUB_PREPROCESS_URL)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
+    element = next(iter(dataset))
+
+    input_ids = element['input_ids']
+    input_mask = element['input_mask']
+    segment_ids = element['segment_ids']
+
+    self.assertEqual(input_ids.shape[0], batch_size)
+    self.assertEqual(input_mask.shape[0], batch_size)
+    self.assertEqual(segment_ids.shape[0], batch_size)
 
   @parameterized.named_parameters(
       ('civil_comments', CCDataClass),
@@ -62,6 +93,7 @@ class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
     batch_size = 9
     dataset_builder = dataset_class(
         split=tfds.Split.TRAIN,
+        dataset_type='tfds',
         shuffle_buffer_size=20)
     dataset = dataset_builder.load(batch_size=batch_size).take(1)
     element = next(iter(dataset))

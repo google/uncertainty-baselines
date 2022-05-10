@@ -202,5 +202,12 @@ class SGDSynthDatasetTest(SimDialDatasetTest):
     self.dataset_class = ub.datasets.SGDSynthDataset
 
 
+class SGDDatasetTest(SimDialDatasetTest):
+
+  def setUp(self):
+    super().setUp()
+    self.dataset_class = ub.datasets.SGDDataset
+
+
 if __name__ == '__main__':
   tf.test.main()

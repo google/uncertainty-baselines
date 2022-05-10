@@ -42,6 +42,7 @@ def get_config():
   config.initial_training_set_size = 0
   config.acquisition_batch_size = 10
   config.early_stopping_patience = 64
+  config.finetune_head_only = False
 
   # Dataset section:
   config.dataset = 'places365_small'
@@ -50,7 +51,7 @@ def get_config():
   config.test_split = 'validation'
   config.num_classes = n_cls
 
-  config.batch_size = 256  # half of config's 512 - due to memory issues
+  config.batch_size = 512
   config.total_steps = 1024
 
   pp_common = '|value_range(-1, 1)'

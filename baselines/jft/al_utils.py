@@ -21,6 +21,7 @@ from typing import Dict, Iterable, List, Optional, Set, Union
 
 from clu.deterministic_data import DatasetBuilder
 import jax
+import jax.numpy as jnp
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -81,6 +82,7 @@ def _subset_generator(*, dataset: tf.data.Dataset,
   return inner
 
 
+# TODO(dusenberrymw): Make this subclass tfds.core.DatasetBuilder instead.
 class SubsetDatasetBuilder(DatasetBuilder):
   """Subset Dataset Builder which is "just right" for clu."""
 
@@ -103,14 +105,16 @@ class SubsetDatasetBuilder(DatasetBuilder):
                  shuffle_files: bool = False,
                  read_config: Optional[tfds.ReadConfig] = None,
                  **kwargs) -> tf.data.Dataset:
-    # We don't allow an empty split by virtue of the parameter declaration,
-    # so we always have a split.
-    read_config = dataclasses.replace(
-        kwargs.pop('read_config', tfds.ReadConfig()))
+    """Constructs a dataset containing a subset of the original dataset."""
     # Add the 'tfds_id' key to the samples which we can then parse.
     # From: https://www.tensorflow.org/datasets/api_docs/python/tfds/ReadConfig
-    read_config.add_tfds_id = True
+    if read_config is None:
+      logging.info('Using an empty ReadConfig!')
+      read_config = tfds.ReadConfig()
+    read_config = dataclasses.replace(read_config, add_tfds_id=True)
 
+    # Since we are selecting a subset of the dataset based on example ids,
+    # shuffling the files isn't necessary.
     dataset = self.base_dataset_builder.as_dataset(
         split=split, shuffle_files=False, read_config=read_config, **kwargs)
 
@@ -127,26 +131,63 @@ class SubsetDatasetBuilder(DatasetBuilder):
             splitwise_id=True),
         output_signature=element_spec,
     )
-
-    # This is a bit more complex: potentially cache before or after calling
-    # .shuffle. BUT don't cache for the pool set as it will be much larger than
-    # the training set.
-    reshuffle_each_iteration = shuffle_files and read_config.shuffle_reshuffle_each_iteration
-    cache_data = self.subset_ids is not None
-
-    if reshuffle_each_iteration and cache_data:
-      dataset = dataset.cache()
-    if shuffle_files:
-      if self.subset_ids is not None:
-        buffer_size = len(self.subset_ids)
-      else:
-        # TODO(andreas): what buffer size do we want actually for shuffling?
-        #   10k seems like a safe thing.
-        buffer_size = 10000
-      dataset = dataset.shuffle(
-          buffer_size=buffer_size,
-          seed=read_config.shuffle_seed,
-          reshuffle_each_iteration=read_config.shuffle_reshuffle_each_iteration)
-    if not reshuffle_each_iteration and cache_data:
-      dataset = dataset.cache()
     return dataset
+
+
+def sample_class_balanced_ids(
+    n,
+    dataset,
+    num_classes,
+    # shuffle_buffer_size=50_000,
+    shuffle_rng):
+  """Return n class balanced sampled ids."""
+  logging.info('Preparing dataset.')
+  assert n % num_classes == 0, (f'Total #samples {n} is not a '
+                                f'multiplier of num_classes {num_classes}.')
+  # The commented-out implementation has OOM issues.
+
+  # dataset = dataset.shuffle(shuffle_buffer_size, seed=shuffle_seed)
+  # dataset = dataset.prefetch(1)
+  # def _make_filter_fn(label):
+  #   return lambda x: x['label'] == label
+
+  # datasets = []
+  # for label in range(num_classes):
+  #   datasets.append(dataset.filter(_make_filter_fn(label)))
+  # choice_dataset = tf.data.Dataset.range(num_classes).repeat(n // num_classes)
+  # dataset = tf.data.Dataset.choose_from_datasets(datasets, choice_dataset)
+  # result = dataset.map(lambda x: x['id'], num_parallel_calls=tf.data.AUTOTUNE)
+  # result = result.prefetch(1)
+  # logging.info('Result obtained.')
+  # return list(result.as_numpy_iterator())
+
+  iter_ds = iter_ds = iter(dataset)
+
+  ids = []
+  labels = []
+  masks = []
+  for _, batch in enumerate(iter_ds):
+    batch_id = batch['id'].numpy()
+    batch_label = batch['labels'].numpy()
+    batch_mask = batch['mask'].numpy()
+
+    # TODO(joost,andreas): if we run on multi host, we need to index
+    # batch_outputs: batch_outputs[0]
+    ids.append(batch_id)
+    labels.append(batch_label)
+    masks.append(batch_mask)
+
+  ids = jnp.concatenate(ids, axis=1).flatten()
+  labels = jnp.concatenate(labels, axis=1)
+  labels = jnp.argmax(labels, axis=2).flatten()
+  masks = jnp.concatenate(masks, axis=1).flatten()
+  labels = jnp.where(masks, labels, -1)
+  shuffled_index = jax.random.permutation(shuffle_rng, len(ids))
+  ids = ids[shuffled_index]
+  labels = labels[shuffled_index]
+  result = []
+  for label in range(num_classes):
+    index_with_label = jnp.argwhere(label == labels, size=n // num_classes)
+    index_with_label = index_with_label.flatten()
+    result.extend(ids[index_with_label].tolist())
+  return result

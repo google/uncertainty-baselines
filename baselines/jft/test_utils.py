@@ -23,14 +23,16 @@ def get_config(
     dataset_name,
     classifier,
     representation_size,
+    batch_size=3,
+    total_steps=3,
     use_sngp=False,
     use_gp_layer=False):
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
   config.seed = 0
 
-  config.batch_size = 3
-  config.total_steps = 3
+  config.batch_size = batch_size
+  config.total_steps = total_steps
 
   num_examples = config.batch_size * config.total_steps
 
@@ -122,8 +124,10 @@ def get_config(
   config.fewshot.representation_layer = 'pre_logits'
   config.fewshot.log_steps = config.total_steps
   config.fewshot.datasets = {
-      'pets': ('oxford_iiit_pet', 'train', 'test'),
-      'imagenet': ('imagenet2012_subset/10pct', 'train', 'validation'),
+      'pets': ('oxford_iiit_pet', f'train[:{num_examples}]',
+               f'test[:{num_examples}]'),
+      'imagenet': ('imagenet2012_subset/1pct', f'train[:{num_examples}]',
+                   f'validation[:{num_examples}]'),
   }
   config.fewshot.pp_train = 'decode|resize(256)|central_crop(224)|value_range(-1,1)|drop("segmentation_mask")'
   config.fewshot.pp_eval = 'decode|resize(256)|central_crop(224)|value_range(-1,1)|drop("segmentation_mask")'

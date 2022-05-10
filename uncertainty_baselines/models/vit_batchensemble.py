@@ -13,21 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Patch Transformerm similar to Gshard paper with BatchEnsemble MLPs."""
+"""BatchEnsemble Vision Transformer (ViT) model."""
 
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Tuple
 
-from absl import logging
 import edward2.jax as ed
-import flax
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
-import numpy as np
-import scipy
 
 from uncertainty_baselines.models import vit
-
 
 DType = type(jnp.float32)
 InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
@@ -236,97 +230,20 @@ class BatchEnsembleEncoder(nn.Module):
     return encoded, extra_info
 
 
-class PatchTransformerBE(nn.Module):
-  """Patch transformer with BE layers in the encoder.
+class VisionTransformerBE(nn.Module):
+  """BatchEnsemble Vision Transformer model.
 
   You must specify either the vertical and horizontal resolution of the patches
   (patch_size).
   """
+  num_classes: int
   patches: Any
-  num_classes: int = 1000
-  train: Optional[bool] = None
-  hidden_size: int = 1024
+  transformer: Params
+  hidden_size: int
   representation_size: Optional[int] = None
-  transformer: Optional[Params] = None
   classifier: str = "token"
   head_kernel_init: InitializeFn = nn.initializers.zeros
-
-  @classmethod
-  def load(
-      cls,
-      prefix: str,
-      init_params: Mapping[str, Any],
-      model_params: Mapping[str, Any],
-      partition_specs: Sequence[Any],
-      keep_head: bool = False,
-  ) -> Mapping[str, Any]:
-    """Loads from Transformer checkpoint except head parameters.
-
-    Args:
-      prefix: Prefix of the model checkpoint to use.
-      init_params: Dictionary with unreplicated parameters of the new model.
-      model_params: Dictionary with the configuration of the new model.
-      partition_specs: A sequence of PartitionSpecs. They map expert parameter
-        names (RegEx patterns) to a TPU layout. Expected to be None or empty.
-      keep_head: bool, whether head must be kept or replaced with a random one.
-
-    Returns:
-      A new dictionary of params to replace init_params.
-    """
-    local_devices = sorted(jax.local_devices(), key=lambda device: device.id)
-    if partition_specs:
-      raise ValueError("Partition specs cannot be used for Batchensemble.")
-    restored = None
-    if restored is None:
-      raise ValueError(f"No valid checkpoints with prefix {prefix!r}")
-    # Checkpoints contain FrozenDicts, which are immutable.
-    restored_params = flax.core.unfreeze(restored["target"])
-    # The following allows implementing both fine-tuning head variants from
-    # https://docs.google.com/presentation/d/1mWGpOoCq1TGESg7ZpQwBIxBpEQxWk9cjfeVS_qQi1Gc/edit#slide=id.g9798de2d4d_2_0
-    # depending on the value of `representation_size` in the fine-tuning job:
-    # - `None` is variant 3 (c-head): drop the whole head and add a nn.Linear.
-    # - same number as in pre-training means variant 1 (a-head): keep the head
-    #   but reset the last layer (logits) for the new task.
-    if model_params["representation_size"] is None:
-      if "pre_logits" in restored_params:
-        logging.info("Resformer: drop-head variant")
-        del restored_params["pre_logits"]
-    if not keep_head:
-      restored_params["batchensemble_head"]["kernel"] = np.stack(
-          [init_params["batchensemble_head"]["kernel"]] * len(local_devices))
-      restored_params["batchensemble_head"]["bias"] = np.stack(
-          [init_params["batchensemble_head"]["bias"]] * len(local_devices))
-    # The following implements "high-res finetuning" for transformer models.
-    if "posembed_input" in restored_params.get("Transformer", {}):
-      # Rescale the grid of position embeddings. Param shape is (1,N,rep.size)
-      posemb = (
-          restored_params["Transformer"]["posembed_input"]["pos_embedding"][0])
-      posemb_new = init_params["Transformer"]["posembed_input"]["pos_embedding"]
-      if posemb.shape != posemb_new.shape:
-        logging.info("Resformer: resized variant: %s to %s", posemb.shape,
-                     posemb_new.shape)
-        ntok_new = posemb_new.shape[1]
-
-        if (model_params.get("cls_token", False) or
-            model_params.get("classifier", None) == "token"):
-          posemb_tok, posemb_grid = posemb[:, :1], posemb[0, 1:]
-          ntok_new -= 1
-        else:
-          posemb_tok, posemb_grid = posemb[:, :0], posemb[0]
-
-        gs_old = int(np.sqrt(len(posemb_grid)))
-        gs_new = int(np.sqrt(ntok_new))
-        logging.info("Resformer: grid-size from %s to %s", gs_old, gs_new)
-        posemb_grid = posemb_grid.reshape(gs_old, gs_old, -1)
-
-        zoom = (gs_new / gs_old, gs_new / gs_old, 1)
-        posemb_grid = scipy.ndimage.zoom(posemb_grid, zoom, order=1)
-        posemb_grid = posemb_grid.reshape(1, gs_new * gs_new, -1)
-        posemb = jnp.array(np.concatenate([posemb_tok, posemb_grid], axis=1))
-        restored_params["Transformer"]["posembed_input"][
-            "pos_embedding"] = np.stack([posemb] * len(local_devices))
-
-    return flax.core.freeze(restored_params)
+  train: Optional[bool] = None
 
   def embed(self,
             images: jnp.ndarray,
@@ -346,7 +263,6 @@ class PatchTransformerBE(nn.Module):
   @nn.compact
   def __call__(self, images: jnp.ndarray, train: Optional[bool] = None):
     train = nn.module.merge_param("train", self.train, train)
-    transformer = self.transformer or {}
     # Convert images to patches.
     x = self.embed(images, self.hidden_size, self.patches.size)
     # Add "class" token if necessary.
@@ -357,7 +273,7 @@ class PatchTransformerBE(nn.Module):
       x = jnp.concatenate([cls, x], axis=1)
     # Encode tokens.
     x, extra_info = BatchEnsembleEncoder(
-        train=train, name="Transformer", **transformer)(
+        train=train, name="Transformer", **self.transformer)(
             x)
     # Reduce tokens to a single vector representation.
     if self.classifier == "token":
@@ -372,12 +288,12 @@ class PatchTransformerBE(nn.Module):
       probe = jnp.tile(probe, [x.shape[0], 1, 1])
       attention = nn.MultiHeadDotProductAttention(
           deterministic=not train,
-          num_heads=transformer.get("attention", {}).get("num_heads", 1),
+          num_heads=self.transformer.get("attention", {}).get("num_heads", 1),
           kernel_init=nn.initializers.xavier_uniform())
       x = attention(inputs_q=probe, inputs_kv=x)
       y = nn.LayerNorm()(x)
       y = vit.MlpBlock(
-          mlp_dim=transformer["mlp_dim"], dropout_rate=0)(
+          mlp_dim=self.transformer["mlp_dim"], dropout_rate=0)(
               y, deterministic=not train)
       x = (x + y)[:, 0]
     else:
@@ -410,3 +326,26 @@ class PatchTransformerBE(nn.Module):
         kernel_init=self.head_kernel_init,
         name="batchensemble_head")(x)
     return x, extra_info
+
+
+def vision_transformer_be(
+    num_classes: int,
+    patches: Any,
+    transformer: Params,
+    hidden_size: int,
+    representation_size: Optional[int] = None,
+    classifier: str = "token",
+    head_kernel_init: InitializeFn = nn.initializers.zeros,
+    train: Optional[bool] = None):
+  """Builds a BatchEnsemble Vision Transformer (ViT) model."""
+  # TODO(dusenberrymw): Add API docs once the config dict in VisionTransformerBE
+  # is cleaned up.
+  return VisionTransformerBE(
+      num_classes=num_classes,
+      patches=patches,
+      transformer=transformer,
+      hidden_size=hidden_size,
+      representation_size=representation_size,
+      classifier=classifier,
+      head_kernel_init=head_kernel_init,
+      train=train)

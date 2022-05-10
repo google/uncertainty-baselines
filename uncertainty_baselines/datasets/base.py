@@ -93,20 +93,20 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
   Requires subclasses to override _read_examples, _create_process_example_fn.
   """
 
-  def __init__(
-      self,
-      name: str,
-      dataset_builder: tfds.core.DatasetBuilder,
-      split: Union[float, str, tfds.Split],
-      seed: Optional[Union[int, tf.Tensor]] = None,
-      is_training: Optional[bool] = None,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
-      drop_remainder: bool = False,
-      fingerprint_key: Optional[str] = None,
-      download_data: bool = False,
-      decoders: Optional[Dict[str, tfds.decode.Decoder]] = None,
-      cache: bool = False):
+  def __init__(self,
+               name: str,
+               dataset_builder: tfds.core.DatasetBuilder,
+               split: Union[float, str, tfds.Split],
+               seed: Optional[Union[int, tf.Tensor]] = None,
+               is_training: Optional[bool] = None,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
+               drop_remainder: bool = False,
+               fingerprint_key: Optional[str] = None,
+               download_data: bool = False,
+               decoders: Optional[Dict[str, tfds.decode.Decoder]] = None,
+               cache: bool = False,
+               label_key: str = 'label'):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -141,6 +141,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         `dataset_builder.as_dataset`, the same as passed to `tfds.load`.
       cache: Whether or not to cache the dataset after it is returned from
         dataset_builder.as_dataset(...) (before preprocessing is applied).
+      label_key: The name of the field holding the label.
     """
     self.name = name
     self._split = split
@@ -186,7 +187,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         dataset_builder=dataset_builder,
         fingerprint_key=fingerprint_key,
         split=self._split,
-        label_key='label')
+        label_key=label_key)
 
     self._enumerate_id_key = '_enumerate_added_per_step_id'
 
@@ -246,7 +247,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
   def _add_enumerate_id(self, enumerate_key: str) -> _EnumeratedPreProcessFn:
     def _add_example_id(enumerate_id, example):
       """Turn an id added by ds.enumerate() as a field in the example dict."""
-      if isinstance(example, tf.Tensor):
+      if isinstance(example, (tf.Tensor, tuple)):
         example = {'features': example}
       example[enumerate_key] = enumerate_id
       return example

@@ -28,7 +28,7 @@ Dtype = Any
 
 
 class VisionTransformerMIMO(nn.Module):
-  """VisionTransformer."""
+  """MIMO Vision Transformer model."""
 
   num_classes: int
   patches: Any
@@ -101,3 +101,25 @@ class VisionTransformerMIMO(nn.Module):
     x = jnp.concatenate(jnp.split(x, self.ensemble_size, axis=-1))
     out['logits'] = x
     return x, out
+
+
+def vision_transformer_mimo(num_classes: int,
+                            patches: Any,
+                            transformer: Any,
+                            hidden_size: int,
+                            ensemble_size: int,
+                            representation_size: Optional[int] = None,
+                            classifier: str = 'token',
+                            fix_base_model: bool = False):
+  """Builds a BatchEnsemble Vision Transformer (ViT) model."""
+  # TODO(dusenberrymw): Add API docs once the config dict in VisionTransformerBE
+  # is cleaned up.
+  return VisionTransformerMIMO(
+      num_classes=num_classes,
+      patches=patches,
+      transformer=transformer,
+      hidden_size=hidden_size,
+      ensemble_size=ensemble_size,
+      representation_size=representation_size,
+      classifier=classifier,
+      fix_base_model=fix_base_model)

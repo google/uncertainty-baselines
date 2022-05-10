@@ -23,6 +23,8 @@ import os
 from absl import app
 from absl import flags
 from absl import logging
+from big_vision.pp import ops_general  # pylint: disable=unused-import
+from big_vision.pp import ops_image  # pylint: disable=unused-import
 from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions

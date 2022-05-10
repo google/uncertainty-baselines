@@ -54,6 +54,7 @@ class ViTBackbone(nn.Module):
     x = inputs
     n, h, w, c = x.shape
 
+    # PatchEmbedding
     # We can merge s2d+emb into a single conv; it's the same.
     x = nn.Conv(
         features=self.hidden_size,
@@ -77,6 +78,7 @@ class ViTBackbone(nn.Module):
       cls = jnp.tile(cls, [n, 1, 1])
       x = jnp.concatenate([cls, x], axis=1)
 
+    # Transformer blocks
     x = vit.Encoder(
         name='Transformer',
         mlp_dim=self.mlp_dim,
@@ -123,9 +125,14 @@ class SegVit(nn.Module):
     else:
       raise ValueError(f'Unknown backbone: {self.backbone_configs.type}.')
 
+    # remove CLS tokens for decoding
+    if self.backbone_configs.classifier == 'token':
+      x = x[..., 1:, :]
+
     output_projection = nn.Dense(
         self.num_classes,
-        kernel_init=nn.initializers.zeros,
+        kernel_init=nn.initializers.variance_scaling(0.02, 'fan_in',
+                                                     'truncated_normal'),
         name='output_projection')
 
     if self.decoder_configs.type == 'linear':
@@ -134,7 +141,8 @@ class SegVit(nn.Module):
       x = jnp.reshape(x, [b, gh, gw, -1])
       x = output_projection(x)
       # Resize bilinearly:
-      x = jax.image.resize(x, [b, h, w, x.shape[-1]], 'linear')
+      x = jax.image.resize(x, [b, h, w, x.shape[-1]], 'bilinear')
+
       out['logits'] = x
     else:
       raise ValueError(

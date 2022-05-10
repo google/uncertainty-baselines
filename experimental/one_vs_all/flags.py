@@ -19,7 +19,6 @@ from typing import Any, Dict, List
 from absl import flags
 
 from uncertainty_baselines.datasets import datasets
-from uncertainty_baselines.models import models
 
 
 FLAGS = flags.FLAGS
@@ -61,11 +60,7 @@ def define_flags() -> List[str]:
       None,
       'How many steps between evaluating on the (validation and) test set.')
   flags.DEFINE_string('output_dir', None, 'Base output directory.')
-  flags.DEFINE_enum(
-      'model_name',
-      None,
-      models.get_model_names(),
-      'Name of the model to use.')
+  flags.DEFINE_string('model_name', None, 'Name of the model to use.')
   flags.DEFINE_integer(
       'log_frequency',
       100,

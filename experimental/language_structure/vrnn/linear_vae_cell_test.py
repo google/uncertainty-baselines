@@ -26,6 +26,14 @@ from official.nlp.bert import configs
 
 class LinearVaeCellTest(absltest.TestCase):
 
+  def _build_embedding_layer(self, vocab_size, embed_size, max_seq_length):
+    return linear_vae_cell._Embedding(
+        linear_vae_cell.INPUT_ID_NAME,
+        vocab_size,
+        embed_size,
+        input_length=max_seq_length,
+        trainable=True)
+
   def test_dual_lstm_encoder_shape(self):
     vocab_size = 8
     embed_size = 6
@@ -33,11 +41,10 @@ class LinearVaeCellTest(absltest.TestCase):
     hidden_size = 10
     num_layers = 2
     test_model = linear_vae_cell.DualRNNEncoder(
-        vocab_size=vocab_size,
-        embed_size=embed_size,
-        max_seq_length=max_seq_length,
         hidden_size=hidden_size,
         num_layers=num_layers,
+        embedding_layer=self._build_embedding_layer(vocab_size, embed_size,
+                                                    max_seq_length),
         return_state=True)
 
     inputs = [{
@@ -63,11 +70,10 @@ class LinearVaeCellTest(absltest.TestCase):
     hidden_size = 10
     num_layers = 3
     test_model = linear_vae_cell.DualRNNEncoder(
-        vocab_size=vocab_size,
-        embed_size=embed_size,
-        max_seq_length=max_seq_length,
         hidden_size=hidden_size,
         num_layers=num_layers,
+        embedding_layer=self._build_embedding_layer(vocab_size, embed_size,
+                                                    max_seq_length),
         cell_type='gru',
         return_state=True)
 
@@ -95,11 +101,10 @@ class LinearVaeCellTest(absltest.TestCase):
     hidden_size = 10
     num_layers = 1
     test_model = linear_vae_cell.DualRNNDecoder(
-        vocab_size=vocab_size,
-        embed_size=embed_size,
-        max_seq_length=max_seq_length,
         hidden_size=hidden_size,
         num_layers=num_layers,
+        embedding_layer=self._build_embedding_layer(vocab_size, embed_size,
+                                                    max_seq_length),
         return_state=True)
 
     inputs = [{
@@ -131,10 +136,9 @@ class LinearVaeCellTest(absltest.TestCase):
     max_seq_length = 4
     hidden_size = 10
     test_model = linear_vae_cell.DualRNNDecoder(
-        vocab_size=vocab_size,
-        embed_size=embed_size,
-        max_seq_length=max_seq_length,
         hidden_size=hidden_size,
+        embedding_layer=self._build_embedding_layer(vocab_size, embed_size,
+                                                    max_seq_length),
         cell_type='gru',
         return_state=True)
 
@@ -165,19 +169,12 @@ class LinearVaeCellTest(absltest.TestCase):
         num_ecnoder_rnn_layers=2)
     test_model = linear_vae_cell.VanillaLinearVAECell(config)
 
-    inputs = [
-        {
-            'input_word_ids':
-                tf.keras.Input(shape=(config.max_seq_length,), dtype=tf.int32),
-            'input_mask':
-                tf.keras.Input(shape=(config.max_seq_length,), dtype=tf.int32),
-        },
-        {
-            'input_word_ids':
-                tf.keras.Input(shape=(config.max_seq_length,), dtype=tf.int32),
-            'input_mask':
-                tf.keras.Input(shape=(config.max_seq_length,), dtype=tf.int32),
-        },
+    inputs = [{
+        'input_word_ids':
+            tf.keras.Input(shape=(config.max_seq_length,), dtype=tf.int32),
+        'input_mask':
+            tf.keras.Input(shape=(config.max_seq_length,), dtype=tf.int32),
+    }] * 4 + [
         (tf.keras.Input(shape=(config.num_states,)),
          tf.keras.Input(shape=(config.num_states,))),
         tf.keras.Input(shape=(config.num_states,), dtype=tf.int32),
@@ -194,10 +191,12 @@ class LinearVaeCellTest(absltest.TestCase):
     self.assertEqual([None, config.encoder_projection_sizes[-1]],
                      latent_state.shape.as_list())
 
-    self.assertEqual([None, config.max_seq_length - 1, config.vocab_size],
-                     decoder_outputs_1.shape.as_list())
-    self.assertEqual([None, config.max_seq_length - 1, config.vocab_size],
-                     decoder_outputs_2.shape.as_list())
+    self.assertEqual(
+        [None, config.max_seq_length - 1, config.decoder_embedding.vocab_size],
+        decoder_outputs_1.shape.as_list())
+    self.assertEqual(
+        [None, config.max_seq_length - 1, config.decoder_embedding.vocab_size],
+        decoder_outputs_2.shape.as_list())
 
     self.assertEqual([None, config.num_states], next_state[0].shape.as_list())
     self.assertEqual([None, config.num_states], next_state[1].shape.as_list())

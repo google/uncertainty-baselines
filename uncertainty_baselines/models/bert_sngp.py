@@ -503,6 +503,7 @@ class BertGaussianProcessClassifier(tf.keras.Model):
   def __init__(self,
                network: tf.keras.Model,
                num_classes: int,
+               num_heads: int,
                gp_layer_kwargs: Dict[str, Any],
                initializer: Optional[tf.keras.initializers.Initializer] = None,
                dropout_rate: float = 0.1,
@@ -515,6 +516,7 @@ class BertGaussianProcessClassifier(tf.keras.Model):
         output and a classification output. Furthermore, it should expose its
         embedding table via a "get_embedding_table" method.
       num_classes: Number of classes to predict from the classification network.
+      num_heads: Number of additional output heads.
       gp_layer_kwargs: Keyword arguments to Gaussian process layer.
       initializer: The initializer (if any) to use in the classification
         networks. Defaults to a Glorot uniform initializer.
@@ -564,22 +566,36 @@ class BertGaussianProcessClassifier(tf.keras.Model):
           initializer=initializer,
           output='logits',
           name='sentence_prediction')
-    predictions = self.classifier(cls_output)
+    outputs = self.classifier(cls_output)
 
-    super().__init__(inputs=inputs, outputs=predictions, **kwargs)
+    # Build additional heads if num_heads > 1.
+    if num_heads > 1:
+      outputs = [outputs]
+      for head_id in range(1, num_heads):
+        additional_outputs = tf.keras.layers.Dense(
+            num_classes,
+            activation=None,
+            kernel_initializer=initializer,
+            name=f'predictions/transform/logits_{head_id}')(
+                cls_output)
+
+        outputs.append(additional_outputs)
+
+    super().__init__(inputs=inputs, outputs=outputs, **kwargs)
 
 
 def bert_sngp_model(num_classes,
                     bert_config,
                     gp_layer_kwargs,
                     spec_norm_kwargs,
+                    num_heads=1,
                     use_gp_layer=True,
                     use_spec_norm_att=True,
                     use_spec_norm_ffn=True,
                     use_layer_norm_att=False,
                     use_layer_norm_ffn=False,
                     use_spec_norm_plr=False):
-  """Creates a BERT classifier model with MC dropout."""
+  """Creates a BERT SNGP classifier model."""
   last_layer_initializer = tf.keras.initializers.TruncatedNormal(
       stddev=bert_config.initializer_range)
 
@@ -597,6 +613,7 @@ def bert_sngp_model(num_classes,
   sngp_bert_model = BertGaussianProcessClassifier(
       sngp_bert_encoder,
       num_classes=num_classes,
+      num_heads=num_heads,
       initializer=last_layer_initializer,
       dropout_rate=bert_config.hidden_dropout_prob,
       use_gp_layer=use_gp_layer,

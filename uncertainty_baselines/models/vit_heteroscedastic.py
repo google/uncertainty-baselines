@@ -209,8 +209,8 @@ class Encoder(nn.Module):
     return encoded
 
 
-class VisionTransformer(nn.Module):
-  """VisionTransformer."""
+class VisionTransformerHet(nn.Module):
+  """Heteroscedastic Vision Transformer model."""
 
   num_classes: int
   patches: Any
@@ -300,7 +300,7 @@ class VisionTransformer(nn.Module):
     return x, out
 
 
-def het_vision_transformer(num_classes: int,
+def vision_transformer_het(num_classes: int,
                            patches: Any,
                            transformer: Any,
                            hidden_size: int,
@@ -314,9 +314,9 @@ def het_vision_transformer(num_classes: int,
                            return_locs: bool = False,
                            fix_base_model: bool = False):
   """Builds a Heteroscedastic Vision Transformer (ViT) model."""
-  # TODO(dusenberrymw): Add API docs once config dict in VisionTransformer is
-  # cleaned up.
-  return VisionTransformer(
+  # TODO(dusenberrymw): Add API docs once the config dict in
+  # VisionTransformerHet is cleaned up.
+  return VisionTransformerHet(
       num_classes=num_classes,
       patches=patches,
       transformer=transformer,

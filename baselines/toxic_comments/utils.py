@@ -23,11 +23,19 @@ from absl import flags
 from absl import logging
 
 import numpy as np
+import robustness_metrics as rm
 import tensorflow as tf
+
+from tensorflow_addons import metrics as tfa_metrics
+import metrics as tc_metrics  # local file import from baselines.toxic_comments
+from uncertainty_baselines.datasets import toxic_comments as ds
 
 from tensorflow.core.protobuf import trackable_object_graph_pb2  # pylint: disable=g-direct-tensorflow-import
 from official.nlp import optimization
 from official.nlp.bert import configs
+
+IND_DATA_CLS = ds.WikipediaToxicityDataset
+OOD_DATA_CLS = ds.CivilCommentsDataset
 
 
 # Number of positive examples for each datasets.
@@ -118,11 +126,112 @@ IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
 IDENTITY_TYPES = ('gender', 'sexual_orientation', 'religion', 'race',
                   'disability')
 
+CHALLENGE_DATASET_NAMES = ('bias', 'uncertainty', 'noise')
+
+# Data flags
+flags.DEFINE_enum(
+    'dataset_type', 'tfrecord', ['tfrecord', 'csv', 'tfds'],
+    'Must be one of ["tfrecord", "csv", "tfds"]. If "tfds", data will be loaded'
+    ' from TFDS. Otherwise it will be loaded from local directory.')
+flags.DEFINE_bool(
+    'use_cross_validation', False,
+    'Whether to use cross validation for training and evaluation protocol.'
+    ' If True, then divide the official train split into further train and eval'
+    ' sets, and evaluate on both the eval set and the official test splits.')
+flags.DEFINE_integer(
+    'num_folds', 10,
+    'The number of folds to be used for cross-validation training. Ignored if'
+    ' use_cross_validation is False.')
+flags.DEFINE_list(
+    'train_fold_ids', ['1', '2', '3', '4', '5'],
+    'The ids of folds to use for training, the rest of the folds will be used'
+    ' for cross-validation eval. Ignored if use_cross_validation is False.')
+flags.DEFINE_string(
+    'train_cv_split_name', 'train',
+    'The name of the split to create cross-validation training data from.')
+flags.DEFINE_string(
+    'test_cv_split_name', 'train',
+    'The name of the split to create cross-validation testing data from.')
+
+flags.DEFINE_bool(
+    'train_on_bias_label', False,
+    'Whether to add bias labels (a binary label for whether the model is likely'
+    ' to belong to a minority or tail data group) to the training output.')
+flags.DEFINE_bool(
+    'train_on_identity_subgroup_data', False,
+    'Whether to add minority examples (CivilCommentsIdentity) to the training'
+    ' data.')
+flags.DEFINE_bool(
+    'test_on_identity_subgroup_data', True,
+    'Whether to add minority examples (CivilCommentsIdentity) to the testing'
+    ' data.')
+flags.DEFINE_bool(
+    'test_on_challenge_data', True,
+    'Whether to add challenge examples (biased, noisy or uncertain examples) to'
+    ' the testing data.')
+flags.DEFINE_bool(
+    'eval_collab_metrics', False,
+    'Whether to compute collaboration effectiveness by score type.')
+
+flags.DEFINE_string(
+    'in_dataset_dir', None,
+    'Path to in-domain dataset (WikipediaToxicityDataset).')
+flags.DEFINE_string(
+    'ood_dataset_dir', None,
+    'Path to out-of-domain dataset (CivilCommentsDataset).')
+flags.DEFINE_string(
+    'identity_dataset_dir', None,
+    'Path to out-of-domain dataset with identity labels '
+    '(CivilCommentsIdentitiesDataset).')
+
+# Model flags
+flags.DEFINE_string('model_family', 'bert',
+                    'Types of model to use. Can be either TextCNN or BERT.')
+
+# Model flags, BERT.
+flags.DEFINE_string(
+    'bert_dir', None,
+    'Directory to BERT pre-trained checkpoints and config files.')
+flags.DEFINE_string(
+    'bert_ckpt_dir', None, 'Directory to BERT pre-trained checkpoints. '
+    'If None then then default to {bert_dir}/bert_model.ckpt.')
+flags.DEFINE_string(
+    'bert_config_dir', None, 'Directory to BERT config files. '
+    'If None then then default to {bert_dir}/bert_config.json.')
+flags.DEFINE_string(
+    'bert_tokenizer_tf_hub_url',
+    'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3',
+    'TF Hub URL to BERT tokenizer.')
+
+
+# Evaluation flags.
+flags.DEFINE_integer('num_ece_bins', 15, 'Number of bins for ECE.')
+flags.DEFINE_integer(
+    'num_approx_bins', 1000,
+    'Number of bins for approximating collaborative and abstention metrics.')
+flags.DEFINE_list(
+    'fractions',
+    ['0.0', '0.001', '0.005', '0.01', '0.02', '0.05', '0.1', '0.15', '0.2'],
+    'A list of fractions of total examples to send to '
+    'the moderators (up to 1).')
+flags.DEFINE_string('output_dir', '/tmp/toxic_comments', 'Output directory.')
+flags.DEFINE_float(
+    'ece_label_threshold', 0.7,
+    'Threshold used to convert toxicity score into binary labels for computing '
+    'Expected Calibration Error (ECE). Default is 0.7 which is the threshold '
+    'value recommended by Jigsaw Conversation AI team.')
+
 # Prediction mode.
 flags.DEFINE_bool('prediction_mode', False, 'Whether to predict only.')
-flags.DEFINE_string('eval_checkpoint_dir', None,
-                    'The directory to restore the model weights from for '
-                    'prediction mode.')
+flags.DEFINE_string(
+    'eval_checkpoint_dir', None,
+    'The top-level directory to restore the model weights from'
+    ' for prediction mode.')
+flags.DEFINE_string(
+    'checkpoint_name', None, 'The sub-directory to load the checkpoint from for'
+    ' prediction mode. If provided then the model will load'
+    ' from `{checkpoint_dir}/{checkpoint_name}`, otherwise it'
+    ' will load from `{checkpoint_dir}/`.')
 flags.DEFINE_bool('identity_prediction', False, 'Whether to do prediction on '
                   'each identity dataset in prediction mode.')
 flags.DEFINE_string('identity_specific_dataset_dir', None,
@@ -131,6 +240,17 @@ flags.DEFINE_string('identity_specific_dataset_dir', None,
 flags.DEFINE_string('identity_type_dataset_dir', None,
                     'Path to specific out-of-domain dataset with identity '
                     'types (CivilCommentsIdentitiesDataset).')
+flags.DEFINE_string('challenge_dataset_dir', None,
+                    'Path to challenge eval datasets that are stored in CSV '
+                    'format and under the directory '
+                    '{challenge_dataset_dir}/challenge_eval_{dataset_name}')
+
+# Accelerator flags.
+flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
+flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
+flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
+flags.DEFINE_string('tpu', None,
+                    'Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
 
@@ -155,6 +275,303 @@ def _check_dataset_dir_for_identity_prediction(flags_dict):
       flags_dict['identity_type_dataset_dir'] is not None)
 
 
+def get_num_examples(dataset_builder, dataset_name, split_name):
+  """Extracts number of examples in a dataset."""
+  custom_num_examples = dataset_builder._dataset_builder.info.metadata.get(  # pylint:disable=protected-access
+      'num_examples')
+
+  if dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
+    return NUM_EXAMPLES[dataset_name][split_name]
+  elif custom_num_examples and custom_num_examples.get(split_name, False):
+    # Return custom number of examples if it exists. This is usually true for
+    # custom datasets in csv format.
+    return custom_num_examples[split_name]
+  else:
+    # Use official `num_examples` for non-identity-specific and non-custom
+    # TFDS datasets (i.e., 'ind', 'ood', 'ood_identity' and 'cv_*' data).
+    return dataset_builder.num_examples
+
+
+def make_train_and_test_dataset_builders(in_dataset_dir,
+                                         ood_dataset_dir,
+                                         identity_dataset_dir,
+                                         train_dataset_type,
+                                         test_dataset_type,
+                                         use_cross_validation,
+                                         num_folds,
+                                         train_fold_ids,
+                                         return_train_split_name=False,
+                                         cv_split_name='train',
+                                         train_on_identity_subgroup_data=False,
+                                         train_on_bias_label=False,
+                                         test_on_identity_subgroup_data=False,
+                                         test_on_challenge_data=False,
+                                         identity_type_dataset_dir=None,
+                                         identity_specific_dataset_dir=None,
+                                         challenge_dataset_dir=None,
+                                         **ds_kwargs):
+  """Defines train and evaluation datasets."""
+  maybe_get_train_dir = lambda ds_dir: None if train_dataset_type == 'tfds' else ds_dir
+  maybe_get_test_dir = lambda ds_dir: None if test_dataset_type == 'tfds' else ds_dir
+
+  def get_identity_dir(name):
+    parent_dir = identity_type_dataset_dir if name in IDENTITY_TYPES else identity_specific_dataset_dir
+    return os.path.join(parent_dir, name)
+
+  def get_challenge_dir(name):
+    return os.path.join(challenge_dataset_dir, f'challenge_eval_{name}')
+
+  if use_cross_validation and train_dataset_type == 'tfrecord':
+    raise ValueError('Cannot use local data when in cross_validation mode.'
+                     'Please set `train_dataset_type` to "tfds" or "csv".')
+
+  # Create training data and optionally cross-validation eval sets.
+  train_split_name = 'train'
+  eval_split_name = 'validation'
+
+  if use_cross_validation:
+    cv_train_split_name, cv_eval_split_name = make_cv_train_and_eval_splits(
+        num_folds,
+        train_fold_ids,
+        use_tfds_format=train_dataset_type == 'tfds',
+        split_name=cv_split_name)
+
+    if train_dataset_type == 'csv':
+      # Overwrite `in_dataset_dir` to point to a split-specific directory.
+      in_dataset_dir = os.path.join(in_dataset_dir, cv_train_split_name)
+    elif train_dataset_type == 'tfds':
+      # Update split name to TFDS' reading-instruction format.
+      train_split_name = cv_train_split_name
+      eval_split_name = cv_eval_split_name
+    else:
+      raise ValueError(
+          '`train_dataset_type` must be one of ("csv", "tfds") when'
+          f'use_cross_validation=True. Got {train_dataset_type}.')
+
+    cv_eval_dataset_builder = IND_DATA_CLS(
+        split=eval_split_name,
+        dataset_type=train_dataset_type,
+        data_dir=maybe_get_train_dir(in_dataset_dir),
+        **ds_kwargs)
+
+  train_dataset_builder = IND_DATA_CLS(
+      split=train_split_name,
+      is_training=True,
+      dataset_type=train_dataset_type,
+      data_dir=maybe_get_train_dir(in_dataset_dir),
+      bias_labels=train_on_bias_label,
+      **ds_kwargs)
+
+  # Optionally, add identity specific examples to training data.
+  if train_on_identity_subgroup_data:
+    identity_train_dataset_builders = {}
+    for dataset_name in IDENTITY_TYPES:
+      identity_data_dir = get_identity_dir(dataset_name)
+      identity_train_dataset_builders[
+          dataset_name] = ds.CivilCommentsIdentitiesDataset(
+              split='train', data_dir=identity_data_dir, **ds_kwargs)
+
+  # Create testing data.
+  ind_dataset_builder = IND_DATA_CLS(
+      split='test',
+      dataset_type=test_dataset_type,
+      data_dir=maybe_get_test_dir(in_dataset_dir),
+      **ds_kwargs)
+  ood_dataset_builder = OOD_DATA_CLS(
+      split='test',
+      dataset_type=test_dataset_type,
+      data_dir=maybe_get_test_dir(ood_dataset_dir),
+      **ds_kwargs)
+  ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
+      split='test',
+      dataset_type=test_dataset_type,
+      data_dir=maybe_get_test_dir(identity_dataset_dir),
+      **ds_kwargs)
+
+  # Optionally, add identity specific examples to testing data.
+  if test_on_identity_subgroup_data:
+    identity_test_dataset_builders = {}
+    for dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
+      # Add to eval only if number of test examples is large enough (>100).
+      if NUM_EXAMPLES[dataset_name]['test'] > 100:
+        identity_data_dir = get_identity_dir(dataset_name)
+        identity_test_dataset_builders[
+            dataset_name] = ds.CivilCommentsIdentitiesDataset(
+                split='test',
+                dataset_type='tfrecord',
+                data_dir=identity_data_dir,
+                **ds_kwargs)
+
+  # Optionally, add challenge eval sets.
+  if test_on_challenge_data:
+    challenge_test_dataset_builders = {}
+    for dataset_name in CHALLENGE_DATASET_NAMES:
+      identity_data_dir = get_challenge_dir(dataset_name)
+      challenge_test_dataset_builders[dataset_name] = ds.CivilCommentsDataset(
+          split='test',
+          dataset_type='csv',
+          data_dir=identity_data_dir,
+          bias_labels=train_on_bias_label,
+          **ds_kwargs)
+
+  # Gather training dataset builders into dictionaries.
+  train_dataset_builders = {
+      'train': train_dataset_builder
+  }
+  if train_on_identity_subgroup_data:
+    train_dataset_builders.update(identity_train_dataset_builders)
+
+  # Gather test dataset builders into dictionaries.
+  test_dataset_builders = {
+      'ind': ind_dataset_builder,
+      'ood': ood_dataset_builder,
+      'ood_identity': ood_identity_dataset_builder,
+  }
+  if test_on_identity_subgroup_data:
+    test_dataset_builders.update(identity_test_dataset_builders)
+
+  if use_cross_validation:
+    test_dataset_builders['cv_eval'] = cv_eval_dataset_builder
+
+  if return_train_split_name:
+    return train_dataset_builders, test_dataset_builders, train_split_name
+
+  return train_dataset_builders, test_dataset_builders
+
+
+def make_prediction_dataset_builders(add_identity_datasets,
+                                     identity_dataset_dir,
+                                     add_cross_validation_datasets,
+                                     cv_dataset_dir,
+                                     num_folds,
+                                     train_fold_ids,
+                                     cv_dataset_type='tfds',
+                                     cv_split_name='train',
+                                     **ds_kwargs):
+  """Adds additional test datasets for prediction mode."""
+  get_identity_dir = lambda name: os.path.join(identity_dataset_dir, name)
+  maybe_get_cv_dir = (
+      lambda name: None  # pylint:disable=g-long-lambda
+      if cv_dataset_type == 'tfds' else os.path.join(cv_dataset_dir, name))
+
+  def _standardize_split_name(name):
+    """Maps split name to a canonical name (e.g., 'train_0_1' to 'train')."""
+    for standard_name in ds.DATA_SPLIT_NAMES:
+      if standard_name in name:
+        return standard_name
+
+    raise ValueError(
+        f'split name `{name}` does not match any of the offical split '
+        f'names {ds.DATA_SPLIT_NAMES}.')
+
+  dataset_builders = {}
+
+  # Adds identity dataset that has > 100 observations.
+  if add_identity_datasets:
+    for dataset_name in IDENTITY_LABELS + IDENTITY_TYPES:
+      if NUM_EXAMPLES[dataset_name]['test'] > 100:
+        identity_data_dir = get_identity_dir(dataset_name)
+        dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
+            split='test',
+            dataset_type='tfrecord',
+            data_dir=identity_data_dir,
+            **ds_kwargs)
+
+  # Adds cross validation folds for evaluation.
+  if add_cross_validation_datasets:
+    # make_cv_train_and_eval_splits returns a 5-tuple when
+    # `return_individual_folds=True`.
+    _, _, train_fold_names, eval_fold_names, eval_fold_ids = make_cv_train_and_eval_splits(  # pylint: disable=unbalanced-tuple-unpacking
+        num_folds,
+        train_fold_ids,
+        split_name=cv_split_name,
+        use_tfds_format=(cv_dataset_type == 'tfds'),
+        return_individual_folds=True)
+
+    for cv_fold_id, cv_fold_name in zip(train_fold_ids, train_fold_names):
+      dataset_builders[f'cv_train_fold_{cv_fold_id}'] = IND_DATA_CLS(
+          split=_standardize_split_name(cv_fold_name),
+          dataset_type=cv_dataset_type,
+          is_training=False,
+          data_dir=maybe_get_cv_dir(cv_fold_name),
+          **ds_kwargs)
+
+    for cv_fold_id, cv_fold_name in zip(eval_fold_ids, eval_fold_names):
+      dataset_builders[f'cv_eval_fold_{cv_fold_id}'] = IND_DATA_CLS(
+          split=_standardize_split_name(cv_fold_name),
+          dataset_type=cv_dataset_type,
+          is_training=False,
+          data_dir=maybe_get_cv_dir(cv_fold_name),
+          **ds_kwargs)
+
+  return dataset_builders
+
+
+def build_datasets(train_dataset_builders, test_dataset_builders,
+                   batch_size, test_batch_size, per_core_batch_size):
+  """Builds train and test datasets."""
+  train_datasets = {}
+  test_datasets = {}
+  train_steps_per_epoch = {}
+  test_steps_per_eval = {}
+
+  for dataset_name, dataset_builder in train_dataset_builders.items():
+    train_datasets[dataset_name] = dataset_builder.load(
+        batch_size=per_core_batch_size)
+    train_num_examples = get_num_examples(
+        dataset_builder, dataset_name, split_name='train')
+    train_steps_per_epoch[dataset_name] = train_num_examples // batch_size
+
+  for dataset_name, dataset_builder in test_dataset_builders.items():
+    # Set `split_name` to dataset_builder.split in case we want to eval on
+    # `csv` data that is generated as training data. This will be the case
+    # for k-fold cross validation.
+    test_num_examples = get_num_examples(
+        dataset_builder, dataset_name, split_name=dataset_builder.split)
+    test_steps_per_eval[dataset_name] = test_num_examples // test_batch_size
+
+  return train_datasets, test_datasets, train_steps_per_epoch, test_steps_per_eval
+
+
+def make_cv_train_and_eval_splits(num_folds,
+                                  train_fold_ids,
+                                  split_name='train',
+                                  use_tfds_format=True,
+                                  return_individual_folds=False):
+  """Defines the train and evaluation splits for cross validation."""
+  fold_ranges = np.linspace(0, 100, num_folds + 1, dtype=int)
+  if use_tfds_format:
+    # Uses the format for TFDS splicing.
+    split_fn = lambda k: f'{split_name}[{fold_ranges[k]}%:{fold_ranges[k+1]}%]'
+  else:
+    split_fn = lambda k: f'{split_name}_{fold_ranges[k]}_{fold_ranges[k+1]}'
+
+  all_splits = [split_fn(k) for k in range(num_folds)]
+
+  # Make train and eval fold IDs.
+  if isinstance(train_fold_ids, str):
+    # If train_fold_ids is a comma-separated string of "{ID1},{ID2},{ID3},.."
+    # split it into list.
+    train_fold_ids = train_fold_ids.split(',')
+
+  train_fold_ids = [int(fold_id) for fold_id in train_fold_ids]
+  eval_fold_ids = list(set(range(num_folds)) - set(train_fold_ids))
+  eval_fold_ids.sort()
+
+  # Collect split names for train and eval folds.
+  train_split_list = [all_splits[fold_id] for fold_id in train_fold_ids]
+  eval_split_list = [all_splits[fold_id] for fold_id in eval_fold_ids]
+
+  # Make the train and eval split names to be used by TFDS loader.
+  train_split = '+'.join(train_split_list)
+  eval_split = '+'.join(eval_split_list)
+
+  if not return_individual_folds:
+    return train_split, eval_split
+
+  return train_split, eval_split, train_split_list, eval_split_list, eval_fold_ids
+
+
 def save_prediction(data, path):
   """Save the data as numpy array to the path."""
   with (tf.io.gfile.GFile(path + '.npy', 'w')) as test_file:
@@ -173,16 +590,422 @@ def create_class_weight(train_dataset_builders=None,
   class_weight = {}
   if train_dataset_builders:
     for dataset_name, dataset_builder in train_dataset_builders.items():
-      class_weight['train/{}'.format(dataset_name)] = generate_weight(
-          NUM_POS_EXAMPLES[dataset_name]['train'],
-          dataset_builder.num_examples)
+      num_positive_examples = NUM_POS_EXAMPLES.get(dataset_name, None)
+      if not num_positive_examples:
+        # Equal weight if not an official split.
+        class_weight['train/{}'.format(dataset_name)] = [0.5, 0.5]
+      else:
+        class_weight['train/{}'.format(dataset_name)] = generate_weight(
+            num_positive_examples['train'], dataset_builder.num_examples)
+
   if test_dataset_builders:
     for dataset_name, dataset_builder in test_dataset_builders.items():
-      class_weight['test/{}'.format(dataset_name)] = generate_weight(
-          NUM_POS_EXAMPLES[dataset_name]['test'],
-          dataset_builder.num_examples)
+      num_positive_examples = NUM_POS_EXAMPLES.get(dataset_name, None)
+      if not num_positive_examples:
+        # Equal weight if not an official split.
+        class_weight['test/{}'.format(dataset_name)] = [0.5, 0.5]
+      else:
+        class_weight['test/{}'.format(dataset_name)] = generate_weight(
+            NUM_POS_EXAMPLES[dataset_name]['test'],
+            dataset_builder.num_examples)
 
   return class_weight
+
+
+def create_train_and_test_metrics(test_datasets,
+                                  num_classes,
+                                  num_ece_bins,
+                                  ece_label_threshold,
+                                  eval_collab_metrics,
+                                  num_approx_bins,
+                                  log_eval_time=True,
+                                  train_on_bias_label=False):
+  """Creates metrics for train and test eval."""
+  # Train metrics.
+  metrics = {
+      'train/negative_log_likelihood':
+          tf.keras.metrics.Mean(),
+      'train/accuracy':
+          tf.keras.metrics.Accuracy(),
+      'train/accuracy_weighted':
+          tf.keras.metrics.Accuracy(),
+      'train/auroc':
+          tf.keras.metrics.AUC(),
+      'train/loss':
+          tf.keras.metrics.Mean(),
+      'train/ece':
+          rm.metrics.ExpectedCalibrationError(num_bins=num_ece_bins),
+      'train/precision':
+          tf.keras.metrics.Precision(),
+      'train/recall':
+          tf.keras.metrics.Recall(),
+      'train/f1':
+          tfa_metrics.F1Score(
+              num_classes=num_classes,
+              average='micro',
+              threshold=ece_label_threshold),
+  }
+
+  if train_on_bias_label:
+    metrics.update({
+        'train/bias_accuracy':
+            tf.keras.metrics.Accuracy(),
+        'train/bias_aupr':
+            tf.keras.metrics.AUC(curve='PR'),
+        'train/bias_auroc':
+            tf.keras.metrics.AUC(curve='ROC'),
+        'train/bias_precision':
+            tf.keras.metrics.Precision(),
+        'train/bias_recall':
+            tf.keras.metrics.Recall(),
+        'train/bias_f1':
+            tfa_metrics.F1Score(
+                num_classes=num_classes, average='micro', threshold=0.5),
+    })
+
+  # Main test metrics.
+  metrics.update({
+      'test/negative_log_likelihood':
+          tf.keras.metrics.Mean(),
+      'test/auroc':
+          tf.keras.metrics.AUC(curve='ROC'),
+      'test/aupr':
+          tf.keras.metrics.AUC(curve='PR'),
+      'test/brier':
+          tf.keras.metrics.MeanSquaredError(),
+      'test/brier_weighted':
+          tf.keras.metrics.MeanSquaredError(),
+      'test/ece':
+          rm.metrics.ExpectedCalibrationError(num_bins=num_ece_bins),
+      'test/acc':
+          tf.keras.metrics.Accuracy(),
+      'test/acc_weighted':
+          tf.keras.metrics.Accuracy(),
+      'test/precision':
+          tf.keras.metrics.Precision(),
+      'test/recall':
+          tf.keras.metrics.Recall(),
+      'test/f1':
+          tfa_metrics.F1Score(
+              num_classes=num_classes,
+              average='micro',
+              threshold=ece_label_threshold)
+  })
+
+  if log_eval_time:
+    metrics['test/eval_time'] = tf.keras.metrics.Mean()
+
+  if train_on_bias_label:
+    metrics.update({
+        'test/bias_accuracy':
+            tf.keras.metrics.Accuracy(),
+        'test/bias_aupr':
+            tf.keras.metrics.AUC(curve='PR'),
+        'test/bias_auroc':
+            tf.keras.metrics.AUC(curve='ROC'),
+        'test/bias_precision':
+            tf.keras.metrics.Precision(),
+        'test/bias_recall':
+            tf.keras.metrics.Recall(),
+        'test/bias_f1':
+            tfa_metrics.F1Score(
+                num_classes=num_classes, average='micro', threshold=0.5),
+    })
+
+  # Main collaborative metrics.
+  if eval_collab_metrics:
+    for policy in ('uncertainty', 'toxicity'):
+      metrics.update({
+          'test_{}/calibration_auroc'.format(policy):
+              tc_metrics.CalibrationAUC(curve='ROC'),
+          'test_{}/calibration_auprc'.format(policy):
+              tc_metrics.CalibrationAUC(curve='PR')
+      })
+
+      for fraction in FLAGS.fractions:
+        metrics.update({
+            'test_{}/collab_acc_{}'.format(policy, fraction):
+                rm.metrics.OracleCollaborativeAccuracy(
+                    fraction=float(fraction), num_bins=num_approx_bins),
+            'test_{}/abstain_prec_{}'.format(policy, fraction):
+                tc_metrics.AbstainPrecision(
+                    abstain_fraction=float(fraction),
+                    num_approx_bins=num_approx_bins),
+            'test_{}/abstain_recall_{}'.format(policy, fraction):
+                tc_metrics.AbstainRecall(
+                    abstain_fraction=float(fraction),
+                    num_approx_bins=num_approx_bins),
+            'test_{}/collab_auroc_{}'.format(policy, fraction):
+                tc_metrics.OracleCollaborativeAUC(
+                    oracle_fraction=float(fraction), num_bins=num_approx_bins),
+            'test_{}/collab_auprc_{}'.format(policy, fraction):
+                tc_metrics.OracleCollaborativeAUC(
+                    oracle_fraction=float(fraction),
+                    curve='PR',
+                    num_bins=num_approx_bins),
+        })
+
+  # Dataset-specific test metrics.
+  for dataset_name in test_datasets.keys():
+    if dataset_name != 'ind':
+      metrics.update({
+          'test/nll_{}'.format(dataset_name):
+              tf.keras.metrics.Mean(),
+          'test/auroc_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='ROC'),
+          'test/aupr_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='PR'),
+          'test/brier_{}'.format(dataset_name):
+              tf.keras.metrics.MeanSquaredError(),
+          'test/brier_weighted_{}'.format(dataset_name):
+              tf.keras.metrics.MeanSquaredError(),
+          'test/ece_{}'.format(dataset_name):
+              rm.metrics.ExpectedCalibrationError(num_bins=num_ece_bins),
+          'test/acc_{}'.format(dataset_name):
+              tf.keras.metrics.Accuracy(),
+          'test/acc_weighted_{}'.format(dataset_name):
+              tf.keras.metrics.Accuracy(),
+          'test/precision_{}'.format(dataset_name):
+              tf.keras.metrics.Precision(),
+          'test/recall_{}'.format(dataset_name):
+              tf.keras.metrics.Recall(),
+          'test/f1_{}'.format(dataset_name):
+              tfa_metrics.F1Score(
+                  num_classes=num_classes,
+                  average='micro',
+                  threshold=ece_label_threshold)
+      })
+
+    if log_eval_time:
+      metrics['test/eval_time_{}'.format(
+          dataset_name)] = tf.keras.metrics.Mean()
+
+    if train_on_bias_label and dataset_name in CHALLENGE_DATASET_NAMES:
+      metrics.update({
+          'test/bias_accuracy_{}'.format(dataset_name):
+              tf.keras.metrics.Accuracy(),
+          'test/bias_aupr_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='PR'),
+          'test/bias_auroc_{}'.format(dataset_name):
+              tf.keras.metrics.AUC(curve='ROC'),
+          'test/bias_precision_{}'.format(dataset_name):
+              tf.keras.metrics.Precision(),
+          'test/bias_recall_{}'.format(dataset_name):
+              tf.keras.metrics.Recall(),
+          'test/bias_f1_{}'.format(dataset_name):
+              tfa_metrics.F1Score(
+                  num_classes=num_classes, average='micro', threshold=0.5),
+      })
+
+    if eval_collab_metrics:
+      for policy in ('uncertainty', 'toxicity'):
+        metrics.update({
+            'test_{}/calibration_auroc_{}'.format(policy, dataset_name):
+                tc_metrics.CalibrationAUC(curve='ROC'),
+            'test_{}/calibration_auprc_{}'.format(policy, dataset_name):
+                tc_metrics.CalibrationAUC(curve='PR'),
+        })
+
+        for fraction in FLAGS.fractions:
+          metrics.update({
+              'test_{}/collab_acc_{}_{}'.format(policy, fraction, dataset_name):
+                  rm.metrics.OracleCollaborativeAccuracy(
+                      fraction=float(fraction), num_bins=num_approx_bins),
+              'test_{}/abstain_prec_{}_{}'.format(policy, fraction,
+                                                  dataset_name):
+                  tc_metrics.AbstainPrecision(
+                      abstain_fraction=float(fraction),
+                      num_approx_bins=num_approx_bins),
+              'test_{}/abstain_recall_{}_{}'.format(policy, fraction,
+                                                    dataset_name):
+                  tc_metrics.AbstainRecall(
+                      abstain_fraction=float(fraction),
+                      num_approx_bins=num_approx_bins),
+              'test_{}/collab_auroc_{}_{}'.format(policy, fraction,
+                                                  dataset_name):
+                  tc_metrics.OracleCollaborativeAUC(
+                      oracle_fraction=float(fraction),
+                      num_bins=num_approx_bins),
+              'test_{}/collab_auprc_{}_{}'.format(policy, fraction,
+                                                  dataset_name):
+                  tc_metrics.OracleCollaborativeAUC(
+                      oracle_fraction=float(fraction),
+                      curve='PR',
+                      num_bins=num_approx_bins),
+          })
+
+  return metrics
+
+
+def make_test_metrics_update_fn(dataset_name,
+                                sample_weight,
+                                num_classes,
+                                labels,
+                                probs,
+                                bias_labels,
+                                bias_probs,
+                                negative_log_likelihood,
+                                eval_time=None,
+                                ece_label_threshold=0.5,
+                                train_on_bias_label=False,
+                                eval_collab_metrics=False):
+  """Makes an update function for test step metrics."""
+  # Cast labels to discrete for ECE computation.
+  ece_labels = tf.cast(labels > ece_label_threshold, tf.float32)
+  one_hot_labels = tf.one_hot(tf.cast(ece_labels, tf.int32), depth=num_classes)
+  ece_probs = tf.concat([1. - probs, probs], axis=1)
+  pred_labels = tf.math.argmax(ece_probs, axis=-1)
+  auc_probs = tf.squeeze(probs, axis=1)
+
+  # Use normalized binary predictive variance as the confidence score.
+  # Since the prediction variance p*(1-p) is within range (0, 0.25),
+  # normalize it by maximum value so the confidence is between (0, 1).
+  calib_confidence = 1. - probs * (1. - probs) / .25
+
+  # Compute bias prediction results.
+  update_bias_metrics = (
+      train_on_bias_label and isinstance(bias_labels, tf.Tensor) and
+      isinstance(bias_probs, tf.Tensor))
+  if update_bias_metrics:
+    bias_ece_probs = tf.concat([1. - bias_probs, bias_probs], axis=1)
+    bias_preds = tf.math.argmax(bias_ece_probs, axis=-1)
+    bias_one_hot_labels = tf.one_hot(
+        tf.cast(bias_labels, tf.int32), depth=num_classes)
+    bias_auc_probs = tf.squeeze(bias_probs, axis=1)
+
+  def update_fn(metrics):
+    if dataset_name == 'ind':
+      metrics['test/negative_log_likelihood'].update_state(
+          negative_log_likelihood)
+      metrics['test/auroc'].update_state(labels, auc_probs)
+      metrics['test/aupr'].update_state(labels, auc_probs)
+      metrics['test/brier'].update_state(labels, auc_probs)
+      metrics['test/brier_weighted'].update_state(
+          tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
+      metrics['test/ece'].add_batch(ece_probs, label=ece_labels)
+      metrics['test/acc'].update_state(ece_labels, pred_labels)
+      metrics['test/acc_weighted'].update_state(
+          ece_labels, pred_labels, sample_weight=sample_weight)
+      metrics['test/precision'].update_state(ece_labels, pred_labels)
+      metrics['test/recall'].update_state(ece_labels, pred_labels)
+      metrics['test/f1'].update_state(one_hot_labels, ece_probs)
+
+      if eval_time:
+        metrics['test/eval_time'].update_state(eval_time)
+
+      if update_bias_metrics:
+        metrics['test/bias_accuracy'].update_state(bias_labels, bias_preds)
+        metrics['test/bias_auroc'].update_state(bias_labels, bias_auc_probs)
+        metrics['test/bias_aupr'].update_state(bias_labels, bias_auc_probs)
+        metrics['test/bias_precision'].update_state(bias_labels, bias_preds)
+        metrics['test/bias_recall'].update_state(bias_labels, bias_preds)
+        metrics['test/bias_f1'].update_state(bias_one_hot_labels,
+                                             bias_ece_probs)
+
+      if eval_collab_metrics:
+        for policy in ('uncertainty', 'toxicity'):
+          # calib_confidence or decreasing toxicity score.
+          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
+          binning_confidence = tf.reshape(confidence, [-1])
+
+          metrics['test_{}/calibration_auroc'.format(policy)].update_state(
+              ece_labels, pred_labels, confidence)
+          metrics['test_{}/calibration_auprc'.format(policy)].update_state(
+              ece_labels, pred_labels, confidence)
+
+          for fraction in FLAGS.fractions:
+            metrics['test_{}/collab_acc_{}'.format(policy, fraction)].add_batch(
+                ece_probs,
+                label=ece_labels,
+                custom_binning_score=binning_confidence)
+            metrics['test_{}/abstain_prec_{}'.format(
+                policy, fraction)].update_state(ece_labels, pred_labels,
+                                                confidence)
+            metrics['test_{}/abstain_recall_{}'.format(
+                policy, fraction)].update_state(ece_labels, pred_labels,
+                                                confidence)
+            metrics['test_{}/collab_auroc_{}'.format(
+                policy, fraction)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
+            metrics['test_{}/collab_auprc_{}'.format(
+                policy, fraction)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
+
+    else:
+      metrics['test/nll_{}'.format(dataset_name)].update_state(
+          negative_log_likelihood)
+      metrics['test/auroc_{}'.format(dataset_name)].update_state(
+          labels, auc_probs)
+      metrics['test/aupr_{}'.format(dataset_name)].update_state(
+          labels, auc_probs)
+      metrics['test/brier_{}'.format(dataset_name)].update_state(
+          labels, auc_probs)
+      metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
+          tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
+      metrics['test/ece_{}'.format(dataset_name)].add_batch(
+          ece_probs, label=ece_labels)
+      metrics['test/acc_{}'.format(dataset_name)].update_state(
+          ece_labels, pred_labels)
+      metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
+          ece_labels, pred_labels, sample_weight=sample_weight)
+      metrics['test/precision_{}'.format(dataset_name)].update_state(
+          ece_labels, pred_labels)
+      metrics['test/recall_{}'.format(dataset_name)].update_state(
+          ece_labels, pred_labels)
+      metrics['test/f1_{}'.format(dataset_name)].update_state(
+          one_hot_labels, ece_probs)
+
+      if eval_time:
+        metrics['test/eval_time_{}'.format(dataset_name)].update_state(
+            eval_time)
+
+      if update_bias_metrics:
+        metrics['test/bias_accuracy_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_preds)
+        metrics['test/bias_auroc_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_auc_probs)
+        metrics['test/bias_aupr_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_auc_probs)
+        metrics['test/bias_precision_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_preds)
+        metrics['test/bias_recall_{}'.format(dataset_name)].update_state(
+            bias_labels, bias_preds)
+        metrics['test/bias_f1_{}'.format(dataset_name)].update_state(
+            bias_one_hot_labels, bias_ece_probs)
+
+      if eval_collab_metrics:
+        for policy in ('uncertainty', 'toxicity'):
+          # calib_confidence or decreasing toxicity score.
+          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
+          binning_confidence = tf.reshape(confidence, [-1])
+
+          metrics['test_{}/calibration_auroc_{}'.format(
+              policy, dataset_name)].update_state(ece_labels, pred_labels,
+                                                  confidence)
+          metrics['test_{}/calibration_auprc_{}'.format(
+              policy, dataset_name)].update_state(ece_labels, pred_labels,
+                                                  confidence)
+
+          for fraction in FLAGS.fractions:
+            metrics['test_{}/collab_acc_{}_{}'.format(
+                policy, fraction, dataset_name)].add_batch(
+                    ece_probs,
+                    label=ece_labels,
+                    custom_binning_score=binning_confidence)
+            metrics['test_{}/abstain_prec_{}_{}'.format(
+                policy, fraction,
+                dataset_name)].update_state(ece_labels, pred_labels, confidence)
+            metrics['test_{}/abstain_recall_{}_{}'.format(
+                policy, fraction,
+                dataset_name)].update_state(ece_labels, pred_labels, confidence)
+            metrics['test_{}/collab_auroc_{}_{}'.format(
+                policy, fraction, dataset_name)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
+            metrics['test_{}/collab_auprc_{}_{}'.format(
+                policy, fraction, dataset_name)].update_state(
+                    labels, auc_probs, custom_binning_score=binning_confidence)
+
+  return update_fn
 
 
 def create_config(config_dir: str) -> configs.BertConfig:
@@ -194,10 +1017,18 @@ def create_config(config_dir: str) -> configs.BertConfig:
 
 def create_feature_and_label(inputs):
   """Creates features and labels from model inputs."""
-  input_ids = inputs['input_ids']
-  input_mask = inputs['input_mask']
-  segment_ids = inputs['segment_ids']
+  # Extracts data and squeezes redundant dimensions.
+  def _may_squeeze_dimension(batch_tensor):
+    """Remove redundant dimensions in the input data."""
+    if len(batch_tensor.shape) == 2:
+      return batch_tensor
+    return tf.squeeze(batch_tensor, axis=1)
 
+  input_ids = _may_squeeze_dimension(inputs['input_ids'])
+  input_mask = _may_squeeze_dimension(inputs['input_mask'])
+  segment_ids = _may_squeeze_dimension(inputs['segment_ids'])
+
+  # Process labels.
   labels = inputs['labels']
   additional_labels = {}
   for additional_label in IDENTITY_LABELS:

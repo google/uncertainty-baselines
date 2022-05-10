@@ -118,14 +118,16 @@ def psl_feature_mixin(fn: Any, dataset: str, psl_config: Dict[str, Any],
   keyword_ids_per_class = _get_keyword_ids_per_class(dataset, psl_config, vocab)
 
   def _run(inputs: tf.Tensor):
-    (input_1, input_2, label_id, label_mask, initial_state, initial_sample,
-     domain_label) = inputs
+    (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+     label_id, label_mask, initial_state, initial_sample, domains) = inputs
 
-    psl_inputs = _create_psl_features(input_1[_INPUT_ID_NAME],
-                                      input_2[_INPUT_ID_NAME], psl_config,
-                                      dataset, keyword_ids_per_class)
-    return (input_1, input_2, label_id, label_mask, initial_state,
-            initial_sample, domain_label, psl_inputs)
+    psl_inputs = _create_psl_features(decoder_input_1[_INPUT_ID_NAME],
+                                      decoder_input_2[_INPUT_ID_NAME],
+                                      psl_config, dataset,
+                                      keyword_ids_per_class)
+    return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+            label_id, label_mask, initial_state, initial_sample, domains,
+            psl_inputs)
 
   return lambda inputs: _run(fn(inputs))
 

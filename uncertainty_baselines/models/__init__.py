@@ -29,7 +29,6 @@ from uncertainty_baselines.models.efficientnet import efficientnet
 from uncertainty_baselines.models.efficientnet_batch_ensemble import efficientnet_batch_ensemble
 from uncertainty_baselines.models.gat import gat
 from uncertainty_baselines.models.genomics_cnn import genomics_cnn
-from uncertainty_baselines.models.models import get
 from uncertainty_baselines.models.movielens import movielens
 from uncertainty_baselines.models.mpnn import mpnn
 from uncertainty_baselines.models.resnet20 import resnet20
@@ -52,6 +51,7 @@ from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
 from uncertainty_baselines.models.resnet50_variational import resnet50_variational
 from uncertainty_baselines.models.textcnn import textcnn
 from uncertainty_baselines.models.unet import unet
+from uncertainty_baselines.models.wide_resnet import get_wide_resnet_hp_keys
 from uncertainty_baselines.models.wide_resnet import wide_resnet
 from uncertainty_baselines.models.wide_resnet_batchensemble import wide_resnet_batchensemble
 from uncertainty_baselines.models.wide_resnet_condconv import wide_resnet_condconv
@@ -67,7 +67,6 @@ from uncertainty_baselines.models.wide_resnet_sngp import wide_resnet_sngp
 from uncertainty_baselines.models.wide_resnet_sngp_be import wide_resnet_sngp_be
 from uncertainty_baselines.models.wide_resnet_variational import wide_resnet_variational
 
-# When adding a new model, also add to models.py for easier user access.
 
 # pylint: disable=g-import-not-at-top
 try:
@@ -76,23 +75,23 @@ try:
   from uncertainty_baselines.models import vit_batchensemble_gp
   from uncertainty_baselines.models.bit_resnet import bit_resnet
   from uncertainty_baselines.models.vit import vision_transformer
-  from uncertainty_baselines.models.vit_batchensemble import PatchTransformerBE
-  from uncertainty_baselines.models.vit_batchensemble_gp import PatchTransformerBEGP
+  from uncertainty_baselines.models.vit_batchensemble import vision_transformer_be
+  from uncertainty_baselines.models.vit_batchensemble_gp import vision_transformer_be_gp
   from uncertainty_baselines.models.vit_gp import vision_transformer_gp
-  from uncertainty_baselines.models.vit_hetgpbe import VisionTransformerHetGPBE
+  from uncertainty_baselines.models.vit_hetgpbe import vision_transformer_het_gp_be
   from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
-  from uncertainty_baselines.models.vit_mimo import VisionTransformerMIMO
-  from uncertainty_baselines.models.vit_heteroscedastic import het_vision_transformer
+  from uncertainty_baselines.models.vit_mimo import vision_transformer_mimo
+  from uncertainty_baselines.models.vit_heteroscedastic import vision_transformer_het
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:
   logging.warning('Skipped ViT models due to NotFoundError.', exc_info=True)
 
-# pylint: disable=g-import-not-at-top
 try:
   # Try to import Segmenter models.
   from uncertainty_baselines.models.segmenter import SegVit
   from uncertainty_baselines.models.segmenter_be import SegVitBE
+  from uncertainty_baselines.models.segmenter_gp import SegVitGP
 except ImportError:
   logging.warning('Skipped Segmenter models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:

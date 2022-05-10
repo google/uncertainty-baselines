@@ -38,91 +38,91 @@ INPUT_MASK_NAME = 'input_mask'
 _UtteranceFeatureType = Dict[str, tf.Tensor]
 
 
-class _DataPreprocessor:
-  """Abstract base class of preprocessing dialog_state_tracking datasets."""
+def create_utterance_features(
+    inputs: tf.Tensor) -> Sequence[_UtteranceFeatureType]:
+  """Retrives utterance features from the dataset."""
+  features = []
+  for key in [USR_UTT_NAME, SYS_UTT_NAME]:
+    features.append({
+        INPUT_ID_NAME: inputs[key],
+        INPUT_MASK_NAME: tf.sign(inputs[key]),
+    })
+  return features
+
+
+def create_bert_utterance_features_fn(bert_preprocess_model: tf.keras.Model):
+  """Creates utterance feature function for BERT embedding."""
+
+  def _merge_utterance_features(
+      features: Sequence[_UtteranceFeatureType]) -> _UtteranceFeatureType:
+    """Merges features by the names."""
+    merged_features = collections.defaultdict(list)
+    for feature in features:
+      for key, value in feature.items():
+        merged_features[key].append(value)
+
+    for key in merged_features:
+      merged_features[key] = tf.stack(merged_features[key], axis=1)
+    return merged_features
+
+  def _create_bert_utterance_features(
+      inputs: tf.Tensor) -> Sequence[_UtteranceFeatureType]:
+    """Converts utterances into features for BERT embedding."""
+    features = []
+    for key in [USR_UTT_RAW_NAME, SYS_UTT_RAW_NAME]:
+      features_by_step = bert_preprocess_model(tf.unstack(inputs[key], axis=1))
+      merged_features = _merge_utterance_features(features_by_step)
+      features.append(merged_features)
+    return features
+
+  return _create_bert_utterance_features
+
+
+class DataPreprocessor:
+  """Class preprocessing dialog_state_tracking datasets."""
 
   def __init__(self,
+               encoder_feature_fn: Any,
+               decoder_feature_fn: Any,
                num_states: int,
-               labeled_dialog_turn_ids: Optional[tf.Tensor] = None):
+               labeled_dialog_turn_ids: Optional[tf.Tensor] = None,
+               in_domains: Optional[tf.Tensor] = None):
+    self._encoder_feature_fn = encoder_feature_fn
+    self._decoder_feature_fn = decoder_feature_fn
+
     self._num_states = num_states
     self._labeled_dialog_turn_ids = labeled_dialog_turn_ids
-
-  def _create_utterance_features(
-      self, inputs: tf.Tensor) -> Sequence[_UtteranceFeatureType]:
-    """Creates utterance features for the model."""
-    raise NotImplementedError('_create_utterance_features is not implemented!')
+    self._in_domains = in_domains
 
   def create_feature_and_label(self, inputs: tf.Tensor):
     """Creates the features and labels for training and evaluating."""
-    input_1, input_2 = self._create_utterance_features(inputs)
+    encoder_input_1, encoder_input_2 = self._encoder_feature_fn(inputs)
+    decoder_input_1, decoder_input_2 = self._decoder_feature_fn(inputs)
 
     label_id = inputs[STATE_LABEL_NAME]
     if self._labeled_dialog_turn_ids is None or DIAL_TURN_ID_NAME not in inputs:
       label_mask = tf.sign(label_id)
     else:
-      label_mask = utils.value_in_tensor(inputs[DIAL_TURN_ID_NAME],
-                                         self._labeled_dialog_turn_ids)
+      label_mask = tf.cast(
+          utils.value_in_tensor(inputs[DIAL_TURN_ID_NAME],
+                                self._labeled_dialog_turn_ids),
+          dtype=tf.int32)
 
     initial_state = tf.zeros_like(
         tf.tile(label_id[:, :1], [1, self._num_states]), dtype=tf.float32)
     initial_sample = tf.ones_like(
         tf.tile(label_id[:, :1], [1, self._num_states]), dtype=tf.float32)
 
-    return (input_1, input_2, label_id, label_mask, initial_state,
-            initial_sample, inputs[DOMAIN_LABEL_NAME])
+    domain = inputs[DOMAIN_LABEL_NAME]
+    if self._in_domains is not None:
+      ind_mask = tf.cast(
+          utils.value_in_tensor(domain, self._in_domains), dtype=tf.int32)
+    else:
+      ind_mask = None
 
-
-class DataPreprocessor(_DataPreprocessor):
-  """Canonical dialog_state_tracking datasets preprocessor."""
-
-  def _create_utterance_features(
-      self, inputs: tf.Tensor) -> Sequence[_UtteranceFeatureType]:
-    features = []
-    for key in [USR_UTT_NAME, SYS_UTT_NAME]:
-      features.append({
-          INPUT_ID_NAME: inputs[key],
-          INPUT_MASK_NAME: tf.sign(inputs[key]),
-      })
-    return features
-
-
-def _merge_utterance_features(
-    features: Sequence[_UtteranceFeatureType]) -> _UtteranceFeatureType:
-  """Merges features by the names."""
-  merged_features = collections.defaultdict(list)
-  for feature in features:
-    for key, value in feature.items():
-      merged_features[key].append(value)
-
-  for key in merged_features:
-    merged_features[key] = tf.stack(merged_features[key], axis=1)
-  return merged_features
-
-
-class BertDataPreprocessor(_DataPreprocessor):
-  """Data preprocessor converting utterances into features for BERT embedding."""
-
-  def __init__(self,
-               bert_preprocess_model: tf.keras.Model,
-               num_states: int,
-               labeled_dialog_turn_ids: Optional[tf.Tensor] = None):
-    super(BertDataPreprocessor, self).__init__(num_states,
-                                               labeled_dialog_turn_ids)
-    self.bert_preprocess_model = bert_preprocess_model
-
-  def _create_utterance_features(
-      self, inputs: tf.Tensor) -> Sequence[_UtteranceFeatureType]:
-    features = []
-    for key in [USR_UTT_RAW_NAME, SYS_UTT_RAW_NAME]:
-      features_by_step = self.bert_preprocess_model(
-          tf.unstack(inputs[key], axis=1))
-      merged_features = _merge_utterance_features(features_by_step)
-      features.append(merged_features)
-    return features
-
-
-# Used for type hinting.
-DataPreprocessorType = Union[DataPreprocessor, BertDataPreprocessor]
+    return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+            label_id, label_mask, initial_state, initial_sample, (domain,
+                                                                  ind_mask))
 
 
 def get_full_dataset_outputs(dataset_builder: base.BaseDataset) -> tf.Tensor:

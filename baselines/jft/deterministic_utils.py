@@ -102,13 +102,13 @@ def create_update_fn(model, config):
     The function that updates the model for one step.
   """
   weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  rescale_value = 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
   logging.info('weight_decay_rules = %s', weight_decay_rules)
   logging.info('rescale_value = %s', rescale_value)
 
-  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0))
   def update_fn(opt, lr, images, labels, rng):
     """Update step."""
 

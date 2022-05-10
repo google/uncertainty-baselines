@@ -49,7 +49,7 @@ def log_average_sigmoid_probs(logits: jnp.ndarray) -> jnp.ndarray:
 
 
 class VisionTransformerHetGPBE(nn.Module):
-  """Vision transformer."""
+  """Heteroscedastic Vision Transformer with BE layers and GP last layer."""
 
   num_classes: int
   patches: Any
@@ -205,3 +205,46 @@ class VisionTransformerHetGPBE(nn.Module):
       out['logits'] = logits
 
     return logits, out
+
+
+def vision_transformer_het_gp_be(
+    num_classes: int,
+    patches: Any,
+    transformer: Any,
+    hidden_size: int,
+    representation_size: Optional[int] = None,
+    classifier: str = 'token',
+    fix_base_model: bool = False,
+    head_kernel_init: InitializeFn = nn.initializers.zeros,
+    multiclass: bool = False,
+    temperature: float = 1.0,
+    mc_samples: int = 1000,
+    num_factors: int = 0,
+    param_efficient: bool = True,
+    return_locs: bool = False,
+    use_gp: bool = False,
+    covmat_momentum: float = 0.999,
+    ridge_penalty: float = 1.0,
+    mean_field_factor: float = -1.0):
+  """Builds a Heteroscedastic Vision Transformer (ViT) model."""
+  # TODO(dusenberrymw): Add API docs once the config dict in
+  # VisionTransformerHet is cleaned up.
+  return VisionTransformerHetGPBE(
+      num_classes=num_classes,
+      patches=patches,
+      transformer=transformer,
+      hidden_size=hidden_size,
+      representation_size=representation_size,
+      classifier=classifier,
+      fix_base_model=fix_base_model,
+      head_kernel_init=head_kernel_init,
+      multiclass=multiclass,
+      temperature=temperature,
+      mc_samples=mc_samples,
+      num_factors=num_factors,
+      param_efficient=param_efficient,
+      return_locs=return_locs,
+      use_gp=use_gp,
+      covmat_momentum=covmat_momentum,
+      ridge_penalty=ridge_penalty,
+      mean_field_factor=mean_field_factor)

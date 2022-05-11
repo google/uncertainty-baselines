@@ -54,6 +54,9 @@ _NUM_CLASSES_BY_DATASET = immutabledict.immutabledict({
     'jft/entity:1.0.0': 18291,
     'retina_country': 2,
     'retina_severity': 2,
+    # TODO(zmariet, dusenberrymw): Update for the specific ImageNet-Vid and
+    # YTBB datasets, which use a subset of the 1000 Imagenet classes.
+    'imagenet_variants': 1000,
 })
 
 
@@ -455,7 +458,7 @@ def _normalize_scores(df: pd.DataFrame) -> pd.DataFrame:
     if metric_type == 'ece':
       df[column] = 1. - df[column]
 
-    elif metric_type in ['loss', 'likelihood']:
+    elif metric_type in ['loss', 'likelihood', 'nll']:
       num_classes = _NUM_CLASSES_BY_DATASET[dataset]
       df[column] = 1. - df[column] / _uniform_entropy(num_classes)
   return df

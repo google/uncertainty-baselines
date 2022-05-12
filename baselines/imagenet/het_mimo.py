@@ -25,6 +25,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import metrics as metrics_lib  # local file import from baselines.imagenet
 import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
@@ -86,6 +87,9 @@ NUM_CLASSES = 1000
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=1000, tau=10, kappa=2)
+
   del argv  # unused arg
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
@@ -165,6 +169,7 @@ def main(argv):
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
         'test/diversity': rm.metrics.AveragePairwiseDiversity(),
+        'test/joint_nll': tf.keras.metrics.Mean(),
     }
 
     for i in range(FLAGS.ensemble_size):
@@ -280,10 +285,14 @@ def main(argv):
           tf.math.log(float(FLAGS.ensemble_size)))
       probs = tf.math.reduce_mean(probs, axis=1)  # marginalize
 
+      per_logits = tf.transpose(logits, perm=[1, 0, 2])
+      joint_nll = dyadic_nll(per_logits, tf.expand_dims(labels, axis=1))
+
       metrics['test/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['test/accuracy'].update_state(labels, probs)
       metrics['test/ece'].add_batch(probs, label=labels)
+      metrics['test/joint_nll'].update_state(joint_nll)
 
     for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))

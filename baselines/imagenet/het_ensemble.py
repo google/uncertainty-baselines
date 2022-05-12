@@ -31,6 +31,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import metrics as metrics_lib  # local file import from baselines.imagenet
 import utils  # local file import from baselines.imagenet
 
 flags.DEFINE_integer('per_core_batch_size', 64, 'Batch size per TPU core/GPU.')
@@ -68,6 +69,9 @@ NUM_CLASSES = 1000
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=1000, tau=10, kappa=2)
+
   del argv  # unused arg
   if not FLAGS.use_gpu:
     raise ValueError('Only GPU is currently supported.')
@@ -145,6 +149,7 @@ def main(argv):
       'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
       'test/ece': rm.metrics.ExpectedCalibrationError(
           num_bins=FLAGS.num_bins),
+      'test/joint_nll': tf.keras.metrics.Mean(),
   }
   corrupt_metrics = {}
   for name in test_datasets:
@@ -175,6 +180,7 @@ def main(argv):
           negative_log_likelihood_metric.result().values())[0]
       per_probs = tf.nn.softmax(logits)
       probs = tf.reduce_mean(per_probs, axis=0)
+      joint_nll = dyadic_nll(logits, tf.expand_dims(labels, axis=1))
       if name == 'clean':
         gibbs_ce_metric = rm.metrics.GibbsCrossEntropy()
         gibbs_ce_metric.add_batch(logits, labels=labels)
@@ -184,6 +190,7 @@ def main(argv):
         metrics['test/gibbs_cross_entropy'].update_state(gibbs_ce)
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
+        metrics['test/joint_nll'].update_state(joint_nll)
       else:
         corrupt_metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)

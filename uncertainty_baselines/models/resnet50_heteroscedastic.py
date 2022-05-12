@@ -127,7 +127,8 @@ def group(inputs, filters, num_blocks, stage, strides):
 
 
 def resnet50_heteroscedastic(input_shape, num_classes, temperature, num_factors,
-                             num_mc_samples=10000, multiclass=True, eps=1e-5):
+                             num_mc_samples=10000, multiclass=True, eps=1e-5,
+                             return_unaveraged_logits=False):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -149,6 +150,8 @@ def resnet50_heteroscedastic(input_shape, num_classes, temperature, num_factors,
     eps: Float. Clip probabilities into [eps, 1.0] softmax or
         [eps, 1.0 - eps] sigmoid before applying log (softmax), or inverse
         sigmoid.
+    return_unaveraged_logits: Boolean. Whether to also return the logits
+        before taking the MC average over samples.
 
   Returns:
     tf.keras.Model.
@@ -181,7 +184,8 @@ def resnet50_heteroscedastic(input_shape, num_classes, temperature, num_factors,
                     'test_mc_samples': num_mc_samples,
                     'share_samples_across_batch': True,
                     'logits_only': True, 'eps': eps,
-                    'dtype': tf.float32, 'name': 'fc1000'}
+                    'dtype': tf.float32, 'name': 'fc1000',
+                    'return_unaveraged_logits': return_unaveraged_logits}
   if multiclass:
     het_layer_args.update({'num_classes': num_classes})
     if num_factors <= 0:

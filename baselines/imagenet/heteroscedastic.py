@@ -46,6 +46,7 @@ import scipy
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import metrics as metrics_lib  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')
@@ -55,7 +56,6 @@ flags.DEFINE_float('base_learning_rate', 0.1,
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
-flags.mark_flag_as_required('data_dir')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
@@ -114,6 +114,8 @@ def mean_truncated_beta_distribution(alpha):
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=1000, tau=10, kappa=2)
 
   del argv  # unused arg
 
@@ -201,7 +203,8 @@ def main(argv):
     model = ub.models.resnet50_heteroscedastic(
         input_shape=IMAGE_SHAPE, num_classes=NUM_CLASSES,
         temperature=FLAGS.temperature, num_factors=FLAGS.num_factors,
-        num_mc_samples=FLAGS.num_mc_samples)
+        num_mc_samples=FLAGS.num_mc_samples,
+        return_unaveraged_logits=True)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -228,6 +231,7 @@ def main(argv):
         'train/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'test/joint_nll': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
@@ -291,7 +295,7 @@ def main(argv):
 
       with tf.GradientTape() as tape:
 
-        logits = model(images, training=True)
+        logits, _ = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
@@ -348,11 +352,15 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
 
-      logits = model(images, training=False)
+      logits, unaveraged_logits = model(images, training=False)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
+        unaveraged_logits = tf.cast(unaveraged_logits, tf.float32)
 
       update_test_metrics(labels, logits)
+      joint_nll = dyadic_nll(tf.transpose(unaveraged_logits, [1, 0, 2]),
+                             tf.expand_dims(labels, axis=1))
+      metrics['test/joint_nll'].update_state(joint_nll)
 
       # Rescaling logic in Eq.(15) from [2]
       if enable_mixup:

@@ -96,6 +96,26 @@ def compute_metrics() -> Tuple[str, ...]:
   return _COMPUTE_METRICS
 
 
+def ood_related_metrics() -> List[str]:
+  """Returns the list of OOD metrics we care about for the open set recognition."""
+  metrics = []
+  # Out of distribution detection metrics
+  metrics.extend(
+      f'ood_{dset}_msp_auroc'
+      for dset in ['cifar10', 'cifar100', 'svhn_cropped', 'places365_small'])
+  metrics.extend(
+      f'ood_{dset}_entropy_auroc'
+      for dset in ['cifar10', 'cifar100', 'svhn_cropped', 'places365_small'])
+  metrics.extend(
+      f'ood_{dset}_mlogit_auroc'
+      for dset in ['cifar10', 'cifar100', 'svhn_cropped', 'places365_small'])
+  metrics.extend(f'ood_{dset}_maha_auroc'
+                 for dset in ['cifar10', 'cifar100', 'svhn_cropped'])
+  metrics.extend(f'ood_{dset}_rmaha_auroc'
+                 for dset in ['cifar10', 'cifar100', 'svhn_cropped'])
+  return metrics
+
+
 def default_selected_metrics() -> List[str]:
   """Returns the list of metrics we care about for the big paper."""
   metrics = list(_COMPUTE_METRICS)

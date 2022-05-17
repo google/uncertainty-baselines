@@ -129,30 +129,6 @@ def get_num_examples(dataset: Union[str, tfds.core.DatasetBuilder,
   return num_examples
 
 
-def _add_mask(batch, num_batch_dims):
-  """Adds a mask to a dictionary of tensors."""
-  mask = tf.ones(tf.shape(list(batch.values())[0])[:num_batch_dims])
-  if "mask" in batch:
-    mask *= batch["mask"]
-  batch["mask"] = mask
-  return batch
-
-
-def _pad_reshape_batch(batch, flat_batch_size, num_devices):
-  """Pads and reshapes the tensors in a flattened batch."""
-  def f(x):
-    actual_batch_size = tf.shape(x)[0]
-    needed = flat_batch_size - actual_batch_size
-    zeros = tf.zeros(tf.concat([[needed], x.shape[1:]], axis=0), dtype=x.dtype)
-    new_x = tf.concat([x, zeros], axis=0)
-    new_x = tf.reshape(new_x, tf.concat([[num_devices, -1], x.shape[1:]],
-                                        axis=0))
-    return new_x
-
-  new_batch = {k: f(v) for k, v in batch.items()}
-  return new_batch
-
-
 def _preprocess_with_per_example_rng(ds: tf.data.Dataset,
                                      preprocess_fn: Callable[[Features],
                                                              Features], *,
@@ -304,42 +280,46 @@ def get_data(
   if shuffle:
     ds = ds.shuffle(shuffle_buffer_size, seed=rngs.pop()[0])
 
-  ds = ds.repeat(num_epochs if not repeat_after_batching else 1)
+  if not repeat_after_batching:
+    ds = ds.repeat(num_epochs)
 
+  mask_fn = lambda ex: dict(mask=1., **ex)
   if preprocess_fn is not None:
-    if rng_available:
-      ds = _preprocess_with_per_example_rng(ds, preprocess_fn, rng=rngs.pop())
-    else:
-      ds = ds.map(preprocess_fn, num_parallel_calls=tf.data.AUTOTUNE)
+    preprocess_and_mask_fn = lambda ex: mask_fn(preprocess_fn(ex))
+  else:
+    preprocess_and_mask_fn = mask_fn
+
+  if rng_available:
+    ds = _preprocess_with_per_example_rng(
+        ds, preprocess_and_mask_fn, rng=rngs.pop())
+  else:
+    ds = ds.map(preprocess_and_mask_fn, num_parallel_calls=tf.data.AUTOTUNE)
 
   # Batch and reshape to [num_devices, batch_size_per_device] with padding.
   num_devices = jax.local_device_count()
-  if drop_remainder:
-    # If we're dropping the remainder, we can take the fast path of double
-    # batching to [num_devices, batch_size_per_device] and then adding a mask of
-    # ones for the two batch dimensions.
-    batch_size_per_device = process_batch_size // num_devices
-    batch_dims = [num_devices, batch_size_per_device]
-    for batch_size in reversed(batch_dims):
-      ds = ds.batch(batch_size, drop_remainder=True)
+  batch_size_per_device = process_batch_size // num_devices
 
-    ds = ds.map(
-        lambda xs: _add_mask(xs, 2), num_parallel_calls=tf.data.AUTOTUNE)
-  else:
-    # If we're not dropping the remainder, then we define a flattened batch size
-    # that would divide evenly across devices, and then batch to that size with
-    # drop_remainder=False. Then we add a mask of ones for the examples given,
-    # pad each flattened batch with zeros (including the mask) to ensure all
-    # batches have the same number of examples, and then reshape to
-    # [num_devices, batch_size_per_device].
-    batch_size_per_device = math.ceil(process_batch_size / num_devices)
-    flat_batch_size = batch_size_per_device * num_devices
-    ds = ds.batch(flat_batch_size, drop_remainder=drop_remainder)
+  if not drop_remainder:
+    # If we're not dropping the remainder, then we append additional zero-valued
+    # examples with zero-valued masks to the dataset such that batching with
+    # drop_remainder=True will yield a dataset whose final batch is padded as
+    # needed.
+    # NOTE: We're batching the dataset over two dimensions,
+    # `batch_size_per_device` and `num_devices`. Therefore, adding
+    # `batch_size_per_device*num_devices - 1` padding examples covers the worst
+    # case of 1 example left over after the first batching application with
+    # batch size `batch_size_per_device` (since we'd need
+    # `batch_size_per_device*num_devices - 1` additional examples).
+    padding_example = tf.nest.map_structure(
+        lambda spec: tf.zeros(spec.shape, spec.dtype)[None], ds.element_spec)
+    padding_example["mask"] = [0.]
+    padding_dataset = tf.data.Dataset.from_tensor_slices(padding_example)
+    ds = ds.concatenate(
+        padding_dataset.repeat(batch_size_per_device * num_devices - 1))
 
-    def f(xs):
-      return _pad_reshape_batch(_add_mask(xs, 1), flat_batch_size, num_devices)
-
-    ds = ds.map(f, num_parallel_calls=tf.data.AUTOTUNE)
+  batch_dims = [num_devices, batch_size_per_device]
+  for batch_size in reversed(batch_dims):
+    ds = ds.batch(batch_size, drop_remainder=True)
 
   if cache == "batched":
     ds = ds.cache()

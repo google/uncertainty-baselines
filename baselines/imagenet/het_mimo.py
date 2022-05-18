@@ -63,7 +63,7 @@ flags.DEFINE_integer('num_factors', 15,
                      'Num factors to approximate full rank covariance matrix.')
 flags.DEFINE_float('temperature', 1.5,
                    'Temperature for heteroscedastic head.')
-flags.DEFINE_integer('num_mc_samples', 5000,
+flags.DEFINE_integer('num_mc_samples', 1000,
                      'Num MC samples for heteroscedastic layer.')
 flags.DEFINE_bool('share_het_layer', True,
                   'Whether to use a single heteroscedastic layer of output size'

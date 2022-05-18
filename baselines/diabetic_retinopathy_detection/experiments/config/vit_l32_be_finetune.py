@@ -142,6 +142,16 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweeps over hyperparameters."""
+  checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+  use_jft = True  # whether to use JFT or I21K
+  if use_jft:
+    ensemble_attention = True
+    be_layers = (22, 23)
+    ens_size = 3
+  else:
+    ensemble_attention = False
+    be_layers = (21, 22, 23)
+    ens_size = 3
   return hyper.product([
       hyper.sweep('config.distribution_shift', ['aptos', 'severity']),
       hyper.sweep('config.batch_size', [64, 128]),
@@ -157,4 +167,12 @@ def get_sweep(hyper):
       hyper.sweep('config.grad_clip_norm', [2.5]),
       hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
       hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
+      hyper.sweep('config.model_init', checkpoints),
+      hyper.fixed(
+          'config.model.transformer.be_layers', be_layers, length=1),
+      hyper.fixed(
+          'config.model.transformer.ensemble_attention',
+          ensemble_attention,
+          length=1),
+      hyper.fixed('config.model.transformer.ens_size', ens_size, length=1),
   ])

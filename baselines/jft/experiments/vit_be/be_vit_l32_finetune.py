@@ -106,6 +106,16 @@ def get_config():
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+  use_jft = True  # whether to use JFT or I21K
+  if use_jft:
+    # TODO(dusenberrymw): Considering unifying the JFT and I21k models.
+    ensemble_attention = True
+    be_layers = (22, 23)
+    ens_size = 3
+  else:
+    ensemble_attention = False
+    be_layers = (21, 22, 23)
+    ens_size = 3
 
   cifar10_sweep = hyper.product([
       hyper.chainit([

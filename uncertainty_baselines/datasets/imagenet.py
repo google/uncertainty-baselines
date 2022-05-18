@@ -22,6 +22,7 @@ https://arxiv.org/abs/1906.02530 (which used (100 / 1024)% as a validation set).
 """
 from typing import Any, Dict, Optional, Union
 
+from absl import logging
 import numpy as np
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -46,10 +47,11 @@ def _tuple_dict_fn_converter(fn, *args):
   return dict_fn
 
 
-class ImageNetDataset(base.BaseDataset):
-  """ImageNet dataset builder class."""
+class _ImageNetDataset(base.BaseDataset):
+  """ImageNet dataset builder abstract class."""
 
   def __init__(self,
+               name: str,
                split: str,
                seed: Optional[Union[int, tf.Tensor]] = None,
                validation_percent: float = 0.0,
@@ -72,6 +74,7 @@ class ImageNetDataset(base.BaseDataset):
     """Create an ImageNet tf.data.Dataset builder.
 
     Args:
+      name: the name of this dataset.
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
@@ -108,7 +111,6 @@ class ImageNetDataset(base.BaseDataset):
         each example. Since this field is a string, it is not compatible with
         TPUs.
     """
-    name = 'imagenet2012'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
@@ -231,3 +233,44 @@ class ImageNetDataset(base.BaseDataset):
         return _tuple_dict_fn_converter(augmix.mixup, batch_size, aug_params)
 
     return None
+
+
+class ImageNetDataset(_ImageNetDataset):
+  """ImageNet dataset builder class."""
+
+  # NOTE: Existing code passes in a split string as a positional argument, so
+  # included here to preserve that behavior.
+  def __init__(self, split, **kwargs):
+    """Create an ImageNet tf.data.Dataset builder.
+
+    Args:
+      split: A dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
+      **kwargs: Additional keyword arguments.
+    """
+    super().__init__(name='imagenet2012', split=split, **kwargs)
+
+
+# TODO(dusenberrymw): Create a helper function to load datasets for all
+# corruption types and severity levels.
+class ImageNetCorruptedDataset(_ImageNetDataset):
+  """ImageNet-C dataset builder class."""
+
+  def __init__(self, corruption_type: str, severity: int, **kwargs):
+    """Create an ImageNet-C tf.data.Dataset builder.
+
+    Args:
+      corruption_type: Corruption name.
+      severity: Corruption severity, an integer between 1 and 5.
+      **kwargs: Additional keyword arguments.
+    """
+    if 'split' in kwargs:
+      logging.warn("ImageNet-C only has a 'validation' split. Ignoring the"
+                   'supplied split.')
+      del kwargs['split']
+    super().__init__(
+        name=f'imagenet2012_corrupted/{corruption_type}_{severity}',
+        split=tfds.Split.VALIDATION,
+        preprocessing_type='resnet',
+        **kwargs)

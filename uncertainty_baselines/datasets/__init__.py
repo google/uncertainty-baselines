@@ -51,6 +51,7 @@ from uncertainty_baselines.datasets.glue import RteDataset
 from uncertainty_baselines.datasets.glue import Sst2Dataset
 from uncertainty_baselines.datasets.glue import WnliDataset
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
+from uncertainty_baselines.datasets.imagenet import ImageNetCorruptedDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
 from uncertainty_baselines.datasets.movielens import MovieLensDataset

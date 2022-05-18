@@ -16,28 +16,55 @@
 """Tests for ImageNet."""
 
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 
 
 # TODO(dusenberrymw): Use TFDS mocking.
 class ImageNetDatasetTest(ub.datasets.DatasetTest):
 
-  # TODO(dusenberrymw): Rename to `test_dataset_size`.
-  def testDatasetSize(self):
+  def test_imagenet_dataset_size(self):
     super()._testDatasetSize(
         ub.datasets.ImageNetDataset, (224, 224, 3), validation_percent=0.1)
 
-  def test_expected_features(self):
-    builder = ub.datasets.ImageNetDataset('train')
-    dataset = builder.load(batch_size=1)
-    self.assertEqual(list(dataset.element_spec.keys()), ['features', 'labels'])
+  def test_imagenet_corrupted_dataset_size(self):
+    super()._testDatasetSize(
+        ub.datasets.ImageNetCorruptedDataset,
+        (224, 224, 3),
+        splits=[tfds.Split.VALIDATION],
+        corruption_type='gaussian_blur',
+        severity=3,
+    )
 
-    builder_with_file_name = ub.datasets.ImageNetDataset(
-        'train', include_file_name=True)
-    dataset_with_file_name = builder_with_file_name.load(batch_size=1)
+  def test_imagenet_expected_features(self):
+    builder = ub.datasets.ImageNetDataset('train')
+    dataset = builder.load(batch_size=3)
+    self.assertEqual(list(dataset.element_spec.keys()), ['features', 'labels'])
+    self.assertEqual(dataset.element_spec['features'],
+                     tf.TensorSpec(shape=(None, 224, 224, 3), dtype=tf.float32))
+    self.assertEqual(dataset.element_spec['labels'],
+                     tf.TensorSpec(shape=(None,), dtype=tf.float32))
+
+  def test_imagenet_expected_features_with_filename(self):
+    builder = ub.datasets.ImageNetDataset('train', include_file_name=True)
+    dataset = builder.load(batch_size=3)
     self.assertEqual(
-        list(dataset_with_file_name.element_spec.keys()),
-        ['features', 'labels', 'file_name'])
+        list(dataset.element_spec.keys()), ['features', 'labels', 'file_name'])
+    self.assertEqual(dataset.element_spec['features'],
+                     tf.TensorSpec(shape=(None, 224, 224, 3), dtype=tf.float32))
+    self.assertEqual(dataset.element_spec['labels'],
+                     tf.TensorSpec(shape=(None,), dtype=tf.float32))
+
+  def test_imagenet_corrupted_expected_features(self):
+    builder = ub.datasets.ImageNetCorruptedDataset(
+        corruption_type='gaussian_blur', severity=3)
+    batch_size = 3
+    dataset = builder.load(batch_size=batch_size)
+    self.assertEqual(list(dataset.element_spec.keys()), ['features', 'labels'])
+    self.assertEqual(dataset.element_spec['features'],
+                     tf.TensorSpec(shape=(None, 224, 224, 3), dtype=tf.float32))
+    self.assertEqual(dataset.element_spec['labels'],
+                     tf.TensorSpec(shape=(None,), dtype=tf.float32))
 
 
 if __name__ == '__main__':

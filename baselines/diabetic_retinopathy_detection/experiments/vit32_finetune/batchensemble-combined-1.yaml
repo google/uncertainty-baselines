@@ -24,7 +24,7 @@ parameters:
              "gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/2/checkpoint.npz",
              "gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/3/checkpoint.npz"]
   config.distribution_shift:
-    value: ['aptos', 'severity']
+    values: ['aptos', 'severity']
   config.use_wandb:
     value: True
   config.batch_size:

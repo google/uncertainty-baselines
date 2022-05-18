@@ -82,12 +82,22 @@ def get_config():
   config.model.representation_size = None
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (22, 23)
+
+  use_jft = False
+
+  if use_jft:
+    # JFT-pretrained settings.
+    # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
+    # need checkpoints that only apply BE on the FF block.
+    config.model.transformer.ensemble_attention = True
+    config.model.transformer.be_layers = (22, 23)
+  else:
+    # I21K-pretrained settings.
+    config.model.transformer.ensemble_attention = False
+    config.model.transformer.be_layers = (21, 22, 23)
+
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = -0.5  # set in sweep
-  # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
-  # need checkpoints that only apply BE on the FF block.
-  config.model.transformer.ensemble_attention = True
   config.fast_weight_lr_multiplier = 1.0  # set in sweep
 
   # Preprocessing

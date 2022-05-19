@@ -29,6 +29,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import tensorflow_probability.substrates.jax as tfp
+import uncertainty_baselines as ub
 import batchensemble_utils  # local file import from baselines.jft
 import checkpoint_utils  # local file import from baselines.jft
 import rank1_bnn  # local file import from baselines.jft

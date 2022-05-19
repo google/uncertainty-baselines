@@ -15,7 +15,6 @@
 
 """Testing-related utility functions."""
 
-import os.path
 import ml_collections  # pylint: disable=g-bad-import-order
 
 
@@ -136,5 +135,3 @@ def get_config(
   config.fewshot.walk_first = ('imagenet', config.fewshot.shots[0])
 
   return config
-
-

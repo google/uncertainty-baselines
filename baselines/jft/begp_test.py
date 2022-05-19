@@ -25,8 +25,8 @@ from absl.testing import parameterized
 import ml_collections
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import uncertainty_baselines as ub
 import begp  # local file import from baselines.jft
-
 
 flags.adopt_module_key_flags(begp)
 FLAGS = flags.FLAGS
@@ -124,9 +124,8 @@ class BatchEnsembleGPTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
-    # Go two directories up to the root of the UB directory.
-    ub_root_dir = pathlib.Path(__file__).parents[2]
-    data_dir = str(ub_root_dir) + '/.tfds/metadata'
+    baseline_root_dir = pathlib.Path(__file__).parents[1]
+    data_dir = os.path.join(baseline_root_dir, 'testing_data')
     logging.info('data_dir contents: %s', os.listdir(data_dir))
     self.data_dir = data_dir
 
@@ -140,7 +139,6 @@ class BatchEnsembleGPTest(parameterized.TestCase, tf.test.TestCase):
   def test_batchensemble_script(self, classifier, representation_size,
                                 correct_train_loss, correct_val_loss):
     # Set flags.
-    FLAGS.xm_runlocal = True
     config = get_config(
         classifier=classifier, representation_size=representation_size)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
@@ -165,7 +163,6 @@ class BatchEnsembleGPTest(parameterized.TestCase, tf.test.TestCase):
   )
   @flagsaver.flagsaver
   def test_load_model(self, classifier, representation_size):
-    FLAGS.xm_runlocal = True
     config = get_config(
         classifier=classifier, representation_size=representation_size)
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())

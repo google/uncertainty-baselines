@@ -26,6 +26,7 @@ import jax
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
 import sngp  # local file import from baselines.jft
 import test_utils  # local file import from baselines.jft

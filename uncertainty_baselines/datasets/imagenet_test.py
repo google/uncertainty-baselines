@@ -15,13 +15,14 @@
 
 """Tests for ImageNet."""
 
+from absl.testing import parameterized
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
 
 
 # TODO(dusenberrymw): Use TFDS mocking.
-class ImageNetDatasetTest(ub.datasets.DatasetTest):
+class ImageNetDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
 
   def test_imagenet_dataset_size(self):
     super()._testDatasetSize(
@@ -36,35 +37,55 @@ class ImageNetDatasetTest(ub.datasets.DatasetTest):
         severity=3,
     )
 
-  def test_imagenet_expected_features(self):
-    builder = ub.datasets.ImageNetDataset('train')
+  @parameterized.parameters(
+      (False, False, ['features', 'labels'], (None, 224, 224, 3), (None,)),
+      (True, False, ['mask', 'features', 'labels'], (3, 224, 224, 3), (3,)),
+      (False, True, ['features', 'labels', 'file_name'], (None, 224, 224, 3),
+       (None,)),
+  )
+  def test_expected_features(self, mask_and_pad, include_file_name,
+                             expected_features, expected_feature_shape,
+                             expected_label_shape):
+    builder = ub.datasets.ImageNetDataset(
+        'train', mask_and_pad=mask_and_pad, include_file_name=include_file_name)
     dataset = builder.load(batch_size=3)
-    self.assertEqual(list(dataset.element_spec.keys()), ['features', 'labels'])
-    self.assertEqual(dataset.element_spec['features'],
-                     tf.TensorSpec(shape=(None, 224, 224, 3), dtype=tf.float32))
-    self.assertEqual(dataset.element_spec['labels'],
-                     tf.TensorSpec(shape=(None,), dtype=tf.float32))
-
-  def test_imagenet_expected_features_with_filename(self):
-    builder = ub.datasets.ImageNetDataset('train', include_file_name=True)
-    dataset = builder.load(batch_size=3)
+    self.assertEqual(list(dataset.element_spec.keys()), expected_features)
+    # NOTE: The batch size is not statically known when drop_remainder=False
+    # (default) and mask_and_pad=False (default), but is statically known if
+    # mask_and_pad=True.
     self.assertEqual(
-        list(dataset.element_spec.keys()), ['features', 'labels', 'file_name'])
-    self.assertEqual(dataset.element_spec['features'],
-                     tf.TensorSpec(shape=(None, 224, 224, 3), dtype=tf.float32))
-    self.assertEqual(dataset.element_spec['labels'],
-                     tf.TensorSpec(shape=(None,), dtype=tf.float32))
+        dataset.element_spec['features'],
+        tf.TensorSpec(shape=expected_feature_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['labels'],
+        tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
 
-  def test_imagenet_corrupted_expected_features(self):
+  @parameterized.parameters(
+      (False, False, ['features', 'labels'], (None, 224, 224, 3), (None,)),
+      (True, False, ['mask', 'features', 'labels'], (3, 224, 224, 3), (3,)),
+      (False, True, ['features', 'labels', 'file_name'], (None, 224, 224, 3),
+       (None,)),
+  )
+  def test_corrupted_expected_features(self, mask_and_pad, include_file_name,
+                                       expected_features,
+                                       expected_feature_shape,
+                                       expected_label_shape):
     builder = ub.datasets.ImageNetCorruptedDataset(
-        corruption_type='gaussian_blur', severity=3)
-    batch_size = 3
-    dataset = builder.load(batch_size=batch_size)
-    self.assertEqual(list(dataset.element_spec.keys()), ['features', 'labels'])
-    self.assertEqual(dataset.element_spec['features'],
-                     tf.TensorSpec(shape=(None, 224, 224, 3), dtype=tf.float32))
-    self.assertEqual(dataset.element_spec['labels'],
-                     tf.TensorSpec(shape=(None,), dtype=tf.float32))
+        corruption_type='gaussian_blur',
+        severity=3,
+        mask_and_pad=mask_and_pad,
+        include_file_name=include_file_name)
+    dataset = builder.load(batch_size=3)
+    self.assertEqual(list(dataset.element_spec.keys()), expected_features)
+    # NOTE: The batch size is not statically known when drop_remainder=False
+    # (default) and mask_and_pad=False (default), but is statically known if
+    # mask_and_pad=True.
+    self.assertEqual(
+        dataset.element_spec['features'],
+        tf.TensorSpec(shape=expected_feature_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['labels'],
+        tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
 
 
 if __name__ == '__main__':

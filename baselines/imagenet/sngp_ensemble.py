@@ -121,6 +121,7 @@ def main(argv):
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   test_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TEST,
       use_bfloat16=FLAGS.use_bfloat16,

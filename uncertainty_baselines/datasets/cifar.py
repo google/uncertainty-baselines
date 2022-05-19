@@ -58,6 +58,7 @@ class _CifarDataset(base.BaseDataset):
                shuffle_buffer_size: Optional[int] = None,
                num_parallel_parser_calls: int = 64,
                drop_remainder: bool = False,
+               mask_and_pad: bool = False,
                normalize: bool = True,
                try_gcs: bool = False,
                download_data: bool = False,
@@ -84,9 +85,12 @@ class _CifarDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      drop_remainder: whether or not to drop the last batch of data if the
-        number of points is not exactly equal to the batch size. This option
-        needs to be True for running on TPUs.
+      drop_remainder: Whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size.
+      mask_and_pad: Whether or not to mask and pad batches such that when
+        drop_remainder == False, partial batches are padded to a full batch and
+        an additional `mask` feature is added to indicate which examples are
+        padding.
       normalize: whether or not to normalize each image by the CIFAR dataset
         mean and stddev.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
@@ -118,6 +122,7 @@ class _CifarDataset(base.BaseDataset):
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         drop_remainder=drop_remainder,
+        mask_and_pad=mask_and_pad,
         fingerprint_key=fingerprint_key,
         download_data=download_data,
         cache=True)

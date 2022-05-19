@@ -172,13 +172,20 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
-      data_dir=data_dir)
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
@@ -193,7 +200,9 @@ def main(argv):
             corruption_type=corruption_type,
             severity=severity,
             use_bfloat16=FLAGS.use_bfloat16,
-            data_dir=data_dir)
+            data_dir=data_dir,
+            drop_remainder=False,
+            mask_and_pad=True)
         test_datasets[dataset_name] = corrupted_builder.load(
             batch_size=batch_size, strategy=strategy)
 
@@ -302,10 +311,15 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+      mask = inputs['mask']
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       labels = tf.tile(labels, [FLAGS.ensemble_size])
+      mask = tf.tile(mask, [FLAGS.ensemble_size])
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
+
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
 
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract logits
@@ -361,12 +375,15 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
+      mask = inputs['mask']
       labels = inputs['labels']
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
 
       logits_list = []
       stddev_list = []
       for _ in range(FLAGS.ensemble_size):
         logits = model(images, training=False)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
 
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract both

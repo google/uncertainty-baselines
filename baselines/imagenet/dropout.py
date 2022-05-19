@@ -112,6 +112,7 @@ def main(argv):
       'adaptive_mixup': FLAGS.adaptive_mixup,
       'num_classes': NUM_CLASSES,
   }
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       one_hot=(FLAGS.mixup_alpha > 0),

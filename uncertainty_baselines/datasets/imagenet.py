@@ -57,6 +57,8 @@ class _ImageNetDataset(base.BaseDataset):
                validation_percent: float = 0.0,
                shuffle_buffer_size: Optional[int] = 16384,
                num_parallel_parser_calls: int = 64,
+               drop_remainder: bool = False,
+               mask_and_pad: bool = False,
                try_gcs: bool = False,
                download_data: bool = False,
                data_dir: Optional[str] = None,
@@ -85,6 +87,12 @@ class _ImageNetDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      drop_remainder: Whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size.
+      mask_and_pad: Whether or not to mask and pad batches such that when
+        drop_remainder == False, partial batches are padded to a full batch and
+        an additional `mask` feature is added to indicate which examples are
+        padding.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
@@ -132,6 +140,8 @@ class _ImageNetDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
+        drop_remainder=drop_remainder,
+        mask_and_pad=mask_and_pad,
         fingerprint_key='file_name',
         download_data=download_data,
         decoders=decoders)

@@ -116,10 +116,16 @@ def main(argv):
       use_bfloat16=FLAGS.use_bfloat16,
       mixup_params=mixup_params,
       ensemble_size=FLAGS.ensemble_size,
-      data_dir=data_dir)
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
@@ -130,7 +136,9 @@ def main(argv):
         split=tfds.Split.VALIDATION,
         run_mixup=True,
         use_bfloat16=FLAGS.use_bfloat16,
-        data_dir=data_dir)
+        data_dir=data_dir,
+        drop_remainder=False,
+        mask_and_pad=True)
     imagenet_confidence_dataset = validation_builder.load(
         batch_size=FLAGS.per_core_batch_size * FLAGS.num_cores,
         strategy=strategy)
@@ -143,7 +151,9 @@ def main(argv):
             corruption_type=corruption_type,
             severity=severity,
             use_bfloat16=FLAGS.use_bfloat16,
-            data_dir=data_dir)
+            data_dir=data_dir,
+            drop_remainder=False,
+            mask_and_pad=True)
         test_datasets[dataset_name] = corrupted_builder.load(
             batch_size=batch_size, strategy=strategy)
 
@@ -239,10 +249,12 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+      mask = inputs['mask']
       if FLAGS.adaptive_mixup:
         images = tf.identity(images)
       else:
         images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
+        mask = tf.tile(mask, [FLAGS.ensemble_size])
 
       if FLAGS.adaptive_mixup:
         labels = tf.identity(labels)
@@ -250,9 +262,11 @@ def main(argv):
         labels = tf.tile(labels, [FLAGS.ensemble_size, 1])
       else:
         labels = tf.tile(labels, [FLAGS.ensemble_size])
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
 
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
@@ -319,9 +333,14 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
+      mask = inputs['mask']
       labels = inputs['labels']
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
+      mask = tf.tile(mask, [FLAGS.ensemble_size])
+
       logits = model(images, training=False)
+      logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
       probs = tf.nn.softmax(logits)
@@ -435,7 +454,9 @@ def main(argv):
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
           mixup_params=mixup_params,
-          data_dir=data_dir)
+          data_dir=data_dir,
+          drop_remainder=False,
+          mask_and_pad=True)
       train_dataset = train_builder.load(
           batch_size=batch_size, strategy=strategy)
       train_iterator = iter(train_dataset)

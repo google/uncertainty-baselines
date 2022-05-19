@@ -86,10 +86,17 @@ flags.DEFINE_string('alexnet_errors_path', None,
                     'Path to AlexNet corruption errors file.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
 flags.DEFINE_bool('use_ensemble_bn', False, 'Whether to use ensemble bn.')
-
 flags.DEFINE_integer('num_eval_samples', 1,
                      'Number of model predictions to sample per example at '
                      'eval time.')
+flags.DEFINE_integer('steps_per_epoch_train', None,
+                     'Optional number of steps per training epoch. If None, '
+                     'then it defaults to the number of training examples '
+                     'divided by the batch size. Mostly helpful for testing.')
+flags.DEFINE_integer('steps_per_epoch_eval', None,
+                     'Optional number of steps per eval epoch. If None, then '
+                     'it defaults to the number of eval examples divided by '
+                     'the batch size. Mostly helpful for testing.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -112,8 +119,10 @@ def main(argv):
 
   per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
   batch_size = per_core_batch_size * FLAGS.num_cores
-  steps_per_epoch = APPROX_IMAGENET_TRAIN_IMAGES // batch_size
-  steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
+  steps_per_epoch = FLAGS.steps_per_epoch_train or (
+      APPROX_IMAGENET_TRAIN_IMAGES // batch_size)
+  steps_per_eval = FLAGS.steps_per_epoch_eval or (IMAGENET_VALIDATION_IMAGES //
+                                                  batch_size)
 
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
 

@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """Deterministic ViT."""
-
 import functools
 import multiprocessing
 import os
@@ -175,6 +174,20 @@ def main(config, output_dir):
                 pp_eval=config.pp_eval,
                 data_dir=config.get('data_dir'))
     })
+
+  if config.get('subpopl_cifar_data_file'):
+    dataset_builder = input_utils.cifar_from_sql(
+        sql_database=config.subpopl_cifar_data_file,
+        num_classes=config.num_classes)
+
+    subpopl_val_ds_splits = {  # pylint: disable=g-complex-comprehension
+        client_id: _get_val_split(
+            dataset_builder,
+            split=client_id,
+            pp_eval=config.pp_eval_subpopl_cifar,
+            data_dir=config.subpopl_cifar_data_file)
+        for client_id in dataset_builder.client_ids
+    }
 
   if config.get('eval_on_cifar_10h'):
     cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
@@ -489,7 +502,7 @@ def main(config, output_dir):
     if jax.process_index() == 0:
       profiler(step)
 
-    # Checkpoint saving
+    # Checkpoint saving.
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
       write_note('Checkpointing...')
@@ -521,7 +534,7 @@ def main(config, output_dir):
           (checkpoint_data, save_checkpoint_path, copy_step))
       chrono.resume()
 
-    # Report training progress
+    # Report training progress.
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
@@ -534,7 +547,7 @@ def main(config, output_dir):
       # Keep train_loss to return for reproducibility tests.
       train_loss = train_measurements['training_loss']
 
-    # Report validation performance
+    # Report validation performance.
     if config.get('only_eval', False) or train_utils.itstime(
         step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
@@ -635,7 +648,7 @@ def main(config, output_dir):
           }
           writer.write_scalars(step, cifar_10h_measurements)
 
-      # OOD eval
+      # OOD evaluation.
       # Entries in the ood_ds dict include:
       # (ind_dataset, ood_dataset1, ood_dataset2, ...).
       # OOD metrics are computed using ind_dataset paired with each of the
@@ -651,6 +664,47 @@ def main(config, output_dir):
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
+
+      # Perform subpopulation shift evaluation only if flag is provided.
+      if config.get('subpopl_cifar_data_file'):
+        subpopl_measurements = {}
+        # Iterate over subpopulations.
+        for val_subpopl_name, val_ds in subpopl_val_ds_splits.items():
+          val_iter = input_utils.start_input_pipeline(
+              val_ds, config.get('prefetch_to_device', 1))
+          ncorrect, loss, nseen = 0, 0, 0
+          for batch in val_iter:
+            batch_ncorrect, batch_losses, batch_n, _ = (
+                evaluation_fn(opt_repl.target, batch['image'], batch['labels'],
+                              batch['mask']))
+            # All results are a replicated array shaped as follows:
+            # (local_devices, per_device_batch_size, elem_shape...)
+            # with each local device's entry being identical as they got psum'd.
+            # So let's just take the first one to the host as numpy.
+            ncorrect += np.sum(np.array(batch_ncorrect[0]))
+            loss += np.sum(np.array(batch_losses[0]))
+            nseen += np.sum(np.array(batch_n[0]))
+
+          subpopl_measurements.update({
+              f'subpopl_{val_subpopl_name}_prec@1': ncorrect / nseen,
+              f'subpopl_{val_subpopl_name}_loss': loss / nseen,
+          })
+
+        # Calculate aggregated metrics over subpopulations.
+        agg_measurements = dict()
+        precs = [
+            v for k, v in subpopl_measurements.items() if k.endswith('_prec@1')
+        ]
+        agg_measurements['subpopl_avg_prec@1'] = np.mean(precs)
+        agg_measurements['subpopl_med_prec@1'] = np.median(precs)
+        agg_measurements['subpopl_var_prec@1'] = np.var(precs)
+        agg_measurements['subpopl_p95_prec@1'] = np.percentile(precs, 95)
+        agg_measurements['subpopl_p75_prec@1'] = np.percentile(precs, 75)
+        agg_measurements['subpopl_p25_prec@1'] = np.percentile(precs, 25)
+        agg_measurements['subpopl_p05_prec@1'] = np.percentile(precs, 5)
+
+        writer.write_scalars(step, scalars=subpopl_measurements)
+        writer.write_scalars(step, scalars=agg_measurements)
 
     if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.

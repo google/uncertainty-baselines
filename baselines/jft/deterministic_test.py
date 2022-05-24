@@ -143,6 +143,11 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
       config.cifar_10h_split = f'test[:{num_examples}]'
       config.pp_eval_cifar_10h = (
           'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
+      config.subpopl_cifar_data_file = os.path.join(data_dir,
+                                                    'cifar10_subpopl_tiny.db')
+      config.pp_eval_subpopl_cifar = (
+          'resize(384)|value_range(-1, 1)|onehot(10, key="label", '
+          'key_result="labels")|keep(["image", "labels", "id"])')
     elif finetune_dataset_name == 'imagenet':
       config.dataset = 'imagenet2012'
       config.val_split = f'train[:{num_examples}]'

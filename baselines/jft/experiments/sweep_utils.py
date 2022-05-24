@@ -80,6 +80,10 @@ def cifar10(hyper, size=384, steps=10_000, warmup=500):
   # CIFAR-10H eval
   config.eval_on_cifar_10h = True
   config.pp_eval_cifar_10h = f'decode|resize({size})|value_range(-1, 1)|keep(["image", "labels"])'
+
+  # Subpopulation shift evaluation.
+  config.pp_eval_subpopl_cifar = f'resize({size})' + pp_common
+
   return fixed(hyper, config)
 
 
@@ -124,6 +128,10 @@ def cifar100(hyper, size=384, steps=10_000, warmup=500):
     else:
       pp_eval_ood.append(pp_eval)
   config.pp_eval_ood = pp_eval_ood
+
+  # Subpopulation shift evaluation.
+  config.pp_eval_subpopl_cifar = f'resize({size})' + pp_common
+
   return fixed(hyper, config)
 
 

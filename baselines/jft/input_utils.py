@@ -15,6 +15,7 @@
 
 """Input pipeline utilities for the ViT experiments."""
 
+import collections
 import math
 from typing import Callable, Dict, Optional, Union
 
@@ -26,6 +27,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import al_utils  # local file import from baselines.jft
+from uncertainty_baselines.datasets import tfds as ub_tfds
 
 Tensor = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
 Features = Dict[str, Tensor]
@@ -328,6 +330,26 @@ def get_data(
     ds = ds.repeat(num_epochs)
 
   return ds.prefetch(prefetch_size)
+
+
+def cifar_from_sql(sql_database: str,
+                   num_classes: int) -> ub_tfds.TFDSBuilderFromSQLClientData:
+  """Build a TFDS builder backed by CIFAR-like SQL Client Data."""
+
+  cifar_features = tfds.features.FeaturesDict({
+      "image": tfds.features.Image(shape=(32, 32, 3), dtype=tf.uint8),
+      "label": tfds.features.ClassLabel(num_classes=num_classes),
+  })
+
+  cifar_element_spec = collections.OrderedDict([
+      ("image", tf.TensorSpec(shape=(32, 32, 3), dtype=tf.uint8)),
+      ("label", tf.TensorSpec(shape=(), dtype=tf.int64)),
+  ])
+
+  return ub_tfds.TFDSBuilderFromSQLClientData(
+      sql_database=sql_database,
+      tfds_features=cifar_features,
+      element_spec=cifar_element_spec)
 
 
 def start_input_pipeline(dataset, n_prefetch, devices=None):

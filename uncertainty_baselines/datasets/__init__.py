@@ -20,6 +20,7 @@ from absl import logging
 # pylint: disable=g-bad-import-order
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets import resnet_preprocessing
+from uncertainty_baselines.datasets import tfds
 from uncertainty_baselines.datasets.aptos import APTOSDataset
 from uncertainty_baselines.datasets.base import BaseDataset
 from uncertainty_baselines.datasets.base import make_ood_dataset

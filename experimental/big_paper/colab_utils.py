@@ -57,6 +57,17 @@ _NUM_CLASSES_BY_DATASET = immutabledict.immutabledict({
     # TODO(zmariet, dusenberrymw): Update for the specific ImageNet-Vid and
     # YTBB datasets, which use a subset of the 1000 Imagenet classes.
     'imagenet_variants': 1000,
+    'few-shot birds': 200,
+    'few-shot caltech': 102,
+    'few-shot cars': 196,
+    'few-shot cifar100': 100,
+    'few-shot col_hist': 8,
+    'few-shot dtd': 47,
+    'few-shot imagenet': 1000,
+    'few-shot pets': 37,
+    'few-shot uc_merced': 21,
+
+
 })
 
 
@@ -194,9 +205,15 @@ def get_metric_category(metric: str) -> MetricCategory:
       'loss', 'accuracy', 'likelihood', 'nll', 'brier', 'mce', 'relative_mce',
       'accuracy_drop', 'accuracy_pmk', 'anchor_accuracy'
   ]:
-    return MetricCategory.PREDICTION
+    if 'shot' in metric:
+      return MetricCategory.ADAPTATION
+    else:
+      return MetricCategory.PREDICTION
   elif base_metric in ['auc', 'auroc', 'ece']:
-    return MetricCategory.UNCERTAINTY
+    if 'shot' in metric:
+      return MetricCategory.ADAPTATION
+    else:
+      return MetricCategory.UNCERTAINTY
   elif base_metric == 'prec@1':
     if 'shot' in metric:
       return MetricCategory.ADAPTATION
@@ -512,7 +529,8 @@ def _drop_unused_measurements(
   if drop_compute:
     df = df.drop(columns='compute', level=1, errors='ignore')
   if drop_1shot:
-    df = df.drop(columns='1shot_prec@1', level=0, errors='ignore')
+    cols_to_drop = [c for c in df.columns.levels[0] if c.startswith('1shot_')]
+    df = df.drop(columns=cols_to_drop, level=0, errors='ignore')
   if datasets:
     df = df.drop(
         columns=[c for c in df.columns.levels[1] if c not in datasets],

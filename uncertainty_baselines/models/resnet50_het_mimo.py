@@ -122,7 +122,8 @@ def resnet50_het_mimo(
     share_het_layer,
     num_mc_samples=10000,
     eps=1e-5,
-    width_multiplier=1):
+    width_multiplier=1,
+    return_unaveraged_logits=False):
   """Builds a multiheaded ResNet50 with an heteroscedastic layer.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -147,6 +148,8 @@ def resnet50_het_mimo(
         [eps, 1.0 - eps] sigmoid before applying log (softmax), or inverse
         sigmoid.
     width_multiplier: Multiply the number of filters for wide ResNet.
+    return_unaveraged_logits: Boolean. Whether to also return the logits
+        before taking the MC average over samples.
 
   Returns:
     tf.keras.Model.
@@ -193,7 +196,8 @@ def resnet50_het_mimo(
                     'share_samples_across_batch': True,
                     'num_classes': num_classes, 'num_factors': num_factors,
                     'logits_only': True, 'eps': eps,
-                    'dtype': tf.float32, 'name': 'fc1000'}
+                    'dtype': tf.float32, 'name': 'fc1000',
+                    'return_unaveraged_logits': return_unaveraged_logits}
   if share_het_layer:
     het_layer_args.update({'ensemble_size': ensemble_size})
     output_layer = ed.layers.MultiHeadMCSoftmaxDenseFA(**het_layer_args)

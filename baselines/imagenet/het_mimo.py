@@ -25,6 +25,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import metrics as metrics_lib  # local file import from baselines.imagenet
 import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
@@ -52,8 +53,8 @@ flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 150, 'Number of training epochs.')
-flags.DEFINE_integer('checkpoint_interval', -1,
+flags.DEFINE_integer('train_epochs', 180, 'Number of training epochs.')
+flags.DEFINE_integer('checkpoint_interval', 25,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
@@ -86,6 +87,9 @@ NUM_CLASSES = 1000
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=1000, tau=10, kappa=2)
+
   del argv  # unused arg
   tf.io.gfile.makedirs(FLAGS.output_dir)
   logging.info('Saving checkpoints at %s', FLAGS.output_dir)
@@ -134,8 +138,8 @@ def main(argv):
         temperature=FLAGS.temperature,
         num_mc_samples=FLAGS.num_mc_samples,
         share_het_layer=FLAGS.share_het_layer,
-        width_multiplier=FLAGS.width_multiplier
-        )
+        width_multiplier=FLAGS.width_multiplier,
+        return_unaveraged_logits=True)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -162,6 +166,7 @@ def main(argv):
         'train/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'test/joint_nll': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
         'test/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
@@ -210,7 +215,7 @@ def main(argv):
                          for indices in shuffle_indices], axis=1)
 
       with tf.GradientTape() as tape:
-        logits = model(images, training=True)
+        logits, _ = model(images, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
@@ -255,9 +260,10 @@ def main(argv):
       labels = inputs['labels']
       images = tf.tile(
           tf.expand_dims(images, 1), [1, FLAGS.ensemble_size, 1, 1, 1])
-      logits = model(images, training=False)
+      logits, unaveraged_logits = model(images, training=False)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
+        unaveraged_logits = tf.cast(unaveraged_logits, tf.float32)
       probs = tf.nn.softmax(logits)
 
       per_probs = tf.transpose(probs, perm=[1, 0, 2])
@@ -285,6 +291,16 @@ def main(argv):
           negative_log_likelihood)
       metrics['test/accuracy'].update_state(labels, probs)
       metrics['test/ece'].add_batch(probs, label=labels)
+
+      # unaveraged_logits original shape:
+      # (batch_size, num_samples, ensemble_size, num_classes)
+      # logits_list final shape:
+      # (batch_size * num_samples, ensemble_size, num_classes)
+      logits_list = tf.concat(
+          [tf.transpose(unaveraged_logits, [1, 0, 2, 3])[:, :, i]
+           for i in range(FLAGS.ensemble_size)], axis=0)
+      joint_nll = dyadic_nll(logits_list, tf.expand_dims(labels, axis=1))
+      metrics['test/joint_nll'].update_state(joint_nll)
 
     for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))

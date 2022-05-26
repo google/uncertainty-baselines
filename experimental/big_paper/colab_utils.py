@@ -17,10 +17,12 @@
 
 import enum
 import itertools
+import math
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import immutabledict
+from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -648,3 +650,95 @@ def rank_models_by_category(
       category.lower(): df[metrics].rank(ascending=False)
       for category, metrics in categories.items()
   }
+
+
+def make_radar_plot(df,
+                    row,
+                    color,
+                    max_val,
+                    ax,
+                    xticklabels=None,
+                    yscales=None):
+  """Generate a radar plot given a dataframe of results.
+
+  Args:
+    df: A pandas dataframe with methods as rows and tasks as columns
+    row: A string indicating the row name to plot.
+    color: The color to use for this row in the plot.
+    max_val: The maximum value over all columns. It's recommended to normalize
+      the columns and then set this to 1.
+    ax: A pyplot axis handle corresponding to axis to plot on.
+    xticklabels: List of strings with labels for the x-ticks around the
+      perimeter of the plot.
+    yscales: List of tuples containing (min, max) indicating the ranges for
+      each y-axis in the plot (corresponding to xticklabels).
+  """
+
+  categories = list(df)[0:]
+  num_categories = len(categories)
+
+  nticks = 5
+  angles = [
+      n / float(num_categories) * 2 * math.pi for n in range(num_categories)
+  ]
+  angles += angles[:1]
+
+  ax.set_theta_offset(math.pi / 2)
+  ax.set_theta_direction(-1)
+
+  xticklabels = xticklabels if xticklabels is not None else categories
+  plt.xticks(
+      angles[:-1],
+      xticklabels,
+      color='black',
+      size=16,
+      fontweight='normal',
+      fontname='droid-sans')
+
+  ax.set_rlabel_position(0)
+
+  values = df.loc[row].values.tolist()[0:].copy()
+  rescaled_values = []
+  if yscales is not None:
+    for i, k in enumerate(yscales):
+      min_val, max_val = k
+      rescaled_values.append((float(values[i]) - min_val) / (max_val - min_val))
+
+  values = rescaled_values
+  values += values[:1]
+  max_val += 0.1
+  ticks = np.linspace(0, max_val, nticks)
+  scaled_ticks = np.linspace(yscales[0][0], yscales[0][1], nticks)
+  ticklabels = ['%.2f' % i for i in scaled_ticks]
+  ax.set_yticks(ticks, ticklabels)
+  ax.set_ylim(0.0, max_val)
+  ax.set_yticklabels([])
+
+  ax.plot(angles, values, color=color, linewidth=1, linestyle='solid')
+  ax.fill(angles, values, color=color, alpha=0.5)
+
+  ax.spines['polar'].set_visible(False)
+
+  def add_new_yaxis(min_range, max_range, angle):
+    # Add ticks along the other axes.
+    ax2 = ax.figure.add_axes(
+        ax.get_position(),
+        projection='polar',
+        label='twin',
+        frameon=False,
+        theta_direction=ax.get_theta_direction(),
+        theta_offset=ax.get_theta_offset())
+    ax2.xaxis.set_visible(False)
+    scaled_ticks = np.linspace(min_range, max_range, nticks)
+    ticklabels = ['%.2f' % i for i in scaled_ticks]
+    ax2.set_yticks(ticks, ticklabels)
+    ax2.set_yticklabels(ticklabels)
+    ax2.set_ylim(0.0, max_val)
+    ax2.set_theta_zero_location('W', offset=-np.rad2deg(angle) + 22.5 - 90)
+
+    # Remove the tick label at zero
+    ax2.yaxis.get_major_ticks()[0].label1.set_visible(False)
+    ax2.spines['polar'].set_visible(False)
+
+  for i in range(0, num_categories):
+    add_new_yaxis(yscales[i][0], yscales[i][1], angles[i])

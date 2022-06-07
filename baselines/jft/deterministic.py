@@ -672,9 +672,9 @@ def main(config, output_dir):
         for val_subpopl_name, val_ds in subpopl_val_ds_splits.items():
           val_iter = input_utils.start_input_pipeline(
               val_ds, config.get('prefetch_to_device', 1))
-          ncorrect, loss, nseen = 0, 0, 0
+          ncorrect, nseen = 0, 0
           for batch in val_iter:
-            batch_ncorrect, batch_losses, batch_n, _ = (
+            batch_ncorrect, _, batch_n, _ = (
                 evaluation_fn(opt_repl.target, batch['image'], batch['labels'],
                               batch['mask']))
             # All results are a replicated array shaped as follows:
@@ -682,12 +682,10 @@ def main(config, output_dir):
             # with each local device's entry being identical as they got psum'd.
             # So let's just take the first one to the host as numpy.
             ncorrect += np.sum(np.array(batch_ncorrect[0]))
-            loss += np.sum(np.array(batch_losses[0]))
             nseen += np.sum(np.array(batch_n[0]))
 
           subpopl_measurements.update({
               f'subpopl_{val_subpopl_name}_prec@1': ncorrect / nseen,
-              f'subpopl_{val_subpopl_name}_loss': loss / nseen,
           })
 
         # Calculate aggregated metrics over subpopulations.
@@ -703,7 +701,6 @@ def main(config, output_dir):
         agg_measurements['subpopl_p25_prec@1'] = np.percentile(precs, 25)
         agg_measurements['subpopl_p05_prec@1'] = np.percentile(precs, 5)
 
-        writer.write_scalars(step, scalars=subpopl_measurements)
         writer.write_scalars(step, scalars=agg_measurements)
 
     if 'fewshot' in config and fewshotter is not None:

@@ -29,7 +29,6 @@ def get_config():
   """Config for finetuning."""
   config = ml_collections.ConfigDict()
 
-  config.model_init = ''  # set in sweep
   config.dataset = ''  # set in sweep
   config.val_split = ''  # set in sweep
   config.test_split = ''  # set in sweep
@@ -63,6 +62,7 @@ def get_config():
   config.pp_eval_imagenet_real = ''
 
   # Model section
+  config.model_init = ''  # set in sweep
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [32, 32]
@@ -86,12 +86,12 @@ def get_config():
   config.model.param_efficient = False
 
   # BatchEnsemble
-  config.model.transformer.be_layers = (22, 23)
-  config.model.transformer.ens_size = 3
+  config.model.transformer.be_layers = (22, 23)  # Set in sweep.
+  config.model.transformer.ens_size = 3  # Set in sweep.
   config.model.transformer.random_sign_init = -0.5
   # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
   # need checkpoints that only apply BE on the FF block.
-  config.model.transformer.ensemble_attention = True
+  config.model.transformer.ensemble_attention = True  # Set in sweep.
   config.fast_weight_lr_multiplier = 1.0
 
   # GP
@@ -118,50 +118,42 @@ def get_config():
   return config
 
 
-# def get_sweep(hyper):
-#   """Sweeps over datasets."""
-#   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-#   # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
-#   # cifar10_sweep = sweep_utils.cifar10(hyper)
-#   # cifar10_sweep.extend([
-#   #     hyper.sweep('config.model.num_factors', [0]),
-#   #     hyper.sweep('config.model.temperature',
-#   #                 [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]),
-#   #     hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
-#   # ])
-#   # cifar10_sweep = hyper.product(cifar10_sweep)
-
-#   # cifar100_sweep = sweep_utils.cifar100(hyper)
-#   # cifar100_sweep.extend([
-#   #     hyper.sweep('config.model.num_factors', [0]),
-#   #     hyper.sweep('config.model.temperature',
-#   #                 [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]),
-#   #     hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
-#   # ])
-#   # cifar100_sweep = hyper.product(cifar100_sweep)
-
-#   imagenet_sweep = sweep_utils.imagenet(hyper, steps=40000)
-#   imagenet_sweep.extend([
-#       hyper.sweep('config.model.num_factors', [15]),
-#       hyper.sweep('config.lr.base', [0.06, 0.03, 0.01]),
-#       hyper.sweep('config.model.temperature', [1.25, 2.0, 2.5, 3.0]),
-#       # hyper.sweep('config.model.temperature', [0.25, 0.5, 0.75, 1.0, 1.5]),
-#   ])
-#   imagenet_sweep = hyper.product(imagenet_sweep)
-
-#   return hyper.product([
-#       hyper.chainit([
-#           # cifar10_sweep,
-#           # cifar100_sweep,
-#           imagenet_sweep,
-#       ]),
-#       hyper.sweep('config.model_init', checkpoints),
-#   ])
-
-
 def get_sweep(hyper):
-  """Few-shot sweep."""
+  """Sweep over datasets and relevant hyperparameters."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+  use_jft = True  # whether to use JFT or I21K
+  if use_jft:
+  else:
+    ensemble_attention = False
+    be_layers = (21, 22, 23)
+    ens_size = 3
+
+  # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
+  cifar10_sweep = sweep_utils.cifar10(hyper)
+  cifar10_sweep.extend([
+      hyper.sweep('config.model.num_factors', [0]),
+      hyper.sweep('config.model.temperature',
+                  [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+  ])
+  cifar10_sweep = hyper.product(cifar10_sweep)
+
+  cifar100_sweep = sweep_utils.cifar100(hyper)
+  cifar100_sweep.extend([
+      hyper.sweep('config.model.num_factors', [0]),
+      hyper.sweep('config.model.temperature',
+                  [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]),
+      hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
+  ])
+  cifar100_sweep = hyper.product(cifar100_sweep)
+
+  imagenet_sweep = sweep_utils.imagenet(hyper, steps=40000)
+  imagenet_sweep.extend([
+      hyper.sweep('config.model.num_factors', [15]),
+      hyper.sweep('config.lr.base', [0.06, 0.03, 0.01]),
+      hyper.sweep('config.model.temperature', [1.25, 2.0, 2.5, 3.0]),
+  ])
+  imagenet_sweep = hyper.product(imagenet_sweep)
 
   imagenet_1shot_sweep = hyper.product([
       hyper.chainit([
@@ -198,9 +190,21 @@ def get_sweep(hyper):
 
   return hyper.product([
       hyper.chainit([
+          cifar10_sweep,
+          cifar100_sweep,
+          imagenet_sweep,
           imagenet_1shot_sweep,
           imagenet_5shot_sweep,
           imagenet_10shot_sweep
       ]),
-      hyper.sweep('config.model_init', checkpoints),
+      hyper.product([
+          hyper.sweep('config.model_init', checkpoints),
+          hyper.fixed(
+              'config.model.transformer.be_layers', be_layers, length=1),
+          hyper.fixed(
+              'config.model.transformer.ensemble_attention',
+              ensemble_attention,
+              length=1),
+          hyper.fixed('config.model.transformer.ens_size', ens_size, length=1),
+      ])
   ])

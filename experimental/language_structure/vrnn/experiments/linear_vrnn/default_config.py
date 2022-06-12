@@ -210,6 +210,7 @@ def get_config(dataset: str,
   config.psl_constraint_rule_weights = []
   config.psl_config_file = ''
   config.psl = {}
+  config.psl_word_weights_file = ''
 
   config.hidden_state_model_learning_rate = 1e-3
   config.hidden_state_model_train_epochs = 10

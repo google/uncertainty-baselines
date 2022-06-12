@@ -28,14 +28,7 @@ _INPUT_ID_NAME = preprocessor.INPUT_ID_NAME
 
 _MULTIWOZ_SYNTH = 'multiwoz_synth'
 _SGD_SYNTH = 'sgd_synth'
-
-
-def _check_dataset_supported(dataset: str):
-  """Checks if the dataset is supported by PSL constraint model."""
-  if dataset != 'multiwoz_synth':
-    raise ValueError(
-        'Supported PSL constraint for dataset multiwoz_synth, found {}.'.format(
-            dataset))
+_SGD = 'sgd'
 
 
 def get_psl_model(dataset: str, rule_names: List[str],
@@ -43,7 +36,8 @@ def get_psl_model(dataset: str, rule_names: List[str],
   """Constraints PSL constraint model."""
   psl_model_cls_map = {
       _MULTIWOZ_SYNTH: psl_model_multiwoz.PSLModelMultiWoZ,
-      _SGD_SYNTH: psl_model_dstc_synthetic.PSLModelDSTCSynthetic
+      _SGD_SYNTH: psl_model_dstc_synthetic.PSLModelDSTCSynthetic,
+      _SGD: psl_model_dstc_synthetic.PSLModelDSTCSynthetic
   }
 
   if dataset in psl_model_cls_map:
@@ -70,17 +64,6 @@ def _get_keyword_ids_per_class(dataset: str, config: Dict[str, Any],
           vocab_mapping[word] for word in config[key] if word in vocab_mapping
       ]
       keyword_ids_per_class.append(keyword_ids)
-  elif dataset == _SGD_SYNTH:
-    keyword_ids_per_class_map = {}
-    for _, words in config['words'].items():
-      for _, info in words.items():
-        keyword_ids_per_class_map[int(info['index'])] = [
-            vocab_mapping[word]
-            for word in info['words']
-            if word in vocab_mapping
-        ]
-    for key in sorted(keyword_ids_per_class_map):
-      keyword_ids_per_class.append(keyword_ids_per_class_map[key])
   return keyword_ids_per_class
 
 
@@ -89,6 +72,8 @@ def _create_psl_features(
     config: Dict[str, Any], dataset: str,
     keyword_ids_per_class: Sequence[Sequence[int]]) -> tf.Tensor:
   """Creates features for PSL constraint model."""
+  if dataset in (_SGD, _SGD_SYNTH):
+    return tf.concat([user_utterance_ids, system_utterance_ids], axis=-1)
   features = data_utils.create_features(
       user_utterance_ids,
       system_utterance_ids,
@@ -121,8 +106,8 @@ def psl_feature_mixin(fn: Any, dataset: str, psl_config: Dict[str, Any],
     (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
      label_id, label_mask, initial_state, initial_sample, domains) = inputs
 
-    psl_inputs = _create_psl_features(decoder_input_1[_INPUT_ID_NAME],
-                                      decoder_input_2[_INPUT_ID_NAME],
+    psl_inputs = _create_psl_features(encoder_input_1[_INPUT_ID_NAME],
+                                      encoder_input_2[_INPUT_ID_NAME],
                                       psl_config, dataset,
                                       keyword_ids_per_class)
     return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,

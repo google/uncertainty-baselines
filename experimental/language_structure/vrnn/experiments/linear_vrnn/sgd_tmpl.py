@@ -14,7 +14,9 @@
 # limitations under the License.
 
 r"""Template of linear VRNN for SGDDataset."""
+import os
 
+import constants_dstc as psl_config  # local file import from experimental.language_structure.psl
 import default_config  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
 
 
@@ -22,8 +24,10 @@ _DATASET = 'sgd'
 
 
 def add_psl_config(config):
-  del config
-  pass
+  config.psl_constraint_rule_names = psl_config.RULE_NAMES
+  config.psl_constraint_rule_weights = psl_config.RULE_WEIGHTS
+  config.psl = psl_config.DATA_CONFIG
+  config.psl['batch_size'] = config.train_batch_size
 
 
 def get_config(**kwargs):
@@ -41,6 +45,7 @@ def get_config(**kwargs):
   config.patience = -1
   config.platform = 'pf'
   config.tpu_topology = '2x2x2'
+
 
   add_psl_config(config)
 

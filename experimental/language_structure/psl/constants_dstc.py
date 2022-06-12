@@ -18,21 +18,15 @@
 # Specify test data here.
 DEFAULT_DATA_PATH = ""
 
-RULE_WEIGHTS = [1.0] * 1
+RULE_WEIGHTS = [1.0]
 RULE_NAMES = [f"rule_{i}" for i in range(1, len(RULE_WEIGHTS) + 1)]
 
 DATA_CONFIG = {
     "num_batches": 10,
     "batch_size": 256,
-    "max_dialog_size": 24,
-    "max_utterance_size": 76,
-    "num_labels": 39,
-    "includes_word": -1,
-    "excludes_word": -2,
-    "utterance_mask": -1,
-    "last_utterance_mask": -2,
-    "pad_utterance_mask": -3,
-    "mask_index": 0,
+    "max_dialog_size": 25,
+    "max_utterance_size": 79,
+    "num_labels": 75,
     "hard_pseudo_label": True,
     "word_weights": None,
 }

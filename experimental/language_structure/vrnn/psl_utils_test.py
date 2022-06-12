@@ -110,29 +110,6 @@ class PslUtilsTest(tfds.testing.TestCase):
         'last_utterance_mask': -4,
         'pad_utterance_mask': -5,
         'mask_index': 0,
-        'state_transitions': [[1, 3]],
-        'words': {
-            '1': {
-                'usr': {
-                    'index': 1,
-                    'words': ['yes'],
-                },
-                'sys': {
-                    'index': 2,
-                    'words': [],
-                },
-            },
-            '2': {
-                'usr': {
-                    'index': 3,
-                    'words': [],
-                },
-                'sys': {
-                    'index': 4,
-                    'words': ['hello'],
-                },
-            },
-        },
     }
 
     vocab = ['<pad>', 'yes', 'hello']
@@ -144,8 +121,7 @@ class PslUtilsTest(tfds.testing.TestCase):
     for i in range(len(inputs)):
       self.assertAllEqual(outputs[i], inputs[i])
     self.assertAllEqual(
-        outputs[-1], tf.constant([[[-4, -1, -2, -2, -1], [-5, -2, -2, -2,
-                                                          -2]]]))
+        outputs[-1], tf.constant([[[1, 0, 2, 1], [0, 0, 0, 0]]]))
 
   def test_update_logits(self):
     model = tf.keras.Sequential(layers=[

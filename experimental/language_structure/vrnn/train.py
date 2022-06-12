@@ -331,6 +331,9 @@ def _load_data_from_files(config: config_dict.ConfigDict):
   if config.psl_config_file:
     with tf.io.gfile.GFile(config.psl_config_file, 'r') as file:
       config.psl = json.loads(file.read())
+  if config.psl_word_weights_file and 'word_weights' in config.psl:
+    with tf.io.gfile.GFile(config.psl_word_weights_file, 'rb') as file:
+      config.psl['word_weights'] = np.load(file)
 
 
 def _save_model_results(outputs: Sequence[tf.Tensor], output_dir: str,

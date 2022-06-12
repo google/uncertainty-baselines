@@ -15,9 +15,9 @@
 
 r"""Template of linear VRNN for SGDSynthDataset."""
 
+import os
 import constants_dstc_synthetic as psl_config  # local file import from experimental.language_structure.psl
 import default_config  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
-
 
 _DATASET = 'sgd_synth'
 
@@ -46,6 +46,7 @@ def get_config(**kwargs):
 
   config.max_task_failures = -1
   config.max_per_task_failures = 20
+
 
   add_psl_config(config)
 

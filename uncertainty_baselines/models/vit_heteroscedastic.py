@@ -226,6 +226,9 @@ class VisionTransformerHet(nn.Module):
   param_efficient: bool = True
   return_locs: bool = False
   fix_base_model: bool = False
+  tune_temperature: bool = False
+  temperature_lower_bound: Optional[float] = None
+  temperature_upper_bound: Optional[float] = None
 
   @nn.compact
   def __call__(self, inputs, *, train):
@@ -279,15 +282,31 @@ class VisionTransformerHet(nn.Module):
 
     if self.multiclass:
       output_layer = ed.nn.MCSoftmaxDenseFA(
-          self.num_classes, self.num_factors, self.temperature,
-          self.param_efficient, self.mc_samples,
-          self.mc_samples, logits_only=True, return_locs=self.return_locs,
+          self.num_classes,
+          self.num_factors,
+          self.temperature,
+          self.param_efficient,
+          self.mc_samples,
+          self.mc_samples,
+          logits_only=True,
+          return_locs=self.return_locs,
+          tune_temperature=self.tune_temperature,
+          temperature_lower_bound=self.temperature_lower_bound,
+          temperature_upper_bound=self.temperature_upper_bound,
           name='multiclass_head')
     else:
       output_layer = ed.nn.MCSigmoidDenseFA(
-          self.num_classes, self.num_factors, self.temperature,
-          self.param_efficient, self.mc_samples, self.mc_samples,
-          logits_only=True, return_locs=self.return_locs,
+          self.num_classes,
+          self.num_factors,
+          self.temperature,
+          self.param_efficient,
+          self.mc_samples,
+          self.mc_samples,
+          logits_only=True,
+          return_locs=self.return_locs,
+          tune_temperature=self.tune_temperature,
+          temperature_lower_bound=self.temperature_lower_bound,
+          temperature_upper_bound=self.temperature_upper_bound,
           name='multilabel_head')
 
     # TODO(markcollier): Fix base model without using stop_gradient.
@@ -297,6 +316,10 @@ class VisionTransformerHet(nn.Module):
     x = output_layer(x)
 
     out['logits'] = x
+    # TODO(rjenatton): Surface the temperature in the training script(s) using
+    # this model. This implies extending `train_utils.accumulate_gradient` to
+    # deal with auxiliarly outputs other than the primary loss.
+    out['temperature'] = output_layer.get_temperature()
     return x, out
 
 
@@ -312,7 +335,10 @@ def vision_transformer_het(num_classes: int,
                            num_factors: int = 0,
                            param_efficient: bool = True,
                            return_locs: bool = False,
-                           fix_base_model: bool = False):
+                           fix_base_model: bool = False,
+                           tune_temperature: bool = False,
+                           temperature_lower_bound: Optional[float] = None,
+                           temperature_upper_bound: Optional[float] = None):
   """Builds a Heteroscedastic Vision Transformer (ViT) model."""
   # TODO(dusenberrymw): Add API docs once the config dict in
   # VisionTransformerHet is cleaned up.
@@ -329,4 +355,7 @@ def vision_transformer_het(num_classes: int,
       num_factors=num_factors,
       param_efficient=param_efficient,
       return_locs=return_locs,
-      fix_base_model=fix_base_model)
+      fix_base_model=fix_base_model,
+      tune_temperature=tune_temperature,
+      temperature_lower_bound=temperature_lower_bound,
+      temperature_upper_bound=temperature_upper_bound)

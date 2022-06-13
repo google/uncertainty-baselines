@@ -28,6 +28,7 @@ References:
 """
 
 import string
+from typing import Optional
 
 import edward2 as ed
 import tensorflow as tf
@@ -126,9 +127,17 @@ def group(inputs, filters, num_blocks, stage, strides):
   return x
 
 
-def resnet50_heteroscedastic(input_shape, num_classes, temperature, num_factors,
-                             num_mc_samples=10000, multiclass=True, eps=1e-5,
-                             return_unaveraged_logits=False):
+def resnet50_heteroscedastic(input_shape,
+                             num_classes,
+                             temperature,
+                             num_factors,
+                             num_mc_samples=10000,
+                             multiclass=True,
+                             eps=1e-5,
+                             return_unaveraged_logits=False,
+                             tune_temperature: bool = False,
+                             temperature_lower_bound: Optional[float] = None,
+                             temperature_upper_bound: Optional[float] = None):
   """Builds ResNet50.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -152,6 +161,12 @@ def resnet50_heteroscedastic(input_shape, num_classes, temperature, num_factors,
         sigmoid.
     return_unaveraged_logits: Boolean. Whether to also return the logits
         before taking the MC average over samples.
+    tune_temperature: Boolean. If True, the temperature is optimized during
+      the training as any other parameters.
+    temperature_lower_bound: Float. The lowest value the temperature can take
+      when it is optimized. By default, a pre-defined lower bound is used.
+    temperature_upper_bound: Float. The highest value the temperature can take
+      when it is optimized. By default, a pre-defined upper bound is used.
 
   Returns:
     tf.keras.Model.
@@ -185,7 +200,11 @@ def resnet50_heteroscedastic(input_shape, num_classes, temperature, num_factors,
                     'share_samples_across_batch': True,
                     'logits_only': True, 'eps': eps,
                     'dtype': tf.float32, 'name': 'fc1000',
-                    'return_unaveraged_logits': return_unaveraged_logits}
+                    'return_unaveraged_logits': return_unaveraged_logits,
+                    'tune_temperature': tune_temperature,
+                    'temperature_lower_bound': temperature_lower_bound,
+                    'temperature_upper_bound': temperature_upper_bound,
+                    }
   if multiclass:
     het_layer_args.update({'num_classes': num_classes})
     if num_factors <= 0:

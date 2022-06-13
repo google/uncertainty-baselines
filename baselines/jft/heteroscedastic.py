@@ -26,6 +26,7 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
+import edward2 as ed
 import flax
 import flax.jax_utils as flax_utils
 import jax
@@ -59,6 +60,24 @@ flags.DEFINE_string('tpu', None,
 flags.DEFINE_integer('seed', default=0, help='Random seed.')
 
 FLAGS = flags.FLAGS
+
+
+def _get_temperature(config, replicated_params):
+  """Retrieve the temperature to track it over the training steps."""
+  model_config = config.get('model', {})
+  if not model_config.get('tune_temperature'):
+    return model_config.get('temperature')
+
+  is_multiclass = model_config.get('multiclass')
+  prefix = 'multiclass_head' if is_multiclass else 'multilabel_head'
+  params_key = 'pre_sigmoid_temperature'
+  # We take the first value since the params are in a replicated form.
+  pre_sigmoid_temperature = replicated_params[prefix][params_key][0]
+  return float(
+      ed.jax.nn.heteroscedastic_lib.compute_temperature(
+          pre_sigmoid_temperature,
+          lower=model_config.get('temperature_lower_bound'),
+          upper=model_config.get('temperature_upper_bound')))
 
 
 def main(config, output_dir):
@@ -589,6 +608,7 @@ def main(config, output_dir):
       train_measurements.update({
           'learning_rate': lr_repl[0],
           'training_loss': train_loss,
+          'temperature': _get_temperature(config, opt_repl.target)
       })
       train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)

@@ -67,6 +67,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
         dataset_name=dataset_name,
         classifier=classifier,
         representation_size=representation_size)
+    config.model.temperature = 1.0
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = data_dir
     num_examples = config.batch_size * config.total_steps
@@ -123,6 +124,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
         dataset_name=dataset_name,
         classifier=classifier,
         representation_size=representation_size)
+    config.model.temperature = 1.0
     output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     config.dataset_dir = data_dir
     num_examples = config.batch_size * config.total_steps

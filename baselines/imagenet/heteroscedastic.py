@@ -40,6 +40,7 @@ import time
 from absl import app
 from absl import flags
 from absl import logging
+import edward2 as ed
 import numpy as np
 import robustness_metrics as rm
 import scipy
@@ -97,6 +98,14 @@ flags.DEFINE_float('temperature', 1.5,
                    'Temperature for heteroscedastic head.')
 flags.DEFINE_integer('num_mc_samples', 5000,
                      'Num MC samples for heteroscedastic layer.')
+flags.DEFINE_bool('multiclass', True,
+                  'Whether to use a softmax (multiclass=True) or sigmoid loss.')
+flags.DEFINE_bool('tune_temperature', False,
+                  'Whether or not to optimize the temperature during training.')
+flags.DEFINE_float('temperature_lower_bound', 0.3,
+                   'The lowest value the temperature can take when optimized.')
+flags.DEFINE_float('temperature_upper_bound', 3.0,
+                   'The highest value the temperature can take when optimized.')
 
 FLAGS = flags.FLAGS
 
@@ -204,7 +213,11 @@ def main(argv):
         input_shape=IMAGE_SHAPE, num_classes=NUM_CLASSES,
         temperature=FLAGS.temperature, num_factors=FLAGS.num_factors,
         num_mc_samples=FLAGS.num_mc_samples,
-        return_unaveraged_logits=True)
+        return_unaveraged_logits=True,
+        multiclass=FLAGS.multiclass,
+        tune_temperature=FLAGS.tune_temperature,
+        temperature_lower_bound=FLAGS.temperature_lower_bound,
+        temperature_upper_bound=FLAGS.temperature_upper_bound)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -230,6 +243,7 @@ def main(argv):
         'train/loss': tf.keras.metrics.Mean(),
         'train/ece': rm.metrics.ExpectedCalibrationError(
             num_bins=FLAGS.num_bins),
+        'train/temperature': tf.keras.metrics.Mean(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
         'test/joint_nll': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
@@ -285,6 +299,21 @@ def main(argv):
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
     mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)
 
+  def _get_temperature(trainable_variables):
+    """Retrieve the temperature to track it over the training steps."""
+    if not FLAGS.tune_temperature:
+      return FLAGS.temperature
+    pre_sigmoid_temperature = None
+    for var in trainable_variables:
+      if 'pre_sigmoid_temperature' in var.name:
+        pre_sigmoid_temperature = var
+        break
+    assert pre_sigmoid_temperature is not None
+    return ed.tensorflow.layers.heteroscedastic.compute_temperature(
+        pre_sigmoid_temperature,
+        lower=FLAGS.temperature_lower_bound,
+        upper=FLAGS.temperature_upper_bound)
+
   @tf.function
   def train_step(iterator):
     """Training StepFn."""
@@ -324,8 +353,11 @@ def main(argv):
       # We go back from one-hot labels to integers
       labels = tf.argmax(labels, axis=-1)
 
+      temperature = _get_temperature(model.trainable_variables)
+
       metrics['train/ece'].add_batch(probs, label=labels)
       metrics['train/loss'].update_state(loss)
+      metrics['train/temperature'].update_state(temperature)
       metrics['train/negative_log_likelihood'].update_state(
           negative_log_likelihood)
       metrics['train/accuracy'].update_state(labels, logits)
@@ -367,7 +399,7 @@ def main(argv):
         images *= mean_theta
         images += (1.-mean_theta) * tf.cast(mean_images, images.dtype)
 
-        scaled_logits = model(images, training=False)
+        scaled_logits, _ = model(images, training=False)
         if FLAGS.use_bfloat16:
           scaled_logits = tf.cast(scaled_logits, tf.float32)
 
@@ -425,9 +457,10 @@ def main(argv):
     ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
     metrics['test/ms_per_example'].update_state(ms_per_example)
 
-    logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
+    logging.info('Train Loss: %.4f, Accuracy: %.2f%%, Temperature: %.2f%%',
                  metrics['train/loss'].result(),
-                 metrics['train/accuracy'].result() * 100)
+                 metrics['train/accuracy'].result() * 100,
+                 metrics['train/temperature'].result())
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)
@@ -468,6 +501,9 @@ def main(argv):
         'num_factors': FLAGS.num_factors,
         'temperature': FLAGS.temperature,
         'num_mc_samples': FLAGS.num_mc_samples,
+        'tune_temperature': FLAGS.tune_temperature,
+        'temperature_lower_bound': FLAGS.temperature_lower_bound,
+        'temperature_upper_bound': FLAGS.temperature_upper_bound
     })
 
 

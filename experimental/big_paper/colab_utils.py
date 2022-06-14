@@ -658,7 +658,9 @@ def make_radar_plot(df,
                     max_val,
                     ax,
                     xticklabels=None,
-                    yscales=None):
+                    yscales=None,
+                    fontfamily='serif',
+                    fontsize=40):
   """Generate a radar plot given a dataframe of results.
 
   Args:
@@ -672,6 +674,8 @@ def make_radar_plot(df,
       perimeter of the plot.
     yscales: List of tuples containing (min, max) indicating the ranges for
       each y-axis in the plot (corresponding to xticklabels).
+    fontfamily: String indicating the matplotlib font family to use.
+    fontsize: Integer indicating the font size.
   """
 
   categories = list(df)[0:]
@@ -691,22 +695,23 @@ def make_radar_plot(df,
       angles[:-1],
       xticklabels,
       color='black',
-      size=16,
+      size=fontsize,
       fontweight='normal',
-      fontname='droid-sans')
+      fontname=fontfamily)
 
   ax.set_rlabel_position(0)
 
+  #  Rescale the values to fit in each y-axis.
   values = df.loc[row].values.tolist()[0:].copy()
   rescaled_values = []
   if yscales is not None:
     for i, k in enumerate(yscales):
       min_val, max_val = k
       rescaled_values.append((float(values[i]) - min_val) / (max_val - min_val))
-
   values = rescaled_values
   values += values[:1]
-  max_val += 0.1
+
+  max_val += 0.2  # Adds some padding for ticklabels
   ticks = np.linspace(0, max_val, nticks)
   scaled_ticks = np.linspace(yscales[0][0], yscales[0][1], nticks)
   ticklabels = ['%.2f' % i for i in scaled_ticks]
@@ -718,6 +723,9 @@ def make_radar_plot(df,
   ax.fill(angles, values, color=color, alpha=0.5)
 
   ax.spines['polar'].set_visible(False)
+  gridlines = ax.yaxis.get_gridlines()
+  gridlines[-1].set_visible(False)
+  ax.patch.set_alpha(0.01)
 
   def add_new_yaxis(min_range, max_range, angle):
     # Add ticks along the other axes.
@@ -727,18 +735,27 @@ def make_radar_plot(df,
         label='twin',
         frameon=False,
         theta_direction=ax.get_theta_direction(),
-        theta_offset=ax.get_theta_offset())
+        theta_offset=ax.get_theta_offset(),
+        zorder=0,  # zorder seems to be buggy for polar plots
+        alpha=0.1)
     ax2.xaxis.set_visible(False)
     scaled_ticks = np.linspace(min_range, max_range, nticks)
     ticklabels = ['%.2f' % i for i in scaled_ticks]
     ax2.set_yticks(ticks, ticklabels)
-    ax2.set_yticklabels(ticklabels)
+    ax2.set_yticklabels(
+        ticklabels, fontdict={'fontsize': fontsize * .8}, zorder=1)
+    ax2.tick_params(zorder=0.5)
     ax2.set_ylim(0.0, max_val)
     ax2.set_theta_zero_location('W', offset=-np.rad2deg(angle) + 22.5 - 90)
 
     # Remove the tick label at zero
     ax2.yaxis.get_major_ticks()[0].label1.set_visible(False)
+    ax2.yaxis.get_major_ticks()[-1].set_zorder(0.1)
     ax2.spines['polar'].set_visible(False)
+    ax2.xaxis.set_visible(False)
+    ax2.yaxis.set_zorder(0.1)
+    ax2.yaxis.grid(False)
+    ax2.xaxis.grid(False)
 
   for i in range(0, num_categories):
     add_new_yaxis(yscales[i][0], yscales[i][1], angles[i])

@@ -611,7 +611,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   psl_inference = config.psl_constraint_inference_weight > 0
   if psl_learning or psl_inference:
     with tf.io.gfile.GFile(
-        config.model.vae_cell.decoder_embedding.vocab_file_path, 'r') as f:
+        config.model.vae_cell.encoder_embedding.vocab_file_path, 'r') as f:
       vocab = f.read()[:-1].split('\n')
     preprocess_fn = psl_utils.psl_feature_mixin(preprocess_fn, config.dataset,
                                                 config.psl, vocab)

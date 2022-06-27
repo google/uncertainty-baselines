@@ -29,7 +29,7 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
   """Defining PSL rules for the DSTC Synthetic dataset."""
 
   def __init__(self, rule_weights: List[float], rule_names: List[str],
-               **kwargs) -> None:
+               logic: str = 'lukasiewicz', **kwargs) -> None:
     super().__init__(rule_weights, rule_names, **kwargs)
 
     for option in ['config']:
@@ -47,6 +47,7 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
             self.word_weights),
         trainable=False)
     self.predicates = {}
+    self.logic = logic
 
   def _get_tensor_column(self, data, index):
     """Gathers a column in a tensor and reshapes."""
@@ -144,12 +145,12 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
   def rule_1(self, logits, **unused_kwargs) -> float:
     labels = self.predicates['predictions']
     return self.template_rx_implies_sx(
-        tf.cast(labels, dtype=logits.dtype), logits)
+        tf.cast(labels, dtype=logits.dtype), logits, **unused_kwargs)
 
   def compute_loss_per_rule(self, data: tf.Tensor,
                             logits: tf.Tensor) -> List[float]:
     """Calculate the loss for each of the PSL rules."""
-    rule_kwargs = dict(logits=logits, data=data)
+    rule_kwargs = dict(logits=logits, data=data, logic=self.logic)
     losses = []
 
     for rule_weight, rule_function in zip(self.rule_weights,

@@ -24,6 +24,9 @@ _EPSILON = 1e-8
 _LINEAR_LOSS = 'linear'
 _LOG_LOSS = 'log'
 
+_LOGIC = 'lukasiewicz'
+# _LOGIC = 'product_real_logic'
+
 
 def normalize(val, should_normalize: bool = True):
   if should_normalize:
@@ -60,7 +63,7 @@ class PSLModel(abc.ABC):
   @staticmethod
   def compute_rule_loss(body: List[tf.Tensor],
                         head: tf.Tensor,
-                        logic: str = 'lukasiewicz',
+                        logic: str = _LOGIC,
                         loss_function: str = _LINEAR_LOSS) -> float:
     """Calculates loss for a soft rule."""
 
@@ -73,6 +76,16 @@ class PSLModel(abc.ABC):
         truth_value = PSLModel.soft_imply2(body, head, logic=logic)
         prob = tf.clip_by_value(truth_value, _EPSILON, 1. - _EPSILON)
         return tf.reduce_mean(-tf.reduce_sum(tf.math.log(prob), axis=-1))
+    if logic == 'product_real_logic':
+      body = PSLModel.soft_and(body, logic)
+      truth_values = PSLModel.soft_imply(body, head, logic)
+
+      if loss_function == _LINEAR_LOSS:
+        return -tf.reduce_sum(truth_values)
+      elif loss_function == _LOG_LOSS:
+        return -tf.reduce_sum(tf.math.log(truth_values))
+      else:
+        raise ValueError('Unsuported loss: %s' % loss_function)
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 
@@ -81,18 +94,21 @@ class PSLModel(abc.ABC):
   def soft_imply(
       body: List[tf.Tensor],
       head: tf.Tensor,
-      logic: str = 'lukasiewicz') -> Tuple[List[tf.Tensor], tf.Tensor]:
+      logic: str = _LOGIC) -> Tuple[List[tf.Tensor], tf.Tensor]:
     """Soft logical implication."""
     if logic == 'lukasiewicz':
       # body -> head = (1 - body_i), head
       return [1. - predicate for predicate in body], head
+    if logic == 'product_real_logic':
+      # 1 - A + A * B
+      return 1 - body + body * head
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 
   @staticmethod
   def soft_imply2(body: List[tf.Tensor],
                   head: tf.Tensor,
-                  logic: str = 'lukasiewicz',
+                  logic: str = _LOGIC,
                   should_normalize: bool = False) -> tf.Tensor:
     """Soft logical implication."""
     if logic == 'lukasiewicz':
@@ -104,7 +120,7 @@ class PSLModel(abc.ABC):
 
   @staticmethod
   def soft_and(body: List[tf.Tensor],
-               logic: str = 'lukasiewicz',
+               logic: str = _LOGIC,
                should_normalize: bool = False) -> tf.Tensor:
     """Soft logical implication."""
     num_bodies = len(body)
@@ -116,24 +132,33 @@ class PSLModel(abc.ABC):
       for i in range(1, num_bodies):
         val = tf.nn.relu(val + body[i] - 1)
       return normalize(val, should_normalize)
+    elif logic == 'product_real_logic':
+      # A & B = A * B
+      soft_conjunction = 1.0
+      for predicate in body:
+        soft_conjunction *= predicate
+      return soft_conjunction
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 
   @staticmethod
   def soft_not(predicate: tf.Tensor,
-               logic: str = 'lukasiewicz',
+               logic: str = _LOGIC,
                should_normalize: bool = False) -> tf.Tensor:
     """Soft logical negation."""
     if logic == 'lukasiewicz':
       # !predicate = 1 - predicate
       return normalize(1. - predicate, should_normalize)
+    if logic == 'product_real_logic':
+      return 1. - predicate
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 
   @staticmethod
   def template_rx_implies_sx(r_x: tf.Tensor,
                              s_x: tf.Tensor,
-                             logic: str = 'lukasiewicz') -> float:
+                             logic: str = _LOGIC,
+                             **unused_kwargs) -> float:
     """Template for R(x) -> S(x).
 
     Args:
@@ -153,7 +178,8 @@ class PSLModel(abc.ABC):
   def template_rx_and_sx_implies_tx(r_x: tf.Tensor,
                                     s_x: tf.Tensor,
                                     t_x: tf.Tensor,
-                                    logic: str = 'lukasiewicz') -> float:
+                                    logic: str = _LOGIC,
+                                    **unused_kwargs) -> float:
     """Template for R(x) & S(x) -> T(x).
 
     Args:
@@ -174,7 +200,8 @@ class PSLModel(abc.ABC):
   def template_rxy_and_sy_implies_tx(r_xy: tf.Tensor,
                                      s_y: tf.Tensor,
                                      t_x: tf.Tensor,
-                                     logic: str = 'lukasiewicz') -> float:
+                                     logic: str = _LOGIC,
+                                     **unused_kwargs) -> float:
     """Template for R(x,y) & S(y) -> T(x).
 
     Converts s_y and t_x into (batch_size, example_size, example_size) tensors,
@@ -203,7 +230,8 @@ class PSLModel(abc.ABC):
       s_y: tf.Tensor,
       t_x: tf.Tensor,
       u_x: tf.Tensor,
-      logic: str = 'lukasiewicz') -> float:
+      logic: str = _LOGIC,
+      **unused_kwargs) -> float:
     """Template for R(x,y) & S(y) & T(x) -> U(x).
 
     Converts s_y, t_x, and u_x into (batch_size, example_size, example_size)
@@ -235,7 +263,8 @@ class PSLModel(abc.ABC):
       t_x: tf.Tensor,
       u_x: tf.Tensor,
       v_x: tf.Tensor,
-      logic: str = 'lukasiewicz') -> float:
+      logic: str = _LOGIC,
+      **unused_kwargs) -> float:
     """Template for R(x,y) & S(y) & T(x) & U(x) -> V(x).
 
     Converts s_y, t_x, u_x, and v_x into (batch_size, example_size,

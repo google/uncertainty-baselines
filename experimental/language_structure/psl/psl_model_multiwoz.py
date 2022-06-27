@@ -29,13 +29,14 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
   """Defining PSL rules for the MultiWoZ dataset."""
 
   def __init__(self, rule_weights: List[float], rule_names: List[str],
-               **kwargs) -> None:
+               logic: str = 'lukasiewicz', **kwargs) -> None:
     super().__init__(rule_weights, rule_names, **kwargs)
 
     if 'config' not in kwargs:
       raise KeyError('Missing argument: config')
     self.config = kwargs['config']
     self.class_map = self.config['class_map']
+    self.logic = logic
 
   def _first_statement(self, batch_size, dialog_size):
     """Creates a (batch_size, dialog_size) first statement mask."""
@@ -197,7 +198,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
                                           batch_size)
 
     return self.template_rx_implies_sx(
-        self.soft_not(first_statement), self.soft_not(state_greet))
+        self.soft_not(first_statement), self.soft_not(state_greet), **unused_kwargs)
 
   def rule_2(self, logits, data, **unused_kwargs) -> float:
     """Dialog structure rule.
@@ -225,7 +226,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
                                           batch_size)
 
     return self.template_rx_and_sx_implies_tx(first_statement, has_greet_word,
-                                              state_greet)
+                                              state_greet, **unused_kwargs)
 
   def rule_3(self, logits, data, **unused_kwargs):
     """Dialog structure rule.
@@ -255,7 +256,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
 
     return self.template_rx_and_sx_implies_tx(first_statement,
                                               self.soft_not(has_greet_word),
-                                              state_init_request)
+                                              state_init_request, **unused_kwargs)
 
   def rule_4(self, logits, data, **unused_kwargs):
     """Dialog structure rule.
@@ -297,7 +298,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
 
     return self.template_rxy_and_sy_implies_tx(previous_statement,
                                                state_init_request,
-                                               state_second_request)
+                                               state_second_request, **unused_kwargs)
 
   def rule_5(self, logits, data, **unused_kwargs):
     """Dialog structure rule.
@@ -338,7 +339,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
 
     return self.template_rxy_and_sy_implies_tx(
         previous_statement, self.soft_not(state_greet),
-        self.soft_not(state_init_request))
+        self.soft_not(state_init_request), **unused_kwargs)
 
   def rule_6(self, logits, data, **unused_kwargs):
     """Dialog structure rule.
@@ -378,7 +379,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
                                                  batch_size)
 
     return self.template_rxy_and_sy_implies_tx(previous_statement, state_greet,
-                                               state_init_request)
+                                               state_init_request, **unused_kwargs)
 
   def rule_7(self, logits, data, **unused_kwargs) -> float:
     """Dialog structure rule.
@@ -406,7 +407,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
                                         batch_size)
 
     return self.template_rx_and_sx_implies_tx(last_statement, has_end_word,
-                                              state_end)
+                                              state_end, **unused_kwargs)
 
   def rule_8(self, logits, data, **unused_kwargs) -> float:
     """Dialog structure rule.
@@ -434,7 +435,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
                                            batch_size)
 
     return self.template_rx_and_sx_implies_tx(last_statement, has_accept_word,
-                                              state_accept)
+                                              state_accept, **unused_kwargs)
 
   def rule_9(self, logits, data, **unused_kwargs):
     """Dialog structure rule.
@@ -476,7 +477,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
 
     return self.template_rxy_and_sy_and_tx_implies_ux(next_statement, state_end,
                                                       has_cancel_word,
-                                                      state_cancel)
+                                                      state_cancel, **unused_kwargs)
 
   def rule_10(self, logits, data, **unused_kwargs):
     """Dialog structure rule.
@@ -520,7 +521,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
     return self.template_rxy_and_sy_and_tx_implies_ux(previous_statement,
                                                       state_second_request,
                                                       has_info_question_word,
-                                                      state_info_question)
+                                                      state_info_question, **unused_kwargs)
 
   def rule_11(self, logits, data, **unused_kwargs) -> float:
     """Dialog structure rule.
@@ -549,7 +550,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
                                            batch_size)
 
     return self.template_rx_and_sx_implies_tx(last_statement, has_insist_word,
-                                              state_insist)
+                                              state_insist, **unused_kwargs)
 
   def rule_12(self, logits, data, **unused_kwargs):
     """Dialog structure rule.
@@ -596,12 +597,12 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
 
     return self.template_rxy_and_sy_and_tx_and_ux_implies_vx(
         previous_statement, state_second_request, has_slot_question_word,
-        self.soft_not(has_info_question_word), state_slot_question)
+        self.soft_not(has_info_question_word), state_slot_question, **unused_kwargs)
 
   def compute_loss_per_rule(self, data: tf.Tensor,
                             logits: tf.Tensor) -> List[float]:
     """Calculate the loss for each of the PSL rules."""
-    rule_kwargs = dict(logits=logits, data=data)
+    rule_kwargs = dict(logits=logits, data=data, logic=self.logic)
     losses = []
 
     for rule_weight, rule_function in zip(self.rule_weights,

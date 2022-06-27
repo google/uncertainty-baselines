@@ -36,11 +36,13 @@ from uncertainty_baselines.datasets.diabetic_retinopathy_detection import UBDiab
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_mild import DiabeticRetinopathySeverityShiftMildDataset
 from uncertainty_baselines.datasets.diabetic_retinopathy_severity_shift_moderate import DiabeticRetinopathySeverityShiftModerateDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import MultiWoZSynthDataset
+from uncertainty_baselines.datasets.dialog_state_tracking import SGDDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SGDSynthDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
+from uncertainty_baselines.datasets.imagenet import ImageNetCorruptedDataset
 from uncertainty_baselines.datasets.mnist import MnistDataset
 from uncertainty_baselines.datasets.mnli import MnliDataset
 from uncertainty_baselines.datasets.movielens import MovieLensDataset
@@ -97,6 +99,7 @@ DATASETS = {
     'diabetic_retinopathy_severity_shift_moderate':
         (DiabeticRetinopathySeverityShiftModerateDataset),
     'imagenet': ImageNetDataset,
+    'imagenet_corrupted': ImageNetCorruptedDataset,
     'mnist': MnistDataset,
     'mnli': MnliDataset,
     'movielens': MovieLensDataset,
@@ -105,6 +108,7 @@ DATASETS = {
     'places365': Places365Dataset,
     'random_gaussian': RandomGaussianImageDataset,
     'random_rademacher': RandomRademacherImageDataset,
+    'sgd': SGDDataset,
     'sgd_synth': SGDSynthDataset,
     'simdial': SimDialDataset,
     'smcalflow': SMCalflowDataset,

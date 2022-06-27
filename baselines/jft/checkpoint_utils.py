@@ -20,6 +20,7 @@ https://github.com/google-research/vision_transformer.
 """
 
 import collections
+from concurrent.futures import thread
 import dataclasses
 import io
 from typing import Any, Iterable, MutableMapping, Optional
@@ -47,13 +48,13 @@ class CheckpointData:
   fixed_model_states: Optional[Params] = None
 
 
-def _convert_and_recover_bfloat16(x):
-  """Converts to JAX arrays, while correctly loading any bfloat16 arrays."""
+def _recover_bfloat16(x):
+  """Recovers the dtype of any bfloat16 array without making a copy."""
   if hasattr(x, "dtype") and x.dtype.type is np.void:
     assert x.itemsize == 2, "Unknown dtype!"
-    return jnp.array(x.view(jnp.bfloat16))
+    return x.view(jnp.bfloat16)
   else:
-    return jnp.array(x)
+    return x
 
 
 def _recover_tree(keys, values):
@@ -85,24 +86,72 @@ def _recover_tree(keys, values):
   return tree
 
 
-def load_checkpoint(tree, path):
+def _read_file(path: str, pool_size: int, buf_size: int) -> bytearray:
+  """Reads the contents of a file in parallel, if possible.
+
+  Args:
+    path: A path to a file.
+    pool_size: Number of threads to use to read chunks of the file in parallel,
+      if possible.
+    buf_size: The size of each file chunk to be read in parallel, if possible.
+      Defaults to 128M buffer sizes.
+
+  Returns:
+    The contents of the file.
+  """
+  with gfile.GFile(path, "rb") as f:
+    if f.seekable():
+      read_in_parallel = True
+      num_bufs = f.size() / buf_size
+      logging.debug("num_bufs: %d", num_bufs)
+      data = bytearray(f.size())  # Empty array, to be filled below.
+    else:
+      read_in_parallel = False
+      data = f.read()
+
+  if read_in_parallel:
+
+    # Chunked reading from flax.training.checkpoints.restore_checkpoint.
+    def read_chunk(i):
+      with gfile.GFile(path, "rb") as f:
+        f.seek(i * buf_size)
+        buf = f.read(buf_size)
+        if buf:
+          data[i * buf_size:i * buf_size + len(buf)] = buf
+        return len(buf) / buf_size
+
+    # Fill in the empty `data` array in parallel.
+    pool = thread.ThreadPoolExecutor(pool_size)
+    results = pool.map(read_chunk, range(int(num_bufs) + 1))
+    pool.shutdown(wait=False)
+    logging.debug("results: %s", list(results))
+  return data
+
+
+def load_checkpoint(tree: Optional[Params],
+                    path: str,
+                    pool_size: int = 32,
+                    buf_size: int = 128 << 20) -> Params:
   """Loads JAX pytrees that were stored on disk in a NumPy `.npz` file.
 
   Args:
     tree: Optional JAX pytree to be restored. If None, then the tree will be
       recovered from the naming scheme used within the checkpoint.
     path: A path to the checkpoint.
+    pool_size: Number of threads to use to read chunks of the checkpoint file in
+      parallel, if possible.
+    buf_size: The size of each file chunk to be read in parallel, if possible.
+      Defaults to 128M buffer sizes.
 
   Returns:
     A JAX pytree with the same structure as `tree`, but with the leaf values
     restored from the saved checkpoint.
   """
-  with gfile.GFile(path, "rb") as f:
-    data = f.read()
+  data = _read_file(path, pool_size=pool_size, buf_size=buf_size)
   keys, values = zip(
       *list(np.load(io.BytesIO(data), allow_pickle=False).items()))
   # NOTE: NumPy loses any bfloat16 dtypes when saving, so we recover them here.
-  values = jax.tree_util.tree_map(_convert_and_recover_bfloat16, values)
+  values = jax.tree_util.tree_map(_recover_bfloat16, values)
   if tree:
     treedef = jax.tree_util.tree_structure(tree)
     tree = jax.tree_util.tree_unflatten(treedef, values)
@@ -244,41 +293,6 @@ def _unflatten_jax_params_dict(flat_params: Params, sep: str = "/") -> Params:
   return flax.traverse_util.unflatten_dict(tuple_to_value)
 
 
-def _inspect_params(*,
-                    params,
-                    expected,
-                    fail_if_extra=True,
-                    fail_if_missing=True):
-  """Inspects whether the params are consistent with the expected keys."""
-  params_flat = _flatten_jax_params_dict(params)
-  expected_flat = _flatten_jax_params_dict(expected)
-  missing_keys = set(expected_flat.keys()) - set(params_flat.keys())
-  extra_keys = set(params_flat.keys()) - set(expected_flat.keys())
-
-  # Adds back empty dict explicitly, to support layers without weights.
-  # Context: FLAX ignores empty dict during serialization.
-  empty_keys = set()
-  for k in missing_keys:
-    if isinstance(expected_flat[k], dict) and not expected_flat[k]:
-      params[k] = {}
-      empty_keys.add(k)
-  missing_keys -= empty_keys
-
-  if empty_keys:
-    logging.warning("Inspect recovered empty keys:\n%s", empty_keys)
-  if missing_keys:
-    logging.info("Inspect missing keys:\n%s", missing_keys)
-  if extra_keys:
-    logging.info("Inspect extra keys:\n%s", extra_keys)
-
-  if (missing_keys and fail_if_missing) or (extra_keys and fail_if_extra):
-    raise ValueError(f"Missing params from checkpoint: {missing_keys}.\n"
-                     f"Extra params in checkpoint: {extra_keys}.\n"
-                     f"Restored params from checkpoint: {params_flat.keys()}.\n"
-                     f"Expected params from code: {expected_flat.keys()}.")
-  return params
-
-
 def _tree_map_with_names(f, tree, *rest):
   """Performs a tree map with a filter on the leaf path name.
 
@@ -328,11 +342,7 @@ def restore_from_pretrained_params(init_params, loaded_params,
   """
   if "opt" in loaded_params:
     loaded_params = loaded_params["opt"]["target"]
-  restored_params = _inspect_params(
-      params=loaded_params,
-      expected=init_params,
-      fail_if_extra=False,
-      fail_if_missing=False)
+  restored_params = adapt_upstream_architecture(init_params, loaded_params)
 
   # The following allows implementing fine-tuning head variants depending on the
   # value of `representation_size` in the fine-tuning job:
@@ -371,7 +381,7 @@ def restore_from_pretrained_params(init_params, loaded_params,
       zoom = (gs_new / gs_old, gs_new / gs_old, 1)
       posemb_grid = scipy.ndimage.zoom(posemb_grid, zoom, order=1)
       posemb_grid = posemb_grid.reshape(1, gs_new * gs_new, -1)
-      posemb = jnp.array(np.concatenate([posemb_tok, posemb_grid], axis=1))
+      posemb = np.concatenate([posemb_tok, posemb_grid], axis=1)
       restored_params["Transformer"]["posembed_input"]["pos_embedding"] = posemb
 
   return restored_params

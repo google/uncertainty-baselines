@@ -296,7 +296,8 @@ def resnet50_het_rank1(input_shape,
                        num_factors,
                        temperature,
                        num_mc_samples,
-                       eps=1e-5):
+                       eps=1e-5,
+                       return_unaveraged_logits=False):
   """Builds ResNet50 with rank 1 priors and an heteroscedastic output layer.
 
   Using strided conv, pooling, four groups of residual blocks, and pooling, the
@@ -331,6 +332,8 @@ def resnet50_het_rank1(input_shape,
         predictive distribution.
     eps: Float. Clip probabilities into [eps, 1.0] softmax before applying
       log (softmax).
+    return_unaveraged_logits: Boolean. Whether to also return the logits
+        before taking the MC average over samples.
 
   Returns:
     tf.keras.Model.
@@ -451,6 +454,7 @@ def resnet50_het_rank1(input_shape,
       logits_only=True,
       eps=eps,
       dtype=tf.float32,
+      return_unaveraged_logits=return_unaveraged_logits,
       name='fc1000')(x)
 
   return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')

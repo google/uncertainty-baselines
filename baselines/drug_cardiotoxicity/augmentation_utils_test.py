@@ -29,7 +29,8 @@ NUM_MOLECULES = 3
 AUG_RATIO = 0.5
 AUG_PROB = 1.
 AUGMENTATIONS = [
-    'drop_nodes', 'perturb_edges', 'permute_edges', 'mask_node_features'
+    'drop_nodes', 'perturb_edges', 'permute_edges', 'mask_node_features',
+    'subgraph'
 ]
 VALID_NODES = [0, 2, 3, 5]
 
@@ -216,6 +217,37 @@ class AugmentationUtilsTest(googletest.TestCase):
     """
     features_of_added_edges = features[added_edge_idx[0], added_edge_idx[1]]
     self.assertGreater(np.nonzero(features_of_added_edges)[0].shape[0], 0)
+
+  def test_update_features_of_dropped_nodes(self):
+    idx_drop = np.asarray([[0], [2], [3], [5], [7], [8]])
+    expected_num_nodes_left = int(drug_cardiotoxicity._MAX_NODES * 0.5 -
+                                  idx_drop.shape[0])
+    atom_mask = self.valid_graph['atom_mask'][0]
+    atoms = self.valid_graph['atoms'][0]
+    (aug_atom_mask, aug_atoms
+    ) = self.graph_augmenter_perturb_features._update_features_of_dropped_nodes(
+        idx_drop, atom_mask, atoms)
+
+    nodes_left = np.nonzero(aug_atom_mask.numpy())[0]
+    np.testing.assert_equal(expected_num_nodes_left, nodes_left.shape[0])
+
+    # Check that all removed node features are 0.
+    self._check_no_nonzero_features(aug_atoms, idx_drop, axis=0)
+
+  def test_remove_edges_of_dropped_nodes(self):
+    idx_drop = np.asarray([[0], [2], [3], [5], [7], [8]])
+    pair_mask = self.valid_graph['pair_mask'][0]
+    pairs = self.valid_graph['pairs'][0]
+    (aug_pair_mask, aug_pairs
+    ) = self.graph_augmenter_perturb_features._remove_edges_of_dropped_nodes(
+        idx_drop, pair_mask, pairs)
+    # Check that dropped nodes are not source or target nodes.
+    self._check_no_nonzero_features(aug_pair_mask, idx_drop, axis=0)
+    self._check_no_nonzero_features(aug_pair_mask, idx_drop, axis=1)
+
+    # Check that the edge features are 0.
+    self._check_no_nonzero_features(aug_pairs, idx_drop, axis=0)
+    self._check_no_nonzero_features(aug_pairs, idx_drop, axis=1)
 
   def test_drop_nodes(self):
     # Set random seed so that the following calls of drop_nodes will drop
@@ -473,6 +505,81 @@ class AugmentationUtilsTest(googletest.TestCase):
           nonzero_elems = np.nonzero(aug_pairs[row_idx])[0]
           self.assertEmpty(nonzero_elems)
 
+  def test_subgraph(self):
+    (augmented_graph,
+     idx_kept_nodes) = self.graph_augmenter_perturb_features.subgraph(
+         self.valid_graph)
+
+    for molecule_idx in range(NUM_MOLECULES):
+      idx_nodes_in_subgraph = idx_kept_nodes[molecule_idx].numpy()
+      self.assertLen(idx_nodes_in_subgraph,
+                     int(drug_cardiotoxicity._MAX_NODES * 0.5 * AUG_RATIO))
+      aug_atom_mask = augmented_graph['atom_mask'][molecule_idx].numpy()
+      aug_atoms = augmented_graph['atoms'][molecule_idx].numpy()
+      aug_pair_mask = augmented_graph['pair_mask'][molecule_idx].numpy()
+      aug_pairs = augmented_graph['pairs'][molecule_idx].numpy()
+      for node_idx, node in enumerate(aug_atom_mask):
+        if node == 1.:
+          self.assertIn(node_idx, idx_nodes_in_subgraph)
+        else:
+          self.assertNotIn(node_idx, idx_nodes_in_subgraph)
+          self._check_no_nonzero_features(aug_atoms, [node_idx], axis=0)
+          self._check_no_nonzero_features(aug_pair_mask, [node_idx], axis=0)
+          self._check_no_nonzero_features(aug_pair_mask, [node_idx], axis=1)
+          self._check_no_nonzero_features(aug_pairs, [node_idx], axis=0)
+          self._check_no_nonzero_features(aug_pairs, [node_idx], axis=1)
+
+  def test_subgraph_single_node_graph(self):
+    # Only one valid node.
+    single_node_graph = self.valid_graph.copy()
+    single_node_atom_mask = np.zeros(
+        drug_cardiotoxicity._MAX_NODES, dtype=np.float32)
+    single_node_atom_mask[0] = 1.
+    single_node_pair_mask = np.zeros(
+        (drug_cardiotoxicity._MAX_NODES, drug_cardiotoxicity._MAX_NODES),
+        dtype=np.float32)
+    single_node_graph.update({
+        'atom_mask': tf.constant([single_node_atom_mask] * NUM_MOLECULES),
+        'pair_mask': tf.constant([single_node_pair_mask] * NUM_MOLECULES),
+    })
+    _, idx_kept_nodes = self.graph_augmenter_perturb_features.subgraph(
+        single_node_graph)
+    for molecule_idx in range(NUM_MOLECULES):
+      idx_nodes_in_subgraph = idx_kept_nodes[molecule_idx].numpy()
+      np.testing.assert_array_equal(idx_nodes_in_subgraph,
+                                    np.asarray([0]))
+
+  def test_subgraph_cycle(self):
+    # Graph with cycle.
+    cycle_graph = self.valid_graph.copy()
+    cycle_atom_mask = np.zeros(
+        drug_cardiotoxicity._MAX_NODES, dtype=np.float32)
+    cycle_atom_mask[0:3] = 1.
+    cycle_pair_mask = np.zeros(
+        (drug_cardiotoxicity._MAX_NODES, drug_cardiotoxicity._MAX_NODES),
+        dtype=np.float32)
+    # Create edges 0 --> 1 --> 2 --> 0.
+    source_nodes = [0, 1, 2]
+    target_nodes = [1, 2, 0]
+    cycle_pair_mask[source_nodes, target_nodes] = 1.
+    cycle_graph.update({
+        'atom_mask': tf.constant([cycle_atom_mask] * NUM_MOLECULES),
+        'pair_mask': tf.constant([cycle_pair_mask] * NUM_MOLECULES),
+    })
+
+    self.graph_augmenter = augmentation_utils.GraphAugment(
+        AUGMENTATIONS,
+        aug_ratio=1.,
+        aug_prob=1.,
+        perturb_node_features=True,
+        perturb_edge_features=True)
+    _, idx_kept_nodes = self.graph_augmenter.subgraph(
+        cycle_graph)
+    for molecule_idx in range(NUM_MOLECULES):
+      idx_nodes_in_subgraph = idx_kept_nodes[molecule_idx].numpy()
+      np.testing.assert_array_equal(np.sort(idx_nodes_in_subgraph),
+                                    np.asarray([0, 1, 2]))
+
   def test_empty_graph(self):
     _, idx_dropped_nodes = self.graph_augmenter_perturb_features.drop_nodes(
         self.empty_graph)
@@ -495,6 +602,11 @@ class AugmentationUtilsTest(googletest.TestCase):
         self.empty_graph)
     # Check that returned arrays of dropped node indices are empty.
     self.assertEmpty(idx_masked_nodes)
+
+    _, idx_kept_nodes = self.graph_augmenter_perturb_features.subgraph(
+        self.empty_graph)
+    # Check that returned arrays of dropped node indices are empty.
+    self.assertEmpty(idx_kept_nodes)
 
 if __name__ == '__main__':
   googletest.main()

@@ -24,14 +24,17 @@ The below command is for running this script on a TPU-VM.
 Execute in `baselines/jft`:
 
 python3 active_learning.py \
-  --config='experiments/vit_l32_active_learning.py' \
-  --config.model_init='gs://ub-checkpoints/ImageNet21k_ViT-L32/1/checkpoint.npz'
+  --config='experiments/vit_l32_active_learning_cifar.py' \
+  --config.model_init='gs://ub-checkpoints/ImageNet21k_ViT-L32/1/checkpoint.npz' \
+  --output_dir active_learning_results
+
+
+Use `gs://ub-checkpoints/ImageNet21k_BE-L32/baselines-jft-0209_205214/1/checkpoint.npz` for BE
 """
 # pylint: enable=line-too-long
 
 from functools import partial  # pylint: disable=g-importing-member standard use
 import logging
-import math
 import multiprocessing
 
 from absl import app
@@ -78,6 +81,7 @@ def get_ids_logits_masks(*,
                          opt_repl,
                          ds,
                          use_pre_logits=False,
+                         average_logits=True,
                          prefetch_to_device=1,
                          config=None):
   """Obtain (pre) logits for each datapoint.
@@ -89,6 +93,7 @@ def get_ids_logits_masks(*,
     opt_repl: an optimizer with parameters.
     ds: a dataset.
     use_pre_logits: if True, return pre logit instead of logit
+    average_logits: if True, average the logits.
     prefetch_to_device: how many batches to prefix
     config: experiment config.
 
@@ -101,27 +106,32 @@ def get_ids_logits_masks(*,
     logits, out = model.apply({'params': flax.core.freeze(params)},
                               images,
                               train=False)
-    pre_logits = out['pre_logits']
     if config and config.model_type == 'batchensemble':
       ens_size = config.model.transformer.ens_size
       loss_name = config.get('loss', 'sigmoid_xent')
-      tiled_logits = logits
+      logits = jnp.asarray(jnp.split(logits, ens_size))
       if loss_name == 'sigmoid_xent':
-        ens_logits = batchensemble_utils.log_average_sigmoid_probs(
-            jnp.asarray(jnp.split(tiled_logits, ens_size)))
-        pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-            jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
-      else:  # softmax
-        ens_logits = batchensemble_utils.log_average_softmax_probs(
-            jnp.asarray(jnp.split(tiled_logits, ens_size)))
-        pre_logits = batchensemble_utils.log_average_softmax_probs(
-            jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
-      logits = ens_logits
+        if average_logits:
+          logits = batchensemble_utils.log_average_sigmoid_probs(logits)
+      elif loss_name == 'softmax_xent':
+        if average_logits:
+          logits = batchensemble_utils.log_average_softmax_probs(logits)
+      else:
+        raise ValueError(f'Loss name: {loss_name} not supported.')
 
-    if use_pre_logits:
-      output = pre_logits
+      if use_pre_logits:
+        # pre_logits [batch_size, hidden_size, ens_size]
+        pre_logits = jnp.transpose(
+            jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
+        output = pre_logits
+      else:
+        output = logits
     else:
-      output = logits
+      if use_pre_logits:
+        # pre_logits [batch_size, hidden_size]
+        output = out['pre_logits']
+      else:
+        output = logits
 
     # TODO(joost,andreas): For multi host this requires:
     # output = jax.lax.all_gather(output, axis_name='batch')
@@ -139,6 +149,9 @@ def get_ids_logits_masks(*,
     batch_mask = batch['mask']
     batch_output = compute_batch_outputs(opt_repl.target, batch['image'])
 
+    # This moves the batch_output from TPU to CPU right away.
+    batch_output = jax.device_put(batch_output, jax.devices('cpu')[0])
+
     # TODO(joost,andreas): if we run on multi host, we need to index
     # batch_outputs: batch_outputs[0]
     ids.append(batch_id)
@@ -146,8 +159,14 @@ def get_ids_logits_masks(*,
     labels.append(batch_label)
     masks.append(batch_mask)
 
+  if average_logits:
+    # 0 dimension is TPU shard, 1 is batch
+    outputs = jnp.concatenate(outputs, axis=1)
+  else:
+    # 0 dimension is TPU shard, 1 is ensemble, 2 is batch
+    outputs = jnp.concatenate(outputs, axis=2)
+
   ids = jnp.concatenate(ids, axis=1)
-  outputs = jnp.concatenate(outputs, axis=1)
   labels = jnp.concatenate(labels, axis=1)
   masks = jnp.concatenate(masks, axis=1)
   # NOTE(joost,andreas): due to batch padding, entropies/ids will be of size:
@@ -181,6 +200,44 @@ def get_entropy_scores(logits, masks):
   return entropy
 
 
+def get_bald_scores(logits, masks):
+  """Obtain scores using BALD scoring.
+
+  Args:
+    logits: the logits of the pool set, first dimension is the ensemble.
+    masks: the masks belonging to the pool set.
+
+  Returns:
+    a list of scores belonging to the pool set.
+  """
+
+  # TPU shard, ensemble size, batch size, logits
+  _, ens_size, _, _ = logits.shape
+
+  log_probs = jax.nn.log_softmax(logits)
+  probs = jax.nn.softmax(logits)
+
+  weighted_nats = -probs * log_probs
+  weighted_nats = jnp.where(jnp.isnan(weighted_nats), 0, weighted_nats)
+
+  marginal_entropy = jnp.mean(jnp.sum(weighted_nats, axis=-1), axis=1)
+
+  marginal_log_probs = jax.nn.logsumexp(log_probs, axis=1) - jnp.log(ens_size)
+  marginal_probs = jnp.mean(probs, axis=1)
+
+  weighted_marginal_nats = -marginal_probs * marginal_log_probs
+  weighted_marginal_nats = jnp.where(
+      jnp.isnan(weighted_marginal_nats), 0, weighted_marginal_nats)
+
+  entropy_marginal = jnp.sum(weighted_marginal_nats, axis=-1)
+
+  # Mask results.
+  bald = entropy_marginal - marginal_entropy
+  bald = jnp.where(masks, bald, NINF_SCORE)
+
+  return bald
+
+
 def get_margin_scores(logits, masks):
   """Obtain scores using margin scoring.
 
@@ -198,10 +255,30 @@ def get_margin_scores(logits, masks):
 
   # Lower margin means higher uncertainty, so we invert the scores.
   # Then higer margin score means higher uncertainty.
-  margin_scores = -margins
+  margin_scores = 1.0 - margins
   margin_scores = jnp.where(masks, margin_scores, NINF_SCORE)
 
   return margin_scores
+
+
+def get_msp_scores(logits, masks):
+  """Obtain scores using maximum softmax probability scoring.
+
+  Args:
+    logits: the logits of the pool set.
+    masks: the masks belonging to the pool set.
+
+  Returns:
+    a list of scores belonging to the pool set.
+  """
+  probs = jax.nn.softmax(logits)
+  max_probs = jnp.max(probs, axis=-1)
+
+  # High max prob means low uncertainty, so we invert the value.
+  msp_scores = 1.0 - max_probs
+  msp_scores = jnp.where(masks, msp_scores, NINF_SCORE)
+
+  return msp_scores
 
 
 def get_uniform_scores(masks, rng):
@@ -220,8 +297,13 @@ def get_uniform_scores(masks, rng):
   return uniform_scores
 
 
-def get_density_scores(*, model, opt_repl, train_ds, pool_pre_logits,
-                       pool_masks, config=None):
+def get_density_scores(*,
+                       model,
+                       opt_repl,
+                       train_ds,
+                       pool_pre_logits,
+                       pool_masks,
+                       config=None):
   """Obtain scores using density method.
 
   Args:
@@ -243,19 +325,55 @@ def get_density_scores(*, model, opt_repl, train_ds, pool_pre_logits,
       use_pre_logits=True,
       config=config)
 
+  # train_masks_bool [num_cores, per_core_batch_size]
   train_masks_bool = train_masks.astype(bool)
-  train_pre_logits = train_pre_logits[train_masks_bool].reshape(
-      -1, train_pre_logits.shape[-1])
+  # train_pre_logits [num_cores, per_core_batch_size, hidden_size, ens_size]
+  # train_embeds [batch_size, hidden_size, ens_size]
+  # batch_size = num_cores * per_core_batch_size
+  train_embeds = train_pre_logits[train_masks_bool]
   train_labels = np.argmax(train_labels[train_masks_bool], axis=-1).ravel()
 
-  mean_list, cov = ood_utils.compute_mean_and_cov(train_pre_logits,
-                                                  train_labels)
+  use_ens = False
+  if len(train_embeds.shape) == 3:
+    # The output needs to the ensembled
+    # embeds is of the shape [batch_size, hidden_size, ens_size]
+    use_ens = True
+    ens_size = train_embeds.shape[-1]
+
+  if not use_ens:
+    # Single model
+    # train_embeds shape [batch_size, hidden_size]
+    mean_list, cov = ood_utils.compute_mean_and_cov(train_embeds, train_labels)
+  else:
+    # Ensemble models
+    # train_embeds shape [batch_size, hidden_size, ens_size]
+    mean_list, cov = [], []
+    for m in range(ens_size):
+      mu, sigma = ood_utils.compute_mean_and_cov(train_embeds[..., m],
+                                                 train_labels)
+      mean_list.append(mu)
+      cov.append(sigma)
 
   # Evaluate LDA on pool set
-  pool_pre_logits = pool_pre_logits.reshape(-1, pool_pre_logits.shape[-1])
-  dists = ood_utils.compute_mahalanobis_distance(pool_pre_logits, mean_list,
-                                                 cov)
-  scores = np.array(jax.nn.logsumexp(-dists / 2, axis=-1))
+  if not use_ens:
+    # Single model
+    # pool_pre_logits [num_cores, per_core_batch_size, hidden_size]
+    pool_pre_logits = pool_pre_logits.reshape(-1, pool_pre_logits.shape[-1])
+    dists = ood_utils.compute_mahalanobis_distance(pool_pre_logits, mean_list,
+                                                   cov)
+    scores = np.array(jax.nn.logsumexp(-dists / 2, axis=-1))
+  else:
+    # Ensemble models
+    # pool_pre_logits [num_cores, per_core_batch_size, hidden_size, ens_size]
+    pool_pre_logits = pool_pre_logits.reshape(
+        [-1] + [s for s in pool_pre_logits.shape[2:]])
+    for m in range(ens_size):
+      scores_list = []
+      d = ood_utils.compute_mahalanobis_distance(pool_pre_logits[..., m],
+                                                 mean_list[m], cov[m])
+      s = np.array(jax.nn.logsumexp(-d / 2, axis=-1))
+      scores_list.append(s)
+    scores = np.mean(np.array(scores_list), axis=0)
 
   # Convert likelihood to AL score
   pool_masks_bool = np.array(pool_masks.ravel(), dtype=bool)
@@ -266,8 +384,27 @@ def get_density_scores(*, model, opt_repl, train_ds, pool_pre_logits,
   return scores
 
 
-def select_acquisition_batch_indices(*, acquisition_batch_size, scores, ids,
-                                     ignored_ids):
+def stochastic_score_acquisition(scores, acquisition_batch_size, beta, rng):
+  """Stochastic acquisition method for batch selection https://arxiv.org/abs/2106.12059."""
+  noise = jax.random.gumbel(rng, [len(scores)])
+  noised_scores = scores + noise / beta
+
+  selected_noised_scores, selected_indices = jax.lax.top_k(
+      noised_scores, acquisition_batch_size)
+  selected_scores = scores[selected_indices]
+  logging.info(msg=f'selected_noised_scores = {selected_noised_scores}; '
+                   f'selected_scores = {selected_scores}')
+
+  return selected_scores, selected_indices
+
+
+def select_acquisition_batch_indices(*,
+                                     acquisition_batch_size,
+                                     scores,
+                                     ids,
+                                     ignored_ids,
+                                     power_acquisition=True,
+                                     rng=None):
   """Select what data points to acquire from the pool set.
 
   Args:
@@ -275,32 +412,95 @@ def select_acquisition_batch_indices(*, acquisition_batch_size, scores, ids,
     scores: acquisition scores assigned to data points.
     ids: the ids belonging to the scores.
     ignored_ids: the ids to ignore (previously acquired).
+    power_acquisition: True if use power method for batch selection.
+    rng: rng for power acquisition. None if not using power_acquisition.
 
   Returns:
     a tuple of lists with the ids to be acquired and their scores.
   """
-  scores = np.array(scores.ravel())
-  ids = np.array(ids.ravel())
+  scores = jnp.array(scores.ravel())
+  ids = jnp.array(ids.ravel())
 
   # Ignore already acquired ids
   # TODO(joost,andreas): vectorize this
   ids_list = ids.tolist()
   for ignored_id in ignored_ids:
-    scores[ids_list.index(ignored_id)] = NINF_SCORE
+    scores = scores.at[ids_list.index(ignored_id)].set(NINF_SCORE)
 
   f_ent = scores[scores > NINF_SCORE]
   logging.info(msg=f'Score statistics pool set - '
                f'min: {f_ent.min()}, mean: {f_ent.mean()}, max: {f_ent.max()}')
 
-  partitioned_scorers = np.argpartition(-scores, acquisition_batch_size)
-  top_scorers = partitioned_scorers[:acquisition_batch_size]
+  if power_acquisition:
+    assert rng is not None, ('rng should not be None if power acquisition is '
+                             'used.')
+    beta = 1
+    _, selected_indices = stochastic_score_acquisition(
+        jnp.log(scores), acquisition_batch_size, beta, rng)
+  else:
+    # Use top-k otherwise.
+    selected_scores, selected_indices = jax.lax.top_k(scores,
+                                                      acquisition_batch_size)
+    logging.info(msg=f'Top-k scores: {selected_scores}')
 
-  top_ids = ids[top_scorers].tolist()
-  top_scores = scores[top_scorers].tolist()
+  selected_ids = ids[selected_indices].tolist()
+  selected_scores = scores[selected_indices].tolist()
 
-  logging.info(msg=f'Data selected - ids: {top_ids}, with scores: {top_scores}')
+  logging.info(
+      msg=f'Data selected - ids: {selected_ids}, with scores: {selected_scores}'
+  )
 
-  return top_ids, top_scores
+  return selected_ids, selected_scores
+
+
+def acquire_points(model, current_opt_repl, pool_train_ds, train_eval_ds,
+                   train_subset_data_builder, acquisition_method, config,
+                   rng_loop):
+  """Acquire ids of the current batch."""
+  pool_ids, pool_outputs, _, pool_masks = get_ids_logits_masks(
+      model=model,
+      opt_repl=current_opt_repl,
+      ds=pool_train_ds,
+      use_pre_logits=acquisition_method == 'density',
+      average_logits=acquisition_method != 'bald',
+      config=config)
+
+  if acquisition_method == 'uniform':
+    rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+    pool_scores = get_uniform_scores(pool_masks, rng_acq)
+  elif acquisition_method == 'entropy':
+    pool_scores = get_entropy_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'margin':
+    pool_scores = get_margin_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'msp':
+    pool_scores = get_msp_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'bald':
+    pool_scores = get_bald_scores(pool_outputs, pool_masks)
+  elif acquisition_method == 'density':
+    if train_subset_data_builder.subset_ids:
+      pool_scores = get_density_scores(
+          model=model,
+          opt_repl=current_opt_repl,
+          train_ds=train_eval_ds,
+          pool_pre_logits=pool_outputs,
+          pool_masks=pool_masks,
+          config=config)
+    else:
+      rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+      pool_scores = get_uniform_scores(pool_masks, rng_acq)
+  else:
+    raise ValueError('Acquisition method not found.')
+
+  rng_loop, rng_acq = jax.random.split(rng_loop, 2)
+  acquisition_batch_ids, _ = select_acquisition_batch_indices(
+      acquisition_batch_size=config.get('acquisition_batch_size'),
+      scores=pool_scores,
+      ids=pool_ids,
+      ignored_ids=train_subset_data_builder.subset_ids,
+      power_acquisition=config.get('power_acquisition', True),
+      rng=rng_acq)
+
+  return acquisition_batch_ids, rng_loop
 
 
 def get_accuracy(*, evaluation_fn, opt_repl, ds, prefetch_to_device=1):
@@ -359,7 +559,7 @@ def finetune(*,
     val_ds: validation dataset for early stopping.
     evaluation_fn: function used for evaluation on validation set.
     early_stopping_patience: number of steps to wait before stopping training.
-    prefetch_to_device: number of batches to prefetc (default: 1).
+    prefetch_to_device: number of batches to prefetch (default: 1).
     profiler: periodic_actions.Profile.
 
   Returns:
@@ -412,6 +612,8 @@ def finetune(*,
 
 
 def main(config, output_dir):
+  if jax.process_count() > 1:
+    raise NotImplementedError
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -423,6 +625,8 @@ def main(config, output_dir):
   logging.info(config)
 
   acquisition_method = config.get('acquisition_method')
+  if acquisition_method == 'bald':
+    assert config.model_type == 'batchensemble', 'Bald requires batch ensemble'
 
   # Create an asynchronous multi-metric writer.
   writer = metric_writers.create_default_writer(
@@ -451,16 +655,20 @@ def main(config, output_dir):
   local_batch_size = batch_size // jax.process_count()
   local_batch_size_eval = batch_size_eval // jax.process_count()
 
+  pp_eval = preprocess_spec.parse(
+      spec=config.pp_eval, available_ops=preprocess_utils.all_ops())
+
   val_ds = input_utils.get_data(
       dataset=config.dataset,
       split=config.val_split,
       rng=None,
       process_batch_size=local_batch_size_eval,
-      preprocess_fn=preprocess_spec.parse(
-          spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
+      preprocess_fn=pp_eval,
+      num_epochs=1,
+      repeat_after_batching=True,
       shuffle=False,
       prefetch_size=config.get('prefetch_to_host', 2),
-      num_epochs=1,  # Only repeat once.
+      drop_remainder=False,
   )
 
   test_ds = input_utils.get_data(
@@ -468,11 +676,12 @@ def main(config, output_dir):
       split=config.test_split,
       rng=None,
       process_batch_size=local_batch_size_eval,
-      preprocess_fn=preprocess_spec.parse(
-          spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
+      preprocess_fn=pp_eval,
+      num_epochs=1,
+      repeat_after_batching=True,
       shuffle=False,
       prefetch_size=config.get('prefetch_to_host', 2),
-      num_epochs=1,  # Only repeat once.
+      drop_remainder=False,
   )
 
   # Init model
@@ -480,6 +689,7 @@ def main(config, output_dir):
     model_utils = deterministic_utils
     reinit_params = config.get('model_reinit_params',
                                ('head/kernel', 'head/bias'))
+    head_prefix = 'head'
     model = ub.models.vision_transformer(
         num_classes=config.num_classes, **config.get('model', {}))
   elif config.model_type == 'batchensemble':
@@ -487,11 +697,55 @@ def main(config, output_dir):
     reinit_params = ('batchensemble_head/bias', 'batchensemble_head/kernel',
                      'batchensemble_head/fast_weight_alpha',
                      'batchensemble_head/fast_weight_gamma')
-    model = ub.models.PatchTransformerBE(
+    head_prefix = 'batchensemble_head'
+    model = ub.models.vision_transformer_be(
         num_classes=config.num_classes, **config.model)
   else:
     raise ValueError('Expect config.model_type to be "deterministic" or'
                      f'"batchensemble", but received {config.model_type}.')
+
+  update_fn = model_utils.create_update_fn(model, config)
+  evaluation_fn = model_utils.create_evaluation_fn(model, config)
+
+  # NOTE: We need this because we need an Id field of type int.
+  # TODO(andreas): Rename to IdSubsetDatasetBuilder?
+  # The original tf dataset builder but with int ids.
+  pool_subset_data_builder = al_utils.SubsetDatasetBuilder(
+      data_builder, subset_ids=None)
+
+  # NOTE: below line is necessary on multi host setup
+  # pool_ds_rng = jax.random.fold_in(pool_ds_rng, jax.process_index())
+  rng, pool_ds_rng = jax.random.split(rng)
+  pool_train_ds = input_utils.get_data(
+      dataset=pool_subset_data_builder,
+      split=config.train_split,
+      rng=pool_ds_rng,
+      process_batch_size=local_batch_size,
+      preprocess_fn=pp_eval,
+      num_epochs=1,
+      repeat_after_batching=True,
+      shuffle=False,
+      prefetch_size=config.get('prefetch_to_host', 2),
+      drop_remainder=False)
+
+  # Potentially acquire an initial training set.
+  initial_training_set_size = config.get('initial_training_set_size', 10)
+
+  if initial_training_set_size > 0:
+    write_note(f'Creating {initial_training_set_size} initial training ids.')
+    rng, rng_initial = jax.random.split(rng)
+    initial_training_set_batch_ids = al_utils.sample_class_balanced_ids(
+        initial_training_set_size,
+        pool_train_ds,
+        config.num_classes,
+        shuffle_rng=rng_initial)
+  else:
+    initial_training_set_batch_ids = []
+  write_note(f'{len(initial_training_set_batch_ids)} initial training ids '
+             f'= {initial_training_set_batch_ids}')
+
+  train_subset_data_builder = al_utils.SubsetDatasetBuilder(
+      data_builder, subset_ids=initial_training_set_batch_ids)
 
   init = model_utils.create_init(model, config, test_ds)
 
@@ -506,91 +760,40 @@ def main(config, output_dir):
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
   opt_def = getattr(flax.optim, opt_name)(**config.get('optim', {}))
+  if config.get('finetune_head_only', False):
+    head_params = flax.traverse_util.ModelParamTraversal(
+        lambda path, _: head_prefix in path)
+    opt_def = flax.optim.MultiOptimizer((head_params, opt_def))
 
   # We jit this, such that the arrays that are created on the same
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
-
-  loaded_params = checkpoint_utils.load_checkpoint(
-      tree=None, path=config.model_init)
-  loaded = checkpoint_utils.restore_from_pretrained_params(
-      params_cpu,
-      loaded_params,
-      config.model.representation_size,
-      config.model.classifier,
-      reinit_params,
-  )
-
-  opt_cpu = opt_cpu.replace(target=loaded)
-
-  # TODO(joost,andreas): This shouldn't be needed but opt_cpu is being
-  # donated otherwise. Ensure opt_cpu is really on the cpu this way.
-  opt_cpu = jax.device_get(opt_cpu)
-
-  update_fn = model_utils.create_update_fn(model, config)
-  evaluation_fn = model_utils.create_evaluation_fn(model, config)
-
-  # NOTE: We need this because we need an Id field of type int.
-  # TODO(andreas): Rename to IdSubsetDatasetBuilder?
-  pool_subset_data_builder = al_utils.SubsetDatasetBuilder(
-      data_builder, subset_ids=None)
-
-  rng, pool_ds_rng = jax.random.split(rng)
-
-  # NOTE: below line is necessary on multi host setup
-  # pool_ds_rng = jax.random.fold_in(pool_ds_rng, jax.process_index())
-
-  pool_train_ds = input_utils.get_data(
-      dataset=pool_subset_data_builder,
-      split=config.train_split,
-      rng=pool_ds_rng,
-      process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
-          spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
-      shuffle=False,
-      drop_remainder=False,
-      prefetch_size=config.get('prefetch_to_host', 2),
-      num_epochs=1,  # Don't repeat
-  )
-
-  # Potentially acquire an initial training set.
-  initial_training_set_size = config.get('initial_training_set_size', 10)
-
-  if initial_training_set_size > 0:
-    current_opt_repl = flax_utils.replicate(opt_cpu)
-    pool_ids, _, _, pool_masks = get_ids_logits_masks(
-        model=model,
-        opt_repl=current_opt_repl,
-        ds=pool_train_ds,
-        config=config
-    )
-
-    rng, initial_uniform_rng = jax.random.split(rng)
-    pool_scores = get_uniform_scores(pool_masks, initial_uniform_rng)
-
-    initial_training_set_batch_ids, _ = select_acquisition_batch_indices(
-        acquisition_batch_size=initial_training_set_size,
-        scores=pool_scores,
-        ids=pool_ids,
-        ignored_ids=set(),
+  if config.model_init:
+    write_note('Loading the model checkpoint...')
+    loaded_params = checkpoint_utils.load_checkpoint(
+        tree=None, path=config.model_init)
+    loaded_params = checkpoint_utils.restore_from_pretrained_params(
+        params_cpu,
+        loaded_params,
+        config.model.representation_size,
+        config.model.classifier,
+        reinit_params,
     )
   else:
-    initial_training_set_batch_ids = []
+    write_note('Use random model initialization.')
+    loaded_params = params_cpu
 
-  # NOTE: if we could `enumerate` before `filter` in `create_dataset` of CLU
-  # then this dataset creation could be simplified.
-  # https://github.com/google/CommonLoopUtils/blob/main/clu/deterministic_data.py#L340
-  # CLU is explicitly not accepting outside contributions at the moment.
-  train_subset_data_builder = al_utils.SubsetDatasetBuilder(
-      data_builder, subset_ids=set(initial_training_set_batch_ids))
+  opt_cpu = opt_cpu.replace(target=loaded_params)
+  del loaded_params, params_cpu  # Free up memory.
+  # TODO(dusenberrymw): Remove this once checkpoint_utils is fixed to return
+  # only CPU arrays.
+  opt_cpu = jax.device_get(opt_cpu)
 
   test_accuracies = []
   training_sizes = []
 
   rng, rng_loop = jax.random.split(rng)
   rngs_loop = flax_utils.replicate(rng_loop)
-  if config.model_type == 'batchensemble':
-    rngs_loop = {'dropout': rngs_loop}
 
   # TODO(joost,andreas): double check if below is still necessary
   # (train_split is independent of this)
@@ -599,21 +802,13 @@ def main(config, output_dir):
 
   measurements = {}
   accumulated_steps = 0
-  while True:
-    current_train_ds_length = len(train_subset_data_builder.subset_ids)
-    if current_train_ds_length >= config.get('max_training_set_size', 150):
-      break
-    write_note(f'Training set size: {current_train_ds_length}')
-
+  current_train_ds_length = len(train_subset_data_builder.subset_ids)
+  write_note(f'Initial training set size: {current_train_ds_length}')
+  while current_train_ds_length <= config.get('max_training_set_size'):
     current_opt_repl = flax_utils.replicate(opt_cpu)
 
     # Only fine-tune if there is anything to fine-tune with.
     if current_train_ds_length > 0:
-      # Repeat dataset to have oversampled epochs and bootstrap more batches
-      number_of_batches = current_train_ds_length / config.batch_size
-      num_repeats = math.ceil(config.total_steps / number_of_batches)
-      write_note(f'Repeating dataset {num_repeats} times')
-
       # We repeat the dataset several times, such that we can obtain batches
       # of size batch_size, even at start of training. These batches will be
       # effectively 'bootstrap' sampled, meaning they are sampled with
@@ -625,26 +820,27 @@ def main(config, output_dir):
           process_batch_size=local_batch_size,
           preprocess_fn=preprocess_spec.parse(
               spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
+          cache='loaded',
           shuffle_buffer_size=config.shuffle_buffer_size,
           prefetch_size=config.get('prefetch_to_host', 2),
-          # TODO(joost,andreas): double check if below leads to bootstrap
-          # sampling.
-          num_epochs=num_repeats,
       )
 
-      # We use this dataset to evaluate how well we perform on the training set.
-      # We need this to evaluate if we fit well within max_steps budget.
+      # We use this dataset to evaluate how well we perform on the training set,
+      # and for fitting the feature density method.
+      # We need training set accuracy to evaluate if we fit well within
+      # max_steps budget.
       train_eval_ds = input_utils.get_data(
           dataset=train_subset_data_builder,
           split=config.train_split,
           rng=train_ds_rng,
           process_batch_size=local_batch_size,
-          preprocess_fn=preprocess_spec.parse(
-              spec=config.pp_eval, available_ops=preprocess_utils.all_ops()),
-          shuffle=False,
-          drop_remainder=False,
-          prefetch_size=config.get('prefetch_to_host', 2),
+          preprocess_fn=pp_eval,
+          cache='loaded',
           num_epochs=1,
+          repeat_after_batching=True,
+          shuffle=False,
+          prefetch_size=config.get('prefetch_to_host', 2),
+          drop_remainder=False,
       )
 
       # NOTE: warmup and decay are not a good fit for the small training set
@@ -675,6 +871,8 @@ def main(config, output_dir):
         })
         current_steps = step
       accumulated_steps += current_steps + 10
+    else:
+      train_eval_ds = None
 
     test_accuracy = get_accuracy(
         evaluation_fn=evaluation_fn, opt_repl=current_opt_repl, ds=test_ds)
@@ -682,47 +880,26 @@ def main(config, output_dir):
     write_note(f'Accuracy at {current_train_ds_length}: {test_accuracy}')
 
     test_accuracies.append(test_accuracy)
-    training_sizes.append(current_train_ds_length)
-
-    pool_ids, pool_outputs, _, pool_masks = get_ids_logits_masks(
-        model=model,
-        opt_repl=current_opt_repl,
-        ds=pool_train_ds,
-        use_pre_logits=acquisition_method == 'density',
-        config=config)
-
-    if acquisition_method == 'uniform':
-      rng_loop, rng_acq = jax.random.split(rng_loop, 2)
-      pool_scores = get_uniform_scores(pool_masks, rng_acq)
-    elif acquisition_method == 'entropy':
-      pool_scores = get_entropy_scores(pool_outputs, pool_masks)
-    elif acquisition_method == 'margin':
-      pool_scores = get_margin_scores(pool_outputs, pool_masks)
-    elif acquisition_method == 'density':
-      if current_train_ds_length > 0:
-        pool_scores = get_density_scores(
-            model=model,
-            opt_repl=current_opt_repl,
-            train_ds=train_eval_ds,
-            pool_pre_logits=pool_outputs,
-            pool_masks=pool_masks,
-            config=config)
-      else:
-        rng_loop, rng_acq = jax.random.split(rng_loop, 2)
-        pool_scores = get_uniform_scores(pool_masks, rng_acq)
-    else:
-      raise ValueError('Acquisition method not found.')
-
-    acquisition_batch_ids, _ = select_acquisition_batch_indices(
-        acquisition_batch_size=config.get('acquisition_batch_size', 10),
-        scores=pool_scores,
-        ids=pool_ids,
-        ignored_ids=train_subset_data_builder.subset_ids)
-
-    train_subset_data_builder.subset_ids.update(acquisition_batch_ids)
-
     measurements.update({'test_accuracy': test_accuracy})
     writer.write_scalars(current_train_ds_length, measurements)
+
+    training_subset_ids = train_subset_data_builder.subset_ids
+
+    # Start picking the next training points.
+    training_sizes.append(current_train_ds_length)
+
+    acquisition_batch_ids, rng_loop = acquire_points(
+        model, current_opt_repl, pool_train_ds, train_eval_ds,
+        train_subset_data_builder, acquisition_method, config, rng_loop)
+    train_subset_data_builder.subset_ids.update(acquisition_batch_ids)
+
+    write_note(f'Training set ids at train set size {current_train_ds_length}:'
+               f'{training_subset_ids}')
+    write_note(f'Selected ids at train set size {current_train_ds_length}:'
+               f'{acquisition_batch_ids}')
+    current_train_ds_length = len(train_subset_data_builder.subset_ids)
+    write_note(
+        f'Training set size after acquisition: {current_train_ds_length}')
 
   write_note(f'Final acquired training ids: '
              f'{train_subset_data_builder.subset_ids}'

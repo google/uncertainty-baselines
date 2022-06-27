@@ -95,7 +95,7 @@ FLAGS = flags.FLAGS
 def _extract_hyperparameter_dictionary():
   """Create the dictionary of hyperparameters from FLAGS."""
   flags_as_dict = FLAGS.flag_values_dict()
-  hp_keys = ub.models.models.wide_resnet.HP_KEYS
+  hp_keys = ub.models.get_wide_resnet_hp_keys()
   hps = {k: flags_as_dict[k] for k in hp_keys}
   return hps
 

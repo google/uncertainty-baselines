@@ -90,7 +90,7 @@ def get_config():
   config.optim = ml_collections.ConfigDict()
   config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
-  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 1e-3  # Set in sweep.
@@ -128,11 +128,38 @@ def get_sweep(hyper):
       ]),
       hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
   ])
+  imagenet_1shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='1shot', steps=200, warmup=s,
+              log_eval_steps=20)) for s in [1, 5, 10]
+      ]),
+      hyper.sweep('config.lr.base', [0.04, 0.03, 0.02]),
+  ])
+  imagenet_5shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='5shot', steps=1000, warmup=s,
+              log_eval_steps=100)) for s in [1, 10, 20, 30]
+      ]),
+      hyper.sweep('config.lr.base', [0.05, 0.04, 0.03]),
+  ])
+  imagenet_10shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='10shot', steps=2000, warmup=s,
+              log_eval_steps=200)) for s in [30, 40, 50]
+      ]),
+      hyper.sweep('config.lr.base', [0.06, 0.05, 0.03]),
+  ])
   return hyper.product([
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
           imagenet_sweep,
+          imagenet_1shot_sweep,
+          imagenet_5shot_sweep,
+          imagenet_10shot_sweep,
       ]),
       hyper.product([
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),

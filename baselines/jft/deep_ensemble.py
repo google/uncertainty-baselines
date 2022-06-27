@@ -94,8 +94,10 @@ def ensemble_prediction_fn(model_apply_fn, params, images, loss_as_str):
   ens_logits = jnp.asarray([logits for logits, _ in outputs])
   ens_logits = ens_logits_fn(ens_logits)
 
+  # ens_prelogits [ens_size, batch_size, hidden_size]
   ens_prelogits = jnp.asarray([out['pre_logits'] for _, out in outputs])
-  ens_prelogits = ens_logits_fn(ens_prelogits)
+  # ens_prelogits [batch_size, hidden_size, ens_size]
+  ens_prelogits = jnp.transpose(ens_prelogits, axes=[1, 2, 0])
 
   return ens_logits, ens_prelogits
 

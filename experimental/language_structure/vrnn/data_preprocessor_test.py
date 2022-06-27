@@ -27,6 +27,59 @@ import utils  # local file import from experimental.language_structure.vrnn
 INPUT_ID_NAME = data_preprocessor.INPUT_ID_NAME
 INPUT_MASK_NAME = data_preprocessor.INPUT_MASK_NAME
 DIAL_TURN_ID_NAME = data_preprocessor.DIAL_TURN_ID_NAME
+USR_UTT_NAME = data_preprocessor.USR_UTT_NAME
+SYS_UTT_NAME = data_preprocessor.SYS_UTT_NAME
+USR_UTT_RAW_NAME = data_preprocessor.USR_UTT_RAW_NAME
+SYS_UTT_RAW_NAME = data_preprocessor.SYS_UTT_RAW_NAME
+
+
+class CreateUtteranceFeatureTest(absltest.TestCase):
+
+  def _create_input_tensor(self, dialog_length, seq_length) -> tf.Tensor:
+    inputs = {
+        USR_UTT_NAME:
+            tf.keras.Input(shape=(dialog_length, seq_length)),
+        SYS_UTT_NAME:
+            tf.keras.Input(shape=(dialog_length, seq_length)),
+        USR_UTT_RAW_NAME:
+            tf.keras.Input(shape=(dialog_length,), dtype=tf.string),
+        SYS_UTT_RAW_NAME:
+            tf.keras.Input(shape=(dialog_length,), dtype=tf.string),
+    }
+
+    return inputs
+
+  def test_feature_output_shape(self):
+    dialog_length = 2
+    seq_length = 5
+    inputs = self._create_input_tensor(dialog_length, seq_length)
+
+    outputs = data_preprocessor.create_utterance_features(inputs)
+
+    self.assertLen(outputs, 2)
+    for output in outputs:
+      for key in [INPUT_ID_NAME, INPUT_MASK_NAME]:
+        self.assertEqual([None, dialog_length, seq_length],
+                         output[key].shape.as_list())
+
+  def test_bert_feature_output_shape(self):
+    dialog_length = 2
+    seq_length = 5
+    inputs = self._create_input_tensor(dialog_length, seq_length)
+
+    preprocess_tfhub_url = 'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3'
+    bert_preprocess_model = utils.BertPreprocessor(preprocess_tfhub_url,
+                                                   seq_length)
+
+    outputs = data_preprocessor.create_bert_utterance_features_fn(
+        bert_preprocess_model)(
+            inputs)
+
+    self.assertLen(outputs, 2)
+    for output in outputs:
+      for key in [INPUT_ID_NAME, INPUT_MASK_NAME]:
+        self.assertEqual([None, dialog_length, seq_length],
+                         output[key].shape.as_list())
 
 
 class DataPreprocessorTest(parameterized.TestCase):
@@ -35,11 +88,7 @@ class DataPreprocessorTest(parameterized.TestCase):
     super().setUp()
     self.batch_size = 2
 
-  def create_data_preprocessor(self, max_seq_length, **kwargs):
-    del max_seq_length  # unused
-    return data_preprocessor.DataPreprocessor(**kwargs)
-
-  def load_dataset(self, dataset_name):
+  def _load_dataset(self, dataset_name):
     dataset_builder = datasets.get(
         dataset_name, split='test', add_dialog_turn_id=True)
     return dataset_builder.load(batch_size=self.batch_size).prefetch(1)
@@ -48,18 +97,26 @@ class DataPreprocessorTest(parameterized.TestCase):
                                   ('simdial', 'simdial'),
                                   ('sgd_synth', 'sgd_synth'))
   def test_output_shape(self, dataset_name):
-    dataset = self.load_dataset(dataset_name)
+    dataset = self._load_dataset(dataset_name)
     dialog_length = data_utils.get_dataset_max_dialog_length(dataset_name)
     seq_length = data_utils.get_dataset_max_seq_length(dataset_name)
     num_states = data_utils.get_dataset_num_latent_states(dataset_name)
 
-    preprocessor = self.create_data_preprocessor(
-        seq_length, num_states=num_states)
+    encoder_feature_fn = data_preprocessor.create_utterance_features
+    decoder_feature_fn = data_preprocessor.create_utterance_features
+    preprocessor = data_preprocessor.DataPreprocessor(encoder_feature_fn,
+                                                      decoder_feature_fn,
+                                                      num_states)
     dataset = dataset.map(preprocessor.create_feature_and_label)
-    (input_1, input_2, label, label_mask, initial_state, initial_sample,
-     domain_label) = more_itertools.first(dataset)
+    (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2, label,
+     label_mask, initial_state, initial_sample,
+     domains) = more_itertools.first(dataset)
 
-    for inputs in [input_1, input_2]:
+    domain_label, _ = domains
+
+    for inputs in [
+        encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2
+    ]:
       for key in [INPUT_ID_NAME, INPUT_MASK_NAME]:
         self.assertEqual([self.batch_size, dialog_length, seq_length],
                          inputs[key].shape.as_list())
@@ -74,20 +131,22 @@ class DataPreprocessorTest(parameterized.TestCase):
                                   ('simdial', 'simdial'),
                                   ('sgd_synth', 'sgd_synth'))
   def test_label_mask_by_dialog_turn_ids(self, dataset_name):
-    dataset = self.load_dataset(dataset_name)
+    dataset = self._load_dataset(dataset_name)
     inputs = more_itertools.first(dataset)
     dialog_turn_id_indices = [(0, 2), (1, 3), (1, 5)]
     dialog_turn_ids = tf.gather_nd(inputs[DIAL_TURN_ID_NAME],
                                    dialog_turn_id_indices)
-    seq_length = data_utils.get_dataset_max_seq_length(dataset_name)
     num_states = data_utils.get_dataset_num_latent_states(dataset_name)
 
-    preprocessor = self.create_data_preprocessor(
-        seq_length,
-        num_states=num_states,
+    encoder_feature_fn = data_preprocessor.create_utterance_features
+    decoder_feature_fn = data_preprocessor.create_utterance_features
+    preprocessor = data_preprocessor.DataPreprocessor(
+        encoder_feature_fn,
+        decoder_feature_fn,
+        num_states,
         labeled_dialog_turn_ids=dialog_turn_ids)
     dataset = dataset.map(preprocessor.create_feature_and_label)
-    (_, _, _, label_mask, _, _, _) = more_itertools.first(dataset)
+    (_, _, _, _, _, label_mask, _, _, _) = more_itertools.first(dataset)
 
     for i, row in enumerate(label_mask.numpy()):
       for j, val in enumerate(row):
@@ -96,15 +155,30 @@ class DataPreprocessorTest(parameterized.TestCase):
         else:
           self.assertEqual(val, 0)
 
+  @parameterized.named_parameters(('sgd', 'sgd'))
+  def test_in_domain_mask(self, dataset_name):
+    in_domains = [2, 3]
+    num_states = data_utils.get_dataset_num_latent_states(dataset_name)
 
-class BertDataPreprocessorTest(DataPreprocessorTest):
+    encoder_feature_fn = data_preprocessor.create_utterance_features
+    decoder_feature_fn = data_preprocessor.create_utterance_features
+    preprocessor = data_preprocessor.DataPreprocessor(
+        encoder_feature_fn,
+        decoder_feature_fn,
+        num_states,
+        in_domains=tf.constant(in_domains))
 
-  def create_data_preprocessor(self, max_seq_length, **kwargs):
-    preprocess_tfhub_url = 'https://tfhub.dev/tensorflow/bert_en_uncased_preprocess/3'
-    bert_preprocess_model = utils.BertPreprocessor(preprocess_tfhub_url,
-                                                   max_seq_length)
-    return data_preprocessor.BertDataPreprocessor(bert_preprocess_model,
-                                                  **kwargs)
+    dataset = self._load_dataset(dataset_name)
+    dataset = dataset.map(preprocessor.create_feature_and_label)
+    (_, _, _, _, _, _, _, _, domains) = more_itertools.first(dataset)
+
+    domain_label_id, ind_mask = domains
+    for domain_label, mask in zip(domain_label_id.numpy(), ind_mask.numpy()):
+      for l, m in zip(domain_label, mask):
+        if l in in_domains:
+          self.assertEqual(m, 1)
+        else:
+          self.assertEqual(m, 0)
 
 
 if __name__ == '__main__':

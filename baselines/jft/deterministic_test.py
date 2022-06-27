@@ -23,9 +23,10 @@ from absl import logging
 from absl.testing import flagsaver
 from absl.testing import parameterized
 import jax
-# import ml_collections
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
 import deterministic  # local file import from baselines.jft
 import test_utils  # local file import from baselines.jft
@@ -39,7 +40,9 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
   def setUp(self):
     super().setUp()
     baseline_root_dir = pathlib.Path(__file__).parents[1]
-    self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
+    data_dir = os.path.join(baseline_root_dir, 'testing_data')
+    logging.info('data_dir contents: %s', os.listdir(data_dir))
+    self.data_dir = data_dir
 
   @parameterized.parameters(
       ('imagenet2012', 'token', 2, .1, 591.4794, 519.432996961805, 0.89, False),
@@ -96,8 +99,10 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     fewshot_acc_sum = sum(jax.tree_util.tree_flatten(fewshot_results)[0])
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
-    self.assertAllClose(train_loss, correct_train_loss)
-    self.assertAllClose(val_loss['val'], correct_val_loss)
+    np.testing.assert_allclose(train_loss, correct_train_loss,
+                               rtol=1e-06, atol=1e-06)
+    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
+                               rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
       ('imagenet2012', 'token', 2, 569.38904, 521.6078152126, 0.56, 'imagenet'),
@@ -138,6 +143,11 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
       config.cifar_10h_split = f'test[:{num_examples}]'
       config.pp_eval_cifar_10h = (
           'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
+      config.subpopl_cifar_data_file = os.path.join(data_dir,
+                                                    'cifar10_subpopl_tiny.db')
+      config.pp_eval_subpopl_cifar = (
+          'resize(384)|value_range(-1, 1)|onehot(10, key="label", '
+          'key_result="labels")|keep(["image", "labels", "id"])')
     elif finetune_dataset_name == 'imagenet':
       config.dataset = 'imagenet2012'
       config.val_split = f'train[:{num_examples}]'
@@ -166,8 +176,10 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw,jjren): Add a reproducibility test for OOD eval.
-    self.assertAllClose(train_loss, correct_train_loss)
-    self.assertAllClose(val_loss['val'], correct_val_loss)
+    np.testing.assert_allclose(train_loss, correct_train_loss,
+                               rtol=1e-06, atol=1e-06)
+    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
+                               rtol=1e-06, atol=1e-06)
 
 
 if __name__ == '__main__':

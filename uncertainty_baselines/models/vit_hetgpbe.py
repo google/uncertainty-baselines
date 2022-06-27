@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Vision Transformer with Heteroskedastic, GP, and BatchEnsemble."""
-from typing import Any, Mapping, Optional, Tuple
+from typing import Any, Callable, Iterable, Mapping, Optional, Tuple
 
 import edward2.jax as ed
 import flax.linen as nn
@@ -25,6 +25,8 @@ import uncertainty_baselines.models.vit_batchensemble as vit_batchensemble
 
 # Jax data types
 Array = Any
+DType = type(jnp.float32)
+InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
 
 
 # TODO(dusenberrymw,zmariet): Clean up and generalize these log marginal probs.
@@ -47,7 +49,7 @@ def log_average_sigmoid_probs(logits: jnp.ndarray) -> jnp.ndarray:
 
 
 class VisionTransformerHetGPBE(nn.Module):
-  """Vision transformer."""
+  """Heteroscedastic Vision Transformer with BE layers and GP last layer."""
 
   num_classes: int
   patches: Any
@@ -57,6 +59,7 @@ class VisionTransformerHetGPBE(nn.Module):
   representation_size: Optional[int] = None
   classifier: str = 'token'
   fix_base_model: bool = False
+  head_kernel_init: InitializeFn = nn.initializers.zeros
 
   # Heteroscedastic
   multiclass: bool = False  # also used for BatchEnsemble
@@ -167,41 +170,81 @@ class VisionTransformerHetGPBE(nn.Module):
     else:
       # Note we're using non-BE layers.
       if self.multiclass:
-        output_layer = ed.nn.MCSoftmaxDenseFA(
+        output_layer = ed.nn.MCSoftmaxDenseFABE(
             self.num_classes,
             self.num_factors,
             self.temperature,
             self.param_efficient,
             self.mc_samples,
             self.mc_samples,
-            logits_only=True, return_locs=self.return_locs,
+            logits_only=True,
+            return_locs=self.return_locs,
+            alpha_init=ed.nn.utils.make_sign_initializer(
+                self.transformer.get('random_sign_init')),
+            gamma_init=ed.nn.utils.make_sign_initializer(
+                self.transformer.get('random_sign_init')),
+            kernel_init=self.head_kernel_init,
             name='head')
       else:
-        output_layer = ed.nn.MCSigmoidDenseFA(
+        output_layer = ed.nn.MCSigmoidDenseFABE(
             num_outputs=self.num_classes,
             num_factors=self.num_factors,
             temperature=self.temperature,
             parameter_efficient=self.param_efficient,
             train_mc_samples=self.mc_samples,
             test_mc_samples=self.mc_samples,
-            logits_only=True, return_locs=self.return_locs, name='head')
+            logits_only=True,
+            return_locs=self.return_locs,
+            alpha_init=ed.nn.utils.make_sign_initializer(
+                self.transformer.get('random_sign_init')),
+            gamma_init=ed.nn.utils.make_sign_initializer(
+                self.transformer.get('random_sign_init')),
+            kernel_init=self.head_kernel_init,
+            name='head')
       logits = output_layer(x)
       out['logits'] = logits
 
-    if not train:
-      if self.multiclass:
-        logits = log_average_softmax_probs(
-            jnp.asarray(jnp.split(logits, self.transformer.get('ens_size'))))
-        out['pre_ens_logits'] = out['pre_logits']
-        out['pre_logits'] = log_average_softmax_probs(
-            jnp.asarray(jnp.split(out['pre_logits'],
-                                  self.transformer.get('ens_size'))))
-      else:
-        logits = log_average_sigmoid_probs(
-            jnp.asarray(jnp.split(logits, self.transformer.get('ens_size'))))
-        out['pre_ens_logits'] = out['pre_logits']
-        out['pre_logits'] = log_average_sigmoid_probs(
-            jnp.asarray(jnp.split(out['pre_logits'],
-                                  self.transformer.get('ens_size'))))
-
     return logits, out
+
+
+def vision_transformer_het_gp_be(
+    num_classes: int,
+    patches: Any,
+    transformer: Any,
+    hidden_size: int,
+    representation_size: Optional[int] = None,
+    classifier: str = 'token',
+    fix_base_model: bool = False,
+    head_kernel_init: InitializeFn = nn.initializers.zeros,
+    multiclass: bool = False,
+    temperature: float = 1.0,
+    mc_samples: int = 1000,
+    num_factors: int = 0,
+    param_efficient: bool = True,
+    return_locs: bool = False,
+    use_gp: bool = False,
+    covmat_momentum: float = 0.999,
+    ridge_penalty: float = 1.0,
+    mean_field_factor: float = -1.0):
+  """Builds a Heteroscedastic Vision Transformer (ViT) model."""
+  # TODO(dusenberrymw): Add API docs once the config dict in
+  # VisionTransformerHet is cleaned up.
+  return VisionTransformerHetGPBE(
+      num_classes=num_classes,
+      patches=patches,
+      transformer=transformer,
+      hidden_size=hidden_size,
+      representation_size=representation_size,
+      classifier=classifier,
+      fix_base_model=fix_base_model,
+      head_kernel_init=head_kernel_init,
+      multiclass=multiclass,
+      temperature=temperature,
+      mc_samples=mc_samples,
+      num_factors=num_factors,
+      param_efficient=param_efficient,
+      return_locs=return_locs,
+      use_gp=use_gp,
+      covmat_momentum=covmat_momentum,
+      ridge_penalty=ridge_penalty,
+      mean_field_factor=mean_field_factor)

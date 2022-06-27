@@ -42,10 +42,9 @@ def get_config():
   #   of the Kaggle/EyePACS dataset to hold out clinical severity labels as OOD.
   config.distribution_shift = 'aptos'
 
-  # If provided, resume training and/or conduct evaluation using this
-  #   checkpoint. Will only be used if the output_dir does not already
-  #   contain a checkpointed model. See `checkpoint_utils.py`.
-  config.resume_checkpoint_path = None
+  # If checkpoint path is provided, resume training and/or conduct evaluation
+  #   with this checkpoint. See `checkpoint_utils.py`.
+  config.resume = None
 
   config.prefetch_to_device = 2
   config.trial = 0

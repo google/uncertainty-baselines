@@ -16,7 +16,6 @@
 """BatchEnsemble Vision Transformer."""
 
 import functools
-import itertools
 import multiprocessing
 import os
 
@@ -125,10 +124,6 @@ def main(config, output_dir):
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=config.get('data_dir'))
-
-  # Start prefetching already.
-  train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
 
@@ -243,7 +238,7 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.model)
-  model = ub.models.PatchTransformerBE(
+  model = ub.models.vision_transformer_be(
       num_classes=config.num_classes, **config.model)
   ens_size = config.model.transformer.ens_size
 
@@ -285,22 +280,27 @@ def main(config, output_dir):
                                     images,
                                     train=False)
 
+    label_indices = config.get('label_indices')
+    logging.info('mask %s, label_indices %s', mask, label_indices)
+    if label_indices:
+      tiled_logits = tiled_logits[:, label_indices]
+
     loss_name = config.get('loss', 'sigmoid_xent')
     # TODO(dusenberrymw,zmariet): Clean up and generalize this.
     if loss_name == 'sigmoid_xent':
       ens_logits = batchensemble_utils.log_average_sigmoid_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
     else:  # softmax
       ens_logits = batchensemble_utils.log_average_softmax_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+    # pre_logits [batch_size, hidden_size, ens_size]
+    pre_logits = jnp.transpose(
+        jnp.asarray(jnp.split(out['pre_logits'], ens_size)), axes=[1, 2, 0])
 
     losses = getattr(train_utils, loss_name)(
         logits=ens_logits,
-        labels=labels[:, :config.num_classes],
+        labels=labels[:, :(len(label_indices) if label_indices
+                           else config.num_classes)],
         reduction=False)
     loss = jax.lax.psum(losses * mask, axis_name='batch')
 
@@ -323,13 +323,11 @@ def main(config, output_dir):
     if loss_name == 'sigmoid_xent':
       ens_logits = batchensemble_utils.log_average_sigmoid_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_sigmoid_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
     else:  # softmax
       ens_logits = batchensemble_utils.log_average_softmax_probs(
           jnp.asarray(jnp.split(tiled_logits, ens_size)))
-      pre_logits = batchensemble_utils.log_average_softmax_probs(
-          jnp.asarray(jnp.split(out['pre_logits'], ens_size)))
+    pre_logits = jnp.concatenate(
+        jnp.split(out['pre_logits'], ens_size), axis=-1)
 
     label_indices = config.get('label_indices')
     if label_indices:
@@ -377,23 +375,28 @@ def main(config, output_dir):
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
   weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  rescale_value = 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
-  def batch_loss_fn(params, images, labels, rngs):
-    logits, _ = model.apply(
-        {'params': flax.core.freeze(params)}, images,
-        train=True, rngs=rngs)
+  def batch_loss_fn(params, images, labels, rng):
+    logits, _ = model.apply({'params': flax.core.freeze(params)},
+                            images,
+                            train=True,
+                            rngs={'dropout': rng})
     labels = jnp.tile(labels, (ens_size, 1))
     loss_fn = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
     loss = jnp.mean(loss_fn(logits=logits, labels=labels))
     return loss, dict()
 
   @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0, 1))
-  def update_fn(opt, rngs, lr, images, labels):
+  def update_fn(opt, rng, lr, images, labels):
     return batchensemble_utils.update_fn_be(
-        opt=opt, rngs=rngs, lr=lr, images=images, labels=labels,
+        opt=opt,
+        rng=rng,
+        lr=lr,
+        images=images,
+        labels=labels,
         batch_loss_fn=batch_loss_fn,
         weight_decay_fn=weight_decay_fn,
         max_grad_norm_global=config.get('grad_clip_norm', None),
@@ -413,20 +416,25 @@ def main(config, output_dir):
       init_fixed_model_states=None,
       default_reinit_params=reint_params,
       config=config)
-  train_loop_rngs = {'dropout': checkpoint_data.train_loop_rngs}
+  train_loop_rngs = checkpoint_data.train_loop_rngs
   opt_cpu = checkpoint_data.optimizer
 
-  accumulated_train_time = checkpoint_data.accumulated_train_time
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
+  # TODO(zmariet): this should happen as part of `adapt_upstream_architecture`
+  # and be tested as such.
+  adapted_params = batchensemble_utils.maybe_broadcast_batchensemble_biases(
+      opt_cpu.target,
+      be_layers=config.model.transformer.be_layers,
+      ensemble_size=ens_size)
   opt_cpu = opt_cpu.replace(target=adapted_params)
+
+  accumulated_train_time = checkpoint_data.accumulated_train_time
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  logging.info('first_step = %s', first_step)
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
+
   chrono = train_utils.Chrono(
       first_step, total_steps, batch_size, accumulated_train_time)
 
@@ -437,14 +445,7 @@ def main(config, output_dir):
       # problems and assure we get similar performance in every run.
       logdir=output_dir, first_profile=first_step + 10)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
-  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
-  # necessary for TPUs.
-  lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
-
+  # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax.jax_utils.replicate(opt_cpu)
 
@@ -457,6 +458,24 @@ def main(config, output_dir):
 
   checkpoint_writer = None
 
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+
+  # Prefetch all iterators, starting at the current first step.
+  if first_step > 0:
+    write_note('Advancing the dataset after resuming from a checkpoint...')
+    if not config.get('disable_preemption_reproducibility', False):
+      # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+      train_ds = train_ds.skip(first_step)
+
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
+
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
@@ -464,21 +483,10 @@ def main(config, output_dir):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  logging.info('first_step = %s', first_step)
-  # Advance the iterators if we are restarting from an earlier checkpoint.
-  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
-  if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
-    lr_iter = itertools.islice(lr_iter, first_step, None)
-    # TODO(zmariet): Find better way to cut down iteration advancement cost.
-    if not config.get('disable_preemption_reproducibility', False):
-      train_iter = itertools.islice(train_iter, first_step, None)
-
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
       if not config.get('only_eval', False):
         opt_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
@@ -599,8 +607,11 @@ def main(config, output_dir):
               oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
               if val_name == 'cifar_10h' or val_name == 'imagenet_real':
+                num_classes = config.num_classes
+                if config.get('label_indices'):
+                  num_classes = len(config.get('label_indices'))
                 batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
-                    label[m], p[m, :], config.num_classes)
+                    label[m], p[m, :], num_classes)
                 label_diversity.update_state(batch_label_diversity)
                 sample_diversity.update_state(batch_sample_diversity)
                 ged.update_state(batch_ged)
@@ -673,6 +684,10 @@ def main(config, output_dir):
 
     if config.get('only_eval', False):
       break
+    elif config.get('testing_failure_step'):
+      # Break early to simulate infra failures in test cases.
+      if config.testing_failure_step == step:
+        break
 
   write_note(f'Done!\n{chrono.note}')
   pool.close()

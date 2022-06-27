@@ -54,6 +54,7 @@ setup(
         'datasets': [
             'librosa',  # Needed for speech_commands dataset
             'scipy',  # Needed for speech_commands dataset
+            'tensorflow_federated',  # Needed for CIFAR subpopulation dataset
             # TODO(dusenberrymw): Add these without causing a dependency
             # resolution issue.
             # 'seqio',  # Needed for smcalflow and multiwoz datasets
@@ -88,7 +89,7 @@ setup(
             'dm-haiku',
             'torch',
             'seaborn',
-            'tfds-nightly'
+            'tfds-nightly',
         ],
     },
     classifiers=[

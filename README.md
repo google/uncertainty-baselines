@@ -152,13 +152,6 @@ model = ub.models.wide_resnet(input_shape=(32, 32, 3),
                               l2=1e-4)
 ```
 
-You can also use `get` to instantiate models from strings (e.g., commandline
-flags).
-
-```python
-model = ub.models.get(model_name, batch_size=FLAGS.batch_size)
-```
-
 ## Metrics
 
 We define metrics used across datasets below. All results are reported by roughly 3 significant digits and averaged over 10 runs.

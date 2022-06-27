@@ -74,7 +74,7 @@ def _maybe_setup_trial_dir(
   # Only write to the flags file on the first replica, otherwise can run into a
   # file writing error.
   if strategy.num_replicas_in_sync > 1:
-    if strategy.cluster_resolver.task_id == 0:
+    if strategy.cluster_resolver is None or strategy.cluster_resolver.task_id == 0:
       _setup_trial_dir(trial_dir, flag_string)
   else:
     _setup_trial_dir(trial_dir, flag_string)
@@ -106,6 +106,9 @@ def run(trial_dir: str, flag_string: Optional[str]):
   tf.random.set_seed(FLAGS.seed)
   np.random.seed(FLAGS.seed)
 
+  use_tpu = not FLAGS.use_cpu and not FLAGS.use_gpu
+  eval_drop_remainder = True if use_tpu else False
+
   if not FLAGS.eval_frequency:
     FLAGS.eval_frequency = FLAGS.log_frequency
 
@@ -114,8 +117,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         'log_frequency ({}) must evenly divide eval_frequency '
         '({}).'.format(FLAGS.log_frequency, FLAGS.eval_frequency))
 
-  strategy = ub.strategy_utils.get_strategy(
-      FLAGS.tpu, use_tpu=not FLAGS.use_cpu and not FLAGS.use_gpu)
+  strategy = ub.strategy_utils.get_strategy(FLAGS.tpu, use_tpu=use_tpu)
   with strategy.scope():
     _maybe_setup_trial_dir(strategy, trial_dir, flag_string)
 
@@ -130,14 +132,16 @@ def run(trial_dir: str, flag_string: Optional[str]):
           dataset_name=FLAGS.dataset_name,
           split='validation',
           validation_percent=FLAGS.validation_percent,
-          shuffle_buffer_size=FLAGS.shuffle_buffer_size)
+          shuffle_buffer_size=FLAGS.shuffle_buffer_size,
+          drop_remainder=eval_drop_remainder)
     else:
       validation_dataset_builder = None
     test_dataset_builder = ub.datasets.get(
         dataset_name=FLAGS.dataset_name,
         split='test',
         validation_percent=FLAGS.validation_percent,
-        shuffle_buffer_size=FLAGS.shuffle_buffer_size)
+        shuffle_buffer_size=FLAGS.shuffle_buffer_size,
+        drop_remainder=eval_drop_remainder)
 
     if FLAGS.use_spec_norm:
       logging.info('Use spectral normalization.')
@@ -205,7 +209,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
           split='test',
           validation_percent=FLAGS.validation_percent,
           normalize_by_cifar=svhn_normalize_by_cifar,
-          data_mode='ood')
+          data_mode='ood',
+          drop_remainder=eval_drop_remainder)
       _check_batch_replica_divisible(FLAGS.eval_batch_size, strategy)
 
       ood_metrics = {
@@ -248,7 +253,8 @@ def run(trial_dir: str, flag_string: Optional[str]):
           hparams=hparams,
           ood_dataset_builder=ood_dataset_builder,
           ood_metrics=ood_metrics,
-          mean_field_factor=FLAGS.gp_mean_field_factor)
+          mean_field_factor=FLAGS.gp_mean_field_factor,
+          dempster_shafer_ood=FLAGS.dempster_shafer_ood)
       return
 
     if FLAGS.mode == 'train_and_eval':

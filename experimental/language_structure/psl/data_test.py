@@ -56,27 +56,33 @@ class DataTest(tfds.testing.TestCase):
 
   def test_create_feature_shape(self):
     dialog_length = 3
-    utterance_per_turn = 2
     sequence_length = 4
-    dialogs = tf.keras.Input(
+    user_utterance_ids = tf.keras.Input(
         shape=(
             dialog_length,
-            utterance_per_turn,
             sequence_length,
-        ),
-        dtype=tf.int32)
-    keyword_ids_per_class = [[1, 2], [3]]
-    feature = data.create_features(
-        dialogs,
-        keyword_ids_per_class,
-        pad_utterance_mask_value=1,
-        utterance_mask_value=2,
-        last_utterance_mask_value=3,
-        include_keyword_value=4,
-        exclude_keyword_value=5)
+        ), dtype=tf.int32)
+    system_utterance_ids = tf.keras.Input(
+        shape=(
+            dialog_length,
+            sequence_length,
+        ), dtype=tf.int32)
+    keyword_ids_per_class = [[1, 2], [3], [4, 5, 6], [7, 8]]
 
-    self.assertEqual(feature.shape.as_list(),
-                     [None, dialog_length, 1 + len(keyword_ids_per_class)])
+    for check_keyword_by_utterance in [True, False]:
+      feature = data.create_features(
+          user_utterance_ids,
+          system_utterance_ids,
+          keyword_ids_per_class,
+          check_keyword_by_utterance=check_keyword_by_utterance,
+          pad_utterance_mask_value=1,
+          utterance_mask_value=2,
+          last_utterance_mask_value=3,
+          include_keyword_value=4,
+          exclude_keyword_value=5)
+
+      self.assertEqual(feature.shape.as_list(),
+                       [None, dialog_length, 1 + len(keyword_ids_per_class)])
 
 
 if __name__ == '__main__':

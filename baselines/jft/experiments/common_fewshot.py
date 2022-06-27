@@ -39,6 +39,10 @@ def get_fewshot(batch_size=None, target_resolution=224, resize_resolution=256,
   } if not runlocal else {
       'pets': ('oxford_iiit_pet', 'train', 'test'),
   }
+  config.ood_datasets = {
+      'cifar100': ('cifar10', 'train', 'test'),
+      'imagenet': ('places365_small', 'train', 'validation'),
+  }
   config.pp_train = f'decode|resize({resize_resolution})|central_crop({target_resolution})|value_range(-1,1)|keep("image", "label")'
   config.pp_eval = config.pp_train
   config.shots = [1, 5, 10, 25]

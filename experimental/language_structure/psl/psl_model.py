@@ -20,6 +20,17 @@ from typing import List, Tuple
 
 import tensorflow as tf
 
+_EPSILON = 1e-8
+_LINEAR_LOSS = 'linear'
+_LOG_LOSS = 'log'
+
+
+def normalize(val, should_normalize: bool = True):
+  if should_normalize:
+    val_sum = tf.maximum(tf.reduce_sum(val), _EPSILON)
+    return val / val_sum
+  return val
+
 
 class PSLModel(abc.ABC):
   """Abstract class for PSL constraints."""
@@ -33,6 +44,10 @@ class PSLModel(abc.ABC):
     self.rule_weights = rule_weights
     self.kwargs = kwargs
 
+  def generate_predicates(self, data: tf.Tensor):
+    """Generates potentials used throughout the rules."""
+    pass
+
   @abc.abstractmethod
   def compute_loss(self, data: tf.Tensor, logits: tf.Tensor) -> float:
     pass
@@ -45,16 +60,23 @@ class PSLModel(abc.ABC):
   @staticmethod
   def compute_rule_loss(body: List[tf.Tensor],
                         head: tf.Tensor,
-                        logic: str = 'lukasiewicz') -> float:
+                        logic: str = 'lukasiewicz',
+                        loss_function: str = _LINEAR_LOSS) -> float:
     """Calculates loss for a soft rule."""
-    body, head = PSLModel.soft_imply(body, head, logic=logic)
 
     if logic == 'lukasiewicz':
-      # body -> head = max(1 - SUM(1 - body_i) - head, 0)
-      return tf.reduce_sum(tf.nn.relu(1. - tf.add_n(body) - head))
+      if loss_function == _LINEAR_LOSS:
+        body, head = PSLModel.soft_imply(body, head, logic=logic)
+        # body -> head = max(1 - SUM(1 - body_i) - head, 0)
+        return tf.reduce_sum(tf.nn.relu(1. - tf.add_n(body) - head))
+      else:
+        truth_value = PSLModel.soft_imply2(body, head, logic=logic)
+        prob = tf.clip_by_value(truth_value, _EPSILON, 1. - _EPSILON)
+        return tf.reduce_mean(-tf.reduce_sum(tf.math.log(prob), axis=-1))
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 
+  # Keep it as a part of the implementation of the original loss function.
   @staticmethod
   def soft_imply(
       body: List[tf.Tensor],
@@ -68,11 +90,43 @@ class PSLModel(abc.ABC):
       raise ValueError('Unsuported logic: %s' % (logic,))
 
   @staticmethod
-  def soft_not(predicate: tf.Tensor, logic: str = 'lukasiewicz') -> tf.Tensor:
+  def soft_imply2(body: List[tf.Tensor],
+                  head: tf.Tensor,
+                  logic: str = 'lukasiewicz',
+                  should_normalize: bool = False) -> tf.Tensor:
+    """Soft logical implication."""
+    if logic == 'lukasiewicz':
+      body = PSLModel.soft_and(body)
+      # A -> B = min(1, 1 - A + B)
+      return normalize(tf.minimum(1., 1 - body + head), should_normalize)
+    else:
+      raise ValueError('Unsuported logic: %s' % (logic,))
+
+  @staticmethod
+  def soft_and(body: List[tf.Tensor],
+               logic: str = 'lukasiewicz',
+               should_normalize: bool = False) -> tf.Tensor:
+    """Soft logical implication."""
+    num_bodies = len(body)
+    if num_bodies == 0:
+      return tf.constant(0)
+    if logic == 'lukasiewicz':
+      # A & B = max(0, A + B - 1)
+      val = body[0]
+      for i in range(1, num_bodies):
+        val = tf.nn.relu(val + body[i] - 1)
+      return normalize(val, should_normalize)
+    else:
+      raise ValueError('Unsuported logic: %s' % (logic,))
+
+  @staticmethod
+  def soft_not(predicate: tf.Tensor,
+               logic: str = 'lukasiewicz',
+               should_normalize: bool = False) -> tf.Tensor:
     """Soft logical negation."""
     if logic == 'lukasiewicz':
       # !predicate = 1 - predicate
-      return 1. - predicate
+      return normalize(1. - predicate, should_normalize)
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 

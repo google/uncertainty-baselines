@@ -19,6 +19,32 @@ from ml_collections import config_dict
 
 VanillaLinearVAECellConfig = config_dict.ConfigDict
 VanillaLinearVRNNConfig = config_dict.ConfigDict
+EmbeddingConfig = config_dict.ConfigDict
+
+GLOVE_EMBED = 'GloVe'
+BERT_EMBED = 'BERT'
+
+
+def embedding_config(**kwargs) -> EmbeddingConfig:
+  """Creates config for the embedding layer."""
+  config = config_dict.ConfigDict()
+
+  config.embedding_type = kwargs.get('embedding_type', GLOVE_EMBED)
+  config.trainable_embedding = kwargs.get('trainable_embedding', True)
+  config.max_seq_length = kwargs.get('max_seq_length', 40)
+  config.vocab_file_path = kwargs.get('vocab_file_path', None)
+
+  # GloVe embedding configs.
+  config.vocab_size = kwargs.get('vocab_size', 500)
+  config.embed_size = kwargs.get('embedding_size', 300)
+  config.word_embedding_path = kwargs.get('word_embedding_path', None)
+
+  # BERT embedding configs.
+  config.bert_config = kwargs.get('bert_config', {})
+  config.bert_config_file = kwargs.get('bert_config_file', None)
+  config.bert_ckpt_dir = kwargs.get('bert_ckpt_dir', None)
+
+  return config
 
 
 def vanilla_linear_vae_cell_config(**kwargs) -> VanillaLinearVAECellConfig:
@@ -29,16 +55,11 @@ def vanilla_linear_vae_cell_config(**kwargs) -> VanillaLinearVAECellConfig:
 
   config.max_seq_length = kwargs.get('max_seq_length', 40)
 
-  config.vocab_size = kwargs.get('vocab_size', 500)
-  config.embed_size = kwargs.get('embed_size', 300)
-  config.trainable_embedding = kwargs.get('trainable_embedding', True)
+  config.encoder_embedding = embedding_config(
+      **kwargs.get('encoder_embedding', {}))
+  config.decoder_embedding = embedding_config(
+      **kwargs.get('decoder_embedding', {}))
   config.shared_embedding = kwargs.get('shared_embedding', True)
-  config.word_embedding_path = kwargs.get('word_embedding_path')
-  config.shared_bert_embedding = kwargs.get('shared_bert_embedding', False)
-  config.shared_bert_embedding_ckpt_dir = kwargs.get(
-      'shared_bert_embedding_ckpt_dir', '')
-  config.shared_bert_embedding_config = kwargs.get(
-      'shared_bert_embedding_config', {})
 
   config.encoder_hidden_size = kwargs.get('encoder_hidden_size', 400)
   config.encoder_cell_type = kwargs.get('encoder_cell_type', 'lstm')
@@ -63,6 +84,25 @@ def vanilla_linear_vae_cell_config(**kwargs) -> VanillaLinearVAECellConfig:
   return config
 
 
+def _verify_embedding_config(config: config_dict.ConfigDict):
+  if config.embedding_type not in (GLOVE_EMBED, BERT_EMBED):
+    raise ValueError('Invalid embedding type {}, expected {} or {}'.format(
+        config.embedding_type, GLOVE_EMBED, BERT_EMBED))
+
+
+def verify_embedding_configs(encoder_embedding: config_dict.ConfigDict,
+                             decoder_embedding: config_dict.ConfigDict,
+                             shared_embedding: bool):
+  """Verifies the embedding types of encoder & decoder."""
+  _verify_embedding_config(encoder_embedding)
+  _verify_embedding_config(decoder_embedding)
+
+  if shared_embedding and encoder_embedding != decoder_embedding:
+    raise ValueError(
+        'Expected consistent embedding config for encoder and decoder when '
+        'shared_embedding is True, found different.')
+
+
 def vanilla_linear_vrnn_config(**kwargs) -> VanillaLinearVRNNConfig:
   """Creates model config for VanillaLinearVRNN."""
   config = config_dict.ConfigDict()
@@ -74,7 +114,6 @@ def vanilla_linear_vrnn_config(**kwargs) -> VanillaLinearVRNNConfig:
 
   config.dropout = config.vae_cell.dropout
   config.num_states = config.vae_cell.num_states
-  config.vocab_size = config.vae_cell.vocab_size
 
   config.prior_latent_state_updater_hidden_size = kwargs.get(
       'prior_latent_state_updater_hidden_size', (100, 100))

@@ -23,9 +23,10 @@ from absl import logging
 from absl.testing import flagsaver
 from absl.testing import parameterized
 import jax
-# import ml_collections
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
 import sngp  # local file import from baselines.jft
 import test_utils  # local file import from baselines.jft
@@ -38,7 +39,9 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
   def setUp(self):
     super().setUp()
     baseline_root_dir = pathlib.Path(__file__).parents[1]
-    self.data_dir = os.path.join(baseline_root_dir, 'testing_data')
+    data_dir = os.path.join(baseline_root_dir, 'testing_data')
+    logging.info('data_dir contents: %s', os.listdir(data_dir))
+    self.data_dir = data_dir
 
   @parameterized.parameters(
       ('imagenet2012', 'token', 2, 65.89198, 70.65269470214844, 0.56, False),
@@ -95,8 +98,10 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
     logging.info('(train_loss, val_loss, fewshot_acc_sum) = %s, %s, %s',
                  train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
-    self.assertAllClose(train_loss, correct_train_loss, atol=0.025, rtol=0.3)
-    self.assertAllClose(val_loss['val'], correct_val_loss, atol=0.02, rtol=0.3)
+    np.testing.assert_allclose(train_loss, correct_train_loss,
+                               atol=0.025, rtol=0.3)
+    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
+                               atol=0.02, rtol=0.3)
 
   @parameterized.parameters(
       ('imagenet2012', 'token', None, True, 29.3086, 17.3351, 0.67, 'imagenet'),
@@ -171,8 +176,10 @@ class SNGPTest(parameterized.TestCase, tf.test.TestCase):
                  train_loss, val_loss['val'], fewshot_acc_sum)
     # TODO(dusenberrymw,jjren): Add a reproducibility test for OOD eval.
     # TODO(dusenberrymw): Determine why the SNGP script is non-deterministic.
-    self.assertAllClose(train_loss, correct_train_loss, atol=1e-3, rtol=1e-3)
-    self.assertAllClose(val_loss['val'], correct_val_loss, atol=2e-3, rtol=2e-3)
+    np.testing.assert_allclose(train_loss, correct_train_loss,
+                               atol=1e-3, rtol=1e-3)
+    np.testing.assert_allclose(val_loss['val'], correct_val_loss,
+                               atol=2e-3, rtol=2e-3)
 
 
 if __name__ == '__main__':

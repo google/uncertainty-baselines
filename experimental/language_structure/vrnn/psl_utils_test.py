@@ -37,11 +37,15 @@ class _PSLTestModel(psl_model.PSLModel):
 
 class PslUtilsTest(tfds.testing.TestCase):
 
-  def test_psl_feature_mixin(self):
+  def test_multiwoz_synth_psl_feature_mixin(self):
     inputs = [{
-        'input_word_ids': tf.constant([[[[1, 0], [0, 0]]]])
+        'input_word_ids': tf.constant([[[1, 2, 0], [0, 0, 0]]])
     }, {
-        'input_word_ids': tf.constant([[[[2, 1], [0, 0]]]])
+        'input_word_ids': tf.constant([[[2, 1, 0], [0, 0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[1, 2, 0], [0, 0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[2, 1, 0], [0, 0, 0]]])
     },
               tf.constant([3]),
               tf.constant([4]),
@@ -54,15 +58,15 @@ class PslUtilsTest(tfds.testing.TestCase):
         'accept_words': ['yes'],
         'cancel_words': [],
         'end_words': [],
-        'greet_words': [],
+        'greet_words': ['hello'],
         'info_question_words': [],
         'insist_words': [],
         'slot_question_words': [],
         'includes_word': -1,
         'excludes_word': -2,
-        'utterance_mask': -1,
-        'last_utterance_mask': -2,
-        'pad_utterance_mask': -3,
+        'utterance_mask': -3,
+        'last_utterance_mask': -4,
+        'pad_utterance_mask': -5,
     }
     vocab = ['<pad>', 'yes', 'hello']
 
@@ -72,7 +76,52 @@ class PslUtilsTest(tfds.testing.TestCase):
     self.assertLen(outputs, len(inputs) + 1)
     for i in range(len(inputs)):
       self.assertAllEqual(outputs[i], inputs[i])
-    self.assertAllEqual(outputs[-1], tf.constant([[[[-2, -1], [-2, -1]]]]))
+    self.assertAllEqual(
+        outputs[-1],
+        tf.constant([[[-4, -1, -2, -2, -1, -2, -2, -2],
+                      [-5, -2, -2, -2, -2, -2, -2, -2]]]))
+
+  def test_dstc_synth_psl_feature_mixin(self):
+    inputs = [{
+        'input_word_ids': tf.constant([[[1, 0], [0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[2, 1], [0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[1, 0], [0, 0]]])
+    }, {
+        'input_word_ids': tf.constant([[[2, 1], [0, 0]]])
+    },
+              tf.constant([3]),
+              tf.constant([4]),
+              tf.constant([5]),
+              tf.constant([6]),
+              tf.constant([7])]
+    fn = lambda _: inputs
+    dataset = 'sgd_synth'
+    config = {
+        'num_batches': 1,
+        'batch_size': 1,
+        'max_dialog_size': 1,
+        'max_utterance_size': 2,
+        'num_labels': 39,
+        'includes_word': -1,
+        'excludes_word': -2,
+        'utterance_mask': -3,
+        'last_utterance_mask': -4,
+        'pad_utterance_mask': -5,
+        'mask_index': 0,
+    }
+
+    vocab = ['<pad>', 'yes', 'hello']
+
+    mixin_fn = psl_utils.psl_feature_mixin(fn, dataset, config, vocab)
+    outputs = mixin_fn(inputs)
+
+    self.assertLen(outputs, len(inputs) + 1)
+    for i in range(len(inputs)):
+      self.assertAllEqual(outputs[i], inputs[i])
+    self.assertAllEqual(
+        outputs[-1], tf.constant([[[1, 0, 2, 1], [0, 0, 0, 0]]]))
 
   def test_update_logits(self):
     model = tf.keras.Sequential(layers=[

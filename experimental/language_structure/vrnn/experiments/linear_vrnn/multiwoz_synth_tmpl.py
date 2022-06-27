@@ -37,7 +37,9 @@ def get_config(**kwargs):
   """Returns the configuration for this experiment."""
   config = default_config.get_config(_DATASET, **kwargs)
 
-  config.train_epochs = 100
+  config.train_epochs = 60
+  config.patience = -1
+  config.model.vae_cell.encoder_hidden_size = 256
 
 
   add_psl_config(config)

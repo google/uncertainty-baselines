@@ -121,22 +121,24 @@ def main(argv):
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
   steps_per_eval = IMAGENET_VALIDATION_IMAGES // batch_size
 
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   test_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TEST,
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=FLAGS.data_dir)
   clean_test_dataset = test_builder.load(batch_size=batch_size)
   test_datasets = {'clean': clean_test_dataset}
-  corruption_types, max_intensity = utils.load_corrupted_test_info()
-  for name in corruption_types:
-    for intensity in range(1, max_intensity + 1):
-      dataset_name = '{0}_{1}'.format(name, intensity)
-      test_datasets[dataset_name] = utils.load_corrupted_test_dataset(
-          corruption_name=name,
-          corruption_intensity=intensity,
-          batch_size=batch_size,
-          drop_remainder=True,
-          use_bfloat16=False)
+  corruption_types, max_severity = utils.load_corrupted_test_info()
+  for corruption_type in corruption_types:
+    for severity in range(1, max_severity + 1):
+      dataset_name = '{0}_{1}'.format(corruption_type, severity)
+      corrupted_builder = ub.datasets.ImageNetCorruptedDataset(
+          corruption_type=corruption_type,
+          severity=severity,
+          use_bfloat16=FLAGS.use_bfloat16,
+          data_dir=FLAGS.data_dir)
+      test_datasets[dataset_name] = corrupted_builder.load(
+          batch_size=batch_size)
 
   model = ub.models.resnet50_sngp(
       input_shape=(224, 224, 3),
@@ -260,7 +262,7 @@ def main(argv):
 
   corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
                                                     corruption_types,
-                                                    max_intensity,
+                                                    max_severity,
                                                     FLAGS.alexnet_errors_path)
   total_results = {name: metric.result() for name, metric in metrics.items()}
   # Metrics from Robustness Metrics (like ECE) will return a dict with a

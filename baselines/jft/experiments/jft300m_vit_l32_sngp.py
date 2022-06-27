@@ -34,6 +34,7 @@ def get_config():
   config.num_classes = 18291
   config.init_head_bias = -10.0
 
+  config.seed = 0
   config.trial = 0
   config.batch_size = 4096
   config.num_epochs = 7
@@ -99,3 +100,10 @@ def get_config():
   return config
 
 
+def get_sweep(hyper):
+  # Below shows an example for how to sweep hyperparameters.
+  # lr_grid = [1e-4, 2e-4, 3e-4, 4e-4, 5e-4, 6e-4, 7e-4, 8e-4]
+  return hyper.product([
+      hyper.sweep('config.seed', list(range(4))),
+      # hyper.sweep('config.lr.base', lr_grid),
+  ])

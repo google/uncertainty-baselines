@@ -77,9 +77,12 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
-  config.model.transformer.ens_size = 3
+  config.model.transformer.be_layers = (22, 23)  # Set in sweep.
+  config.model.transformer.ens_size = 3  # Set in sweep.
   config.model.transformer.random_sign_init = -0.5
+  # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
+  # need checkpoints that only apply BE on the FF block.
+  config.model.transformer.ensemble_attention = True  # Set in sweep.
   config.fast_weight_lr_multiplier = 1.0
 
   # This is "no head" fine-tuning, which we use by default
@@ -90,7 +93,7 @@ def get_config():
   config.optim = ml_collections.ConfigDict()
   config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
-  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 1e-3  # Set in sweep.
@@ -103,6 +106,16 @@ def get_config():
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+  use_jft = True  # whether to use JFT or I21K
+  if use_jft:
+    # TODO(dusenberrymw): Considering unifying the JFT and I21k models.
+    ensemble_attention = True
+    be_layers = (22, 23)
+    ens_size = 3
+  else:
+    ensemble_attention = False
+    be_layers = (21, 22, 23)
+    ens_size = 3
 
   cifar10_sweep = hyper.product([
       hyper.chainit([
@@ -128,16 +141,49 @@ def get_sweep(hyper):
       ]),
       hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
   ])
+  imagenet_1shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='1shot', steps=200, warmup=s,
+              log_eval_steps=20)) for s in [1, 5, 10]
+      ]),
+      hyper.sweep('config.lr.base', [0.04, 0.03, 0.02]),
+  ])
+  imagenet_5shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='5shot', steps=1000, warmup=s,
+              log_eval_steps=100)) for s in [1, 10, 20, 30]
+      ]),
+      hyper.sweep('config.lr.base', [0.05, 0.04, 0.03]),
+  ])
+  imagenet_10shot_sweep = hyper.product([
+      hyper.chainit([
+          hyper.product(sweep_utils.imagenet_fewshot(
+              hyper, fewshot='10shot', steps=2000, warmup=s,
+              log_eval_steps=200)) for s in [30, 40, 50]
+      ]),
+      hyper.sweep('config.lr.base', [0.06, 0.05, 0.03]),
+  ])
   return hyper.product([
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
           imagenet_sweep,
+          imagenet_1shot_sweep,
+          imagenet_5shot_sweep,
+          imagenet_10shot_sweep,
       ]),
       hyper.product([
           hyper.sweep('config.fast_weight_lr_multiplier', [0.5, 1.0, 2.0]),
-          hyper.sweep('config.model.transformer.random_sign_init',
-                      [-0.5, 0.5]),
+          hyper.sweep('config.model.transformer.random_sign_init', [-0.5, 0.5]),
           hyper.sweep('config.model_init', checkpoints),
+          hyper.fixed(
+              'config.model.transformer.be_layers', be_layers, length=1),
+          hyper.fixed(
+              'config.model.transformer.ensemble_attention',
+              ensemble_attention,
+              length=1),
+          hyper.fixed('config.model.transformer.ens_size', ens_size, length=1),
       ])
   ])

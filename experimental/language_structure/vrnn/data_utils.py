@@ -19,7 +19,7 @@ import os
 
 SUPPORTED_DATASETS = [
     'simdial', 'simdial-weather', 'simdial-bus', 'simdial-movie',
-    'simdial-restaurant', 'multiwoz_synth', 'sgd_synth'
+    'simdial-restaurant', 'multiwoz_synth', 'sgd_synth', 'sgd'
 ]
 
 _DATASET_MAX_SEQ_LENGTH = {
@@ -30,6 +30,7 @@ _DATASET_MAX_SEQ_LENGTH = {
     'simdial-restaurant': 40,
     'multiwoz_synth': 42,
     'sgd_synth': 76,
+    'sgd': 79,
 }
 
 _DATASET_MAX_DIALOG_LENGTH = {
@@ -40,6 +41,7 @@ _DATASET_MAX_DIALOG_LENGTH = {
     'simdial-restaurant': 13,
     'multiwoz_synth': 7,
     'sgd_synth': 24,
+    'sgd': 25,
 }
 
 _DATASET_NUM_LATENT_STATES = {
@@ -50,6 +52,7 @@ _DATASET_NUM_LATENT_STATES = {
     'simdial-restaurant': 20,
     'multiwoz_synth': 10,
     'sgd_synth': 39,
+    'sgd': 75,
 }
 
 _DATASET_NUM_DOMIANS = {
@@ -60,9 +63,10 @@ _DATASET_NUM_DOMIANS = {
     'simdial-restaurant': 2,
     'multiwoz_synth': 7,
     'sgd_synth': 33,
+    'sgd': 18,
 }
 
-_DATASET_BASEDIR_PATH = ''
+_DATASET_BASEDIR_PATH = {dataset: '' for dataset in SUPPORTED_DATASETS}
 
 
 

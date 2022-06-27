@@ -164,6 +164,13 @@ flags.DEFINE_float(
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
+flags.DEFINE_integer(
+    'gp_mc_sampling', -1,
+    ('Sample size for Monte Carlo Sampling for GP output softmax. if -1, '
+     'use mean field approaximation to estimate the softmax given '
+     'GP mean and varaince for logits.'))
+flags.DEFINE_float('gp_mc_temp_scale', 1.0, ('Temperature scaling factor for'
+                                             ' re-scaling the GP variance.'))
 
 # OOD flags.
 flags.DEFINE_bool(
@@ -178,7 +185,7 @@ flags.DEFINE_integer(
     ' Use -1 to never evaluate.')
 flags.DEFINE_string('saved_model_dir', None,
                     'Directory containing the saved model checkpoints.')
-flags.DEFINE_bool('dempster_shafer_ood', True,
+flags.DEFINE_bool('dempster_shafer_ood', False,
                   'Wheter to use DempsterShafer Uncertainty score.')
 flags.DEFINE_list(
     'ood_tpr_threshold', ['0.8', '0.95'],
@@ -354,16 +361,28 @@ def main(argv):
                                         momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
-        'train/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
-        'test/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
-        'test/stddev': tf.keras.metrics.Mean(),
+        'train/negative_log_likelihood':
+            tf.keras.metrics.Mean(),
+        'train/accuracy':
+            tf.keras.metrics.SparseCategoricalAccuracy(),
+        'train/loss':
+            tf.keras.metrics.Mean(),
+        'train/ece':
+            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/negative_log_likelihood':
+            tf.keras.metrics.Mean(),
+        'test/accuracy':
+            tf.keras.metrics.SparseCategoricalAccuracy(),
+        'test/ece':
+            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/stddev':
+            tf.keras.metrics.Mean(),
+        'test/logits_norm':
+            tf.keras.metrics.Mean(),
+        'test/logits_mean':
+            tf.keras.metrics.Mean(),
+        'test/logits_var':
+            tf.keras.metrics.Mean(),
     }
     if use_validation_set:
       metrics.update({
@@ -479,9 +498,16 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+      labels_broadcasted = tf.broadcast_to(
+          labels, [FLAGS.num_dropout_samples,
+                   tf.shape(labels)[0]])
 
       logits_list = []
       stddev_list = []
+      probs_list = []
+      logits_norm_list = []
+      logits_mean_list = []
+      logits_var_list = []
       for _ in range(FLAGS.num_dropout_samples):
         logits = model(images, training=False)
         if isinstance(logits, (list, tuple)):
@@ -489,31 +515,55 @@ def main(argv):
           logits, covmat = logits
           if FLAGS.use_bfloat16:
             logits = tf.cast(logits, tf.float32)
-          logits = ed.layers.utils.mean_field_logits(
-              logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
+          logits0 = logits
+          if FLAGS.gp_mc_sampling == -1:
+            logits = ed.layers.utils.mean_field_logits(
+                logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
+            probs = tf.nn.softmax(logits)
+          else:
+            probs = ed.layers.utils.monte_carlo_softmax(
+                logits,
+                tf.linalg.diag_part(covmat),
+                num_samples=FLAGS.gp_mc_sampling,
+                temp_scale=FLAGS.gp_mc_temp_scale)
+            logits = tf.math.log(probs)  # logits given probs is not unique
         else:
           covmat = tf.eye(logits.shape[0])
           if FLAGS.use_bfloat16:
             logits = tf.cast(logits, tf.float32)
+          probs = tf.nn.softmax(logits)
+
+        logits_norm = tf.norm(logits0, axis=1)
+        logits_mean = tf.reduce_mean(logits0, axis=1)
+        logits_var = tf.math.reduce_variance(logits0, axis=1)
         stddev = tf.sqrt(tf.linalg.diag_part(covmat))
 
         stddev_list.append(stddev)
         logits_list.append(logits)
+        probs_list.append(probs)
+        logits_norm_list.append(logits_norm)
+        logits_mean_list.append(logits_mean)
+        logits_var_list.append(logits_var)
 
       # Logits dimension is (num_samples, batch_size, num_classes).
       logits_list = tf.stack(logits_list, axis=0)
       stddev_list = tf.stack(stddev_list, axis=0)
+      probs_list = tf.stack(probs_list, axis=0)
 
       stddev = tf.reduce_mean(stddev_list, axis=0)
-      probs_list = tf.nn.softmax(logits_list)
       probs = tf.reduce_mean(probs_list, axis=0)
       logits = tf.reduce_mean(logits_list, axis=0)
 
-      labels_broadcasted = tf.broadcast_to(
-          labels, [FLAGS.num_dropout_samples,
-                   tf.shape(labels)[0]])
-      log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
-          labels_broadcasted, logits_list, from_logits=True)
+      logits_norm = tf.reduce_mean(tf.stack(logits_norm_list, axis=0))
+      logits_mean = tf.reduce_mean(tf.stack(logits_mean_list, axis=0))
+      logits_var = tf.reduce_mean(tf.stack(logits_var_list, axis=0))
+
+      if FLAGS.gp_mc_sampling == -1:
+        log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
+            labels_broadcasted, logits_list, from_logits=True)
+      else:
+        log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
+            labels_broadcasted, probs_list, from_logits=False)
       negative_log_likelihood = tf.reduce_mean(
           -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
           tf.math.log(float(FLAGS.num_dropout_samples)))
@@ -525,6 +575,9 @@ def main(argv):
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
         metrics['test/stddev'].update_state(stddev)
+        metrics['test/logits_norm'].update_state(logits_norm)
+        metrics['test/logits_mean'].update_state(logits_mean)
+        metrics['test/logits_var'].update_state(logits_var)
       elif dataset_name == 'val':
         metrics['val/negative_log_likelihood'].update_state(
             negative_log_likelihood)
@@ -534,6 +587,10 @@ def main(argv):
       elif dataset_name.startswith('ood/'):
         ood_labels = 1 - inputs['is_in_distribution']
         if FLAGS.dempster_shafer_ood:
+          # TODO(jjren) logits out of monte_carlo_sampling is not correct for
+          # DempsterShaferUncertainty since
+          # belief_mass = tf.reduce_sum(tf.exp(logits), axis=-1) is always 1
+          # num_classes / (belief_mass + num_classes) is a constant
           ood_scores = ood_utils.DempsterShaferUncertainty(logits)
         else:
           ood_scores = 1 - tf.reduce_max(probs, axis=-1)

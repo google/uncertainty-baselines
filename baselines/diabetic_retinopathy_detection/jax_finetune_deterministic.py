@@ -342,10 +342,6 @@ def main(argv):
 
     return opt, l, rng, measurements
 
-  # Set config checkpoint resume path, if provided in args.
-  if config.resume_checkpoint_path is not None:
-    config.resume = config.resume_checkpoint_path
-
   rng, train_loop_rngs = jax.random.split(rng)
   reint_params = ('head/kernel', 'head/bias')
   if config.get('only_eval', False) or not config.get('reint_head', True):
@@ -362,12 +358,6 @@ def main(argv):
   train_loop_rngs = checkpoint_data.train_loop_rngs
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
-
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
-  opt_cpu = opt_cpu.replace(target=adapted_params)
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.

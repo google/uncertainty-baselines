@@ -70,10 +70,10 @@ def create_optimizer(
       optimizer_type=optimizer_type)
 
 
-def bert_model(
-    num_classes: int,
-    max_seq_length: int,
-    bert_config: configs.BertConfig) -> Tuple[tf.keras.Model, tf.keras.Model]:
+def bert_model(num_classes: int,
+               max_seq_length: int,
+               bert_config: configs.BertConfig,
+               num_heads: int = 1) -> Tuple[tf.keras.Model, tf.keras.Model]:
   """BERT classifier model in functional API style.
 
   Construct a Keras model for predicting `num_labels` outputs from an input with
@@ -83,6 +83,7 @@ def bert_model(
     num_classes: (int) the number of classes.
     max_seq_length: (int) the maximum input sequence length.
     bert_config: (BertConfig) Configuration for a BERT model.
+    num_heads: (int) the number of additional output heads.
 
   Returns:
     Combined prediction model (words, mask, type) -> (one-hot labels)
@@ -107,6 +108,19 @@ def bert_model(
       kernel_initializer=final_layer_initializer,
       name='predictions/transform/logits')(
           cls_output)
+
+  # Build additional heads if num_heads > 1.
+  if num_heads > 1:
+    outputs = [outputs]
+    for head_id in range(1, num_heads):
+      additional_outputs = tf.keras.layers.Dense(
+          num_classes,
+          activation=None,
+          kernel_initializer=final_layer_initializer,
+          name=f'predictions/transform/logits_{head_id}')(
+              cls_output)
+
+      outputs.append(additional_outputs)
 
   # Construct model.
   bert_classifier = tf.keras.Model(inputs=inputs, outputs=outputs)

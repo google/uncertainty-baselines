@@ -16,7 +16,6 @@
 """Heteroscedastic ViT on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
-import itertools
 import multiprocessing
 import os
 
@@ -27,6 +26,7 @@ from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
 from clu import preprocess_spec
+import edward2 as ed
 import flax
 import flax.jax_utils as flax_utils
 import jax
@@ -60,6 +60,24 @@ flags.DEFINE_string('tpu', None,
 flags.DEFINE_integer('seed', default=0, help='Random seed.')
 
 FLAGS = flags.FLAGS
+
+
+def _get_temperature(config, replicated_params):
+  """Retrieve the temperature to track it over the training steps."""
+  model_config = config.get('model', {})
+  if not model_config.get('tune_temperature'):
+    return model_config.get('temperature')
+
+  is_multiclass = model_config.get('multiclass')
+  prefix = 'multiclass_head' if is_multiclass else 'multilabel_head'
+  params_key = 'pre_sigmoid_temperature'
+  # We take the first value since the params are in a replicated form.
+  pre_sigmoid_temperature = replicated_params[prefix][params_key][0]
+  return float(
+      ed.jax.nn.heteroscedastic_lib.compute_temperature(
+          pre_sigmoid_temperature,
+          lower=model_config.get('temperature_lower_bound'),
+          upper=model_config.get('temperature_upper_bound')))
 
 
 def main(config, output_dir):
@@ -124,10 +142,6 @@ def main(config, output_dir):
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=config.get('data_dir'))
-
-  # Start prefetching already.
-  train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
 
@@ -238,7 +252,7 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
-  model = ub.models.het_vision_transformer(
+  model = ub.models.vision_transformer_het(
       num_classes=config.num_classes, **config.get('model', {}))
 
   # We want all parameters to be created in host RAM, not on any device, they'll
@@ -392,7 +406,7 @@ def main(config, output_dir):
   # device as the input is, in this case the CPU. Else they'd be on device[0].
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
   weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  rescale_value = 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
@@ -484,18 +498,15 @@ def main(config, output_dir):
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
-  opt_cpu = opt_cpu.replace(target=adapted_params)
-
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  logging.info('first_step = %s', first_step)
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
+
   chrono = train_utils.Chrono(first_step, total_steps, batch_size,
                               accumulated_train_time)
+
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -503,14 +514,7 @@ def main(config, output_dir):
       # problems and assure we get similar performance in every run.
       logdir=output_dir, first_profile=first_step + 10)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
-  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
-  # necessary for TPUs.
-  lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
-
+  # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
 
@@ -523,6 +527,23 @@ def main(config, output_dir):
 
   checkpoint_writer = None
 
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+
+  # Prefetch all iterators, starting at the current first step.
+  if first_step > 0:
+    write_note('Advancing the dataset after resuming from a checkpoint...')
+    # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+    train_ds = train_ds.skip(first_step)
+
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
+
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
@@ -530,20 +551,10 @@ def main(config, output_dir):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  logging.info('first_step = %s', first_step)
-  # Advance the iterators if we are restarting from an earlier checkpoint.
-  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
-  if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
-    lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
-
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-
-    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
       if not config.get('only_eval', False):
         opt_repl, loss_value, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
@@ -597,6 +608,7 @@ def main(config, output_dir):
       train_measurements.update({
           'learning_rate': lr_repl[0],
           'training_loss': train_loss,
+          'temperature': _get_temperature(config, opt_repl.target)
       })
       train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)

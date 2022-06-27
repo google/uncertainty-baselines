@@ -14,9 +14,7 @@
 # limitations under the License.
 
 """Deterministic ViT."""
-
 import functools
-import itertools
 import multiprocessing
 import os
 
@@ -124,10 +122,6 @@ def main(config, output_dir):
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=config.get('data_dir'))
 
-  # Start prefetching already.
-  train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1))
-
   write_note('Initializing val dataset(s)...')
 
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
@@ -180,6 +174,20 @@ def main(config, output_dir):
                 pp_eval=config.pp_eval,
                 data_dir=config.get('data_dir'))
     })
+
+  if config.get('subpopl_cifar_data_file'):
+    dataset_builder = input_utils.cifar_from_sql(
+        sql_database=config.subpopl_cifar_data_file,
+        num_classes=config.num_classes)
+
+    subpopl_val_ds_splits = {  # pylint: disable=g-complex-comprehension
+        client_id: _get_val_split(
+            dataset_builder,
+            split=client_id,
+            pp_eval=config.pp_eval_subpopl_cifar,
+            data_dir=config.subpopl_cifar_data_file)
+        for client_id in dataset_builder.client_ids
+    }
 
   if config.get('eval_on_cifar_10h'):
     cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
@@ -354,7 +362,7 @@ def main(config, output_dir):
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
   weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  rescale_value = 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
@@ -426,18 +434,15 @@ def main(config, output_dir):
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
-  opt_cpu = opt_cpu.replace(target=adapted_params)
-
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  logging.info('first_step = %s', first_step)
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
+
   chrono = train_utils.Chrono(
       first_step, total_steps, batch_size, accumulated_train_time)
+
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -445,14 +450,7 @@ def main(config, output_dir):
       # problems and assure we get similar performance in every run.
       logdir=output_dir, first_profile=first_step + 10)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
-  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
-  # necessary for TPUs.
-  lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
-
+  # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax.jax_utils.replicate(opt_cpu)
 
@@ -465,6 +463,23 @@ def main(config, output_dir):
 
   checkpoint_writer = None
 
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+
+  # Prefetch all iterators, starting at the current first step.
+  if first_step > 0:
+    write_note('Advancing the dataset after resuming from a checkpoint...')
+    # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+    train_ds = train_ds.skip(first_step)
+
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
+
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
@@ -472,20 +487,10 @@ def main(config, output_dir):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  logging.info('first_step = %s', first_step)
-  # Advance the iterators if we are restarting from an earlier checkpoint.
-  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
-  if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
-    lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
-
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-
-    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
       if not config.get('only_eval', False):
         opt_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
@@ -497,7 +502,7 @@ def main(config, output_dir):
     if jax.process_index() == 0:
       profiler(step)
 
-    # Checkpoint saving
+    # Checkpoint saving.
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
       write_note('Checkpointing...')
@@ -529,7 +534,7 @@ def main(config, output_dir):
           (checkpoint_data, save_checkpoint_path, copy_step))
       chrono.resume()
 
-    # Report training progress
+    # Report training progress.
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
@@ -542,7 +547,7 @@ def main(config, output_dir):
       # Keep train_loss to return for reproducibility tests.
       train_loss = train_measurements['training_loss']
 
-    # Report validation performance
+    # Report validation performance.
     if config.get('only_eval', False) or train_utils.itstime(
         step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
@@ -643,7 +648,7 @@ def main(config, output_dir):
           }
           writer.write_scalars(step, cifar_10h_measurements)
 
-      # OOD eval
+      # OOD evaluation.
       # Entries in the ood_ds dict include:
       # (ind_dataset, ood_dataset1, ood_dataset2, ...).
       # OOD metrics are computed using ind_dataset paired with each of the
@@ -659,6 +664,44 @@ def main(config, output_dir):
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
+
+      # Perform subpopulation shift evaluation only if flag is provided.
+      if config.get('subpopl_cifar_data_file'):
+        subpopl_measurements = {}
+        # Iterate over subpopulations.
+        for val_subpopl_name, val_ds in subpopl_val_ds_splits.items():
+          val_iter = input_utils.start_input_pipeline(
+              val_ds, config.get('prefetch_to_device', 1))
+          ncorrect, nseen = 0, 0
+          for batch in val_iter:
+            batch_ncorrect, _, batch_n, _ = (
+                evaluation_fn(opt_repl.target, batch['image'], batch['labels'],
+                              batch['mask']))
+            # All results are a replicated array shaped as follows:
+            # (local_devices, per_device_batch_size, elem_shape...)
+            # with each local device's entry being identical as they got psum'd.
+            # So let's just take the first one to the host as numpy.
+            ncorrect += np.sum(np.array(batch_ncorrect[0]))
+            nseen += np.sum(np.array(batch_n[0]))
+
+          subpopl_measurements.update({
+              f'subpopl_{val_subpopl_name}_prec@1': ncorrect / nseen,
+          })
+
+        # Calculate aggregated metrics over subpopulations.
+        agg_measurements = dict()
+        precs = [
+            v for k, v in subpopl_measurements.items() if k.endswith('_prec@1')
+        ]
+        agg_measurements['subpopl_avg_prec@1'] = np.mean(precs)
+        agg_measurements['subpopl_med_prec@1'] = np.median(precs)
+        agg_measurements['subpopl_var_prec@1'] = np.var(precs)
+        agg_measurements['subpopl_p95_prec@1'] = np.percentile(precs, 95)
+        agg_measurements['subpopl_p75_prec@1'] = np.percentile(precs, 75)
+        agg_measurements['subpopl_p25_prec@1'] = np.percentile(precs, 25)
+        agg_measurements['subpopl_p05_prec@1'] = np.percentile(precs, 5)
+
+        writer.write_scalars(step, scalars=agg_measurements)
 
     if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.

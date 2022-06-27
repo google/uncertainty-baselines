@@ -65,7 +65,6 @@ def get_config():
   # !!!  The below section should be modified per experiment
   config.model_init = '/path/to/pretrained_model_ckpt.npz'
 
-
   # Model definition to be copied from the pre-training config
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
@@ -80,7 +79,7 @@ def get_config():
   config.model.classifier = 'token'  # Or 'gap'
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
+  config.model.transformer.be_layers = (22, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = 0.5
   config.fast_weight_lr_multiplier = 1.0
@@ -93,7 +92,7 @@ def get_config():
   config.optim = ml_collections.ConfigDict()
   config.grad_clip_norm = 1.0
   config.weight_decay = None  # No explicit weight decay
-  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 1e-3  # Set in sweep.
@@ -105,6 +104,7 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweep over datasets and relevant hyperparameters."""
+
   cifar10_sweep = hyper.product([
       hyper.chainit([
           hyper.product(sweep_utils.cifar10(

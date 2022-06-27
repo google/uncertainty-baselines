@@ -106,3 +106,9 @@ def get_config():
   return config
 
 
+def get_sweep(hyper):
+  return hyper.product([
+      hyper.sweep('config.seed', [0]),
+      hyper.sweep('config.het.temperature',
+                  [1.0, 1.25, 1.5, 1.75, 2.0, 2.5])
+  ])

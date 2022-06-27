@@ -24,6 +24,7 @@ import flax.jax_utils as flax_utils
 import jax
 import jax.numpy as jnp
 import ml_collections
+import numpy as np
 import tensorflow as tf
 import uncertainty_baselines as ub
 import checkpoint_utils  # local file import from baselines.jft
@@ -54,6 +55,21 @@ def _make_deterministic_model(num_classes=21843, representation_size=2):
       num_classes=num_classes, representation_size=representation_size)
   model = ub.models.vision_transformer(
       num_classes=config.num_classes, **config.get("model", {}))
+  return model, config
+
+
+def _make_sngp_model(num_classes=21843, representation_size=2):
+  config = _get_config(num_classes=num_classes,
+                       representation_size=representation_size)
+  vit_kwargs = config.get("model")
+  gp_layer_kwargs = {"covmat_kwargs": {"momentum": 0.999}}
+
+  model = ub.models.vision_transformer_gp(
+      num_classes=config.num_classes,
+      use_gp_layer=True,
+      vit_kwargs=vit_kwargs,
+      gp_layer_kwargs=gp_layer_kwargs)
+
   return model, config
 
 
@@ -156,12 +172,13 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     leaves = jax.tree_util.tree_leaves(tree)
     new_leaves = jax.tree_util.tree_leaves(new_tree)
     for arr, new_arr in zip(leaves, new_leaves):
-      self.assertNotAllClose(arr, new_arr)
+      self.assertFalse(jnp.allclose(arr, new_arr), msg=(arr, new_arr))
 
     restored_tree = checkpoint_utils.load_checkpoint(new_tree, checkpoint_path)
     restored_leaves = jax.tree_util.tree_leaves(restored_tree)
     for arr, restored_arr in zip(leaves, restored_leaves):
-      self.assertAllClose(arr, restored_arr)
+      self.assertIsInstance(restored_arr, np.ndarray)
+      self.assertTrue(jnp.allclose(arr, restored_arr), msg=(arr, restored_arr))
 
   def test_checkpointing_model(self):
     key = jax.random.PRNGKey(42)
@@ -179,7 +196,8 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     restored_leaves = jax.tree_util.tree_leaves(restored_params)
     leaves = jax.tree_util.tree_leaves(params)
     for arr, restored_arr in zip(leaves, restored_leaves):
-      self.assertAllClose(arr, restored_arr)
+      self.assertIsInstance(restored_arr, np.ndarray)
+      np.testing.assert_allclose(arr, restored_arr)
 
     key, subkey = jax.random.split(key)
     inputs = jax.random.normal(subkey, input_shape, jnp.float32)
@@ -188,8 +206,12 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     _, restored_out = model.apply({"params": restored_params},
                                   inputs,
                                   train=False)
-    self.assertNotAllClose(out["pre_logits"], new_out["pre_logits"])
-    self.assertAllClose(out["pre_logits"], restored_out["pre_logits"])
+    np.testing.assert_raises(
+        AssertionError,
+        np.testing.assert_allclose,
+        out["pre_logits"],
+        new_out["pre_logits"])
+    np.testing.assert_allclose(out["pre_logits"], restored_out["pre_logits"])
 
 
   @parameterized.named_parameters(
@@ -245,17 +267,26 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(checkpoint_data.optimizer.state.step, num_steps)
     self.assertEqual(checkpoint_data.fixed_model_states, states)
     self.assertEqual(checkpoint_data.accumulated_train_time, train_time)
-    self.assertAllClose(checkpoint_data.train_loop_rngs,
-                        flax_utils.replicate(save_ckpt_key))
+    np.testing.assert_allclose(checkpoint_data.train_loop_rngs,
+                               flax_utils.replicate(save_ckpt_key))
 
-    self.assertAllClose(checkpoint_data.optimizer.target, params)
-    self.assertNotAllClose(checkpoint_data.optimizer.target, init_params)
+    def assert_dict_allclose(dict1, dict2):
+      leaves1 = jax.tree_util.tree_leaves(dict1)
+      leaves2 = jax.tree_util.tree_leaves(dict2)
+      for arr1, arr2 in zip(leaves1, leaves2):
+        self.assertIsInstance(arr2, np.ndarray)
+        np.testing.assert_allclose(arr1, arr2)
+
+    assert_dict_allclose(params, checkpoint_data.optimizer.target)
+    np.testing.assert_raises(
+        AssertionError, assert_dict_allclose, params, init_params)
 
   @parameterized.parameters(
       (["head/kernel"], True),
       ([], False),
   )
-  def test_checkpointing_reinitialize(self, reinit_params, expect_new_head):
+  def test_checkpointing_reinitialize_same_models(
+      self, reinit_params, expect_new_head):
     key = jax.random.PRNGKey(42)
     init_head_val = 1.
     ckpt_head_val = 0.
@@ -301,13 +332,99 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertEqual(checkpoint_data.optimizer.state.step, 0)
     self.assertEqual(checkpoint_data.accumulated_train_time, 0.)
-    self.assertAllClose(checkpoint_data.train_loop_rngs,
-                        flax_utils.replicate(load_ckpt_key))
+    np.testing.assert_allclose(checkpoint_data.train_loop_rngs,
+                               flax_utils.replicate(load_ckpt_key))
 
     expected_head_val = init_head_val if expect_new_head else ckpt_head_val
     actual_head = checkpoint_data.optimizer.target["head"]["kernel"]
-    self.assertAllClose(actual_head,
-                        jnp.ones_like(actual_head) * expected_head_val)
+    np.testing.assert_allclose(
+        actual_head,
+        jnp.ones_like(actual_head) * expected_head_val)
+
+  @parameterized.parameters(
+      (["pre_logits/kernel"], True, "smaller"),
+      (["pre_logits/kernel"], True, "same"),
+      (["pre_logits/kernel"], True, "larger"),
+      ([], False, "smaller"),
+  )
+  def test_checkpointing_reinitialize_different_models(
+      self, reinit_params, expect_new_pre_logits_kernel,
+      change_downstream_pytree_size_compared_with_upstream):
+    key = jax.random.PRNGKey(42)
+    num_steps = 10
+    train_time = 3.14
+
+    output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    checkpoint_path = os.path.join(output_dir, "checkpoint.npz")
+    self.assertFalse(os.path.exists(checkpoint_path))
+
+    # Initialize a upstream deterministic model.
+    model_det, _ = _make_deterministic_model()
+    key, init_key, save_ckpt_key = jax.random.split(key, 3)
+    params_det = _init_model(init_key, model_det)
+
+    # Create optimzier and save checkpoint.
+    opt = flax.optim.Adam().create(params_det)
+    opt = opt.replace(state=opt.state.replace(step=num_steps))
+    checkpoint_utils.checkpoint_trained_model(
+        checkpoint_utils.CheckpointData(
+            optimizer=opt,
+            fixed_model_states=None,
+            accumulated_train_time=train_time,
+            train_loop_rngs=flax_utils.replicate(save_ckpt_key)),
+        path=checkpoint_path)
+
+    # Initialize a downstream SNGP model.
+    model_sngp, config_sngp = _make_sngp_model()
+    key, init_key, load_ckpt_key = jax.random.split(key, 3)
+    init_params = _init_model(init_key, model_sngp)
+    if change_downstream_pytree_size_compared_with_upstream == "smaller":
+      # We delete the head/output_layer/bias to make SNGP parameter pytree
+      # smaller than the upstream model.
+      init_params_flat = checkpoint_utils._flatten_jax_params_dict(init_params)
+      del init_params_flat["head/output_layer/bias"]
+      init_params = checkpoint_utils._unflatten_jax_params_dict(
+          init_params_flat)
+    elif change_downstream_pytree_size_compared_with_upstream == "larger":
+      # We add the head/additional_kernel to make SNGP parameter pytree
+      # larger than the upstream model.
+      init_params_flat = checkpoint_utils._flatten_jax_params_dict(init_params)
+      init_params_flat["head/additional_kernel"] = jnp.ones((2, 2))
+      init_params = checkpoint_utils._unflatten_jax_params_dict(
+          init_params_flat)
+
+    # We make the SNGP's pre_logits layer kernel a dummpy jnp.ones matrix,
+    # which makes it easy to test whether the reinitialization
+    # works as expected.
+    init_params = flax.core.unfreeze(init_params)
+    init_params["pre_logits"]["kernel"] = jnp.ones_like(
+        init_params["pre_logits"]["kernel"])
+    init_params = flax.core.freeze(init_params)
+
+    init_opt = flax.optim.Adam().create(init_params)
+    config_sngp.model_init = checkpoint_path
+    config_sngp.model_reinit_params = reinit_params
+
+    # Load checkpoint from disk.
+    checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
+        load_ckpt_key,
+        init_optimizer=init_opt,
+        init_params=init_params,
+        init_fixed_model_states=0.,
+        save_checkpoint_path=None,
+        config=config_sngp,
+        default_reinit_params=("head/kernel", "head/bias"))
+
+    self.assertEqual(checkpoint_data.optimizer.state.step, 0)
+    self.assertEqual(checkpoint_data.accumulated_train_time, 0.)
+    self.assertAllClose(checkpoint_data.train_loop_rngs,
+                        flax_utils.replicate(load_ckpt_key))
+
+    actual_kernel = checkpoint_data.optimizer.target["pre_logits"]["kernel"]
+    if expect_new_pre_logits_kernel:
+      self.assertAllClose(actual_kernel, jnp.ones_like(actual_kernel))
+    else:
+      self.assertAllClose(actual_kernel, params_det["pre_logits"]["kernel"])
 
   def test_checkpointing_no_loading(self):
     key = jax.random.PRNGKey(42)
@@ -334,9 +451,14 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     self.assertEqual(checkpoint_data.optimizer.state.step, 0)
     self.assertEqual(checkpoint_data.accumulated_train_time, 0.)
 
-    self.assertAllClose(checkpoint_data.optimizer.target, opt.target)
-    self.assertAllClose(checkpoint_data.train_loop_rngs,
-                        flax_utils.replicate(ckpt_key))
+    restored_leaves = jax.tree_util.tree_leaves(
+        checkpoint_data.optimizer.target)
+    leaves = jax.tree_util.tree_leaves(opt.target)
+    for arr, restored_arr in zip(leaves, restored_leaves):
+      np.testing.assert_allclose(arr, restored_arr)
+
+    np.testing.assert_allclose(checkpoint_data.train_loop_rngs,
+                               flax_utils.replicate(ckpt_key))
 
   def test_adapt_upstream_architecture_toy(self):
     init_params = {"a": {"b": 1, "c": 2}, "d": 3}
@@ -375,7 +497,7 @@ def _get_batchensemble_params():
   config.model.transformer.ens_size = 3
   config.model.transformer.be_layers = (0,)
   config.model.transformer.random_sign_init = .5
-  model = ub.models.vit_batchensemble.PatchTransformerBE(
+  model = ub.models.vision_transformer_be(
       num_classes=config.num_classes, **config.model)
   return _init_model(key, model)
 
@@ -389,7 +511,7 @@ def _get_heteroscedastic_params():
   config.model.mc_samples = 1000
   config.model.num_factors = 50
   config.model.param_efficient = True
-  model = ub.models.het_vision_transformer(
+  model = ub.models.vision_transformer_het(
       num_classes=config.num_classes, **config.get("model", {}))
 
   key, diag_key, noise_key = jax.random.split(key, 3)
@@ -505,7 +627,7 @@ _MODEL_TO_PARAMS_AND_KEYS = {
 }
 
 
-class AdaptUpstreamModelTest(parameterized.TestCase, tf.test.TestCase):
+class AdaptUpstreamModelTest(parameterized.TestCase):
 
   @parameterized.product(
       upstream_model=[
@@ -546,12 +668,12 @@ class AdaptUpstreamModelTest(parameterized.TestCase, tf.test.TestCase):
       self.assertNotIn(key, actual_keys)
 
     for key in shared_keys:
-      self.assertAllEqual(flattened_adapted_params[key],
-                          flattened_upstream_params[key])
+      np.testing.assert_array_equal(flattened_adapted_params[key],
+                                    flattened_upstream_params[key])
 
     for key in expected_new_keys:
-      self.assertAllEqual(flattened_adapted_params[key],
-                          flattened_downstream_params[key])
+      np.testing.assert_array_equal(flattened_adapted_params[key],
+                                    flattened_downstream_params[key])
 
 
 if __name__ == "__main__":

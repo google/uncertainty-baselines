@@ -20,63 +20,71 @@ from typing import Any, Dict, List, Sequence
 import tensorflow as tf
 import data as data_utils  # local file import from experimental.language_structure.psl
 import psl_model  # local file import from experimental.language_structure.psl
+import psl_model_dstc_synthetic  # local file import from experimental.language_structure.psl
 import psl_model_multiwoz  # local file import from experimental.language_structure.psl
 import data_preprocessor as preprocessor  # local file import from experimental.language_structure.vrnn
 
 _INPUT_ID_NAME = preprocessor.INPUT_ID_NAME
 
-
-def _check_dataset_supported(dataset: str):
-  """Checks if the dataset is supported by PSL constraint model."""
-  if dataset != 'multiwoz_synth':
-    raise ValueError(
-        'Supported PSL constraint for dataset multiwoz_synth, found {}.'.format(
-            dataset))
+_MULTIWOZ_SYNTH = 'multiwoz_synth'
+_SGD_SYNTH = 'sgd_synth'
+_SGD = 'sgd'
 
 
 def get_psl_model(dataset: str, rule_names: List[str],
                   rule_weights: List[float], **kwargs) -> psl_model.PSLModel:
   """Constraints PSL constraint model."""
-  _check_dataset_supported(dataset)
-  return psl_model_multiwoz.PSLModelMultiWoZ(rule_weights, rule_names, **kwargs)
+  psl_model_cls_map = {
+      _MULTIWOZ_SYNTH: psl_model_multiwoz.PSLModelMultiWoZ,
+      _SGD_SYNTH: psl_model_dstc_synthetic.PSLModelDSTCSynthetic,
+      _SGD: psl_model_dstc_synthetic.PSLModelDSTCSynthetic
+  }
+
+  if dataset in psl_model_cls_map:
+    psl_model_cls = psl_model_cls_map[dataset]
+    return psl_model_cls(rule_weights, rule_names, **kwargs)
+
+  raise ValueError('Supported PSL constraint for dataset {}, found {}.'.format(
+      ', '.join(psl_model_cls_map.keys()), dataset))
 
 
-def _get_keyword_ids_per_class(config: Dict[str, Any],
+def _get_keyword_ids_per_class(dataset: str, config: Dict[str, Any],
                                vocab: Sequence[str]) -> Sequence[Sequence[int]]:
   """Gets keyword ids for each class in the PSL constraint model."""
   vocab_mapping = {word: word_id for word_id, word in enumerate(vocab)}
   keyword_ids_per_class = []
-  for key in [
-      'accept_words', 'cancel_words', 'end_words', 'greet_words',
-      'info_question_words', 'insist_words', 'slot_question_words'
-  ]:
-    keyword_ids = [
-        vocab_mapping[word] for word in config[key] if word in vocab_mapping
+
+  if dataset == _MULTIWOZ_SYNTH:
+    keys = [
+        'accept_words', 'cancel_words', 'end_words', 'greet_words',
+        'info_question_words', 'insist_words', 'slot_question_words'
     ]
-    if keyword_ids:
+    for key in keys:
+      keyword_ids = [
+          vocab_mapping[word] for word in config[key] if word in vocab_mapping
+      ]
       keyword_ids_per_class.append(keyword_ids)
   return keyword_ids_per_class
 
 
 def _create_psl_features(
-    dialogs: tf.Tensor, config: Dict[str, Any],
+    user_utterance_ids: tf.Tensor, system_utterance_ids: tf.Tensor,
+    config: Dict[str, Any], dataset: str,
     keyword_ids_per_class: Sequence[Sequence[int]]) -> tf.Tensor:
   """Creates features for PSL constraint model."""
+  if dataset in (_SGD, _SGD_SYNTH):
+    return tf.concat([user_utterance_ids, system_utterance_ids], axis=-1)
   features = data_utils.create_features(
-      dialogs,
+      user_utterance_ids,
+      system_utterance_ids,
       keyword_ids_per_class,
+      check_keyword_by_utterance=dataset == 'sgd_synth',
       include_keyword_value=config['includes_word'],
       exclude_keyword_value=config['excludes_word'],
       pad_utterance_mask_value=config['pad_utterance_mask'],
       utterance_mask_value=config['utterance_mask'],
       last_utterance_mask_value=config['last_utterance_mask'])
   return features
-
-
-def _create_psl_dialogs(user_utterance_ids: tf.Tensor,
-                        system_utterance_ids: tf.Tensor) -> tf.Tensor:
-  """Creates dialogs tensor of shape [batch_size, dialog_length, 2, seq_length]."""
-  return tf.stack([user_utterance_ids, system_utterance_ids], axis=2)
 
 
 def psl_feature_mixin(fn: Any, dataset: str, psl_config: Dict[str, Any],
@@ -92,18 +100,19 @@ def psl_feature_mixin(fn: Any, dataset: str, psl_config: Dict[str, Any],
   Returns:
     decorated `fn` to include PSL input features generation.
   """
-  _check_dataset_supported(dataset)
-  keyword_ids_per_class = _get_keyword_ids_per_class(psl_config, vocab)
+  keyword_ids_per_class = _get_keyword_ids_per_class(dataset, psl_config, vocab)
 
   def _run(inputs: tf.Tensor):
-    (input_1, input_2, label_id, label_mask, initial_state, initial_sample,
-     domain_label) = inputs
-    psl_dialogs = _create_psl_dialogs(input_1[_INPUT_ID_NAME],
-                                      input_2[_INPUT_ID_NAME])
-    psl_inputs = _create_psl_features(psl_dialogs, psl_config,
+    (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+     label_id, label_mask, initial_state, initial_sample, domains) = inputs
+
+    psl_inputs = _create_psl_features(encoder_input_1[_INPUT_ID_NAME],
+                                      encoder_input_2[_INPUT_ID_NAME],
+                                      psl_config, dataset,
                                       keyword_ids_per_class)
-    return (input_1, input_2, label_id, label_mask, initial_state,
-            initial_sample, domain_label, psl_inputs)
+    return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
+            label_id, label_mask, initial_state, initial_sample, domains,
+            psl_inputs)
 
   return lambda inputs: _run(fn(inputs))
 

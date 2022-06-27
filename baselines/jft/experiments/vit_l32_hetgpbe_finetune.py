@@ -120,21 +120,21 @@ def get_sweep(hyper):
   """Sweeps over datasets."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
   # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
-  cifar10_sweep = sweep_utils.cifar10(hyper, val_split='train[98%:]')
+  cifar10_sweep = sweep_utils.cifar10(hyper)
   cifar10_sweep.extend([
       hyper.sweep('config.model.num_factors', [3]),
       hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
   cifar10_sweep = hyper.product(cifar10_sweep)
 
-  cifar100_sweep = sweep_utils.cifar100(hyper, val_split='train[98%:]')
+  cifar100_sweep = sweep_utils.cifar100(hyper)
   cifar100_sweep.extend([
       hyper.sweep('config.model.num_factors', [10]),
       hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
   cifar100_sweep = hyper.product(cifar100_sweep)
 
-  imagenet_sweep = sweep_utils.imagenet(hyper, val_split='train[99%:]')
+  imagenet_sweep = sweep_utils.imagenet(hyper)
   imagenet_sweep.extend([
       hyper.sweep('config.model.num_factors', [15]),
       hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),

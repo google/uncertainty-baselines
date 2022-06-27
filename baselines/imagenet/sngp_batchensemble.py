@@ -172,30 +172,39 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
-      data_dir=data_dir)
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
       'clean': clean_test_dataset,
   }
   if FLAGS.corruptions_interval > 0:
-    corruption_types, max_intensity = utils.load_corrupted_test_info()
-    for name in corruption_types:
-      for intensity in range(1, max_intensity + 1):
-        dataset_name = '{0}_{1}'.format(name, intensity)
-        dataset = utils.load_corrupted_test_dataset(
-            batch_size=batch_size,
-            corruption_name=name,
-            corruption_intensity=intensity,
-            use_bfloat16=FLAGS.use_bfloat16)
-        test_datasets[dataset_name] = (
-            strategy.experimental_distribute_dataset(dataset))
+    corruption_types, max_severity = utils.load_corrupted_test_info()
+    for corruption_type in corruption_types:
+      for severity in range(1, max_severity + 1):
+        dataset_name = '{0}_{1}'.format(corruption_type, severity)
+        corrupted_builder = ub.datasets.ImageNetCorruptedDataset(
+            corruption_type=corruption_type,
+            severity=severity,
+            use_bfloat16=FLAGS.use_bfloat16,
+            data_dir=data_dir,
+            drop_remainder=False,
+            mask_and_pad=True)
+        test_datasets[dataset_name] = corrupted_builder.load(
+            batch_size=batch_size, strategy=strategy)
 
   if FLAGS.use_bfloat16:
     tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
@@ -259,7 +268,7 @@ def main(argv):
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
-      for intensity in range(1, max_intensity + 1):
+      for intensity in range(1, max_severity + 1):
         for corruption in corruption_types:
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
@@ -302,10 +311,15 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+      mask = inputs['mask']
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       labels = tf.tile(labels, [FLAGS.ensemble_size])
+      mask = tf.tile(mask, [FLAGS.ensemble_size])
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
+
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
 
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract logits
@@ -361,12 +375,15 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
+      mask = inputs['mask']
       labels = inputs['labels']
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
 
       logits_list = []
       stddev_list = []
       for _ in range(FLAGS.ensemble_size):
         logits = model(images, training=False)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
 
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract both
@@ -470,7 +487,7 @@ def main(argv):
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       corrupt_results = utils.aggregate_corrupt_metrics(
-          corrupt_metrics, corruption_types, max_intensity,
+          corrupt_metrics, corruption_types, max_severity,
           FLAGS.alexnet_errors_path)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',

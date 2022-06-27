@@ -14,13 +14,15 @@
 # limitations under the License.
 
 """Data loader for the Jigsaw toxicity classification datasets."""
+import json
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 from absl import logging
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import tensorflow_hub as hub
 
 from uncertainty_baselines.datasets import base
 
@@ -37,18 +39,42 @@ _IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
                     'intellectual_or_learning_disability',
                     'psychiatric_or_mental_illness', 'other_disability')
 
-_DATA_SPLIT_NAMES = map(
-    str, [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST])
+DATA_SPLIT_NAMES = list(
+    map(str, [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]))
 
 _TF_RECORD_NAME_PATTERNS = {
-    name: name + '_*.tfrecord' for name in _DATA_SPLIT_NAMES
+    name: name + '_*.tfrecord' for name in DATA_SPLIT_NAMES
 }
 
+_CSV_NAME_PATTERNS = {name: name + '*.csv' for name in DATA_SPLIT_NAMES}
 
-def _build_dataset(glob_dir: str, is_training: bool) -> tf.data.Dataset:
+_DATASET_TYPES = ['tfrecord', 'csv', 'tfds']
+
+NUM_EXAMPLES_JSON = 'num_examples.json'
+
+BIAS_EXAMPLE_IDS_JSON = 'bias_ids.json'
+
+
+def _build_tfrecord_dataset(glob_dir: str,
+                            is_training: bool) -> tf.data.Dataset:
   cycle_len = 10 if is_training else 1
   dataset = tf.data.Dataset.list_files(glob_dir, shuffle=is_training)
   dataset = dataset.interleave(tf.data.TFRecordDataset, cycle_length=cycle_len)
+  return dataset
+
+
+def _build_csv_dataset(glob_dir: str, is_training: bool) -> tf.data.Dataset:
+  """Builds a CSV dataset for toxic comments data."""
+  cycle_len = 10 if is_training else 1
+  dataset = tf.data.Dataset.list_files(glob_dir, shuffle=is_training)
+
+  def _csv_ds(path):
+    # ids, texts, labels, noise, bias, uncertainty, margin.
+    column_types = [str()] * 2 + [float()] * 5
+    return tf.data.experimental.CsvDataset(
+        path, record_defaults=column_types, header=True)
+
+  dataset = dataset.interleave(_csv_ds, cycle_length=cycle_len)
   return dataset
 
 
@@ -75,19 +101,48 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
   """Minimal TFDS DatasetBuilder for the Jigsaw toxicity dataset."""
   VERSION = tfds.core.Version('0.0.0')
 
-  def __init__(
-      self,
-      tfds_dataset_builder: tfds.core.DatasetBuilder,
-      max_seq_length: int,
-      data_dir: Optional[str],
-      **kwargs):
+  def __init__(self,
+               tfds_dataset_builder: tfds.core.DatasetBuilder,
+               max_seq_length: int,
+               data_dir: Optional[str],
+               dataset_type: str = 'tfrecord',
+               **kwargs):
     self._tfds_dataset_builder = tfds_dataset_builder
     self._max_seq_length = max_seq_length
-    super().__init__(
-        data_dir=data_dir, **kwargs)
+    self._split_num_examples = self._maybe_load_json(data_dir,
+                                                     NUM_EXAMPLES_JSON)
+
+    # (Optional) lookup table of example ids to their bias labels.
+    self._bias_example_ids = self._maybe_load_json(data_dir,
+                                                   BIAS_EXAMPLE_IDS_JSON)
+
+    super().__init__(data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
     self._data_dir = data_dir
+    self._dataset_type = dataset_type
+
+  def _maybe_load_json(self, data_dir, json_name):
+    """Reads the number of examples from directory if available."""
+    # Returns None if `data_dir` is empty.
+    if not data_dir:
+      return None
+
+    # For custom data with its meta data (e.g., num_examples) that is different
+    # from the official TFDS split (e.g., a subset of CivilComments that is used
+    # for active learning), It should contain a corresponding file like
+    # `num_examples.json` that stores a dictionary of metadata under the
+    # data_dir folder.
+    # If it doesn't exist, we will return None and do not add these information
+    # to the info.metadata.
+    json_file_path = os.path.join(data_dir, json_name)
+
+    if not tf.io.gfile.exists(json_file_path):
+      return None
+
+    # If the json file exist, load from directory and return it.
+    with tf.io.gfile.GFile(json_file_path, 'r') as f:
+      return json.load(f)
 
   def _download_and_prepare(self, dl_manager, download_config=None):
     """Downloads and prepares dataset for reading."""
@@ -114,16 +169,8 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
       shuffle_files=False,
       as_supervised=False) -> tf.data.Dataset:
     """Constructs a `tf.data.Dataset`, see parent class for documentation."""
-    if self._data_dir:
-      # Reading locally.
-      logging.info('Reading from local TFRecords with BERT features %s',
-                   self._data_dir)
-      is_training = split == tfds.Split.TRAIN
-      return _build_dataset(
-          glob_dir=os.path.join(
-              self._data_dir, _TF_RECORD_NAME_PATTERNS[split]),
-          is_training=is_training)
-    else:
+    is_training = split == tfds.Split.TRAIN
+    if self._dataset_type == 'tfds':
       logging.info('Reading from TFDS.')
       return self._tfds_dataset_builder.as_dataset(
           split=split,
@@ -132,6 +179,21 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
           shuffle_files=shuffle_files,
           batch_size=batch_size,
           as_supervised=as_supervised)
+
+    if self._dataset_type == 'csv':
+      # Reading locally.
+      logging.info('Reading from local CSV with raw texts %s', self._data_dir)
+      return _build_csv_dataset(
+          glob_dir=os.path.join(self._data_dir, _CSV_NAME_PATTERNS[split]),
+          is_training=is_training)
+    else:
+      # Reading locally.
+      logging.info('Reading from local TFRecords with BERT features %s',
+                   self._data_dir)
+      return _build_tfrecord_dataset(
+          glob_dir=os.path.join(self._data_dir,
+                                _TF_RECORD_NAME_PATTERNS[split]),
+          is_training=is_training)
 
   def _info(self) -> tfds.core.DatasetInfo:
     raise NotImplementedError
@@ -146,6 +208,11 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
       info._metadata = tfds.core.MetadataDict()  # pylint: disable=protected-access
     info.metadata['num_classes'] = 1
     info.metadata['max_seq_length'] = self._max_seq_length
+
+    if self._split_num_examples is not None:
+      # Updates the number of examples in each split.
+      info.metadata['num_examples'] = self._split_num_examples
+
     return info
 
 
@@ -155,7 +222,9 @@ class _JigsawToxicityDataset(base.BaseDataset):
   def __init__(self,
                name: str,
                split: str,
-               additional_labels: Tuple[str] = _TOXICITY_SUBTYPE_NAMES,
+               additional_labels: Tuple[str] = (),
+               bias_labels: bool = False,
+               bias_threshold: float = 0.25,
                validation_percent: float = 0.0,
                shuffle_buffer_size: Optional[int] = None,
                max_seq_length: Optional[int] = 512,
@@ -164,7 +233,9 @@ class _JigsawToxicityDataset(base.BaseDataset):
                try_gcs: bool = False,
                download_data: bool = False,
                data_dir: Optional[str] = None,
-               is_training: Optional[bool] = None):  # pytype: disable=annotation-type-mismatch
+               dataset_type: str = 'tfrecord',
+               is_training: Optional[bool] = None,
+               tf_hub_preprocessor_url: Optional[str] = None):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -174,6 +245,10 @@ class _JigsawToxicityDataset(base.BaseDataset):
         names.
       additional_labels: names of additional labels (e.g. toxicity subtypes),
         as well as identity labels for the case of CivilCommentsIdentities.
+      bias_labels: whether to add bias label for multi-task training.
+        Available only for dataset_type='csv'.
+      bias_threshold: threshold used to produce binary bias label from the bias
+        score, i.e., bias_label = I(bias_score > bias_threshold).
       validation_percent: the percent of the training set to use as a
         validation set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
@@ -189,17 +264,41 @@ class _JigsawToxicityDataset(base.BaseDataset):
         unsupported.
       data_dir: optional dir to read data from. If none then the local
         filesystem is used. Required for using TPUs on Cloud.
+      dataset_type: Type of dataset, can be one of ['tfds', 'tfrecord', 'csv'].
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
+      tf_hub_preprocessor_url: The TF Hub url to the BERT tokenizer. If given,
+        then the raw text from TFDS will be augmented with the BERT-compatible
+        `input_mask`, `input_ids`, and `segment_ids`.
     """
+    dataset_type = dataset_type.lower()
+    if dataset_type not in _DATASET_TYPES:
+      raise ValueError(
+          f'dataset_type musy be one of {_DATASET_TYPES}, got `{dataset_type}`.'
+      )
+    if dataset_type != 'tfds' and data_dir is None:
+      raise ValueError('`data_dir` cannot be None if `dataset_type`!="tfds".')
+
     dataset_builder = _JigsawToxicityDatasetBuilder(
-        tfds.builder(name, try_gcs=try_gcs), max_seq_length, data_dir)
+        tfds.builder(name, try_gcs=try_gcs), max_seq_length, data_dir,
+        dataset_type)
+    self.tf_hub_preprocessor_url = tf_hub_preprocessor_url
     self.additional_labels = additional_labels
+    self.bias_labels = bias_labels
+    self.bias_threshold = bias_threshold
 
     self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
-    self.split_names = _DATA_SPLIT_NAMES
+    self.split_names = DATA_SPLIT_NAMES
     self._data_dir = data_dir
+    self._dataset_type = dataset_type
+
+    if self.tf_hub_preprocessor_url:
+      preprocessor = hub.load(self.tf_hub_preprocessor_url)
+      self.tokenizer = hub.KerasLayer(preprocessor.tokenize)
+      self.bert_input_formatter = hub.KerasLayer(
+          preprocessor.bert_pack_inputs,
+          arguments=dict(seq_length=max_seq_length))
 
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
@@ -236,29 +335,57 @@ class _JigsawToxicityDataset(base.BaseDataset):
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
         drop_remainder=drop_remainder,
-        download_data=download_data)
+        download_data=download_data,
+        label_key='toxicity')
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""
 
-    def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
+    def _example_parser(
+        example: Union[Dict[str, tf.Tensor], tf.Tensor]) -> Dict[str, Any]:
       """Preprocesses sentences as well as toxicity and other labels."""
-      if self._data_dir:
+      if self._dataset_type == 'tfrecord':
+        # Directly return parsed tf records.
         return tf.io.parse_example(example['features'], self.feature_spec)
+
+      # Load example depending on dataset type.
+      if self._dataset_type == 'csv':
+        feature_id, feature, label, _, bias = example['features'][:5]
       else:
         label = example['toxicity']
         feature = example['text']
+        feature_id = example['id']
 
-        # Read in sentences.
-        parsed_example = {'features': feature, 'labels': label}
+      # Read in sentences.
+      parsed_example = {'id': feature_id, 'features': feature, 'labels': label}
 
-        # Add additional labels.
+      # Append processed input for BERT model.
+      if self.tf_hub_preprocessor_url:
+        tokens = self.tokenizer([feature])
+        bert_inputs = self.bert_input_formatter([tokens])
+        parsed_example.update({
+            'input_ids': bert_inputs['input_word_ids'],
+            'input_mask': bert_inputs['input_mask'],
+            'segment_ids': bert_inputs['input_type_ids'],
+        })
+
+      # Add optional bias labels.
+      if self.bias_labels:
+        if self._dataset_type != 'csv':
+          raise ValueError('dataset_type must be "csv" when bias_labels=True.'
+                           f' Got {self._dataset_type}.')
+
+        if_bias = tf.math.greater_equal(bias, self.bias_threshold)
+        parsed_example['bias_labels'] = tf.cast(if_bias, dtype=tf.float32)
+
+      # Add additional toxicity subtype labels.
+      if self.additional_labels:
         parsed_example.update({
             subtype_name: example[subtype_name]
             for subtype_name in self.additional_labels
         })
 
-        return parsed_example
+      return parsed_example
 
     return _example_parser
 
@@ -294,7 +421,7 @@ class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
   """Data loader for Civil Comments Identities datasets."""
 
   def __init__(self, **kwargs):
-    super().__init__(
+    super().__init__(  # pytype: disable=wrong-arg-types
         name='civil_comments/CivilCommentsIdentities',
         additional_labels=_TOXICITY_SUBTYPE_NAMES + _IDENTITY_LABELS,
         **kwargs)

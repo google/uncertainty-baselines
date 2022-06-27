@@ -377,10 +377,6 @@ def main(argv):
 
     return opt, s, l, rng, measurements
 
-  # Set config checkpoint resume path, if provided in args.
-  if config.resume_checkpoint_path is not None:
-    config.resume = config.resume_checkpoint_path
-
   default_reinit_params = ('head/output_layer/kernel', 'head/output_layer/bias',
                            'head/kernel', 'head/bias')
   rng, train_loop_rngs = jax.random.split(rng)

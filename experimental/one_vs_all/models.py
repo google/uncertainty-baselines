@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """subclassed models from ub.models with distance-based logits."""
-from typing import Any, Dict
+from typing import Any, Dict, Iterable
 
 import tensorflow as tf
 import uncertainty_baselines as ub
@@ -48,17 +48,19 @@ class DisMax(tf.keras.layers.Layer):
     return -1.0 * distances
 
 
-def create_model(
-    batch_size: int,
-    l2_weight: float = 0.0,
-    num_classes: int = 10,
-    distance_logits: bool = False,
-    **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
+def create_model(input_shape: Iterable[int],
+                 l2_weight: float = 0.0,
+                 num_classes: int = 10,
+                 distance_logits: bool = False,
+                 **unused_kwargs: Dict[str, Any]) -> tf.keras.models.Model:
   """Resnet-20 v1, takes (32, 32, 3) input and returns logits of shape (10,)."""
 
-  resnet_model = ub.models.get("wide_resnet", batch_size=batch_size,
-                               depth=28, width_multiplier=10,
-                               l2_weight=l2_weight)
+  resnet_model = ub.models.wide_resnet(
+      input_shape=input_shape,
+      depth=28,
+      width_multiplier=10,
+      num_classes=num_classes,
+      l2=l2_weight)
 
   if distance_logits:
     x = resnet_model.layers[-1].output

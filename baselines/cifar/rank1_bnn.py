@@ -109,7 +109,9 @@ def main(argv):
       data_dir=data_dir,
       download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
-      validation_percent=1. - FLAGS.train_proportion)
+      validation_percent=1. - FLAGS.train_proportion,
+      drop_remainder=False,
+      mask_and_pad=True)
   train_dataset = train_builder.load(batch_size=batch_size)
   validation_dataset = None
   steps_per_validation = 0
@@ -119,7 +121,9 @@ def main(argv):
         data_dir=data_dir,
         download_data=FLAGS.download_data,
         split=tfds.Split.VALIDATION,
-        validation_percent=1. - FLAGS.train_proportion)
+        validation_percent=1. - FLAGS.train_proportion,
+        drop_remainder=False,
+        mask_and_pad=True)
     validation_dataset = validation_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
@@ -128,7 +132,9 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST)
+      split=tfds.Split.TEST,
+      drop_remainder=False,
+      mask_and_pad=True)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
@@ -148,7 +154,9 @@ def main(argv):
             corruption_type=corruption_type,
             data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST).load(batch_size=batch_size)
+            split=tfds.Split.TEST,
+            drop_remainder=False,
+            mask_and_pad=True).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -267,12 +275,16 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+      mask = inputs['mask']
       if FLAGS.ensemble_size > 1:
         images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
         labels = tf.tile(labels, [FLAGS.ensemble_size])
+        mask = tf.tile(mask, [FLAGS.ensemble_size])
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
 
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
         negative_log_likelihood = tf.reduce_mean(
             tf.keras.losses.sparse_categorical_crossentropy(labels,
                                                             logits,
@@ -327,13 +339,17 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
+      mask = inputs['mask']
       labels = inputs['labels']
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
       if FLAGS.ensemble_size > 1:
         images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
+
       logits = tf.reshape(
           [model(images, training=False)
            for _ in range(FLAGS.num_eval_samples)],
           [FLAGS.num_eval_samples, FLAGS.ensemble_size, -1, num_classes])
+      logits = tf.boolean_mask(logits, mask, axis=2)  # Non-padded examples.
       probs = tf.nn.softmax(logits)
 
       if FLAGS.ensemble_size > 1:

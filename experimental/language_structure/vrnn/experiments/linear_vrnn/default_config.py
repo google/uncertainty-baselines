@@ -106,8 +106,8 @@ def get_config(dataset: str,
     encoder_embedding_type: the embedding type of the encoder.
     decoder_embedding_type: the embedding type of the decoder.
     shared_embedding: whether to share embedding layers between encoder/decoder.
-    bert_embedding_type:  the type of Bert model for the embedding layer.
-      See http://shortn/_PzBKxLRgDl for details.
+    bert_embedding_type:  the type of Bert model for the embedding layer. See
+      http://shortn/_PzBKxLRgDl for details.
     bert_dir: the directory contains pretrained BERT TF checkpoints.
 
   Returns:
@@ -219,5 +219,7 @@ def get_config(dataset: str,
   config.few_shots_trials = 100
   # L2 regularization weights for the few-shot regression.
   config.few_shots_l2_weights = [2.0**i for i in range(-10, 20)]
+
+  config.config_dir = config_dir
 
   return config

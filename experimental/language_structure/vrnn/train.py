@@ -68,6 +68,9 @@ FLAGS = flags.FLAGS
 _CONFIG = ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 
+_EXTRA_CONFIG = flags.DEFINE_string(
+    'extra_config', '/tmp/vrnn/extra_config.json',
+    'Json file storing configs to be overwritten.')
 _OUTPUT_DIR = flags.DEFINE_string('output_dir', '/tmp/vrnn',
                                   'Output directory.')
 
@@ -336,6 +339,19 @@ def _load_data_from_files(config: config_dict.ConfigDict):
       config.psl['word_weights'] = np.load(file)
 
 
+def _overwrite_configs_by_flags(config: config_dict.ConfigDict) -> str:
+  """Overwrites configs by flag arguments."""
+  message = ''
+  if _EXTRA_CONFIG.value:
+    with tf.io.gfile.GFile(_EXTRA_CONFIG.value, 'r') as f:
+      params = json.load(f)
+    message = os.path.basename(_EXTRA_CONFIG.value) + '\n'
+    for key, value in params.items():
+      setattr(config, key, value)
+      message += f'{key}={value}\n'
+  return message
+
+
 def _save_model_results(outputs: Sequence[tf.Tensor], output_dir: str,
                         split: str):
   """Saves the model predictions, labels and latent state representations."""
@@ -500,9 +516,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   seed = config.get('seed', 0)
 
 
-  logging.info('Config: %s', config)
-
   _load_data_from_files(config)
+  message = _overwrite_configs_by_flags(config)
+
+  logging.info('Config: %s\n Overwritten: %s', config, message)
 
   tf.io.gfile.makedirs(output_dir)
   logging.info('Model checkpoint will be saved at %s', output_dir)
@@ -985,8 +1002,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           test_hidden_state, test_label, test_prediction, test_domain_label
       ]
       if not fixed_train_epoch:
-        if _primary_metric_improved(
-            total_results, primary_metric, config.min_delta):
+        if _primary_metric_improved(total_results, primary_metric,
+                                    config.min_delta):
           primary_metric = total_results[_PRIMARY_METRIC_KEY]
           out_of_patience = 0
           if best_summary_writer:

@@ -43,6 +43,7 @@ import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
+import subpopl_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
@@ -211,6 +212,20 @@ def main(config, output_dir):
                 pp_eval=config.pp_eval,
                 data_dir=config.get('data_dir'))
     })
+
+  if config.get('subpopl_cifar_data_file'):
+    dataset_builder = input_utils.cifar_from_sql(
+        sql_database=config.subpopl_cifar_data_file,
+        num_classes=config.num_classes)
+
+    subpopl_val_ds_splits = {  # pylint: disable=g-complex-comprehension
+        client_id: _get_val_split(
+            dataset_builder,
+            split=client_id,
+            pp_eval=config.pp_eval_subpopl_cifar,
+            data_dir=config.subpopl_cifar_data_file)
+        for client_id in dataset_builder.client_ids
+    }
 
   if config.get('eval_on_cifar_10h'):
     cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
@@ -467,6 +482,15 @@ def main(config, output_dir):
         ensemble_params,
         n_prefetch=config.get('prefetch_to_device', 1))
     writer.write_scalars(step, ood_measurements)
+
+  # Perform subpopulation shift evaluation only if flag is provided.
+  if config.get('subpopl_cifar_data_file'):
+    subpopl_measurements = subpopl_utils.eval_subpopl_metrics(
+        subpopl_val_ds_splits,
+        evaluation_fn,
+        ensemble_params,
+        n_prefetch=config.get('prefetch_to_device', 1))
+    writer.write_scalars(step, scalars=subpopl_measurements)
 
   if 'fewshot' in config and fewshotter is not None:
     # Compute few-shot on-the-fly evaluation.

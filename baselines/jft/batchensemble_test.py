@@ -190,6 +190,71 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
     # different from the loss of the checkpointed model.
     self.assertEqual(val_loss['val'], loaded_val_loss['val'])
 
+  @parameterized.parameters(
+      ('cifar'),
+      ('imagenet'),
+  )
+  @flagsaver.flagsaver
+  def test_load_then_finetune_model(self, finetune_dataset_name):
+    config = get_config(
+        dataset_name='imagenet2012', classifier='token', representation_size=2)
+    output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+    config.dataset_dir = self.data_dir
+    config.total_steps = 1
+    config.lr.warmup_steps = 0
+    num_examples = config.batch_size * config.total_steps
+
+    with tfds.testing.mock_data(
+        num_examples=num_examples, data_dir=self.data_dir):
+      batchensemble.main(config, output_dir)
+      checkpoint_path = os.path.join(output_dir, 'checkpoint.npz')
+      self.assertTrue(os.path.exists(checkpoint_path))
+
+      # Set different output directory so that the logic doesn't think we are
+      # resuming from a previous checkpoint.
+      output_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
+      config.model_init = checkpoint_path
+
+      if finetune_dataset_name == 'cifar':
+        config.dataset = 'cifar10'
+        config.val_split = f'train[:{num_examples}]'
+        config.train_split = f'train[{num_examples}:{num_examples*2}]'
+        config.num_classes = 10
+        config.ood_datasets = ['cifar100']
+        config.ood_num_classes = [100]
+        config.ood_split = f'test[{num_examples*2}:{num_examples*3}]'
+        config.ood_methods = ['maha', 'entropy', 'rmaha', 'msp']
+        config.eval_on_cifar_10h = True
+        config.cifar_10h_split = f'test[:{num_examples}]'
+        config.pp_eval_cifar_10h = (
+            'decode|resize(384)|value_range(-1, 1)|keep(["image", "labels"])')
+        config.subpopl_cifar_data_file = os.path.join(
+            self.data_dir, 'cifar10_subpopl_tiny.db')
+        config.pp_eval_subpopl_cifar = (
+            'resize(384)|value_range(-1, 1)|onehot(10, key="label", '
+            'key_result="labels")|keep(["image", "labels", "id"])')
+      elif finetune_dataset_name == 'imagenet':
+        config.dataset = 'imagenet2012'
+        config.val_split = f'train[:{num_examples}]'
+        config.train_split = f'train[{num_examples}:{num_examples*2}]'
+        config.num_classes = 1000
+      pp_common = '|value_range(-1, 1)'
+      pp_common += f'|onehot({config.num_classes}, key="label", key_result="labels")'  # pylint: disable=line-too-long
+      pp_common += '|keep(["image", "labels"])'
+      config.pp_train = 'decode|resize_small(512)|random_crop(384)' + pp_common
+      config.pp_eval = 'decode|resize(384)' + pp_common
+      config.fewshot.pp_train = 'decode|resize_small(512)|central_crop(384)|value_range(-1,1)|drop("segmentation_mask")'
+      config.fewshot.pp_eval = 'decode|resize(384)|value_range(-1,1)|drop("segmentation_mask")'
+      if config.get('ood_num_classes'):
+        pp_eval_ood = []
+        for num_classes in config.ood_num_classes:
+          pp_eval_ood.append(
+              config.pp_eval.replace(f'onehot({config.num_classes}',
+                                     f'onehot({num_classes}'))
+        config.pp_eval_ood = pp_eval_ood
+
+      batchensemble.main(config, output_dir)
+
 
 if __name__ == '__main__':
   tf.test.main()

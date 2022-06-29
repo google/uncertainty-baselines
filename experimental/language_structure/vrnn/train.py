@@ -695,6 +695,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           config.dataset,
           config.psl_constraint_rule_names,
           config.psl_constraint_rule_weights,
+          logic=config.psl_logic,
+          loss_function=config.psl_loss_function,
           config=config.psl)
     else:
       psl_model = None

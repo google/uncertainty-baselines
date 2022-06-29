@@ -211,6 +211,8 @@ def get_config(dataset: str,
   config.psl_config_file = ''
   config.psl = {}
   config.psl_word_weights_file = ''
+  config.psl_logic = 'lukasiewicz'
+  config.psl_loss_function = 'log'
 
   config.hidden_state_model_learning_rate = 1e-3
   config.hidden_state_model_train_epochs = 10

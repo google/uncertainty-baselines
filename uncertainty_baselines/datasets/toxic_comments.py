@@ -223,8 +223,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
                name: str,
                split: str,
                additional_labels: Tuple[str] = (),
-               bias_labels: bool = False,
-               bias_threshold: float = 0.25,
+               multi_task_labels: Optional[str] = None,
+               multi_task_label_threshold: float = -1.,
                validation_percent: float = 0.0,
                shuffle_buffer_size: Optional[int] = None,
                max_seq_length: Optional[int] = 512,
@@ -245,10 +245,12 @@ class _JigsawToxicityDataset(base.BaseDataset):
         names.
       additional_labels: names of additional labels (e.g. toxicity subtypes),
         as well as identity labels for the case of CivilCommentsIdentities.
-      bias_labels: whether to add bias label for multi-task training.
-        Available only for dataset_type='csv'.
-      bias_threshold: threshold used to produce binary bias label from the bias
-        score, i.e., bias_label = I(bias_score > bias_threshold).
+      multi_task_labels: name of the additional label for multi-task
+        training. Available only for dataset_type='csv'.
+      multi_task_label_threshold: threshold used to produce binary bias label
+        from the soft labels, i.e.,
+        multi_task_label = I(soft_label > multi_task_label_threshold). If
+        `None` then no threshold is applied..
       validation_percent: the percent of the training set to use as a
         validation set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
@@ -285,8 +287,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
         dataset_type)
     self.tf_hub_preprocessor_url = tf_hub_preprocessor_url
     self.additional_labels = additional_labels
-    self.bias_labels = bias_labels
-    self.bias_threshold = bias_threshold
+    self.multi_task_labels = multi_task_labels
+    self.multi_task_label_threshold = multi_task_label_threshold
 
     self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
     self.split_names = DATA_SPLIT_NAMES
@@ -350,7 +352,14 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
       # Load example depending on dataset type.
       if self._dataset_type == 'csv':
-        feature_id, feature, label, _, bias = example['features'][:5]
+        (feature_id, feature, label, noise, bias, uncertainty,
+         margin) = example['features']
+        multitask_signals = {
+            'noise': noise,
+            'bias': bias,
+            'uncertainty': uncertainty,
+            'margin': margin
+        }
       else:
         label = example['toxicity']
         feature = example['text']
@@ -369,14 +378,18 @@ class _JigsawToxicityDataset(base.BaseDataset):
             'segment_ids': bert_inputs['input_type_ids'],
         })
 
-      # Add optional bias labels.
-      if self.bias_labels:
+      # Add optional multi-task labels.
+      if self.multi_task_labels:
         if self._dataset_type != 'csv':
           raise ValueError('dataset_type must be "csv" when bias_labels=True.'
                            f' Got {self._dataset_type}.')
 
-        if_bias = tf.math.greater_equal(bias, self.bias_threshold)
-        parsed_example['bias_labels'] = tf.cast(if_bias, dtype=tf.float32)
+        multi_task_labels = multitask_signals[self.multi_task_labels]
+        if self.multi_task_label_threshold > 0:
+          multi_task_labels = tf.math.greater_equal(
+              multi_task_labels, self.multi_task_label_threshold)
+        parsed_example['multi_task_labels'] = tf.cast(
+            multi_task_labels, dtype=tf.float32)
 
       # Add additional toxicity subtype labels.
       if self.additional_labels:

@@ -172,7 +172,7 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  test_batch_size = batch_size
+  test_batch_size = FLAGS.per_core_batch_size
   data_buffer_size = batch_size * 10
 
   dataset_kwargs = dict(
@@ -193,7 +193,8 @@ def main(argv):
        cv_split_name=FLAGS.train_cv_split_name,
        train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
        test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
-       train_on_bias_label=FLAGS.train_on_bias_label,
+       train_on_multi_task_label=FLAGS.train_on_multi_task_label,
+       multi_task_label_threshold=FLAGS.multi_task_label_threshold,
        test_on_challenge_data=FLAGS.test_on_challenge_data,
        identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
        identity_specific_dataset_dir=FLAGS.identity_specific_dataset_dir,
@@ -269,7 +270,7 @@ def main(argv):
         bert_config=bert_config,
         gp_layer_kwargs=gp_layer_kwargs,
         spec_norm_kwargs=spec_norm_kwargs,
-        num_heads=2 if FLAGS.train_on_bias_label else 1,
+        num_heads=2 if FLAGS.train_on_multi_task_label else 1,
         use_gp_layer=FLAGS.use_gp_layer,
         use_spec_norm_att=FLAGS.use_spec_norm_att,
         use_spec_norm_ffn=FLAGS.use_spec_norm_ffn,
@@ -319,7 +320,7 @@ def main(argv):
         ece_label_threshold=FLAGS.ece_label_threshold,
         eval_collab_metrics=FLAGS.eval_collab_metrics,
         num_approx_bins=FLAGS.num_approx_bins,
-        train_on_bias_label=FLAGS.train_on_bias_label)
+        train_on_multi_task_label=FLAGS.train_on_multi_task_label)
 
   @tf.function
   def generate_sample_weight(labels, class_weight, label_threshold=0.7):
@@ -344,8 +345,8 @@ def main(argv):
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
 
-        if FLAGS.train_on_bias_label:
-          logits, bias_logits = logits
+        if FLAGS.train_on_multi_task_label:
+          logits, multi_task_logits = logits
 
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract logits
@@ -382,12 +383,12 @@ def main(argv):
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
 
-        if FLAGS.train_on_bias_label:
-          bias_logits = tf.squeeze(bias_logits, axis=1)
-          bias_labels = inputs['bias_labels']
-          bias_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-              bias_labels, bias_logits)
-          loss += bias_loss
+        if FLAGS.train_on_multi_task_label and FLAGS.multi_task_loss_weight > 0:
+          multi_task_logits = tf.squeeze(multi_task_logits, axis=1)
+          multi_task_labels = inputs['multi_task_labels']
+          multi_task_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+              multi_task_labels, multi_task_logits)
+          loss += FLAGS.multi_task_loss_weight * multi_task_loss
 
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
@@ -437,11 +438,11 @@ def main(argv):
       for _ in range(FLAGS.num_mc_samples):
         logits = model(features, training=False)
 
-        bias_probs, bias_labels = None, None
-        if FLAGS.train_on_bias_label:
-          logits, bias_logits = logits
-          bias_probs = tf.nn.sigmoid(bias_logits)
-          bias_labels = inputs.get('bias_labels', None)
+        multi_task_probs, multi_task_labels = None, None
+        if FLAGS.train_on_multi_task_label:
+          logits, multi_task_logits = logits
+          multi_task_probs = tf.nn.sigmoid(multi_task_logits)
+          multi_task_labels = inputs.get('multi_task_labels', None)
 
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract both.
@@ -490,12 +491,12 @@ def main(argv):
           num_classes,
           labels,
           probs,
-          bias_labels,
-          bias_probs,
+          multi_task_labels,
+          multi_task_probs,
           negative_log_likelihood,
-          eval_time,
+          eval_time=eval_time,
           ece_label_threshold=FLAGS.ece_label_threshold,
-          train_on_bias_label=FLAGS.train_on_bias_label,
+          train_on_multi_task_label=FLAGS.train_on_multi_task_label,
           eval_collab_metrics=FLAGS.eval_collab_metrics)
       update_fn(metrics)
 
@@ -513,10 +514,10 @@ def main(argv):
           inputs)
       logits = model(bert_features, training=False)
 
-      if FLAGS.train_on_bias_label:
-        logits, bias_logits = logits
+      if FLAGS.train_on_multi_task_label:
+        logits, multi_task_logits = logits
         # Not recording bias prediction for now.
-        del bias_logits
+        del multi_task_logits
 
       if isinstance(logits, (list, tuple)):
         # If model returns a tuple of (logits, covmat), extract both.
@@ -708,6 +709,9 @@ def main(argv):
                      metrics['train/loss'].result(),
                      metrics['train/ece'].result()['ece'],
                      metrics['train/accuracy'].result())
+        logging.info('Test NLL: %.4f, AUROC: %.4f',
+                     metrics['test/negative_log_likelihood'].result(),
+                     metrics['test/auroc'].result())
 
         # record results
         total_results = {}

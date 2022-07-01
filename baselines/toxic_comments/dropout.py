@@ -137,7 +137,8 @@ def main(argv):
        return_train_split_name=True,
        cv_split_name=FLAGS.train_cv_split_name,
        train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
-       train_on_bias_label=FLAGS.train_on_bias_label,
+       train_on_multi_task_label=FLAGS.train_on_multi_task_label,
+       multi_task_label_threshold=FLAGS.multi_task_label_threshold,
        test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
        test_on_challenge_data=FLAGS.test_on_challenge_data,
        identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
@@ -197,7 +198,7 @@ def main(argv):
     model, bert_encoder = ub.models.bert_dropout_model(
         num_classes=num_classes,
         bert_config=bert_config,
-        num_heads=2 if FLAGS.train_on_bias_label else 1,
+        num_heads=2 if FLAGS.train_on_multi_task_label else 1,
         use_mc_dropout_mha=FLAGS.use_mc_dropout_mha,
         use_mc_dropout_att=FLAGS.use_mc_dropout_att,
         use_mc_dropout_ffn=FLAGS.use_mc_dropout_ffn,
@@ -247,7 +248,7 @@ def main(argv):
         ece_label_threshold=FLAGS.ece_label_threshold,
         eval_collab_metrics=FLAGS.eval_collab_metrics,
         num_approx_bins=FLAGS.num_approx_bins,
-        train_on_bias_label=FLAGS.train_on_bias_label)
+        train_on_multi_task_label=FLAGS.train_on_multi_task_label)
 
   @tf.function
   def generate_sample_weight(labels, class_weight, label_threshold=0.7):
@@ -272,12 +273,12 @@ def main(argv):
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
 
-        if FLAGS.train_on_bias_label:
-          logits, bias_logits = logits
+        if FLAGS.train_on_multi_task_label:
+          logits, multi_task_logits = logits
 
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
-          bias_logits = tf.cast(bias_logits, tf.float32)
+          multi_task_logits = tf.cast(multi_task_logits, tf.float32)
 
         loss_logits = tf.squeeze(logits, axis=1)
         if FLAGS.loss_type == 'cross_entropy':
@@ -306,12 +307,12 @@ def main(argv):
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
 
-        if FLAGS.train_on_bias_label:
-          bias_logits = tf.squeeze(bias_logits, axis=1)
-          bias_labels = inputs['bias_labels']
-          bias_loss = tf.nn.sigmoid_cross_entropy_with_logits(
-              bias_labels, bias_logits)
-          loss += bias_loss
+        if FLAGS.train_on_multi_task_label:
+          multi_task_logits = tf.squeeze(multi_task_logits, axis=1)
+          multi_task_labels = inputs['multi_task_labels']
+          multi_task_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+              multi_task_labels, multi_task_logits)
+          loss += multi_task_loss
 
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
@@ -361,11 +362,11 @@ def main(argv):
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
 
-      bias_probs, bias_labels = None, None
-      if FLAGS.train_on_bias_label:
-        logits, bias_logits = logits
-        bias_probs = tf.nn.sigmoid(bias_logits)
-        bias_labels = inputs.get('bias_labels', None)
+      multi_task_probs, multi_task_labels = None, None
+      if FLAGS.train_on_multi_task_label:
+        logits, multi_task_logits = logits
+        multi_task_probs = tf.nn.sigmoid(multi_task_logits)
+        multi_task_labels = inputs.get('multi_task_labels', None)
 
       probs = tf.nn.sigmoid(logits)
       loss_logits = tf.squeeze(logits, axis=1)
@@ -384,11 +385,12 @@ def main(argv):
           num_classes,
           labels,
           probs,
-          bias_labels,
-          bias_probs,
+          multi_task_labels,
+          multi_task_probs,
           negative_log_likelihood,
           eval_time=eval_time,
-          train_on_bias_label=FLAGS.train_on_bias_label,
+          ece_label_threshold=FLAGS.ece_label_threshold,
+          train_on_multi_task_label=FLAGS.train_on_multi_task_label,
           eval_collab_metrics=FLAGS.eval_collab_metrics)
       update_fn(metrics)
 
@@ -406,10 +408,10 @@ def main(argv):
           inputs)
       logits = model(bert_features, training=False)
 
-      if FLAGS.train_on_bias_label:
-        logits, bias_logits = logits
+      if FLAGS.train_on_multi_task_label:
+        logits, multi_task_logits = logits
         # Not recording bias prediction for now.
-        del bias_logits
+        del multi_task_logits
 
       return texts, text_ids, logits, labels, additional_labels, ids
 

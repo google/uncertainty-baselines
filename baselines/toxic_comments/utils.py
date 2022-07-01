@@ -126,7 +126,7 @@ IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
 IDENTITY_TYPES = ('gender', 'sexual_orientation', 'religion', 'race',
                   'disability')
 
-CHALLENGE_DATASET_NAMES = ('bias', 'uncertainty', 'noise')
+CHALLENGE_DATASET_NAMES = ('bias', 'uncertainty', 'noise', 'all')
 
 # Data flags
 flags.DEFINE_enum(
@@ -153,10 +153,21 @@ flags.DEFINE_string(
     'test_cv_split_name', 'train',
     'The name of the split to create cross-validation testing data from.')
 
-flags.DEFINE_bool(
-    'train_on_bias_label', False,
-    'Whether to add bias labels (a binary label for whether the model is likely'
-    ' to belong to a minority or tail data group) to the training output.')
+flags.DEFINE_enum(
+    'train_on_multi_task_label', 'bias',
+    ['', 'bias', 'uncertainty', 'noise'],
+    'The type of additional multi-task labels (a binary label for whether the'
+    ' model is likely to make a mistake on this example) to the training '
+    'output. If empty then do not perform multi-task training.')
+flags.DEFINE_float(
+    'multi_task_label_threshold', .35,
+    'The threshold on bias score to be used for generating bias labels.'
+    ' The bias label is generated as '
+    '`I(multi_task_score > multi_task_label_threshold)`.')
+flags.DEFINE_float(
+    'multi_task_loss_weight', .1,
+    'Non-negative float for the weight to apply to the bias label. If negative'
+    ' then no bias will be added.')
 flags.DEFINE_bool(
     'train_on_identity_subgroup_data', False,
     'Whether to add minority examples (CivilCommentsIdentity) to the training'
@@ -303,7 +314,8 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
                                          return_train_split_name=False,
                                          cv_split_name='train',
                                          train_on_identity_subgroup_data=False,
-                                         train_on_bias_label=False,
+                                         train_on_multi_task_label='bias',
+                                         multi_task_label_threshold=0.,
                                          test_on_identity_subgroup_data=False,
                                          test_on_challenge_data=False,
                                          identity_type_dataset_dir=None,
@@ -359,7 +371,8 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
       is_training=True,
       dataset_type=train_dataset_type,
       data_dir=maybe_get_train_dir(in_dataset_dir),
-      bias_labels=train_on_bias_label,
+      multi_task_labels=train_on_multi_task_label,
+      multi_task_label_threshold=multi_task_label_threshold,
       **ds_kwargs)
 
   # Optionally, add identity specific examples to training data.
@@ -411,7 +424,8 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
           split='test',
           dataset_type='csv',
           data_dir=identity_data_dir,
-          bias_labels=train_on_bias_label,
+          multi_task_labels=train_on_multi_task_label,
+          multi_task_label_threshold=multi_task_label_threshold,
           **ds_kwargs)
 
   # Gather training dataset builders into dictionaries.
@@ -427,8 +441,12 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
       'ood': ood_dataset_builder,
       'ood_identity': ood_identity_dataset_builder,
   }
+
   if test_on_identity_subgroup_data:
     test_dataset_builders.update(identity_test_dataset_builders)
+
+  if test_on_challenge_data:
+    test_dataset_builders.update(challenge_test_dataset_builders)
 
   if use_cross_validation:
     test_dataset_builders['cv_eval'] = cv_eval_dataset_builder
@@ -523,6 +541,8 @@ def build_datasets(train_dataset_builders, test_dataset_builders,
     train_steps_per_epoch[dataset_name] = train_num_examples // batch_size
 
   for dataset_name, dataset_builder in test_dataset_builders.items():
+    test_datasets[dataset_name] = dataset_builder.load(
+        batch_size=test_batch_size)
     # Set `split_name` to dataset_builder.split in case we want to eval on
     # `csv` data that is generated as training data. This will be the case
     # for k-fold cross validation.
@@ -619,7 +639,7 @@ def create_train_and_test_metrics(test_datasets,
                                   eval_collab_metrics,
                                   num_approx_bins,
                                   log_eval_time=True,
-                                  train_on_bias_label=False):
+                                  train_on_multi_task_label=False):
   """Creates metrics for train and test eval."""
   # Train metrics.
   metrics = {
@@ -646,19 +666,19 @@ def create_train_and_test_metrics(test_datasets,
               threshold=ece_label_threshold),
   }
 
-  if train_on_bias_label:
+  if train_on_multi_task_label:
     metrics.update({
-        'train/bias_accuracy':
+        'train/multi_task_accuracy':
             tf.keras.metrics.Accuracy(),
-        'train/bias_aupr':
+        'train/multi_task_aupr':
             tf.keras.metrics.AUC(curve='PR'),
-        'train/bias_auroc':
+        'train/multi_task_auroc':
             tf.keras.metrics.AUC(curve='ROC'),
-        'train/bias_precision':
+        'train/multi_task_precision':
             tf.keras.metrics.Precision(),
-        'train/bias_recall':
+        'train/multi_task_recall':
             tf.keras.metrics.Recall(),
-        'train/bias_f1':
+        'train/multi_task_f1':
             tfa_metrics.F1Score(
                 num_classes=num_classes, average='micro', threshold=0.5),
     })
@@ -689,25 +709,31 @@ def create_train_and_test_metrics(test_datasets,
           tfa_metrics.F1Score(
               num_classes=num_classes,
               average='micro',
-              threshold=ece_label_threshold)
+              threshold=ece_label_threshold),
+      'test/calibration_auroc':
+          tc_metrics.CalibrationAUC(
+              curve='ROC', correct_pred_as_pos_label=False),
+      'test/calibration_auprc':
+          tc_metrics.CalibrationAUC(
+              curve='PR', correct_pred_as_pos_label=False)
   })
 
   if log_eval_time:
     metrics['test/eval_time'] = tf.keras.metrics.Mean()
 
-  if train_on_bias_label:
+  if train_on_multi_task_label:
     metrics.update({
-        'test/bias_accuracy':
+        'test/multi_task_accuracy':
             tf.keras.metrics.Accuracy(),
-        'test/bias_aupr':
+        'test/multi_task_aupr':
             tf.keras.metrics.AUC(curve='PR'),
-        'test/bias_auroc':
+        'test/multi_task_auroc':
             tf.keras.metrics.AUC(curve='ROC'),
-        'test/bias_precision':
+        'test/multi_task_precision':
             tf.keras.metrics.Precision(),
-        'test/bias_recall':
+        'test/multi_task_recall':
             tf.keras.metrics.Recall(),
-        'test/bias_f1':
+        'test/multi_task_f1':
             tfa_metrics.F1Score(
                 num_classes=num_classes, average='micro', threshold=0.5),
     })
@@ -773,26 +799,32 @@ def create_train_and_test_metrics(test_datasets,
               tfa_metrics.F1Score(
                   num_classes=num_classes,
                   average='micro',
-                  threshold=ece_label_threshold)
+                  threshold=ece_label_threshold),
+          'test/calibration_auroc_{}'.format(dataset_name):
+              tc_metrics.CalibrationAUC(
+                  curve='ROC', correct_pred_as_pos_label=False),
+          'test/calibration_auprc_{}'.format(dataset_name):
+              tc_metrics.CalibrationAUC(
+                  curve='PR', correct_pred_as_pos_label=False)
       })
 
     if log_eval_time:
       metrics['test/eval_time_{}'.format(
           dataset_name)] = tf.keras.metrics.Mean()
 
-    if train_on_bias_label and dataset_name in CHALLENGE_DATASET_NAMES:
+    if train_on_multi_task_label and dataset_name in CHALLENGE_DATASET_NAMES:
       metrics.update({
-          'test/bias_accuracy_{}'.format(dataset_name):
+          'test/multi_task_accuracy_{}'.format(dataset_name):
               tf.keras.metrics.Accuracy(),
-          'test/bias_aupr_{}'.format(dataset_name):
+          'test/multi_task_aupr_{}'.format(dataset_name):
               tf.keras.metrics.AUC(curve='PR'),
-          'test/bias_auroc_{}'.format(dataset_name):
+          'test/multi_task_auroc_{}'.format(dataset_name):
               tf.keras.metrics.AUC(curve='ROC'),
-          'test/bias_precision_{}'.format(dataset_name):
+          'test/multi_task_precision_{}'.format(dataset_name):
               tf.keras.metrics.Precision(),
-          'test/bias_recall_{}'.format(dataset_name):
+          'test/multi_task_recall_{}'.format(dataset_name):
               tf.keras.metrics.Recall(),
-          'test/bias_f1_{}'.format(dataset_name):
+          'test/multi_task_f1_{}'.format(dataset_name):
               tfa_metrics.F1Score(
                   num_classes=num_classes, average='micro', threshold=0.5),
       })
@@ -842,12 +874,12 @@ def make_test_metrics_update_fn(dataset_name,
                                 num_classes,
                                 labels,
                                 probs,
-                                bias_labels,
-                                bias_probs,
+                                multi_task_labels,
+                                multi_task_probs,
                                 negative_log_likelihood,
                                 eval_time=None,
                                 ece_label_threshold=0.5,
-                                train_on_bias_label=False,
+                                train_on_multi_task_label=False,
                                 eval_collab_metrics=False):
   """Makes an update function for test step metrics."""
   # Cast labels to discrete for ECE computation.
@@ -863,15 +895,16 @@ def make_test_metrics_update_fn(dataset_name,
   calib_confidence = 1. - probs * (1. - probs) / .25
 
   # Compute bias prediction results.
-  update_bias_metrics = (
-      train_on_bias_label and isinstance(bias_labels, tf.Tensor) and
-      isinstance(bias_probs, tf.Tensor))
-  if update_bias_metrics:
-    bias_ece_probs = tf.concat([1. - bias_probs, bias_probs], axis=1)
-    bias_preds = tf.math.argmax(bias_ece_probs, axis=-1)
-    bias_one_hot_labels = tf.one_hot(
-        tf.cast(bias_labels, tf.int32), depth=num_classes)
-    bias_auc_probs = tf.squeeze(bias_probs, axis=1)
+  update_multi_task_metrics = (
+      train_on_multi_task_label and isinstance(multi_task_labels, tf.Tensor) and
+      isinstance(multi_task_probs, tf.Tensor))
+  if update_multi_task_metrics:
+    multi_task_ece_probs = tf.concat([1. - multi_task_probs, multi_task_probs],
+                                     axis=1)
+    multi_task_preds = tf.math.argmax(multi_task_ece_probs, axis=-1)
+    multi_task_one_hot_labels = tf.one_hot(
+        tf.cast(multi_task_labels, tf.int32), depth=num_classes)
+    multi_task_auc_probs = tf.squeeze(multi_task_probs, axis=1)
 
   def update_fn(metrics):
     if dataset_name == 'ind':
@@ -889,18 +922,27 @@ def make_test_metrics_update_fn(dataset_name,
       metrics['test/precision'].update_state(ece_labels, pred_labels)
       metrics['test/recall'].update_state(ece_labels, pred_labels)
       metrics['test/f1'].update_state(one_hot_labels, ece_probs)
+      metrics['test/calibration_auroc'].update_state(ece_labels, pred_labels,
+                                                     calib_confidence)
+      metrics['test/calibration_auprc'].update_state(ece_labels, pred_labels,
+                                                     calib_confidence)
 
       if eval_time:
         metrics['test/eval_time'].update_state(eval_time)
 
-      if update_bias_metrics:
-        metrics['test/bias_accuracy'].update_state(bias_labels, bias_preds)
-        metrics['test/bias_auroc'].update_state(bias_labels, bias_auc_probs)
-        metrics['test/bias_aupr'].update_state(bias_labels, bias_auc_probs)
-        metrics['test/bias_precision'].update_state(bias_labels, bias_preds)
-        metrics['test/bias_recall'].update_state(bias_labels, bias_preds)
-        metrics['test/bias_f1'].update_state(bias_one_hot_labels,
-                                             bias_ece_probs)
+      if update_multi_task_metrics:
+        metrics['test/multi_task_accuracy'].update_state(
+            multi_task_labels, multi_task_preds)
+        metrics['test/multi_task_auroc'].update_state(multi_task_labels,
+                                                      multi_task_auc_probs)
+        metrics['test/multi_task_aupr'].update_state(multi_task_labels,
+                                                     multi_task_auc_probs)
+        metrics['test/multi_task_precision'].update_state(
+            multi_task_labels, multi_task_preds)
+        metrics['test/multi_task_recall'].update_state(multi_task_labels,
+                                                       multi_task_preds)
+        metrics['test/multi_task_f1'].update_state(multi_task_one_hot_labels,
+                                                   multi_task_ece_probs)
 
       if eval_collab_metrics:
         for policy in ('uncertainty', 'toxicity'):
@@ -954,24 +996,28 @@ def make_test_metrics_update_fn(dataset_name,
           ece_labels, pred_labels)
       metrics['test/f1_{}'.format(dataset_name)].update_state(
           one_hot_labels, ece_probs)
+      metrics['test/calibration_auroc_{}'.format(dataset_name)].update_state(
+          ece_labels, pred_labels, calib_confidence)
+      metrics['test/calibration_auprc_{}'.format(dataset_name)].update_state(
+          ece_labels, pred_labels, calib_confidence)
 
       if eval_time:
         metrics['test/eval_time_{}'.format(dataset_name)].update_state(
             eval_time)
 
-      if update_bias_metrics:
-        metrics['test/bias_accuracy_{}'.format(dataset_name)].update_state(
-            bias_labels, bias_preds)
-        metrics['test/bias_auroc_{}'.format(dataset_name)].update_state(
-            bias_labels, bias_auc_probs)
-        metrics['test/bias_aupr_{}'.format(dataset_name)].update_state(
-            bias_labels, bias_auc_probs)
-        metrics['test/bias_precision_{}'.format(dataset_name)].update_state(
-            bias_labels, bias_preds)
-        metrics['test/bias_recall_{}'.format(dataset_name)].update_state(
-            bias_labels, bias_preds)
-        metrics['test/bias_f1_{}'.format(dataset_name)].update_state(
-            bias_one_hot_labels, bias_ece_probs)
+      if update_multi_task_metrics:
+        metrics['test/multi_task_accuracy_{}'.format(
+            dataset_name)].update_state(multi_task_labels, multi_task_preds)
+        metrics['test/multi_task_auroc_{}'.format(dataset_name)].update_state(
+            multi_task_labels, multi_task_auc_probs)
+        metrics['test/multi_task_aupr_{}'.format(dataset_name)].update_state(
+            multi_task_labels, multi_task_auc_probs)
+        metrics['test/multi_task_precision_{}'.format(
+            dataset_name)].update_state(multi_task_labels, multi_task_preds)
+        metrics['test/multi_task_recall_{}'.format(dataset_name)].update_state(
+            multi_task_labels, multi_task_preds)
+        metrics['test/multi_task_f1_{}'.format(dataset_name)].update_state(
+            multi_task_one_hot_labels, multi_task_ece_probs)
 
       if eval_collab_metrics:
         for policy in ('uncertainty', 'toxicity'):

@@ -87,7 +87,7 @@ def main(argv):
        return_train_split_name=True,
        cv_split_name=FLAGS.train_cv_split_name,
        train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
-       train_on_bias_label=FLAGS.train_on_bias_label,
+       train_on_multi_task_label=FLAGS.train_on_multi_task_label,
        test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
        test_on_challenge_data=FLAGS.test_on_challenge_data,
        identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
@@ -194,7 +194,7 @@ def main(argv):
       eval_collab_metrics=FLAGS.eval_collab_metrics,
       num_approx_bins=FLAGS.num_approx_bins,
       # Do not eval on bias predictions for now.
-      train_on_bias_label=False,
+      train_on_multi_task_label=False,
       log_eval_time=False)
 
   @tf.function
@@ -275,10 +275,11 @@ def main(argv):
           probs,
           negative_log_likelihood=negative_log_likelihood,
           eval_collab_metrics=FLAGS.eval_collab_metrics,
+          ece_label_threshold=FLAGS.ece_label_threshold,
           # Do not eval on bias predictions for now.
-          train_on_bias_label=False,
-          bias_labels=None,
-          bias_probs=None)
+          train_on_multi_task_label=False,
+          multi_task_labels=None,
+          multi_task_probs=None)
       update_fn(metrics)
 
     ids_all = tf.concat(ids_list, axis=0)

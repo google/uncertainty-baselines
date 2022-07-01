@@ -324,7 +324,6 @@ def main(argv):
       negative_log_likelihood = tf.reduce_mean(
           -tf.reduce_logsumexp(log_likelihoods, axis=[1]) +
           tf.math.log(float(FLAGS.ensemble_size)))
-      logits = tf.math.reduce_mean(logits, axis=1)  # marginalize
       probs = tf.math.reduce_mean(probs, axis=1)  # marginalize
 
       if dataset_name == 'clean':
@@ -335,7 +334,12 @@ def main(argv):
       elif dataset_name.startswith('ood/'):
         ood_labels = 1 - inputs['is_in_distribution']
         if FLAGS.dempster_shafer_ood:
-          ood_scores = ood_utils.DempsterShaferUncertainty(logits)
+          per_logits = tf.split(
+              logits, num_or_size_splits=FLAGS.ensemble_size, axis=1)
+          ood_scores = [
+              ood_utils.DempsterShaferUncertainty(logit) for logit in per_logits
+          ]
+          ood_scores = tf.reduce_mean(ood_scores, axis=0)
         else:
           ood_scores = 1 - tf.reduce_max(probs, axis=-1)
 

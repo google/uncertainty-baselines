@@ -70,7 +70,7 @@ _CONFIG = ml_collections.config_flags.DEFINE_config_file(
     'config', None, 'Training configuration.', lock_config=True)
 
 _EXTRA_CONFIG = flags.DEFINE_string(
-    'extra_config', '/tmp/vrnn/extra_config.json',
+    'extra_config', '',
     'Json file storing configs to be overwritten.')
 _OUTPUT_DIR = flags.DEFINE_string('output_dir', '/tmp/vrnn',
                                   'Output directory.')

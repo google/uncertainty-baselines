@@ -49,6 +49,11 @@ def get_config():
   config.prefetch_to_device = 2
   config.trial = 0
 
+  # Subpopulation shift evaluation. Parameters set in the sweep. If
+  # `config.subpopl_cifar_data_file` is None, this evaluation is skipped.
+  config.subpopl_cifar_data_file = None
+  config.pp_eval_subpopl_cifar = None
+
   # OOD evaluation. They're all set in the sweep.
   config.ood_datasets = []
   config.ood_num_classes = []

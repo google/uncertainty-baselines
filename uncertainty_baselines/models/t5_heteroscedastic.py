@@ -144,11 +144,11 @@ class TransformerHeteroscedastic(t5_network.Transformer):
         param_efficient=self.param_efficient,
         return_locs=self.return_locs)
 
-  def apply(self, *args, **kwargs):
-    rngs = kwargs.get('rngs', None)
+  @staticmethod
+  def modify_rngs(eval_rng_seed, rngs):
     # For evaluation, we use a constant seed specified in eval_rng_seed.
     if rngs is None:
-      rng = jax.random.PRNGKey(self.eval_rng_seed)
+      rng = jax.random.PRNGKey(eval_rng_seed)
       diag_noise_rng, standard_noise_rng = jax.random.split(rng)
       rngs = {
           'diag_noise_samples': diag_noise_rng,
@@ -168,5 +168,16 @@ class TransformerHeteroscedastic(t5_network.Transformer):
 
     assert 'diag_noise_samples' in rngs
     assert 'standard_norm_noise_samples' in rngs
+    return rngs
+
+  def apply(self, *args, **kwargs):
+    rngs = kwargs.get('rngs', None)
+    rngs = self.modify_rngs(self.eval_rng_seed, rngs)
     kwargs['rngs'] = rngs
     return super().apply(*args, **kwargs)
+
+  def init(self, rngs, *args, **kwargs):
+    if not isinstance(rngs, dict):
+      rngs = {'params': rngs}
+    rngs = self.modify_rngs(self.eval_rng_seed, rngs)
+    return super().init(rngs, *args, **kwargs)

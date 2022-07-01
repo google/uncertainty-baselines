@@ -15,9 +15,18 @@
 
 """Tests for train_lib."""
 
+from typing import Optional
+
 import numpy as np
 import tensorflow as tf
 import train_lib  # local file import from experimental.language_structure.vrnn
+
+
+def _repr_fn(features: tf.Tensor,
+             labels: tf.Tensor,
+             mask: Optional[tf.Tensor] = None):
+  del mask
+  return features, labels
 
 
 class TrainLibTest(tf.test.TestCase):
@@ -33,6 +42,7 @@ class TrainLibTest(tf.test.TestCase):
     self.assertEqual(model.inputs[0].shape.as_list(), [None, input_size])
     self.assertLen(model.outputs, 1)
     self.assertEqual(model.outputs[0].shape.as_list(), [None, output_size])
+
 
 
 if __name__ == '__main__':

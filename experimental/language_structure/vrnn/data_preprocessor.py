@@ -31,6 +31,7 @@ SYS_UTT_NAME = dialog_state_tracking.SYS_UTT_NAME
 STATE_LABEL_NAME = dialog_state_tracking.STATE_LABEL_NAME
 DIAL_TURN_ID_NAME = dialog_state_tracking.DIAL_TURN_ID_NAME
 DOMAIN_LABEL_NAME = dialog_state_tracking.DOMAIN_LABEL_NAME
+TRAIN_SAMPLE_MASK_NAME = dialog_state_tracking.TRAIN_SAMPLE_MASK_NAME
 
 INPUT_ID_NAME = 'input_word_ids'
 INPUT_MASK_NAME = 'input_mask'
@@ -120,9 +121,14 @@ class DataPreprocessor:
     else:
       ind_mask = None
 
+    if TRAIN_SAMPLE_MASK_NAME in inputs:
+      train_sample_mask = inputs[TRAIN_SAMPLE_MASK_NAME]
+    else:
+      train_sample_mask = None
+
     return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
-            label_id, label_mask, initial_state, initial_sample, (domain,
-                                                                  ind_mask))
+            label_id, label_mask, initial_state, initial_sample,
+            (domain, ind_mask), train_sample_mask)
 
 
 def get_full_dataset_outputs(dataset_builder: base.BaseDataset) -> tf.Tensor:

@@ -18,8 +18,15 @@
 import os
 
 SUPPORTED_DATASETS = [
-    'simdial', 'simdial-weather', 'simdial-bus', 'simdial-movie',
-    'simdial-restaurant', 'multiwoz_synth', 'sgd_synth', 'sgd'
+    'simdial',
+    'simdial-weather',
+    'simdial-bus',
+    'simdial-movie',
+    'simdial-restaurant',
+    'multiwoz_synth',
+    'sgd_synth',
+    'sgd',
+    'sgd_domain_adapation',
 ]
 
 _DATASET_MAX_SEQ_LENGTH = {
@@ -31,6 +38,7 @@ _DATASET_MAX_SEQ_LENGTH = {
     'multiwoz_synth': 42,
     'sgd_synth': 76,
     'sgd': 79,
+    'sgd_domain_adapation': 79,
 }
 
 _DATASET_MAX_DIALOG_LENGTH = {
@@ -42,6 +50,7 @@ _DATASET_MAX_DIALOG_LENGTH = {
     'multiwoz_synth': 7,
     'sgd_synth': 24,
     'sgd': 25,
+    'sgd_domain_adapation': 25,
 }
 
 _DATASET_NUM_LATENT_STATES = {
@@ -53,6 +62,7 @@ _DATASET_NUM_LATENT_STATES = {
     'multiwoz_synth': 10,
     'sgd_synth': 39,
     'sgd': 75,
+    'sgd_domain_adapation': 75,
 }
 
 _DATASET_NUM_DOMIANS = {
@@ -64,6 +74,7 @@ _DATASET_NUM_DOMIANS = {
     'multiwoz_synth': 7,
     'sgd_synth': 33,
     'sgd': 18,
+    'sgd_domain_adapation': 18,
 }
 
 _DATASET_BASEDIR_PATH = {dataset: '' for dataset in SUPPORTED_DATASETS}

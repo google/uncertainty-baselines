@@ -95,7 +95,8 @@ class DataPreprocessorTest(parameterized.TestCase):
 
   @parameterized.named_parameters(('multiwoz_synth', 'multiwoz_synth'),
                                   ('simdial', 'simdial'),
-                                  ('sgd_synth', 'sgd_synth'))
+                                  ('sgd_synth', 'sgd_synth'), ('sgd', 'sgd'),
+                                  ('sgd_da', 'sgd_domain_adapation'))
   def test_output_shape(self, dataset_name):
     dataset = self._load_dataset(dataset_name)
     dialog_length = data_utils.get_dataset_max_dialog_length(dataset_name)
@@ -109,8 +110,8 @@ class DataPreprocessorTest(parameterized.TestCase):
                                                       num_states)
     dataset = dataset.map(preprocessor.create_feature_and_label)
     (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2, label,
-     label_mask, initial_state, initial_sample,
-     domains) = more_itertools.first(dataset)
+     label_mask, initial_state, initial_sample, domains,
+     _) = more_itertools.first(dataset)
 
     domain_label, _ = domains
 
@@ -146,7 +147,7 @@ class DataPreprocessorTest(parameterized.TestCase):
         num_states,
         labeled_dialog_turn_ids=dialog_turn_ids)
     dataset = dataset.map(preprocessor.create_feature_and_label)
-    (_, _, _, _, _, label_mask, _, _, _) = more_itertools.first(dataset)
+    (_, _, _, _, _, label_mask, _, _, _, _) = more_itertools.first(dataset)
 
     for i, row in enumerate(label_mask.numpy()):
       for j, val in enumerate(row):
@@ -170,7 +171,7 @@ class DataPreprocessorTest(parameterized.TestCase):
 
     dataset = self._load_dataset(dataset_name)
     dataset = dataset.map(preprocessor.create_feature_and_label)
-    (_, _, _, _, _, _, _, _, domains) = more_itertools.first(dataset)
+    (_, _, _, _, _, _, _, _, domains, _) = more_itertools.first(dataset)
 
     domain_label_id, ind_mask = domains
     for domain_label, mask in zip(domain_label_id.numpy(), ind_mask.numpy()):

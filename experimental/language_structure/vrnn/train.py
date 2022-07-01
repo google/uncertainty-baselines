@@ -46,6 +46,7 @@ import utils  # local file import from experimental.language_structure.vrnn
 _DOMAIN_LABEL_NAME = preprocessor.DOMAIN_LABEL_NAME
 _STATE_LABEL_NAME = preprocessor.STATE_LABEL_NAME
 _DIAL_TURN_ID_NAME = preprocessor.DIAL_TURN_ID_NAME
+_TRAIN_SAMPLE_MASK_NAME = preprocessor.TRAIN_SAMPLE_MASK_NAME
 
 _INPUT_ID_NAME = 'input_word_ids'
 _INPUT_MASK_NAME = 'input_mask'
@@ -101,10 +102,13 @@ def _primary_metric_improved(metrics: _MetricMap, current_best: tf.Tensor,
     return metrics[_PRIMARY_METRIC_KEY] - abs(min_delta) > current_best
 
 
-def _get_unmasked_dialog_turn_ids(labels: tf.Tensor, dialog_turn_ids: tf.Tensor,
-                                  label_sample_map: Dict[int, float],
-                                  label_sample_mode: str,
-                                  seed: int) -> tf.Tensor:
+def _get_unmasked_dialog_turn_ids(
+    labels: tf.Tensor,
+    dialog_turn_ids: tf.Tensor,
+    label_sample_map: Dict[int, float],
+    label_sample_mode: str,
+    seed: int,
+    train_sample_mask: Optional[tf.Tensor] = None) -> tf.Tensor:
   """Samples unmasked dialog turn ids from label_sample_map."""
   if label_sample_mode not in (_LABEL_RATIO_MODE, _LABEL_SHOT_MODE):
     raise NotImplementedError(
@@ -114,6 +118,10 @@ def _get_unmasked_dialog_turn_ids(labels: tf.Tensor, dialog_turn_ids: tf.Tensor,
   rng = np.random.default_rng(seed=seed)
   labels = labels.numpy().flatten()
   dialog_turn_ids = dialog_turn_ids.numpy().flatten()
+  if train_sample_mask is not None:
+    train_sample_mask = train_sample_mask.numpy().flatten().astype(bool)
+    labels = labels[train_sample_mask]
+    dialog_turn_ids = dialog_turn_ids[train_sample_mask]
 
   if label_sample_mode == _LABEL_RATIO_MODE:
     # In ratio mode, we sample by the probabilities from ratios of examples to
@@ -182,10 +190,12 @@ def _should_generate_labeled_dialog_turn_ids(with_label: bool,
   return label_sampling_path is not None
 
 
-def _generate_labeled_dialog_turn_ids(label_sampling_path: str,
-                                      labels: tf.Tensor,
-                                      dialog_turn_ids: tf.Tensor,
-                                      seed: int) -> tf.Tensor:
+def _generate_labeled_dialog_turn_ids(
+    label_sampling_path: str,
+    labels: tf.Tensor,
+    dialog_turn_ids: tf.Tensor,
+    seed: int,
+    train_sample_mask: Optional[tf.Tensor] = None) -> tf.Tensor:
   """Generates labeled dialog turn ids and saves them to `output_dir`."""
   with tf.io.gfile.GFile(label_sampling_path, 'r') as file:
     data = json.loads(file.read())
@@ -198,7 +208,8 @@ def _generate_labeled_dialog_turn_ids(label_sampling_path: str,
   }
 
   labeled_dialog_turn_ids = _get_unmasked_dialog_turn_ids(
-      labels, dialog_turn_ids, label_sample_map, label_sample_mode, seed)
+      labels, dialog_turn_ids, label_sample_map, label_sample_mode, seed,
+      train_sample_mask)
 
   return labeled_dialog_turn_ids
 
@@ -411,23 +422,33 @@ def _update_model_prediction_metrics(metrics: _MetricMap, namespace: str,
 
 
 def _transform_hidden_representation(
-    inputs: tf.Tensor, labels: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
+    inputs: tf.Tensor,
+    labels: tf.Tensor,
+    mask: Optional[tf.Tensor] = None) -> Tuple[tf.Tensor, tf.Tensor]:
   """Flatten the hidden representation and labels and filtering out paddings."""
   inputs = tf.reshape(inputs, [-1, inputs.shape[-1]])
   labels = tf.reshape(labels, [-1])
 
-  padding_mask = labels > 0
-  return tf.boolean_mask(inputs,
-                         padding_mask), tf.boolean_mask(labels, padding_mask)
+  if mask is None:
+    mask = labels > 0
+  else:
+    mask = tf.reshape(mask, [-1])
+  return tf.boolean_mask(inputs, mask), tf.boolean_mask(labels, mask)
 
 
-def _evaluate_hidden_state_model(input_size: int, num_classes: int,
-                                 train_x: tf.Tensor, train_y: tf.Tensor,
-                                 test_x: tf.Tensor, test_y: tf.Tensor,
+def _evaluate_hidden_state_model(input_size: int,
+                                 num_classes: int,
+                                 train_x: tf.Tensor,
+                                 train_y: tf.Tensor,
+                                 test_x: tf.Tensor,
+                                 test_y: tf.Tensor,
                                  test_masks: Sequence[tf.Tensor],
-                                 train_epochs: int, learning_rate: float):
+                                 train_epochs: int,
+                                 learning_rate: float,
+                                 train_sample_mask: Optional[tf.Tensor] = None):
   """Evaluates the hidden state representation."""
-  train_x, train_y = _transform_hidden_representation(train_x, train_y)
+  train_x, train_y = _transform_hidden_representation(train_x, train_y,
+                                                      train_sample_mask)
 
   model = train_lib.build_hidden_state_model(input_size, num_classes,
                                              learning_rate)
@@ -443,7 +464,7 @@ def _evaluate_hidden_state_model(input_size: int, num_classes: int,
 
   for mask in test_masks:
     test_x_transformed, test_y_transformed = _transform_hidden_representation(
-        tf.boolean_mask(test_x, mask), tf.boolean_mask(test_y, mask))
+        test_x, test_y, mask)
     results.append(
         model.evaluate(
             test_x_transformed,
@@ -463,10 +484,10 @@ def _load_class_map(file_path: str) -> Dict[int, str]:
 
 
 def _create_fewshot_dataset_and_sample_weights(
-    feautres: tf.Tensor, labels: tf.Tensor,
+    feautres: tf.Tensor, labels: tf.Tensor, mask: Optional[tf.Tensor],
     repr_fn: Any) -> Tuple[tf.data.Dataset, tf.Tensor]:
   """Creates dataset for few-shot evaluation and the rebalanced sample weights."""
-  _, label = repr_fn(feautres, labels)
+  _, label = repr_fn(feautres, labels, mask)
   sample_weights = utils.create_rebalanced_sample_weights(label)
   dataset = tf.data.Dataset.from_tensor_slices((feautres, labels))
   dataset = dataset.batch(labels.shape[0]).repeat()
@@ -558,7 +579,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       shuffle_buffer_size=config.train_batch_size * 10,
       seed=seed,
       add_dialog_turn_id=with_label,
-      drop_remainder=drop_remainder)
+      drop_remainder=drop_remainder,
+      load_train_sample_mask=config.load_train_sample_mask)
   test_dataset_builder = datasets.get(
       config.dataset,
       split=_TEST,
@@ -574,7 +596,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       data_dir=config.dataset_dir,
       shuffle_buffer_size=config.inference_batch_size * 10,
       seed=config.inference_seed,
-      is_training=False)
+      is_training=False,
+      load_train_sample_mask=config.load_train_sample_mask)
   inference_test_dataset_builder = datasets.get(
       config.dataset,
       split=_TEST,
@@ -589,9 +612,10 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
                                               num_latent_states,
                                               config.label_sampling_path):
     inputs = preprocessor.get_full_dataset_outputs(train_dataset_builder)
+    train_sample_mask = inputs.get(_TRAIN_SAMPLE_MASK_NAME, None)
     labeled_dialog_turn_ids = _generate_labeled_dialog_turn_ids(
         config.label_sampling_path, inputs[_STATE_LABEL_NAME],
-        inputs[_DIAL_TURN_ID_NAME], seed)
+        inputs[_DIAL_TURN_ID_NAME], seed, train_sample_mask)
     if model_dir:
       with tf.io.gfile.GFile(
           os.path.join(model_dir, 'labeled_dialog_turn_ids.txt'), 'w') as f:
@@ -600,11 +624,14 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   else:
     labeled_dialog_turn_ids = None
 
-  if config.domain_adaptation:
-    inputs = preprocessor.get_full_dataset_outputs(train_dataset_builder)
-    # Notice domain label id 0 is also treated as in-domain: ood should have
-    # a different id from it.
-    in_domains, _ = tf.unique(tf.reshape(inputs[_DOMAIN_LABEL_NAME], [-1]))
+  if config.has_ood:
+    if config.in_domains:
+      in_domains = tf.constant(config.in_domains)
+    else:
+      inputs = preprocessor.get_full_dataset_outputs(train_dataset_builder)
+      # Notice domain label id 0 is also treated as in-domain: ood should have
+      # a different id from it.
+      in_domains, _ = tf.unique(tf.reshape(inputs[_DOMAIN_LABEL_NAME], [-1]))
     metric_namespaces = [
         _metric_namespace(_TRAIN),
         _metric_namespace(_TEST, True),
@@ -852,7 +879,8 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
     @tf.function
     def _inference_step(inputs: Sequence[tf.Tensor]) -> Sequence[tf.Tensor]:
       (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
-       label, _, initial_state, initial_sample, domains) = inputs[:9]
+       label, _, initial_state, initial_sample, domains,
+       train_sample_mask) = inputs[:10]
       model_inputs = [
           encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
           initial_state, initial_sample
@@ -878,8 +906,11 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       domain_label, ind_mask = domains
       if ind_mask is None:
         ind_mask = tf.ones_like(domain_label)
+      if train_sample_mask is None:
+        train_sample_mask = tf.zeros_like(domain_label)
 
-      return latent_state, label, prediction, domain_label, ind_mask
+      return (latent_state, label, prediction, domain_label, ind_mask,
+              train_sample_mask)
 
     return _inference_step
 
@@ -908,7 +939,9 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
       inference_step(psl_inference, config.inference_batch_size, config),
       strategy,
       distributed=distributed_inference,
-      output_dtypes=[tf.float32, tf.int32, tf.int32, tf.int32, tf.int32],
+      output_dtypes=[
+          tf.float32, tf.int32, tf.int32, tf.int32, tf.int32, tf.int32
+      ],
   )
 
   fixed_train_epoch = config.patience < 0
@@ -949,14 +982,17 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
                                                  tf.int32))
         logging.info('Done with testing on %s', dataset_name)
 
-      (train_hidden_state, train_label, train_prediction, train_domain_label,
-       _) = run_inference_steps(
+      (train_hidden_state, train_label, train_prediction, train_domain_label, _,
+       train_sample_mask) = run_inference_steps(
            iter(inference_train_dataset), num_inference_train_steps)
+      if not config.load_train_sample_mask:
+        train_sample_mask = None
+
       (test_hidden_state, test_label, test_prediction, test_domain_label,
-       ind_mask) = run_inference_steps(
+       ind_mask, _) = run_inference_steps(
            iter(inference_test_dataset), num_inference_test_steps)
 
-      if config.domain_adaptation:
+      if config.has_ood:
         test_example_masks = [ind_mask, 1 - ind_mask]
       else:
         test_example_masks = [ind_mask]
@@ -969,13 +1005,13 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           input_size, config.model.num_states, train_hidden_state, train_label,
           test_hidden_state, test_label, test_example_masks,
           config.hidden_state_model_train_epochs,
-          config.hidden_state_model_learning_rate)
+          config.hidden_state_model_learning_rate, train_sample_mask)
       domain_results = _evaluate_hidden_state_model(
           input_size, data_utils.get_dataset_num_domains(config.dataset),
           train_hidden_state, train_domain_label, test_hidden_state,
           test_domain_label, test_example_masks,
           config.hidden_state_model_train_epochs,
-          config.hidden_state_model_learning_rate)
+          config.hidden_state_model_learning_rate, train_sample_mask)
 
       _update_hidden_state_model_metrics(metrics, metric_namespaces,
                                          (results, domain_results))

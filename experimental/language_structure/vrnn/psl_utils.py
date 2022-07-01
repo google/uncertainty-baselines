@@ -29,6 +29,7 @@ _INPUT_ID_NAME = preprocessor.INPUT_ID_NAME
 _MULTIWOZ_SYNTH = 'multiwoz_synth'
 _SGD_SYNTH = 'sgd_synth'
 _SGD = 'sgd'
+_SGD_DOMAIN_ADAPATION = 'sgd_domain_adapation'
 
 
 def get_psl_model(dataset: str, rule_names: List[str],
@@ -37,7 +38,8 @@ def get_psl_model(dataset: str, rule_names: List[str],
   psl_model_cls_map = {
       _MULTIWOZ_SYNTH: psl_model_multiwoz.PSLModelMultiWoZ,
       _SGD_SYNTH: psl_model_dstc_synthetic.PSLModelDSTCSynthetic,
-      _SGD: psl_model_dstc_synthetic.PSLModelDSTCSynthetic
+      _SGD: psl_model_dstc_synthetic.PSLModelDSTCSynthetic,
+      _SGD_DOMAIN_ADAPATION: psl_model_dstc_synthetic.PSLModelDSTCSynthetic,
   }
 
   if dataset in psl_model_cls_map:
@@ -72,7 +74,7 @@ def _create_psl_features(
     config: Dict[str, Any], dataset: str,
     keyword_ids_per_class: Sequence[Sequence[int]]) -> tf.Tensor:
   """Creates features for PSL constraint model."""
-  if dataset in (_SGD, _SGD_SYNTH):
+  if dataset not in (_MULTIWOZ_SYNTH):
     return tf.concat([user_utterance_ids, system_utterance_ids], axis=-1)
   features = data_utils.create_features(
       user_utterance_ids,
@@ -102,17 +104,14 @@ def psl_feature_mixin(fn: Any, dataset: str, psl_config: Dict[str, Any],
   """
   keyword_ids_per_class = _get_keyword_ids_per_class(dataset, psl_config, vocab)
 
-  def _run(inputs: tf.Tensor):
-    (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
-     label_id, label_mask, initial_state, initial_sample, domains) = inputs
+  def _run(inputs: Sequence[tf.Tensor]):
+    encoder_input_1, encoder_input_2 = inputs[:2]
 
     psl_inputs = _create_psl_features(encoder_input_1[_INPUT_ID_NAME],
                                       encoder_input_2[_INPUT_ID_NAME],
                                       psl_config, dataset,
                                       keyword_ids_per_class)
-    return (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
-            label_id, label_mask, initial_state, initial_sample, domains,
-            psl_inputs)
+    return (*inputs, psl_inputs)
 
   return lambda inputs: _run(fn(inputs))
 

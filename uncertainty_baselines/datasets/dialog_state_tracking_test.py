@@ -209,5 +209,28 @@ class SGDDatasetTest(SimDialDatasetTest):
     self.dataset_class = ub.datasets.SGDDataset
 
 
+class SGDDADatasetTest(SimDialDatasetTest):
+
+  def setUp(self):
+    super().setUp()
+    self.dataset_class = ub.datasets.SGDDADataset
+
+  def testTrainSampleMask(self):
+    """Tests if vocab is loaded correctly."""
+    batch_size = 5
+    dataset_builder = self.dataset_class(
+        split=tfds.Split.TRAIN,
+        load_train_sample_mask=True,
+        shuffle_buffer_size=20)
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
+    element = next(iter(dataset))
+
+    train_sample_mask = element['train_sample_mask']
+    train_sample_mask_shape = train_sample_mask.shape
+
+    max_dial_len = MAX_DIALOG_LEN[dataset_builder.name]
+    self.assertEqual(train_sample_mask_shape, (batch_size, max_dial_len))
+
+
 if __name__ == '__main__':
   tf.test.main()

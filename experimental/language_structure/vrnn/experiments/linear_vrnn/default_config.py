@@ -88,6 +88,7 @@ def _create_model_config(
 
 
 def get_config(dataset: str,
+               config_dir: Optional[str] = None,
                num_states: Optional[int] = None,
                shots: Optional[int] = 0,
                with_bow: Optional[bool] = True,
@@ -100,6 +101,8 @@ def get_config(dataset: str,
 
   Args:
     dataset: dataset name.
+    config_dir: config dir path. If not passed, find the path by the dataset
+                name.
     num_states: number of the latent dialog states of the model.
     shots: number of labeled examples per class used during training.
     with_bow: whether to enable BoW loss.
@@ -114,7 +117,8 @@ def get_config(dataset: str,
     A ConfigDict containing all configs for the experiment.
   """
   config = config_dict.ConfigDict()
-  config_dir = get_config_dir(dataset)
+  if not config_dir:
+    config_dir = get_config_dir(dataset)
 
   # config.max_per_task_failures = -1
   # config.max_task_failures = 10
@@ -127,7 +131,15 @@ def get_config(dataset: str,
   config.dataset = dataset
   config.dataset_dir = data_utils.get_dataset_dir(dataset)
 
-  config.domain_adaptation = False
+  config.has_ood = False
+  # Whether to load train sample mask from the dataset. The mask indicates
+  # which examples in the dataset are from the training set. This is used in
+  # domain adapation task where we mixed the original trainset and testset for
+  # model unsupervised training.
+  config.load_train_sample_mask = False
+  # In domain labels. If empty, we'll extract the unique domain labels from the
+  # training set as in domain labels.
+  config.in_domains = []
 
   config.train_epochs = 10
   config.train_batch_size = 16

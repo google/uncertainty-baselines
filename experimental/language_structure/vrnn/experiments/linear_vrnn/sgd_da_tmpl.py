@@ -19,8 +19,7 @@ import os
 import constants_dstc as psl_config  # local file import from experimental.language_structure.psl
 import default_config  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
 
-
-_DATASET = 'sgd'
+_DATASET = 'sgd_domain_adapation'
 
 
 def add_psl_config(config):
@@ -32,9 +31,18 @@ def add_psl_config(config):
 
 def get_config(**kwargs):
   """Returns the configuration for this experiment."""
-  config = default_config.get_config(_DATASET, **kwargs)
+  config_dir = default_config.get_config_dir('sgd')
+  config = default_config.get_config(_DATASET, config_dir=config_dir, **kwargs)
+
+  config.word_weights_path = os.path.join(config_dir,
+                                          'word_weights_domain_adapation.npy')
 
   config.has_ood = True
+  config.load_train_sample_mask = True
+  config.in_domains = [label for label in range(18) if label != 1]
+
+  config.max_task_failures = -1
+  config.max_per_task_failures = 20
 
   config.train_epochs = 60
 

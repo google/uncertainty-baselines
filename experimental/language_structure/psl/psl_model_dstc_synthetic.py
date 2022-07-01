@@ -28,9 +28,12 @@ import psl_model  # local file import from experimental.language_structure.psl
 class PSLModelDSTCSynthetic(psl_model.PSLModel):
   """Defining PSL rules for the DSTC Synthetic dataset."""
 
-  def __init__(self, rule_weights: List[float], rule_names: List[str],
+  def __init__(self,
+               rule_weights: List[float],
+               rule_names: List[str],
+               logic: str = 'lukasiewicz',
                **kwargs) -> None:
-    super().__init__(rule_weights, rule_names, **kwargs)
+    super().__init__(rule_weights, rule_names, logic=logic, **kwargs)
 
     for option in ['config']:
       if option not in kwargs:

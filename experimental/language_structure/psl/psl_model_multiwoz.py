@@ -28,7 +28,10 @@ import psl_model  # local file import from experimental.language_structure.psl
 class PSLModelMultiWoZ(psl_model.PSLModel):
   """Defining PSL rules for the MultiWoZ dataset."""
 
-  def __init__(self, rule_weights: List[float], rule_names: List[str],
+  def __init__(self,
+               rule_weights: List[float],
+               rule_names: List[str],
+               logic: str = 'lukasiewicz',
                **kwargs) -> None:
     super().__init__(rule_weights, rule_names, **kwargs)
 
@@ -36,6 +39,7 @@ class PSLModelMultiWoZ(psl_model.PSLModel):
       raise KeyError('Missing argument: config')
     self.config = kwargs['config']
     self.class_map = self.config['class_map']
+    self.logic = logic
 
   def _first_statement(self, batch_size, dialog_size):
     """Creates a (batch_size, dialog_size) first statement mask."""

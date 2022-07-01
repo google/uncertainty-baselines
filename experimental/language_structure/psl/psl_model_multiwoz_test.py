@@ -139,6 +139,19 @@ class PslRulesTest(tf.test.TestCase):
     loss = psl_constraints.rule_1(logits=tf.constant(logits))
     self.assertEqual(loss, 1.4)
 
+  def test_psl_rule_1_ltn_logic(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_1',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights,
+        rule_names,
+        logic='product_real_logic',
+        config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_1(logits=tf.constant(logits))
+    self.assertEqual(loss, -18.6)
+
   def test_psl_rule_2_run_model(self):
     rule_weights = (10.0,)
     rule_names = ('rule_2',)
@@ -166,6 +179,20 @@ class PslRulesTest(tf.test.TestCase):
     loss = psl_constraints.rule_2(
         logits=tf.constant(logits), data=test_util.FEATURES)
     self.assertEqual(loss, 0.6)
+
+  def test_psl_rule_2_ltn_logic(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_2',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights,
+        rule_names,
+        logic='product_real_logic',
+        config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_2(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertEqual(loss, -19.4)
 
   def test_psl_rule_3_run_model(self):
     rule_weights = (1.0,)
@@ -226,6 +253,20 @@ class PslRulesTest(tf.test.TestCase):
     loss = psl_constraints.rule_4(
         logits=tf.constant(logits), data=test_util.FEATURES)
     self.assertNear(loss, 1.8, err=1e-6)
+
+  def test_psl_rule_4_ltn_logic(self):
+    rule_weights = (1.0,)
+    rule_names = ('rule_4',)
+    psl_constraints = model.PSLModelMultiWoZ(
+        rule_weights,
+        rule_names,
+        logic='product_real_logic',
+        config=self.config)
+    logits = test_util.LOGITS
+
+    loss = psl_constraints.rule_4(
+        logits=tf.constant(logits), data=test_util.FEATURES)
+    self.assertNear(loss, -198.05, err=1e-3)
 
   def test_psl_rule_5_run_model(self):
     rule_weights = (1.0,)

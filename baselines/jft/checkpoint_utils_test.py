@@ -21,6 +21,7 @@ import tempfile
 from absl.testing import parameterized
 import flax
 import flax.jax_utils as flax_utils
+import flax.training.checkpoints
 import jax
 import jax.numpy as jnp
 import ml_collections

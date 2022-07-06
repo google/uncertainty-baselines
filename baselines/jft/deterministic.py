@@ -39,6 +39,7 @@ import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
+import subpopl_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
@@ -667,41 +668,12 @@ def main(config, output_dir):
 
       # Perform subpopulation shift evaluation only if flag is provided.
       if config.get('subpopl_cifar_data_file'):
-        subpopl_measurements = {}
-        # Iterate over subpopulations.
-        for val_subpopl_name, val_ds in subpopl_val_ds_splits.items():
-          val_iter = input_utils.start_input_pipeline(
-              val_ds, config.get('prefetch_to_device', 1))
-          ncorrect, nseen = 0, 0
-          for batch in val_iter:
-            batch_ncorrect, _, batch_n, _ = (
-                evaluation_fn(opt_repl.target, batch['image'], batch['labels'],
-                              batch['mask']))
-            # All results are a replicated array shaped as follows:
-            # (local_devices, per_device_batch_size, elem_shape...)
-            # with each local device's entry being identical as they got psum'd.
-            # So let's just take the first one to the host as numpy.
-            ncorrect += np.sum(np.array(batch_ncorrect[0]))
-            nseen += np.sum(np.array(batch_n[0]))
-
-          subpopl_measurements.update({
-              f'subpopl_{val_subpopl_name}_prec@1': ncorrect / nseen,
-          })
-
-        # Calculate aggregated metrics over subpopulations.
-        agg_measurements = dict()
-        precs = [
-            v for k, v in subpopl_measurements.items() if k.endswith('_prec@1')
-        ]
-        agg_measurements['subpopl_avg_prec@1'] = np.mean(precs)
-        agg_measurements['subpopl_med_prec@1'] = np.median(precs)
-        agg_measurements['subpopl_var_prec@1'] = np.var(precs)
-        agg_measurements['subpopl_p95_prec@1'] = np.percentile(precs, 95)
-        agg_measurements['subpopl_p75_prec@1'] = np.percentile(precs, 75)
-        agg_measurements['subpopl_p25_prec@1'] = np.percentile(precs, 25)
-        agg_measurements['subpopl_p05_prec@1'] = np.percentile(precs, 5)
-
-        writer.write_scalars(step, scalars=agg_measurements)
+        subpopl_measurements = subpopl_utils.eval_subpopl_metrics(
+            subpopl_val_ds_splits,
+            evaluation_fn,
+            opt_repl.target,
+            n_prefetch=config.get('prefetch_to_device', 1))
+        writer.write_scalars(step, scalars=subpopl_measurements)
 
     if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.

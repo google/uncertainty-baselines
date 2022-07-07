@@ -86,8 +86,9 @@ class PSLModel(abc.ABC):
       truth_values = PSLModel.soft_imply(body, head, logic)
 
       if loss_function == _LINEAR_LOSS:
-        return -tf.reduce_sum(truth_values)
+        return tf.reduce_sum(1 - truth_values)
       elif loss_function == _LOG_LOSS:
+        truth_values = tf.clip_by_value(truth_values, _EPSILON, 1. - _EPSILON)
         return -tf.reduce_sum(tf.math.log(truth_values))
       else:
         raise ValueError('Unsuported loss: %s' % loss_function)

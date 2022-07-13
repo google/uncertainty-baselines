@@ -759,3 +759,49 @@ def make_radar_plot(df,
 
   for i in range(0, num_categories):
     add_new_yaxis(yscales[i][0], yscales[i][1], angles[i])
+
+
+def process_fewshot_for_moe_comparison(
+    measurements_dict: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+  """Format the fewshot results for 'MoE', '[Det]_4' and '[MoE]_4'.
+
+  This function is not needed for Det, BE and Het since they had dedicated xm
+  jobs for their fewshot evaluations.
+
+  Args:
+    measurements_dict: dictionary of pd.DataFrame's where one row corresponds
+      to one seed for one given model.
+
+  Returns:
+    A pd.DataFrame indexed by model name with multindex columns corresponding to
+    pairs of (fewshot metric, fewshot dataset).
+  """
+
+  def _parse_column(c):
+    match = re.fullmatch(r'z/(.*)_(\d*)shot_(.*)$', c)
+    is_valid = match is not None and 'best_l2' not in c
+    if not is_valid:
+      return None
+    else:
+      dataset, shot, metric_type = match.groups()
+      column_name = (f'{shot}shot_{metric_type}', f'few-shot {dataset}')
+      return column_name
+
+  rows = []
+  for model_name in ('MoE', '[Det]_4', '[MoE]_4'):
+    # We average over the different seeds.
+    fewshot_dict = measurements_dict[model_name].mean(axis=0).to_dict()
+    # We format the names of the columns.
+    column_names = {c: _parse_column(c) for c in fewshot_dict}
+    fewshot_dict = {
+        column_name: fewshot_dict[key]
+        for key, column_name in column_names.items()
+        if column_name is not None
+    }
+    fewshot_dict['model_name'] = model_name
+    rows.append(fewshot_dict)
+
+  df = pd.DataFrame(rows).set_index('model_name')
+  df.columns = pd.MultiIndex.from_tuples(
+      df.columns, names=['metric', 'dataset'])
+  return df

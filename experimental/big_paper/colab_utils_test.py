@@ -562,6 +562,36 @@ class ColabUtilsTest(parameterized.TestCase):
       expected_df.columns = pd.MultiIndex.from_tuples(expected_df.columns)
       pd.testing.assert_frame_equal(result_df, expected_df, check_dtype=False)
 
+  def test_process_fewshot_for_moe_comparison(self):
+    df_from_dict = pd.DataFrame.from_dict
+
+    column_names = [
+        'IGNORED-INVALID-NAME',
+        'z/MY-DATASET1_666shot_MY-SUPER-METRIC',
+        'z/MY-DATASET2_666shot_MY-SUPER-METRIC',
+        'z/MY-DATASET1_3shot_best_l2'
+    ]
+
+    input_df = {
+        '[Det]_4': df_from_dict({c: [3., np.nan, 1.] for c in column_names}),
+        '[MoE]_4': df_from_dict({c: [np.nan, -1., 1.] for c in column_names}),
+        'MoE': df_from_dict({c: [0., 10., np.nan] for c in column_names}),
+    }
+
+    expected_cols = [('666shot_MY-SUPER-METRIC', 'few-shot MY-DATASET1'),
+                     ('666shot_MY-SUPER-METRIC', 'few-shot MY-DATASET2')]
+    expected_df = [
+        # The values correspond to the averages: (3+1)/2, (1-1)/2 and (0+10)/2.
+        {'model_name': 'MoE', expected_cols[0]: 5., expected_cols[1]: 5.},
+        {'model_name': '[Det]_4', expected_cols[0]: 2., expected_cols[1]: 2.},
+        {'model_name': '[MoE]_4', expected_cols[0]: 0., expected_cols[1]: 0.}
+    ]
+    expected_df = pd.DataFrame(expected_df).set_index('model_name')
+    expected_df.columns = pd.MultiIndex.from_tuples(
+        expected_df.columns, names=['metric', 'dataset'])
+
+    result_df = colab_utils.process_fewshot_for_moe_comparison(input_df)
+    pd.testing.assert_frame_equal(result_df, expected_df)
 
 if __name__ == '__main__':
   absltest.main()

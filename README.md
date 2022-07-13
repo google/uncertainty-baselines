@@ -233,6 +233,7 @@ The following papers have used code from Uncertainty Baselines:
 14. [Revisiting One-vs-All Classifiers for Predictive Uncertainty and Out-of-Distribution Detection in Neural Networks](https://arxiv.org/abs/2007.05134)
 15. [Simple and Principled Uncertainty Estimation with Deterministic Deep Learning via Distance Awareness](https://proceedings.neurips.cc/paper/2020/file/543e83748234f7cbab21aa0ade66565f-Paper.pdf)
 16. [Training independent subnetworks for robust prediction](https://openreview.net/forum?id=OGg9XnKxFAH)
+17. [Plex: Towards Reliability Using Pretrained Large Model Extensions](https://goo.gle/plex-paper), available [here](https://goo.gle/plex-code)
 
 
 ## Contributing

@@ -10,11 +10,11 @@
 | [MIMO](mimo.py) | 0.123 | 96.4% | 0.010 | 0.927 / 76.6% / 0.112 | - | 0.080 | 36.5M |
 | [Rank-1 BNN (Gaussian, size=4)](rank1_bnn.py) | 0.128 | 96.3% |  0.008 | 0.84 / 76.7% / 0.080 | 7.3 (8 TPUv2 cores) | - | 36.6M |
 | [Rank-1 BNN (Cauchy, size=4, 4 samples)](rank1_bnn.py) | 0.120 | 96.5% |  0.009 | 0.74 / 80.5% / 0.090 | 7.3 (8 TPUv2 cores) | - | 36.6M |
-| [SNGP](sngp.py) | 0.134 | 96.0% | 0.007 | 0.74 / 78.5% / 0.078 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| [SNGP, with AugMix](sngp.py)| 0.103 | 96.9% | 0.0045 | 0.33 / 89.1% / 0.015 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| [SNGP, with MC Dropout (size=10)](sngp.py) | 0.131 | 95.9% | 0.008 | 0.76 / 77.7% / 0.082 | 4.5 (8 TPUv2 cores) | 2.846 (8 TPUv2 cores) | 36.5M |
+| [SNGP](sngp.py) | 0.134 | 96.0% | 0.007 | 0.74 / 78.5% / 0.078 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 37.5M |
+| [SNGP, with AugMix](sngp.py)| 0.103 | 96.9% | 0.0045 | 0.33 / 89.1% / 0.015 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 37.5M |
+| [SNGP, with MC Dropout (size=10)](sngp.py) | 0.131 | 95.9% | 0.008 | 0.76 / 77.7% / 0.082 | 4.5 (8 TPUv2 cores) | 2.846 (8 TPUv2 cores) | 37.5M |
 | [SNGP, with BatchEnsemble (size=4)](sngp_batchensemble.py) | 0.127 | 96.2% | 0.006 | 0.75 / 78.1% / 0.080 | - (8 TPUv2 cores) | - | -M |
-| [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.109 | 96.7% | 0.005 | 0.72 / 79.2% / 0.074 | 2.6 (32 TPUv2 cores) | 1.199 (8 TPUv2 cores) | 146M |
+| [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.109 | 96.7% | 0.005 | 0.72 / 79.2% / 0.074 | 2.6 (32 TPUv2 cores) | 1.199 (8 TPUv2 cores) | 150M |
 | [Monte Carlo Dropout (size=1)](dropout.py) |0.160 | 95.9% | 0.0241 | 1.27 / 68.8% / 0.166 | 1.2 (8 TPUv2 cores) | 0.082 (8 TPUv2 cores) | 36.5M |
 | [Monte Carlo Dropout (size=30)](dropout.py) | 0.145 | 96.1% | 0.019 | 1.27 / 70.0% / 0.167 | 1.2 (8 TPUv2 cores) | 2.457  (8 TPUv2 cores) | 36.5M |
 | [Monte Carlo Dropout, improved (size=30)](dropout.py)<sup>11</sup> | 0.116 | 96.2% | 0.005 | 0.69 / 79.6% / 0.068 | 4.8 (8 TPUv2 cores) | 2.387  (8 TPUv2 cores)  | 36.5M |
@@ -33,11 +33,11 @@
 | [MIMO](mimo.py) | 0.690 | 82.0% | 0.022 | 2.28 / 53.7% / 0.129 | - | 0.080 | 36.5M |
 | [Rank-1 BNN (Gaussian, size=4)](rank1_bnn.py) | 0.692 | 81.3% |  0.018 | 2.24 / 53.8% / 0.117 | 7.3 (8 TPUv2 cores) | - | 36.6M |
 | [Rank-1 BNN (Cauchy, size=4, 4 samples)](rank1_bnn.py) | 0.689 | 82.4% |  0.012 | 2.04 / 57.8% / 0.142 | 7.3 (8 TPUv2 cores) | - | 36.6M |
-| [SNGP](sngp.py) | 0.805 | 80.2% | 0.020 | 2.02 / 54.6% / 0.092 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| [SNGP, with AugMix](sngp.py) | 0.755 | 80.6% | 0.024 | 1.44 / 65.9% / 0.054 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 36.5M |
-| [SNGP, with MC Dropout (size=10)](sngp.py) | 0.750 | 79.6% | 0.017 | 2.06 / 53.8% / 0.087 | 4.5 (8 TPUv2 cores) | 2.841 (8 TPUv2 cores) | 36.5M |
+| [SNGP](sngp.py) | 0.805 | 80.2% | 0.020 | 2.02 / 54.6% / 0.092 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 37.5M |
+| [SNGP, with AugMix](sngp.py) | 0.755 | 80.6% | 0.024 | 1.44 / 65.9% / 0.054 | 2.6 (8 TPUv2 cores) | 0.378 (8 TPUv2 cores) | 37.5M |
+| [SNGP, with MC Dropout (size=10)](sngp.py) | 0.750 | 79.6% | 0.017 | 2.06 / 53.8% / 0.087 | 4.5 (8 TPUv2 cores) | 2.841 (8 TPUv2 cores) | 37.5M |
 | [SNGP, with BatchEnsemble (size=4)](sngp_batchensemble.py) | 0.755 | 81.4% |  0.032 | 2.03 / 55.2% / 0.112 | - (8 TPUv2 cores) | - | -M |
-| [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.665 | 81.9% | 0.011 | 1.95 / 56.8% / 0.091 | 2.6 (32 TPUv2 cores) | 1.198 (8 TPUv2 cores) | 146M |
+| [SNGP Ensemble (size=4)](sngp_ensemble.py) | 0.665 | 81.9% | 0.011 | 1.95 / 56.8% / 0.091 | 2.6 (32 TPUv2 cores) | 1.198 (8 TPUv2 cores) | 150M |
 | [Monte Carlo Dropout (size=1)](dropout.py) | 0.830 | 79.6% | 0.0501 | 2.90 / 42.63% / 0.202 | 1.1 (8 TPUv2 cores) | 0.082 (8 TPUv2 cores) | 36.5M |
 | [Monte Carlo Dropout (size=30)](dropout.py) | 0.785 | 80.7% | 0.0487 | 2.73 / 46.2 / 0.207 | 1.1 (8 TPUv2 cores) | 2.457 (8 TPUv2 cores) | 36.5M |
 | [Monte Carlo Dropout, improved (size=30)](dropout.py)<sup>11</sup> | 0.637 | 82.1% | 0.028 | 1.93 / 57.2% / 0.098 | 5.17 (8 TPUv2 cores) | 2.393 (8 TPUv2 cores) |  36.5M |

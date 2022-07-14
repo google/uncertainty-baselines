@@ -27,7 +27,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import metrics as metrics_lib  # local file import from baselines.imagenet
+import metrics  # local file import from baselines.imagenet as metrics_lib
 import utils  # local file import from baselines.imagenet
 
 flags.DEFINE_integer('per_core_batch_size', 8, 'Batch size per TPU core/GPU.')

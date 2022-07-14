@@ -39,7 +39,7 @@ import tensorflow as tf
 
 import uncertainty_baselines as ub
 # import toxic_comments.sngp to inherit its flags
-import sngp  # pylint:disable=unused-import  # local file import from baselines.toxic_comments
+import sngp  # local file import from baselines.toxic_comments  # pylint:disable=unused-import
 import utils  # local file import from baselines.toxic_comments
 
 

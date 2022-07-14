@@ -17,7 +17,7 @@ r"""Vizier for linear VRNN for SGDSynthDataset.
 
 """
 
-import sgd_synth_tmpl as tmpl  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
+import sgd_synth_tmpl  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn as tmpl
 
 
 def get_config():

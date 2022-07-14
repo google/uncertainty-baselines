@@ -37,7 +37,7 @@ import robustness_metrics as rm
 
 import tensorflow as tf
 import uncertainty_baselines as ub
-import batchensemble_utils as be_u  # local file import from baselines.jft
+import batchensemble_utils  # local file import from baselines.jft as be_u
 import checkpoint_utils  # local file import from baselines.jft
 import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft

@@ -16,7 +16,7 @@
 r"""Template of linear VRNN for SGDSynthDataset."""
 
 import os
-import constants_dstc_synthetic as psl_config  # local file import from experimental.language_structure.psl
+import constants_dstc_synthetic  # local file import from experimental.language_structure.psl as psl_config
 import default_config  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
 
 _DATASET = 'sgd_synth'

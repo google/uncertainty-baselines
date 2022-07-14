@@ -47,7 +47,7 @@ import scipy
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
-import metrics as metrics_lib  # local file import from baselines.imagenet
+import metrics  # local file import from baselines.imagenet as metrics_lib
 from tensorboard.plugins.hparams import api as hp
 
 flags.DEFINE_integer('per_core_batch_size', 128, 'Batch size per TPU core/GPU.')

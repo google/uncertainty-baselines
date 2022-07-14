@@ -27,7 +27,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 
 from tensorflow_addons import metrics as tfa_metrics
-import metrics as tc_metrics  # local file import from baselines.toxic_comments
+import metrics  # local file import from baselines.toxic_comments as tc_metrics
 from uncertainty_baselines.datasets import toxic_comments as ds
 
 from tensorflow.core.protobuf import trackable_object_graph_pb2  # pylint: disable=g-direct-tensorflow-import

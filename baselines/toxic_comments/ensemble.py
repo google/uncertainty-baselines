@@ -33,7 +33,7 @@ import tensorflow as tf
 
 import uncertainty_baselines as ub
 # import toxic_comments.deterministic to inherit its flags
-import deterministic  # pylint:disable=unused-import  # local file import from baselines.toxic_comments
+import deterministic  # local file import from baselines.toxic_comments  # pylint:disable=unused-import
 import utils  # local file import from baselines.toxic_comments
 
 

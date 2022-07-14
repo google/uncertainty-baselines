@@ -34,7 +34,7 @@ import ml_collections.config_flags
 import numpy as np
 import tensorflow as tf
 from uncertainty_baselines.datasets import datasets
-import data_preprocessor as preprocessor  # local file import from experimental.language_structure.vrnn
+import data_preprocessor  # local file import from experimental.language_structure.vrnn as preprocessor
 import data_utils  # local file import from experimental.language_structure.vrnn
 import linear_vrnn  # local file import from experimental.language_structure.vrnn
 import model_config  # local file import from experimental.language_structure.vrnn

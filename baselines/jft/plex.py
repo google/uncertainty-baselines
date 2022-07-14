@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""BatchEnsemble Vision Transformer."""
+"""ViT-Plex."""
 
 import functools
 import multiprocessing

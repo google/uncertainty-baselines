@@ -26,7 +26,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import uncertainty_baselines as ub
 import bert_utils  # local file import from baselines.clinc_intent
-import deterministic_model_textcnn  # local file import from baselines.clinc_intent as cnn_model
+import deterministic_model_textcnn as cnn_model  # local file import from baselines.clinc_intent
 from tensorboard.plugins.hparams import api as hp
 
 # Data flags

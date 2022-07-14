@@ -19,7 +19,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import psl_model_multiwoz  # local file import from experimental.language_structure.psl
-import psl_model_multiwoz_test_util  # local file import from experimental.language_structure.psl as psl_test_util
+import psl_model_multiwoz_test_util as psl_test_util  # local file import from experimental.language_structure.psl
 import linear_vrnn  # local file import from experimental.language_structure.vrnn
 import model_config  # local file import from experimental.language_structure.vrnn
 

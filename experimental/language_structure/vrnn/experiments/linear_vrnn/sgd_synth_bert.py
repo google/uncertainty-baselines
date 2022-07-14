@@ -18,7 +18,7 @@ r"""Vizier for linear VRNN for MultiWoZSynthDataset.
 """
 
 import model_config  # local file import from experimental.language_structure.vrnn
-import sgd_synth_tmpl  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn as tmpl
+import sgd_synth_tmpl as tmpl  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
 
 
 def get_config():

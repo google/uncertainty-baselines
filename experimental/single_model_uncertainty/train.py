@@ -22,8 +22,8 @@ from absl import logging
 import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import eval  # local file import from experimental.single_model_uncertainty as eval_lib
-import loss_util  # local file import from experimental.single_model_uncertainty as loss_lib
+import eval as eval_lib  # local file import from experimental.single_model_uncertainty
+import loss_util as loss_lib  # local file import from experimental.single_model_uncertainty
 from tensorboard.plugins.hparams import api as hp
 
 _TensorDict = Dict[str, tf.Tensor]

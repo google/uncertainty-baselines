@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 from absl import logging
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import eval  # local file import from experimental.one_vs_all as eval_lib
+import eval as eval_lib  # local file import from experimental.one_vs_all
 
 
 _TensorDict = Dict[str, tf.Tensor]

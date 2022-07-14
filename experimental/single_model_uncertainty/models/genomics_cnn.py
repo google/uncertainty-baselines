@@ -34,7 +34,7 @@ sequence classification.
 from typing import Any, Dict, Optional
 from absl import logging
 import tensorflow as tf
-import util  # local file import from experimental.single_model_uncertainty.models as models_util
+import util as models_util  # local file import from experimental.single_model_uncertainty.models
 
 
 VOCAB_SIZE = 4  # DNA sequences are composed of {A, C, G, T}

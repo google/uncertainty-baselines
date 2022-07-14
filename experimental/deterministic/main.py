@@ -28,9 +28,9 @@ import numpy as np
 import robustness_metrics as rm
 import tensorflow.compat.v2 as tf
 import uncertainty_baselines as ub
-import eval  # local file import from experimental.deterministic as eval_lib
-import flags  # local file import from experimental.deterministic as flags_lib
-import train  # local file import from experimental.deterministic as train_lib
+import eval as eval_lib  # local file import from experimental.deterministic
+import flags as flags_lib  # local file import from experimental.deterministic
+import train as train_lib  # local file import from experimental.deterministic
 
 
 

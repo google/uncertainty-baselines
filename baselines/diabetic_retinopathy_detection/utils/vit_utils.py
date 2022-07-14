@@ -120,7 +120,7 @@ def accumulate_gradient_with_states(
       # Update state and accumulate gradient.
       l, s, g = l_s_g
       (li, si), gi = loss_and_grad_fn(params, s, imgs, lbls)
-      return (l + li, si, jax.tree_multimap(lambda x, y: x + y, g, gi))
+      return (l + li, si, jax.tree_map(lambda x, y: x + y, g, gi))
 
     l, s, g = jax.lax.fori_loop(1, accum_steps, acc_grad_and_loss, (l, s, g))
     l, g = jax.tree_map(lambda x: x / accum_steps, (l, g))

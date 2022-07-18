@@ -20,7 +20,8 @@ and treat the original validation set as the test set. This is similar to what
 is also done in the NeurIPS uncertainty benchmark paper
 https://arxiv.org/abs/1906.02530 (which used (100 / 1024)% as a validation set).
 """
-from typing import Any, Dict, Optional, Union
+import csv
+from typing import Any, Dict, Optional, Union, Tuple
 
 from absl import logging
 import numpy as np
@@ -30,7 +31,6 @@ from uncertainty_baselines.datasets import augmix
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets import resnet_preprocessing
-
 
 # ImageNet statistics. Used to normalize the input to Efficientnet. Note that
 # these do NOT have `* 255.` after them.
@@ -45,6 +45,8 @@ def _tuple_dict_fn_converter(fn, *args):
     return {'features': images, 'labels': labels}
 
   return dict_fn
+
+
 
 
 class _ImageNetDataset(base.BaseDataset):
@@ -96,8 +98,8 @@ class _ImageNetDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
-      data_dir: Directory to read/write data, that is passed to the
-        tfds dataset_builder as a data_dir parameter.
+      data_dir: Directory to read/write data, that is passed to the tfds
+        dataset_builder as a data_dir parameter.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -210,16 +212,15 @@ class _ImageNetDataset(base.BaseDataset):
 
     return _example_parser
 
-  def _create_process_batch_fn(
-      self,
-      batch_size: int) -> Optional[base.PreProcessFn]:
+  def _create_process_batch_fn(self,
+                               batch_size: int) -> Optional[base.PreProcessFn]:
     mixup_alpha = self._mixup_params.get('mixup_alpha', 0.0)
     if (self._is_training or self._run_mixup) and mixup_alpha > 0.0:
       same_mix_weight_per_batch = self._mixup_params.get(
           'same_mix_weight_per_batch', False)
       use_truncated_beta = self._mixup_params.get('use_truncated_beta', True)
-      use_random_shuffling = self._mixup_params.get(
-          'use_random_shuffling', False)
+      use_random_shuffling = self._mixup_params.get('use_random_shuffling',
+                                                    False)
       if self._mixup_params.get('adaptive_mixup', False):
         if 'mixup_coeff' not in self._mixup_params:
           # Hard target in the first epoch!
@@ -231,8 +232,8 @@ class _ImageNetDataset(base.BaseDataset):
           self._mixup_params['mixup_coeff'] = tf.ones(
               (self._mixup_params['ensemble_size'],
                self._mixup_params['num_classes']))
-        return _tuple_dict_fn_converter(
-            augmix.adaptive_mixup, batch_size, self._mixup_params)
+        return _tuple_dict_fn_converter(augmix.adaptive_mixup, batch_size,
+                                        self._mixup_params)
       else:
         aug_params = {
             'mixup_alpha': mixup_alpha,
@@ -260,6 +261,8 @@ class ImageNetDataset(_ImageNetDataset):
       **kwargs: Additional keyword arguments.
     """
     super().__init__(name='imagenet2012', split=split, **kwargs)
+
+
 
 
 # TODO(dusenberrymw): Create a helper function to load datasets for all

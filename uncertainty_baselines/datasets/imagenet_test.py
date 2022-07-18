@@ -15,7 +15,13 @@
 
 """Tests for ImageNet."""
 
+import csv
+import os
+import shutil
+import tempfile
+
 from absl.testing import parameterized
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
@@ -23,6 +29,7 @@ import uncertainty_baselines as ub
 
 # TODO(dusenberrymw): Use TFDS mocking.
 class ImageNetDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
+
 
   def test_imagenet_dataset_size(self):
     super()._testDatasetSize(
@@ -36,6 +43,7 @@ class ImageNetDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
         corruption_type='gaussian_blur',
         severity=3,
     )
+
 
   @parameterized.parameters(
       (False, False, ['features', 'labels'], (None, 224, 224, 3), (None,)),
@@ -86,6 +94,7 @@ class ImageNetDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
     self.assertEqual(
         dataset.element_spec['labels'],
         tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
+
 
 
 if __name__ == '__main__':

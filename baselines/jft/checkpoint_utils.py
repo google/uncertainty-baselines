@@ -130,6 +130,7 @@ def _read_file(path: str, pool_size: int, buf_size: int) -> bytearray:
 
 def load_checkpoint(tree: Optional[Params],
                     path: str,
+                    read_in_parallel: bool = True,
                     pool_size: int = 32,
                     buf_size: int = 128 << 20) -> Params:
   """Loads JAX pytrees that were stored on disk in a NumPy `.npz` file.
@@ -138,6 +139,9 @@ def load_checkpoint(tree: Optional[Params],
     tree: Optional JAX pytree to be restored. If None, then the tree will be
       recovered from the naming scheme used within the checkpoint.
     path: A path to the checkpoint.
+    read_in_parallel: Whether or not to read chunks of the checkpoint file in
+      parallel, if possible. Recommend only setting this to False in a
+      RAM-constrained environment.
     pool_size: Number of threads to use to read chunks of the checkpoint file in
       parallel, if possible.
     buf_size: The size of each file chunk to be read in parallel, if possible.
@@ -147,9 +151,16 @@ def load_checkpoint(tree: Optional[Params],
     A JAX pytree with the same structure as `tree`, but with the leaf values
     restored from the saved checkpoint.
   """
-  data = _read_file(path, pool_size=pool_size, buf_size=buf_size)
-  keys, values = zip(
-      *list(np.load(io.BytesIO(data), allow_pickle=False).items()))
+  if read_in_parallel:
+    file = io.BytesIO(_read_file(path, pool_size=pool_size, buf_size=buf_size))
+  else:
+    file = gfile.GFile(path, "rb")
+  with np.load(file, allow_pickle=False) as data:
+    values = list(data.values())
+    if not tree:
+      keys = list(data.keys())
+  file.close()
+  del file  # Free up RAM.
   # NOTE: NumPy loses any bfloat16 dtypes when saving, so we recover them here.
   values = jax.tree_util.tree_map(_recover_bfloat16, values)
   if tree:
@@ -199,7 +210,7 @@ def _tree_flatten_with_names(tree):
   # Custom traversal should visit the same number of leaves.
   assert len(val_names) == len(vals)
 
-  return [(val_names[i], v) for i, v in zip(inv_perm, vals)], tree_def
+  return [(val_names[i], v) for i, v in zip(inv_perm, vals)]
 
 
 def save_checkpoint(tree: Params, path: str,
@@ -215,15 +226,16 @@ def save_checkpoint(tree: Params, path: str,
   # NOTE: In general, this could be greatly simplified as follows. However, we
   # currently need to store the leaf names as well in order to be able to load
   # and reconstruct the tree directly from the checkpoint when initialized a
-  # subset of a model from a pretrained model for fine tuning.
+  # subset of a model from a pretrained model for fine tuning. Also, we use
+  # gfile to support multiple storage backends.
   # ```
   # values, _ = jax.tree_util.tree_flatten(tree)
   # io_buffer = io.BytesIO()
   # np.savez(io_buffer, *values)
   # ```
-  names_and_vals, _ = _tree_flatten_with_names(tree)
+  names_and_vals = {k: v for k, v in _tree_flatten_with_names(tree)}
   io_buffer = io.BytesIO()
-  np.savez(io_buffer, **{k: v for k, v in names_and_vals})
+  np.savez(io_buffer, **names_and_vals)
 
   # In order to be robust to interruptions during saving, we first save the
   # checkpoint to a temporary file, and then rename it to the actual path name.
@@ -306,9 +318,10 @@ def _tree_map_with_names(f, tree, *rest):
     A tree identical in structure to `tree` and `*rest` but with the leaves the
     result of calling `f` on corresponding name/leaves in `tree` and `*rest`.
   """
-  names_and_vals, tree_def = _tree_flatten_with_names(tree)
+  tree_def = jax.tree_util.tree_structure(tree)
+  names_and_vals = _tree_flatten_with_names(tree)
   names, vals = zip(*names_and_vals)
-  rest_vals = [list(zip(*_tree_flatten_with_names(t)[0]))[1] for t in rest]
+  rest_vals = [list(zip(*_tree_flatten_with_names(t)))[1] for t in rest]
   vals = [f(*name_and_vals) for name_and_vals in zip(names, vals, *rest_vals)]
   return tree_def.unflatten(vals)
 

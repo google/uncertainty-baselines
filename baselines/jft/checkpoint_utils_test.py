@@ -160,7 +160,8 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
         input_dict, sep=sep)
     self.assertDictEqual(actual_dict, expected_dict)
 
-  def test_checkpointing(self):
+  @parameterized.parameters(True, False)
+  def test_checkpointing(self, read_in_parallel):
     key = jax.random.PRNGKey(42)
 
     key, subkey = jax.random.split(key)
@@ -175,13 +176,15 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
     for arr, new_arr in zip(leaves, new_leaves):
       self.assertFalse(jnp.allclose(arr, new_arr), msg=(arr, new_arr))
 
-    restored_tree = checkpoint_utils.load_checkpoint(new_tree, checkpoint_path)
+    restored_tree = checkpoint_utils.load_checkpoint(
+        new_tree, checkpoint_path, read_in_parallel=read_in_parallel)
     restored_leaves = jax.tree_util.tree_leaves(restored_tree)
     for arr, restored_arr in zip(leaves, restored_leaves):
       self.assertIsInstance(restored_arr, np.ndarray)
       self.assertTrue(jnp.allclose(arr, restored_arr), msg=(arr, restored_arr))
 
-  def test_checkpointing_model(self):
+  @parameterized.parameters(True, False)
+  def test_checkpointing_model(self, read_in_parallel):
     key = jax.random.PRNGKey(42)
 
     model, _ = _make_deterministic_model()
@@ -192,8 +195,8 @@ class CheckpointUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
     key, subkey = jax.random.split(key)
     new_params = _init_model(subkey, model, input_shape=input_shape)
-    restored_params = checkpoint_utils.load_checkpoint(new_params,
-                                                       checkpoint_path)
+    restored_params = checkpoint_utils.load_checkpoint(
+        new_params, checkpoint_path, read_in_parallel=read_in_parallel)
     restored_leaves = jax.tree_util.tree_leaves(restored_params)
     leaves = jax.tree_util.tree_leaves(params)
     for arr, restored_arr in zip(leaves, restored_leaves):

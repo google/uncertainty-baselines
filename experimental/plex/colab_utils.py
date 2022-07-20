@@ -743,6 +743,13 @@ def make_radar_plot(df,
     ticklabels = ['%.2f' % i for i in scaled_ticks]
     ax2.set_yticks(ticks, ticklabels)
     ax2.set_yticklabels(
+        ticklabels,
+        fontdict={
+            'fontsize': fontsize * .66,
+            'color': 'grey'
+        },
+        zorder=1)
+    ax2.set_yticklabels(
         ticklabels, fontdict={'fontsize': fontsize * .8}, zorder=1)
     ax2.tick_params(zorder=0.5)
     ax2.set_ylim(0.0, max_val)

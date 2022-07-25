@@ -18,7 +18,11 @@ from __gin__ import dynamic_registration
 
 # TODO(phandu): Find a way to avoid duplicating uncertainty configs (like gp)
 # for foo_token_score.gin
-include 'configs/models/encoder_decoder_beam_score.gin'
+# copybara:strip_begin(internal-only)
+include 'third_party/py/uncertainty_baselines/baselines/t5/configs/models/encoder_decoder_beam_score.gin'
+# copybara:strip_end_and_replace_begin
+# include 'uncertainty_baselines/baselines/t5/configs/models/encoder_decoder_beam_score.gin'
+# copybara:replace_end
 
 import decoding  # local file import from baselines.t5
 import models  # local file import from baselines.t5.models

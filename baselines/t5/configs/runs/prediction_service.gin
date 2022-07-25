@@ -1,0 +1,61 @@
+# Copyright 2022 The Uncertainty Baselines Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __gin__ import dynamic_registration
+
+# copybara:strip_begin(internal-only)
+include 'third_party/py/t5x/configs/runs/prediction_service.gin'
+# copybara:strip_end_and_replace_begin
+# include 't5x/configs/runs/prediction_service.gin'
+# copybara:replace_end
+
+import __main__ as prediction_service
+from t5x import partitioning
+from t5x import utils
+import prediction_service_lib  # local file import from baselines.t5
+import models  # local file import from baselines.t5.models
+# This is the full list of intermediates that are being tracked right now via
+# sow calls in the code for EncoderDecoder models.
+#
+# The desired subset of these can be used in the `INTERMEDIATES_TO_TRACK` gin
+# macro.
+
+INFERENCE_MODE = 'score'
+INTERMEDIATES_TO_TRACK = ['entropy/logits', 'entropy/token_entropy']
+
+MODEL = %gin.REQUIRED
+FEATURE_LENGTHS = %gin.REQUIRED
+BATCH_SIZE = None
+STATIC_DECODER_PARAMS = None
+
+prediction_service.start_services:
+  create_handler_fns = @prediction_service_lib.StandardHandlerFn
+
+prediction_service_lib.StandardHandlerFn:
+  model = %MODEL
+  batch_size = %BATCH_SIZE
+  feature_lengths = %FEATURE_LENGTHS
+  default_inference_mode = %INFERENCE_MODE
+  intermediates_to_track = %INTERMEDIATES_TO_TRACK
+  restore_checkpoint_cfg = @utils.RestoreCheckpointConfig()
+  partitioner = @partitioning.PjitPartitioner()
+  create_inference_task_fn = @prediction_service.create_inference_task
+  static_decoder_params = %STATIC_DECODER_PARAMS
+  score_inference_mode_cls = @prediction_service_lib.ScoreTokenEntropies
+
+# Needed for some metric functions which require intermediate computations to
+# be exported.
+models.EncoderDecoderBeamScoreModel.score_batch:
+  return_intermediates = True
+  intermediates_to_track = %INTERMEDIATES_TO_TRACK

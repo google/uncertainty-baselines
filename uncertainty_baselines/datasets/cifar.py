@@ -17,6 +17,7 @@
 
 from typing import Any, Dict, Optional, Union
 
+from absl import logging
 import numpy as np
 from robustness_metrics.common import types
 import tensorflow.compat.v2 as tf
@@ -24,7 +25,6 @@ import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import augment_utils
 from uncertainty_baselines.datasets import augmix
 from uncertainty_baselines.datasets import base
-
 
 # We use the convention of using mean = np.mean(train_images, axis=(0,1,2))
 # and std = np.std(train_images, axis=(0,1,2)).
@@ -49,24 +49,26 @@ def _tuple_dict_fn_converter(fn, *args):
 class _CifarDataset(base.BaseDataset):
   """CIFAR dataset builder abstract class."""
 
-  def __init__(self,
-               name: str,
-               fingerprint_key: str,
-               split: str,
-               seed: Optional[Union[int, tf.Tensor]] = None,
-               validation_percent: float = 0.0,
-               shuffle_buffer_size: Optional[int] = None,
-               num_parallel_parser_calls: int = 64,
-               drop_remainder: bool = False,
-               mask_and_pad: bool = False,
-               normalize: bool = True,
-               try_gcs: bool = False,
-               download_data: bool = False,
-               data_dir: Optional[str] = None,
-               use_bfloat16: bool = False,
-               aug_params: Optional[Dict[str, Any]] = None,
-               is_training: Optional[bool] = None,
-               is_cifar10h: Optional[bool] = False):
+  def __init__(
+      self,
+      name: str,
+      fingerprint_key: str,
+      split: str,
+      seed: Optional[Union[int, tf.Tensor]] = None,
+      validation_percent: float = 0.0,
+      shuffle_buffer_size: Optional[int] = None,
+      num_parallel_parser_calls: int = 64,
+      drop_remainder: bool = False,
+      mask_and_pad: bool = False,
+      normalize: bool = True,
+      try_gcs: bool = False,
+      download_data: bool = False,
+      data_dir: Optional[str] = None,
+      use_bfloat16: bool = False,
+      aug_params: Optional[Dict[str, Any]] = None,
+      is_training: Optional[bool] = None,
+      include_id: bool = False,
+  ):
     """Create a CIFAR10 or CIFAR100 tf.data.Dataset builder.
 
     Args:
@@ -96,23 +98,22 @@ class _CifarDataset(base.BaseDataset):
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
-      data_dir: Directory to read/write data, that is passed to the
-        tfds dataset_builder as a data_dir parameter.
+      data_dir: Directory to read/write data, that is passed to the tfds
+        dataset_builder as a data_dir parameter.
       use_bfloat16: Whether or not to load the data in bfloat16 or float32.
       aug_params: hyperparameters for the data augmentation pre-processing.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
-      is_cifar10h: whether or not to load the Cifar10H labels for Cifar10.
+      include_id: Whether or not to include the id of each example in the parsed
+        examples.
     """
     self._normalize = normalize
-    dataset_builder = tfds.builder(
-        name, try_gcs=try_gcs,
-        data_dir=data_dir)
+    dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
-    new_split = base.get_validation_percent_split(
-        dataset_builder, validation_percent, split)
+    new_split = base.get_validation_percent_split(dataset_builder,
+                                                  validation_percent, split)
     super().__init__(
         name=name,
         dataset_builder=dataset_builder,
@@ -136,7 +137,7 @@ class _CifarDataset(base.BaseDataset):
       # Hard target in the first epoch!
       aug_params['mixup_coeff'] = tf.ones([ensemble_size, 10])
     self._aug_params = aug_params
-
+    self._include_id = include_id
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
 
@@ -148,8 +149,8 @@ class _CifarDataset(base.BaseDataset):
       if self._is_training:
         image_shape = tf.shape(image)
         # Expand the image by 2 pixels, then crop back down to 32x32.
-        image = tf.image.resize_with_crop_or_pad(
-            image, image_shape[0] + 4, image_shape[1] + 4)
+        image = tf.image.resize_with_crop_or_pad(image, image_shape[0] + 4,
+                                                 image_shape[1] + 4)
         # Note that self._seed will already be shape (2,), as is required for
         # stateless random ops, and so will per_example_step_seed.
         per_example_step_seed = tf.random.experimental.stateless_fold_in(
@@ -160,12 +161,10 @@ class _CifarDataset(base.BaseDataset):
         per_example_step_seeds = tf.random.experimental.stateless_split(
             per_example_step_seed, num=4)
         image = tf.image.stateless_random_crop(
-            image,
-            (image_shape[0], image_shape[0], 3),
+            image, (image_shape[0], image_shape[0], 3),
             seed=per_example_step_seeds[0])
         image = tf.image.stateless_random_flip_left_right(
-            image,
-            seed=per_example_step_seeds[1])
+            image, seed=per_example_step_seeds[1])
 
         # Only random augment for now.
         if self._aug_params.get('random_augment', False):
@@ -182,8 +181,12 @@ class _CifarDataset(base.BaseDataset):
         if use_augmix:
           augmenter = augment_utils.RandAugment()
           image = augmix.do_augmix(
-              image, self._aug_params, augmenter, image_dtype,
-              mean=CIFAR10_MEAN, std=CIFAR10_STD,
+              image,
+              self._aug_params,
+              augmenter,
+              image_dtype,
+              mean=CIFAR10_MEAN,
+              std=CIFAR10_STD,
               seed=per_example_step_seeds[3])
 
       # The image has values in the range [0, 1].
@@ -213,20 +216,22 @@ class _CifarDataset(base.BaseDataset):
       else:
         parsed_example['labels'] = tf.cast(labels, tf.float32)
 
+      if self._include_id:
+        parsed_example['id'] = example['id']
+
       return parsed_example
 
     return _example_parser
 
-  def _create_process_batch_fn(
-      self,
-      batch_size: int) -> Optional[base.PreProcessFn]:
+  def _create_process_batch_fn(self,
+                               batch_size: int) -> Optional[base.PreProcessFn]:
     if self._is_training and self._aug_params.get('mixup_alpha', 0) > 0:
       if self._adaptive_mixup:
-        return _tuple_dict_fn_converter(
-            augmix.adaptive_mixup, batch_size, self._aug_params)
+        return _tuple_dict_fn_converter(augmix.adaptive_mixup, batch_size,
+                                        self._aug_params)
       else:
-        return _tuple_dict_fn_converter(
-            augmix.mixup, batch_size, self._aug_params)
+        return _tuple_dict_fn_converter(augmix.mixup, batch_size,
+                                        self._aug_params)
     return None
 
 
@@ -234,30 +239,20 @@ class Cifar10Dataset(_CifarDataset):
   """CIFAR10 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super().__init__(
-        name='cifar10',
-        fingerprint_key='id',
-        **kwargs)
+    super().__init__(name='cifar10', fingerprint_key='id', **kwargs)
 
 
 class Cifar100Dataset(_CifarDataset):
   """CIFAR100 dataset builder class."""
 
   def __init__(self, **kwargs):
-    super().__init__(
-        name='cifar100',
-        fingerprint_key='id',
-        **kwargs)
+    super().__init__(name='cifar100', fingerprint_key='id', **kwargs)
 
 
 class Cifar10CorruptedDataset(_CifarDataset):
   """CIFAR10-C dataset builder class."""
 
-  def __init__(
-      self,
-      corruption_type: str,
-      severity: int,
-      **kwargs):
+  def __init__(self, corruption_type: str, severity: int, **kwargs):
     """Create a CIFAR10-C tf.data.Dataset builder.
 
     Args:

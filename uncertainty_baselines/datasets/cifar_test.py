@@ -32,8 +32,7 @@ class CifarDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
 
   def testCifar10CorruptedDatasetShape(self):
     super()._testDatasetSize(
-        ub.datasets.Cifar10CorruptedDataset,
-        (32, 32, 3),
+        ub.datasets.Cifar10CorruptedDataset, (32, 32, 3),
         splits=['test'],
         corruption_type='brightness',
         severity=1)
@@ -67,6 +66,7 @@ class CifarDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
     self.assertEqual(
         dataset.element_spec['labels'],
         tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
+
 
 
 if __name__ == '__main__':

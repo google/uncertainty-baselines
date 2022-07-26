@@ -122,7 +122,7 @@ MixtureRegistry.add('smcalflow', tasks=['smcalflow'], default_rate=1.)
 MixtureRegistry.add('multiwoz', tasks=['multiwoz'], default_rate=1.)
 
 MixtureRegistry.add('mtop', tasks=['mtop'], default_rate=1.)
+MixtureRegistry.add('mtop_penman', tasks=['mtop_penman'], default_rate=1.)
 
 MixtureRegistry.add('snips', tasks=['snips'], default_rate=1.)
-
 MixtureRegistry.add('snips_penman', tasks=['snips_penman'], default_rate=1.)

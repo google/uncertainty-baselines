@@ -44,6 +44,17 @@ _DEFAULT_MTOP_EVAL_PATTERNS = {
         '/cns/nm-d/home/jereliu/public/mtop/t5/test.tfr*',
 }
 
+# MTOP penman data.
+_DEFAULT_MTOP_PENMAN_TRAIN_PATTERNS = [
+    '/cns/nm-d/home/lzi/public/mtop/t5/train.tfr*',
+]
+_DEFAULT_MTOP_PENMAN_EVAL_PATTERNS = {
+    'validation':
+        '/cns/nm-d/home/lzi/public/mtop/t5/dev.tfr*',
+    'test':
+        '/cns/nm-d/home/lzi/public/mtop/t5/test.tfr*',
+}
+
 # SNIPS data.
 _DEFAULT_SNIPS_TRAIN_PATTERNS = [
     '/cns/nm-d/home/jereliu/public/snips/t5/train.tfr*',
@@ -81,6 +92,9 @@ snips_config = utils.dataset_configs(
     eval_patterns=_DEFAULT_SNIPS_EVAL_PATTERNS)
 
 # In-domain penman training and evaluation data.
+mtop_penman_config = utils.dataset_configs(
+    train_patterns=_DEFAULT_MTOP_PENMAN_TRAIN_PATTERNS,
+    eval_patterns=_DEFAULT_MTOP_PENMAN_EVAL_PATTERNS)
 snips_penman_config = utils.dataset_configs(
     train_patterns=_DEFAULT_SNIPS_PENMAN_TRAIN_PATTERNS,
     eval_patterns=_DEFAULT_SNIPS_PENMAN_EVAL_PATTERNS)
@@ -117,6 +131,21 @@ t5.data.TaskRegistry.add(
     'mtop',
     t5.data.Task,
     dataset_fn=functools.partial(utils.parsing_dataset, params=mtop_config),
+    splits={
+        'train': 'train',
+        'validation': 'validation',
+        'test': 'test'
+    },
+    text_preprocessor=None,
+    metric_fns=[ub_metrics.seq2seq_metrics,
+                ub_metrics.seq2seq_uncertainty_metrics],
+    shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
+
+t5.data.TaskRegistry.add(
+    'mtop_penman',
+    t5.data.Task,
+    dataset_fn=functools.partial(
+        utils.parsing_dataset, params=mtop_penman_config),
     splits={
         'train': 'train',
         'validation': 'validation',

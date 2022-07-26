@@ -1067,7 +1067,7 @@ def get_object_lists_and_prob_dicts(instances, attributes, relations):
   Args:
     instances: nodes with probabilities attached to node names,
       e.g., ("instance", "a0", "pron_1.0").
-    attributes: attributes with probaibilties attached to attribute values,
+    attributes: attributes with probabilities attached to attribute values,
       e.g., ("carg", "a1", "John_0.9996_").
     relations: relations with probabilties attached to edge names,
       e.g., ("ARG1_1.0", "b1", "b2").
@@ -1095,8 +1095,8 @@ def get_object_lists_and_prob_dicts(instances, attributes, relations):
       new_instances.append((i[0], i[1], node_name))
       instance_prob_dict[i[1]] = prob
   for a in attributes:
-    attr_name = "_".join(a[2].split("_")[:-2])
-    prob = _find_float_in_str(a[2].split("_")[-2])
+    attr_name = "_".join(a[2].rstrip("_").split("_")[:-1])
+    prob = _find_float_in_str(a[2].rstrip("_").split("_")[-1])
     if not prob:
       logging.warning("Unable to retrieve attribute name or prob in %s.", a[2])
       new_attributes.append((a[0], a[1], "<invalid>" + a[2]))
@@ -1231,7 +1231,7 @@ def get_dag_match_for_calibration(pred_dag_object,
       # Note that there is a "_" at the end of the gold attribute name,
       # e.g., "John_".
       gold_name = gold_attribute_dict[gold_index][:-1]
-      if pred_name.strip("_") == gold_name.strip("_"):
+      if pred_name.rstrip("_") == gold_name.rstrip("_"):
         attribute_prob_match_list.append((prob, 1))
       else:
         attribute_prob_match_list.append((prob, 0))

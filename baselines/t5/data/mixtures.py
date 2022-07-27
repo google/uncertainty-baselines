@@ -118,6 +118,8 @@ MixtureRegistry.add(
 
 # ====================== Dataflow Semantic Parsing =============================
 MixtureRegistry.add('smcalflow', tasks=['smcalflow'], default_rate=1.)
+MixtureRegistry.add(
+    'smcalflow_penman', tasks=['smcalflow_penman'], default_rate=1.)
 
 MixtureRegistry.add('multiwoz', tasks=['multiwoz'], default_rate=1.)
 

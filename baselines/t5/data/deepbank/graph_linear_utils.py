@@ -21,7 +21,7 @@ Specifically, going from a graph triples to a penman string is called
 *encoding*, going from a graph triples to a tree is called *configuration*,
 and going from a tree to a penman string is called *formatting*.
 """
-from typing import Union, List, Tuple, Mapping, Any, cast
+from typing import Union, List, Tuple, Dict, Any, cast
 import tree_utils  # local file import from baselines.t5.data.deepbank
 
 # Node indexes.
@@ -33,7 +33,7 @@ Branch = Tuple[Role, Any]
 # Node contexts for constructing a tree structure.
 Node = Tuple[Variable, List[Branch]]
 # Node index to node contexts map.
-NodeMap = Mapping[Variable, Union[Node, None]]
+NodeMap = Dict[Variable, Union[Node, None]]
 # A graph triple.
 Triple = Tuple[str, str, str]
 # A list of triples from the graph.

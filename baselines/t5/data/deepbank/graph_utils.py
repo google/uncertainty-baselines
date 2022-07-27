@@ -23,6 +23,7 @@ import collections
 import random
 import re
 from absl import logging
+import graph_linear_utils  # local file import from baselines.t5.data.deepbank
 
 
 class DAG(object):
@@ -1268,7 +1269,7 @@ def get_dot_dag_str(instances, attributes, relations, instance_prob_dict,
   r"""Gets dot string for visualization using graphviz in Colab.
 
   Usage:
-  >>> import google3.learning.deepmind.colab.magics.graphviz as graphviz
+  >>> import graphviz
   >>> dot_dag_str = get_dot_dag_str(instances,
                                     attributes,
                                     relations,
@@ -1320,3 +1321,178 @@ def get_dot_dag_str(instances, attributes, relations, instance_prob_dict,
                                                        prob_str, color_str)
   dot_str = "digraph {\n" + dot_str + "}"
   return dot_str
+
+
+def _transfer_to_linear_triples(instances, attributes, relations):
+  """Transfers instance, attribute and relation triples into universal triples for linearization.
+
+  The universal triples are used for encoding the graph triples into
+  PENMAN annotation in `graph_linear_utils.encode`, which treat all nodes
+  and attributes as edges. For example,
+  - Instance: ('instance', 'x0', 'unknown') -> ('x0', ':instance', 'unknown').
+  - Attribute: ('carg', 'x1', 'John_') -> ('x1', ':carg', '"John"').
+  - Relation: ('ARG', 'x0', 'x1') -> ('x0', 'ARG', 'x1').
+
+  Args:
+    instances: list of node triples.
+    attributes: list of attribute triples.
+    relations: list of edge triples.
+
+  Returns:
+    triples: the transferred universal triples.
+  """
+  triples = []
+  for _, node_id, node_value in instances:
+    triples.append((node_id, ":instance", node_value))
+  for attr_name, attr_id, attr_value in attributes:
+    if attr_name == "lnk":
+      # The alignment information is stored in attributes with attribute
+      # name `lnk`. For the final penman output, we do not want this
+      # information to be included.
+      continue
+    triples.append(
+        (attr_id, ":" + attr_name, "\"%s\"" % (attr_value.rstrip("_"))))
+  for edge_name, edge_start, edge_end in relations:
+    triples.append((edge_start, ":" + edge_name, edge_end))
+  return triples
+
+
+def _get_parent_and_child_dict(relations):
+  """Gets info of parents and children of each node from relations."""
+  parent_dict = collections.defaultdict(list)
+  child_dict = collections.defaultdict(list)
+  for _, edge_start, edge_end in relations:
+    parent_dict[edge_end].append(edge_start)
+    child_dict[edge_start].append(edge_end)
+  return parent_dict, child_dict
+
+
+def _get_valid_parent_idx(idx, parent_dict, child_dict):
+  """Gets valid parent indexes that can be included in the subgraph.
+
+  Specifically, a valid parent node is a node that has no parents and has only
+  one child.
+
+  Args:
+    idx: the node index for finding the valid parents.
+    parent_dict: dict of parents of each node in the graph.
+    child_dict: dict of children of each node in the graph.
+
+  Returns:
+    parent_idxs: indexes of valid parent nodes.
+  """
+  parent_idxs = set()
+  for parent_idx in parent_dict[idx]:
+    if parent_idx not in parent_dict and len(child_dict[parent_idx]) == 1:
+      parent_idxs.add(parent_idx)
+  return parent_idxs
+
+
+def _get_subgraph_idxs(subgraph_idxs, idx, parent_dict, child_dict, level=3):
+  """Gets subgraph indexes given root index and number of levels.
+
+  Specifically, starting from the root index, and given number of levels
+  to traverse, we will get the subgraph indexes by recursively getting the
+  subgraph indexes of the children of the node. Note that for parent of the
+  node in the subgraph at each level, if the parent does not have parent
+  and only has one child, it will be also included in the subgraph.
+
+  Args:
+    subgraph_idxs: set of indexes of the subgraph, which will be updated here.
+    idx: the root index.
+    parent_dict: dict of parents of each node in the graph.
+    child_dict: dict of children of each node in the graph.
+    level: number of levels to traverse.
+
+  Returns:
+    subgraph_idxs: indexes of the subgraph.
+  """
+  if level == 1:
+    subgraph_idxs.add(idx)
+    subgraph_idxs = subgraph_idxs | _get_valid_parent_idx(
+        idx, parent_dict, child_dict)
+    return subgraph_idxs
+  subgraph_idxs.add(idx)
+  subgraph_idxs = subgraph_idxs | _get_valid_parent_idx(idx, parent_dict,
+                                                        child_dict)
+  for child_idx in child_dict[idx]:
+    subgraph_idxs = _get_subgraph_idxs(
+        subgraph_idxs, child_idx, parent_dict, child_dict, level - 1)
+  return subgraph_idxs
+
+
+def _get_subgraph_triples(subgraph_idxs, instances, attributes, relations):
+  """Gets instance, attribute and relation triples from selected subgraph indexes."""
+  subgraph_instances, subgraph_attributes, subgraph_relations = [], [], []
+  edge_dict = transfer_triple_to_dict(relations, "edge")
+  for i in instances:
+    if i[1] in subgraph_idxs:
+      subgraph_instances.append(i)
+  for a in attributes:
+    if a[1] in subgraph_idxs:
+      subgraph_attributes.append(a)
+  for (edge_start, edge_end), edge_names in edge_dict.items():
+    if edge_start in subgraph_idxs and edge_end in subgraph_idxs:
+      for edge_name in edge_names:
+        subgraph_relations.append((edge_name, edge_start, edge_end))
+  return subgraph_instances, subgraph_attributes, subgraph_relations
+
+
+def _get_align_dict_from_attributes(attributes):
+  """Gets alignment information from attributes by retrieving `lnk`."""
+  align_dict = {}
+  for a in attributes:
+    if a[0] == "lnk":
+      # The alignment information is stored in attributes with attribute
+      # name `lnk`.
+      align_dict[a[1]] = tuple(
+          [int(x) for x in a[2].strip("_")[1:-1].split(":")])
+  if not align_dict:
+    logging.warning(
+        "Empty `align_dict`. Perhaps no alignment info in attributes.")
+  return align_dict
+
+
+def _get_align_sent(subgraph_idxs, align_dict, sentence):
+  """Gets aligned sentence given subgraph indexes and alignment information."""
+  align_list = []
+  for idx in subgraph_idxs:
+    b, e = align_dict[idx]
+    if " " in sentence[b:e]:
+      continue
+    if (b, e) not in align_list: align_list.append((b, e))
+  align_list.sort(key=lambda y: y[0])
+  token_list = [sentence[b:e] for b, e in align_list]
+  return " ".join(token_list)
+
+
+def get_random_linear_subgraph(penman_with_align,
+                               sentence,
+                               level=3,
+                               prefix="x",
+                               return_align_sent=True):
+  """Gets random linearized subgraph in PENMAN and return aligned sentence if required."""
+  dag = parse_string_to_dag(penman_with_align)
+  dag.change_node_prefix(prefix)
+  instances, attributes, relations = dag.get_triples()
+  # Gets the random node index which will be the subgraph root.
+  random_idx = instances[random.randrange(len(instances))][1]
+  # Gets parent and child dict from relations.
+  parent_dict, child_dict = _get_parent_and_child_dict(relations)
+  # Initialization of subgraph indexes.
+  subgraph_idxs = set()
+  subgraph_idxs = _get_subgraph_idxs(subgraph_idxs, random_idx, parent_dict,
+                                     child_dict, level)
+  (subgraph_instances, subgraph_attributes,
+   subgraph_relations) = _get_subgraph_triples(subgraph_idxs, instances,
+                                               attributes, relations)
+  linear_triples = _transfer_to_linear_triples(subgraph_instances,
+                                               subgraph_attributes,
+                                               subgraph_relations)
+  subgraph_penman = graph_linear_utils.encode(
+      linear_triples, random_idx, new_line=False)
+  if not return_align_sent:
+    return subgraph_penman
+  align_dict = _get_align_dict_from_attributes(subgraph_attributes)
+  align_sent = _get_align_sent(subgraph_idxs, align_dict, sentence)
+  return subgraph_penman, align_sent

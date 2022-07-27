@@ -14,11 +14,13 @@
 # limitations under the License.
 
 """Utility functions for metrics computation."""
+import collections
 import re
 from typing import Any, Dict, List, Text
 
 from absl import logging
 import numpy as np
+import graph_utils  # local file import from baselines.t5.data.deepbank
 
 # Argument edge types shared by DeepBank 1.0 and DeepBank 1.1.
 MISC = ['-of']
@@ -817,6 +819,96 @@ def transfer_to_penman(graph_str: Text) -> Text:
           graph_str = graph_str[:i-2] + graph_str[i:]
           break
   return graph_str
+
+
+def retoken_graph_str(graph_str: Text, data_version: str = 'v0') -> Text:
+  """Retokenizes the penman graph string using custom tokenization."""
+  new_graph_str_list = []
+  name_to_token_maps_ = NAME_TO_TOKEN_MAPS[data_version]
+  for token in graph_str.split():
+    if token.startswith(':'):
+      # The token here is an edge.
+      edge_name = token.split('-of')[0]
+      retoken = token.replace(edge_name, name_to_token_maps_[edge_name])
+      if '-of' in retoken:
+        retoken = retoken.replace('-of', ' ' + name_to_token_maps_['-of'])
+      new_graph_str_list.append(retoken)
+    elif token.startswith('_'):
+      # The token here is a content node, we move the postfix before
+      # the lemma to make the tokenization recognize the postfix as
+      # non-tokenizable token, e.g., _look_v_up -> v_up_look_.
+      lemma = token.split('_')[1]
+      postfix = '_'.join(token.split('_')[2:])
+      if postfix in name_to_token_maps_:
+        retoken = name_to_token_maps_[postfix] + '_' + lemma + '_'
+      else:
+        retoken = postfix + '_' + lemma + '_'
+      new_graph_str_list.append(retoken)
+    else:
+      if token in name_to_token_maps_:
+        new_graph_str_list.append(name_to_token_maps_[token])
+      else:
+        new_graph_str_list.append(token)
+  return ' '.join(new_graph_str_list)
+
+
+def transfer_to_variable_free_penman(penman_str: Text,
+                                     use_custom_token: bool = True,
+                                     data_version: str = 'v0') -> Text:
+  """Tranfers the penman graph string to variable-free penman.
+
+  This function mainly addresses the rename of reentrancies (node reference),
+  removes node variables, and adds necessary whitespaces near brackets,
+  stars, and double quotes. E.g,
+
+  '(x0/unknown) ... :ARG x0' -> '( unknown * ) ... :ARG ( unknown * )'
+
+  Args:
+    penman_str: the input penman string.
+    use_custom_token: whether to use custom tokenization.
+    data_version: DeepBank data version.
+
+  Returns:
+    variable-free penman string.
+  """
+  dag = graph_utils.parse_string_to_dag(penman_str)
+  instances, _, _ = dag.get_triples()
+  node_dict = graph_utils.transfer_triple_to_dict(instances, 'node')
+  # Pattern for detecting reentrancies (node reference).
+  pattern = re.compile(r' [e|x|i][0-9]+')
+  reference_idxs = [x.lstrip() for x in re.findall(pattern, penman_str)]
+  reference_values = [node_dict[x] for x in reference_idxs]
+  # Assign new value to reentrancies by adding stars.
+  reference_new_value_dict = {}
+  # `value_counts` is for counting number of reference per node value.
+  # There can be more than one reference that has the same node value.
+  # We use different number of stars to specify this.
+  # Input example: (x0/unknown) ... :ARG x0 ... (x1/unknown) ... :ARG x1
+  # Output example: ( unknown * ) ... :ARG ( unknown * ) ...
+  #                   ( unknown ** ) ... :ARG (unknown ** )
+  value_counts = collections.defaultdict(int)
+  for idx, value in zip(reference_idxs, reference_values):
+    if idx not in reference_new_value_dict:
+      value_counts[idx] += 1
+      reference_new_value_dict[idx] = '%s %s' % (value, '*' * value_counts[idx])
+  # Adds whitespaces near brackets, stars, and double quotes.
+  variable_free_penman_str = penman_str
+  variable_free_penman_str = variable_free_penman_str.replace(')', ' )')
+  for idx, new_value in reference_new_value_dict.items():
+    variable_free_penman_str = variable_free_penman_str.replace(
+        '%s / %s' % (idx, node_dict[idx]), '%s / %s' % (idx, new_value))
+    variable_free_penman_str = variable_free_penman_str.replace(
+        ' %s ' % idx, ' (%s) ' % new_value)
+  variable_free_penman_str = variable_free_penman_str.replace('(', '( ')
+  variable_free_penman_str = variable_free_penman_str.replace('*)', '* )')
+  variable_free_penman_str = re.sub(r'"([\S]*)"', r'" \1 "',
+                                    variable_free_penman_str)
+  pattern = re.compile(r'[e|x|i|_][0-9]+ / ')
+  variable_free_penman_str = re.sub(pattern, '', variable_free_penman_str)
+  if use_custom_token:
+    variable_free_penman_str = retoken_graph_str(variable_free_penman_str,
+                                                 data_version)
+  return variable_free_penman_str
 
 
 def graph_to_nodeseq(graph_str: Text,

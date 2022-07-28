@@ -29,6 +29,7 @@ from absl import logging
 from clu import parameter_overview
 import flax
 import flax.jax_utils as flax_utils
+import flax.optim
 import jax
 import jax.numpy as jnp
 import ml_collections

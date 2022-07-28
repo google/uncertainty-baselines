@@ -250,7 +250,7 @@ for data_name, data_pattern in ood_config_patterns.items():
       f'deepbank_ood_{data_name}',
       t5.data.Task,
       dataset_fn=functools.partial(parsing_dataset, params=ood_config),
-      splits=['test'],
+      splits=['validation', 'test'],
       text_preprocessor=None,
       metric_fns=[
           functools.partial(ub_metrics.deepbank_metrics, data_version='v1'),

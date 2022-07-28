@@ -88,19 +88,25 @@ deepbank_ood_aug_tasks = [
     for data_name in deepbank_config.ood_aug_config_patterns.keys()
 ]
 
+# (Deprecated) DeepBank 1.0 dataset.
 MixtureRegistry.add(
     'deepbank', tasks=[
         'deepbank',
     ], default_rate=1.)
-MixtureRegistry.add(
-    'deepbank_1.1', tasks=[
-        'deepbank_1.1',
-    ], default_rate=1.)
-MixtureRegistry.add(
-    'deepbank_1.1_aug', tasks=[
-        'deepbank_1.1_aug',
-    ], default_rate=1.)
 
+# DeepBank 1.1 dataset with out-of-domain (OOD) data eval.
+MixtureRegistry.add(
+    'deepbank_1.1',
+    tasks=['deepbank_1.1'] + deepbank_ood_tasks,
+    default_rate=1.)
+
+# DeepBank 1.1 dataset with input augmentation and OOD eval.
+MixtureRegistry.add(
+    'deepbank_1.1_aug',
+    tasks=['deepbank_1.1_aug',] + deepbank_ood_aug_tasks,
+    default_rate=1.)
+
+# DeepBank datasets for inference, with subpopulation data included.
 MixtureRegistry.add(
     'deepbank_infer',
     tasks=['deepbank'] + deepbank_subpopulation_tasks + deepbank_ood_tasks,

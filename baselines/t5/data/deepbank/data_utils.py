@@ -18,8 +18,9 @@
 Forked from the Ex2 codebase.
 """
 import pickle
-from typing import Any, Dict, Text
+from typing import Any, Dict, Text, Generator
 import tensorflow as tf
+from google3.pyglib import gfile
 
 
 class Seq2SeqExample(object):
@@ -65,3 +66,17 @@ def get_byte_to_character_mapping(text: Text) -> Dict[int, int]:
     bytes_offset += len(tf.compat.as_bytes(c))
   b2c[bytes_offset] = len(text)
   return b2c
+
+
+def text_line_generator(filename: Text,
+                        dataset_name: Text) -> Generator[Text, None, None]:
+  """Gets text lines from files."""
+  with gfile.Open(filename, "rt") as reader:
+    for line in reader:
+      if dataset_name == "deepbank":
+        # Handles non-ascii characters.
+        yield line.strip().encode("utf_8").decode("unicode_escape")
+      else:
+        yield line.strip()
+
+    reader.close()

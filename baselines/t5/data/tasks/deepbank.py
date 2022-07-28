@@ -166,6 +166,20 @@ deepbank_v1_aug_config = dataset_configs(
     train_patterns=_DEFAULT_V1_AUG_TRAIN_PATTERNS,
     eval_patterns=_DEFAULT_V1_AUG_EVAL_PATTERNS)
 
+
+# Evaluation metrics.
+def get_deepbank_metric_fns(data_version='v1'):
+  """Returns metrics to be used for deepbank tasks."""
+  return [
+      functools.partial(ub_metrics.deepbank_metrics,
+                        data_version=data_version),
+      functools.partial(ub_metrics.deepbank_metrics_v2,
+                        data_version=data_version),
+      functools.partial(ub_metrics.deepbank_uncertainty_metrics,
+                        data_version=data_version),
+      ub_metrics.seq2seq_uncertainty_metrics]
+
+
 t5.data.TaskRegistry.add(
     'deepbank',
     t5.data.Task,
@@ -183,13 +197,7 @@ t5.data.TaskRegistry.add(
     dataset_fn=functools.partial(parsing_dataset, params=deepbank_v1_config),
     splits=['train', 'validation', 'test'],
     text_preprocessor=None,
-    metric_fns=[
-        functools.partial(ub_metrics.deepbank_metrics, data_version='v1'),
-        functools.partial(ub_metrics.deepbank_metrics_v2, data_version='v1'),
-        functools.partial(
-            ub_metrics.deepbank_uncertainty_metrics, data_version='v1'),
-        ub_metrics.seq2seq_uncertainty_metrics
-    ],
+    metric_fns=get_deepbank_metric_fns(data_version='v1'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 t5.data.TaskRegistry.add(
@@ -199,9 +207,7 @@ t5.data.TaskRegistry.add(
         parsing_dataset, params=deepbank_v1_aug_config),
     splits=['train', 'validation', 'test'],
     text_preprocessor=None,
-    metric_fns=[
-        functools.partial(ub_metrics.deepbank_metrics, data_version='v1')
-    ],
+    metric_fns=get_deepbank_metric_fns(data_version='v1'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 # OOD eval data on tail linguistic phenomenon.
@@ -252,12 +258,7 @@ for data_name, data_pattern in ood_config_patterns.items():
       dataset_fn=functools.partial(parsing_dataset, params=ood_config),
       splits=['validation', 'test'],
       text_preprocessor=None,
-      metric_fns=[
-          functools.partial(ub_metrics.deepbank_metrics, data_version='v1'),
-          functools.partial(ub_metrics.deepbank_metrics_v2, data_version='v1'),
-          functools.partial(
-              ub_metrics.deepbank_uncertainty_metrics, data_version='v1'),
-      ],
+      metric_fns=get_deepbank_metric_fns(data_version='v1'),
       shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 # OOD eval data on out-of-domain generalization with data augmentation.
@@ -277,7 +278,7 @@ for data_name, data_pattern in ood_aug_config_patterns.items():
       f'deepbank_ood_aug_{data_name}',
       t5.data.Task,
       dataset_fn=functools.partial(parsing_dataset, params=ood_config),
-      splits=['test'],
+      splits=['validation', 'test'],
       text_preprocessor=None,
-      metric_fns=[ub_metrics.deepbank_metrics],
+      metric_fns=get_deepbank_metric_fns(data_version='v1'),
       shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)

@@ -20,7 +20,7 @@ r"""Finetune ViT-L/32 on CIFAR-10/100 deterministic->batchensemble.
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 
 # CIFAR-10/100 subpopulation datasets.

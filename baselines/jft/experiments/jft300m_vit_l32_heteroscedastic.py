@@ -21,7 +21,7 @@ r"""Heteroscedastic ViT-L/32.
 
 import ml_collections
 # TODO(dusenberrymw): Open-source remaining imports.
-import common_fewshot  # local file import from baselines.jft.experiments
+from experiments import common_fewshot  # local file import from baselines.jft
 
 
 def get_config():

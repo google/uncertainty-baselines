@@ -27,10 +27,10 @@
 from typing import Any, Dict, Optional, Sequence
 
 import tensorflow as tf
-import psl_model  # local file import from experimental.language_structure.psl
-import linear_vae_cell  # local file import from experimental.language_structure.vrnn
-import model_config  # local file import from experimental.language_structure.vrnn
-import utils  # local file import from experimental.language_structure.vrnn
+from psl import psl_model  # local file import from experimental.language_structure
+from vrnn import linear_vae_cell  # local file import from experimental.language_structure
+from vrnn import model_config  # local file import from experimental.language_structure
+from vrnn import utils  # local file import from experimental.language_structure
 
 
 class _VRNN(tf.keras.Model):

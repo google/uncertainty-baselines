@@ -22,7 +22,7 @@ Based on: vit_l32_finetune.py and sweep_utils.py
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 
 def get_config():

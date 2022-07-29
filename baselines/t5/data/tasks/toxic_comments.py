@@ -23,9 +23,9 @@ from t5.data import postprocessors as t5_postprocessors
 from t5.data import preprocessors as t5_preprocessors
 from t5.evaluation import metrics as t5_metrics
 
-import metrics as ub_metrics  # local file import from baselines.t5.data
-import preprocessors as ub_preprocessors  # local file import from baselines.t5.data
-import utils as task_utils  # local file import from baselines.t5.data.tasks
+from data import metrics as ub_metrics  # local file import from baselines.t5
+from data import preprocessors as ub_preprocessors  # local file import from baselines.t5
+from data.tasks import utils as task_utils  # local file import from baselines.t5
 
 TaskRegistry = seqio.TaskRegistry
 

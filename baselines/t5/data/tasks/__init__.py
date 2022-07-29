@@ -15,8 +15,8 @@
 
 """Register all tasks."""
 
-import uncertainty_baselines.baselines.t5.data.tasks.dataflow
-import uncertainty_baselines.baselines.t5.data.tasks.deepbank
-import uncertainty_baselines.baselines.t5.data.tasks.mnli
-import uncertainty_baselines.baselines.t5.data.tasks.nalue
-import uncertainty_baselines.baselines.t5.data.tasks.toxic_comments
+import data.tasks.dataflow  # local file import from baselines.t5
+import data.tasks.deepbank  # local file import from baselines.t5
+import data.tasks.mnli  # local file import from baselines.t5
+import data.tasks.nalue  # local file import from baselines.t5
+import data.tasks.toxic_comments  # local file import from baselines.t5

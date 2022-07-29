@@ -23,7 +23,7 @@ import collections
 import random
 import re
 from absl import logging
-import graph_linear_utils  # local file import from baselines.t5.data.deepbank
+from data.deepbank import graph_linear_utils  # local file import from baselines.t5
 
 
 class DAG(object):

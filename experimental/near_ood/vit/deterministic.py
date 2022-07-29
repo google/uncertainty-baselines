@@ -45,7 +45,7 @@ import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
-import ood_utils  # local file import from experimental.near_ood.vit
+from vit import ood_utils  # local file import from experimental.near_ood
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None

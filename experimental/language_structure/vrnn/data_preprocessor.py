@@ -22,7 +22,7 @@ import more_itertools
 import tensorflow as tf
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import dialog_state_tracking
-import utils  # local file import from experimental.language_structure.vrnn
+from vrnn import utils  # local file import from experimental.language_structure
 
 USR_UTT_RAW_NAME = dialog_state_tracking.USR_UTT_RAW_NAME
 SYS_UTT_RAW_NAME = dialog_state_tracking.SYS_UTT_RAW_NAME

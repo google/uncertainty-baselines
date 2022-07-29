@@ -20,7 +20,7 @@ from absl import flags
 
 # from uncertainty_baselines.datasets import datasets
 import uncertainty_baselines as ub
-import uncertainty_baselines.experimental.single_model_uncertainty.models.models as ub_smu_models
+import models.models as ub_smu_models  # local file import from experimental.single_model_uncertainty
 
 
 FLAGS = flags.FLAGS

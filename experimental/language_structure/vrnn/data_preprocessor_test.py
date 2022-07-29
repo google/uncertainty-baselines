@@ -20,9 +20,9 @@ from absl.testing import parameterized
 import more_itertools
 import tensorflow as tf
 from uncertainty_baselines.datasets import datasets
-import data_preprocessor  # local file import from experimental.language_structure.vrnn
-import data_utils  # local file import from experimental.language_structure.vrnn
-import utils  # local file import from experimental.language_structure.vrnn
+from vrnn import data_preprocessor  # local file import from experimental.language_structure
+from vrnn import data_utils  # local file import from experimental.language_structure
+from vrnn import utils  # local file import from experimental.language_structure
 
 INPUT_ID_NAME = data_preprocessor.INPUT_ID_NAME
 INPUT_MASK_NAME = data_preprocessor.INPUT_MASK_NAME

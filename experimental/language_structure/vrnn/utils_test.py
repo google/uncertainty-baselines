@@ -16,7 +16,7 @@
 """Tests for utils."""
 
 import tensorflow as tf
-import utils  # local file import from experimental.language_structure.vrnn
+from vrnn import utils  # local file import from experimental.language_structure
 
 
 class UtilsTest(tf.test.TestCase):

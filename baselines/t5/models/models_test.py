@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 import seqio
 from t5x import decoding
-import models  # local file import from baselines.t5.models
+from models import models  # local file import from baselines.t5
 
 
 class EncoderDecoderClassifierModelTest(parameterized.TestCase):

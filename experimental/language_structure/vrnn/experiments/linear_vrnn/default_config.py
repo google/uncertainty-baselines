@@ -19,8 +19,8 @@ import os
 from typing import Any, Optional, Dict
 
 from ml_collections import config_dict
-import data_utils  # local file import from experimental.language_structure.vrnn
-import model_config  # local file import from experimental.language_structure.vrnn
+from vrnn import data_utils  # local file import from experimental.language_structure
+from vrnn import model_config  # local file import from experimental.language_structure
 
 # Base directory containing model configs for different datasets.
 # Method get_config_dir(dataset) returns the config directory of a specific

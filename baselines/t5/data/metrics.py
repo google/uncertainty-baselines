@@ -29,9 +29,9 @@ import t5.data
 import t5x.decoding as t5x_decoding
 import tensorflow as tf
 
-import metrics_utils  # local file import from baselines.t5.data
-import graph_utils  # local file import from baselines.t5.data.deepbank
-import penman_utils  # local file import from baselines.t5.data.deepbank
+from data import metrics_utils  # local file import from baselines.t5
+from data.deepbank import graph_utils  # local file import from baselines.t5
+from data.deepbank import penman_utils  # local file import from baselines.t5
 
 
 NEG_INF = t5x_decoding.NEG_INF

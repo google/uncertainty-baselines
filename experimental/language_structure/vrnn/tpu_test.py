@@ -20,7 +20,7 @@ from typing import Sequence
 from absl import flags
 from absl.testing import parameterized
 import tensorflow as tf
-import train_lib  # local file import from experimental.language_structure.vrnn
+from vrnn import train_lib  # local file import from experimental.language_structure
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string('tpu', '', 'Name of TPU to connect to.')

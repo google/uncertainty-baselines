@@ -41,13 +41,13 @@ All layer definitions are located
 | Model | Description | Location |
 | ----- | ----------- | -------- |
 | ViT-Plex L ImageNet21K | A ViT Large model pretrained on ImageNet21K with batch ensemble. | `gs://plex-paper/plex_vit_large_imagenet21k.npz` |
-| ViT-Plex L ImageNet21K -> ImageNet | The above `ViT-Plex L ImageNet21K` model finetuned on ImageNet with a heteroscedastic output layer. | `gs://plex-paper/plex_vit_large_imagenet21k_to_imagenet.npz` |
-| T5-Plex S C4 -> MNLI | A pretrained T5 Small model (pretrained on C4) finetuned on MNLI with an SNGP output layer. | `gs://plex-paper/plex_t5_small_c4_to_mnli` |
-| T5-Plex S C4 -> NaLUE | A pretrained T5 Small model (pretrained on C4) finetuned on NaLUE with an SNGP output layer. | `gs://plex-paper/plex_t5_small_c4_to_nalue` |
-| T5-Plex S C4 -> Wiki Toxic Comments | A pretrained T5 Small model (pretrained on C4) finetuned on Wikipedia Toxicity Subtypes with an SNGP output layer. | `gs://plex-paper/plex_t5_small_c4_to_wiki_toxic_comments` |
-| T5-Plex L C4 -> MNLI | A pretrained T5 Large model (pretrained on C4) finetuned on MNLI with an SNGP output layer. | `gs://plex-paper/plex_t5_large_c4_to_mnli` |
-| T5-Plex L C4 -> NaLUE | A pretrained T5 Large model (pretrained on C4) finetuned on NaLUE with an SNGP output layer. | `gs://plex-paper/plex_t5_large_c4_to_nalue` |
-| T5-Plex L C4 -> Wiki Toxic Comments | A pretrained T5 Large model (pretrained on C4) finetuned on Wikipedia Toxicity Subtypes with an SNGP output layer. | `gs://plex-paper/plex_t5_large_c4_to_wiki_toxic_comments` |
+| ViT-Plex L ImageNet21K -> ImageNet | The above `ViT-Plex L ImageNet21K` model (which uses batch ensemble) finetuned on ImageNet with a heteroscedastic output layer. | `gs://plex-paper/plex_vit_large_imagenet21k_to_imagenet.npz` |
+| T5-Plex S C4 -> MNLI | A pretrained T5 Small model (pretrained on C4) finetuned on MNLI with batch ensemble and an SNGP output layer. | `gs://plex-paper/plex_t5_small_c4_to_mnli` |
+| T5-Plex S C4 -> NaLUE | A pretrained T5 Small model (pretrained on C4) finetuned on NaLUE with batch ensemble and an SNGP output layer. | `gs://plex-paper/plex_t5_small_c4_to_nalue` |
+| T5-Plex S C4 -> Wiki Toxic Comments | A pretrained T5 Small model (pretrained on C4) finetuned on Wikipedia Toxicity Subtypes with batch ensemble and an SNGP output layer. | `gs://plex-paper/plex_t5_small_c4_to_wiki_toxic_comments` |
+| T5-Plex L C4 -> MNLI | A pretrained T5 Large model (pretrained on C4) finetuned on MNLI with batch ensemble and an SNGP output layer. | `gs://plex-paper/plex_t5_large_c4_to_mnli` |
+| T5-Plex L C4 -> NaLUE | A pretrained T5 Large model (pretrained on C4) finetuned on NaLUE with batch ensemble and an SNGP output layer. | `gs://plex-paper/plex_t5_large_c4_to_nalue` |
+| T5-Plex L C4 -> Wiki Toxic Comments | A pretrained T5 Large model (pretrained on C4) finetuned on Wikipedia Toxicity Subtypes with batch ensemble and an SNGP output layer. | `gs://plex-paper/plex_t5_large_c4_to_wiki_toxic_comments` |
 
 ### Paper plots
 

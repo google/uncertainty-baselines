@@ -21,7 +21,7 @@ This config is used for models pretrained on either JFT-300M or ImageNet-21K.
 """
 
 import ml_collections
-import common_fewshot  # local file import from baselines.jft.experiments
+from experiments import common_fewshot  # local file import from baselines.jft
 
 
 def get_config():

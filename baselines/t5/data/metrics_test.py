@@ -22,8 +22,8 @@ import jax.numpy as jnp
 import numpy as np
 from t5.evaluation import test_utils
 
-import metrics  # local file import from baselines.t5.data
-import utils as task_utils  # local file import from baselines.t5.data.tasks
+from data import metrics  # local file import from baselines.t5
+from data.tasks import utils as task_utils  # local file import from baselines.t5
 
 
 class BinaryClassificationTest(test_utils.BaseMetricsTest):

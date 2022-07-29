@@ -20,7 +20,7 @@ from absl.testing import absltest
 import seqio
 import t5.data
 
-import data_utils  # local file import from baselines.t5.data.nalue
+from data.nalue import data_utils  # local file import from baselines.t5
 
 # Expected tokens under default t5 vocab (i.e., a standard SentencePiece
 # vocabulary with 100 extra ids).

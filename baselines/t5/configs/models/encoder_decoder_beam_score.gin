@@ -19,7 +19,7 @@ import seqio
 from t5x import adafactor
 from t5x.examples.t5 import network
 
-import models  # local file import from baselines.t5.models
+from models import models  # local file import from baselines.t5
 
 # Loss HParam defaults
 # NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF)

@@ -21,7 +21,7 @@ from t5x.examples.t5 import network
 
 import decoding  # local file import from baselines.t5
 import sngp_utils  # local file import from baselines.t5
-import be_models  # local file import from baselines.t5.models
+from models import be_models  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_be_gp
 
 # Loss HParam defaults

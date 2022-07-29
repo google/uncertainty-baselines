@@ -20,7 +20,7 @@ from flax.core import scope as flax_scope
 import jax.numpy as jnp
 from t5x import utils
 import t5x.models as t5x_models
-import models as ub_models  # local file import from baselines.t5.models
+from models import models as ub_models  # local file import from baselines.t5
 
 Array = t5x_models.Array
 

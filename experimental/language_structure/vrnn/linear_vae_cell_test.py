@@ -18,8 +18,8 @@
 from absl.testing import absltest
 import tensorflow as tf
 import tensorflow_hub as hub
-import linear_vae_cell  # local file import from experimental.language_structure.vrnn
-import model_config  # local file import from experimental.language_structure.vrnn
+from vrnn import linear_vae_cell  # local file import from experimental.language_structure
+from vrnn import model_config  # local file import from experimental.language_structure
 
 from official.nlp.bert import configs
 

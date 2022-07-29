@@ -17,7 +17,7 @@ r"""Vizier for linear VRNN for SGDDataset.
 
 """
 
-import sgd_tmpl as tmpl  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
+from uncertainty_baselines.experimental.language_structure.vrnn.experiments.linear_vrnn import sgd_tmpl as tmpl
 
 shots = 0
 

@@ -17,7 +17,7 @@ r"""Template of linear VRNN for MultiWoZSynthDataset."""
 
 import os
 
-import default_config  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
+from uncertainty_baselines.experimental.language_structure.vrnn.experiments.linear_vrnn import default_config
 
 _DATASET = 'multiwoz_synth'
 

@@ -20,7 +20,7 @@ from t5x import adafactor
 from t5x.examples.t5 import network
 
 import decoding  # local file import from baselines.t5
-import heteroscedastic_models  # local file import from baselines.t5.models
+from models import heteroscedastic_models  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_heteroscedastic
 
 # Loss HParam defaults

@@ -19,9 +19,9 @@ from typing import List, Text, Dict, Tuple, Any
 import numpy as np
 import seqio
 import t5.data
-import metrics_utils  # local file import from baselines.t5.data
-import graph_utils  # local file import from baselines.t5.data.deepbank
-import penman_utils  # local file import from baselines.t5.data.deepbank
+from data import metrics_utils  # local file import from baselines.t5
+from data.deepbank import graph_utils  # local file import from baselines.t5
+from data.deepbank import penman_utils  # local file import from baselines.t5
 
 DEFAULT_VOCAB = t5.data.get_default_vocabulary()
 ObjectList = List[Tuple[Text, Text, Text]]

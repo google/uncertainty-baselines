@@ -20,7 +20,7 @@ r"""Evaluation of deep ensembles of ViT-B/32 over JFT300M.
 # pylint: enable=line-too-long
 
 import ml_collections
-import common_fewshot  # local file import from baselines.jft.experiments
+from experiments import common_fewshot  # local file import from baselines.jft
 
 
 def get_config():

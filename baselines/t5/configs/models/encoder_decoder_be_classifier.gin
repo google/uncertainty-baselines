@@ -18,11 +18,11 @@ from __gin__ import dynamic_registration
 import seqio
 
 from t5x import adafactor
-import nalue as nalue_task  # local file import from baselines.t5.data.tasks
+from data.tasks import nalue as nalue_task  # local file import from baselines.t5
 from t5x import utils
 from t5x.examples.t5 import network
 
-import be_models  # local file import from baselines.t5.models
+from models import be_models  # local file import from baselines.t5
 import decoding  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_batchensemble
 

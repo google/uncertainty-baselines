@@ -19,7 +19,7 @@ from typing import Optional
 
 import numpy as np
 import tensorflow as tf
-import train_lib  # local file import from experimental.language_structure.vrnn
+from vrnn import train_lib  # local file import from experimental.language_structure
 
 
 def _repr_fn(features: tf.Tensor,

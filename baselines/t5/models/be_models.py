@@ -21,7 +21,7 @@ import jax
 import jax.numpy as jnp
 import t5x.models as t5x_models
 import sngp_utils  # local file import from baselines.t5
-import models as ub_models  # local file import from baselines.t5.models
+from models import models as ub_models  # local file import from baselines.t5
 
 Array = t5x_models.Array
 

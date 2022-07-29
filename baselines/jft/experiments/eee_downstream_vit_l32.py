@@ -20,7 +20,7 @@ r"""Evaluate E^3-L/32 (K=1, M=2) models on CIFAR-10/100 and ImageNet.
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 
 def get_config():

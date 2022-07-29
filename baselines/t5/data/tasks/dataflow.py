@@ -19,8 +19,8 @@ import functools
 import seqio
 import t5.data
 
-import metrics as ub_metrics  # local file import from baselines.t5.data
-import deepbank as utils  # local file import from baselines.t5.data.tasks
+from data import metrics as ub_metrics  # local file import from baselines.t5
+from data.tasks import deepbank as utils  # local file import from baselines.t5
 
 TaskRegistry = seqio.TaskRegistry
 

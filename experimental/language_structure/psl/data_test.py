@@ -17,7 +17,7 @@
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import data  # local file import from experimental.language_structure.psl
+from psl import data  # local file import from experimental.language_structure
 
 
 class DataTest(tfds.testing.TestCase):

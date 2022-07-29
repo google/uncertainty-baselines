@@ -20,7 +20,7 @@ from absl.testing import parameterized
 import seqio
 import tensorflow as tf
 
-import preprocessors  # local file import from baselines.t5.data
+from data import preprocessors  # local file import from baselines.t5
 
 mock = absltest.mock
 assert_dataset = seqio.test_utils.assert_dataset

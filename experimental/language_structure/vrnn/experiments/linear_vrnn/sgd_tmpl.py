@@ -16,8 +16,8 @@
 r"""Template of linear VRNN for SGDDataset."""
 import os
 
-import constants_dstc as psl_config  # local file import from experimental.language_structure.psl
-import default_config  # local file import from experimental.language_structure.vrnn.experiments.linear_vrnn
+from psl import constants_dstc as psl_config  # local file import from experimental.language_structure
+from uncertainty_baselines.experimental.language_structure.vrnn.experiments.linear_vrnn import default_config
 
 
 _DATASET = 'sgd'

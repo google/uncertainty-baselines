@@ -20,7 +20,7 @@ from absl.testing import parameterized
 
 import jax.numpy as jnp
 import seqio
-import heteroscedastic_models  # local file import from baselines.t5.models
+from models import heteroscedastic_models  # local file import from baselines.t5
 
 
 class EncoderDecoderClassifierModelTest(parameterized.TestCase):

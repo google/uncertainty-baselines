@@ -24,7 +24,7 @@ import __main__ as prediction_service
 from t5x import partitioning
 from t5x import utils
 import prediction_service_lib  # local file import from baselines.t5
-import models  # local file import from baselines.t5.models
+from models import models  # local file import from baselines.t5
 # This is the full list of intermediates that are being tracked right now via
 # sow calls in the code for EncoderDecoder models.
 #

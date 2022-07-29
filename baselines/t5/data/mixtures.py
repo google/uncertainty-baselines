@@ -19,9 +19,9 @@ This module contains different mixtures for training T5 models.
 """
 import seqio
 
-import uncertainty_baselines.baselines.t5.data.tasks  # pylint: disable=unused-import
-import deepbank as deepbank_config  # local file import from baselines.t5.data.tasks
-import mnli as mnli_config  # local file import from baselines.t5.data.tasks
+import data.tasks  # local file import from baselines.t5  # pylint: disable=unused-import
+from data.tasks import deepbank as deepbank_config  # local file import from baselines.t5
+from data.tasks import mnli as mnli_config  # local file import from baselines.t5
 
 MixtureRegistry = seqio.MixtureRegistry
 

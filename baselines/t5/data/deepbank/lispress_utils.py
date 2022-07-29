@@ -15,7 +15,7 @@
 
 """Utility functions for parsing lispress expressions in SMCalflow."""
 from typing import List, Union
-import metrics_utils  # local file import from baselines.t5.data
+from data import metrics_utils  # local file import from baselines.t5
 
 
 LEFT_PAREN = '('

@@ -18,8 +18,8 @@
 from typing import List
 import tensorflow as tf
 import tensorflow_datasets as tfds
-import psl_model  # local file import from experimental.language_structure.psl
-import psl_utils  # local file import from experimental.language_structure.vrnn
+from psl import psl_model  # local file import from experimental.language_structure
+from vrnn import psl_utils  # local file import from experimental.language_structure
 
 
 class _PSLTestModel(psl_model.PSLModel):

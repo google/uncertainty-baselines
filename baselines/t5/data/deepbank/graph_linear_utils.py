@@ -22,7 +22,7 @@ Specifically, going from a graph triples to a penman string is called
 and going from a tree to a penman string is called *formatting*.
 """
 from typing import Union, List, Tuple, Dict, Any, cast
-import tree_utils  # local file import from baselines.t5.data.deepbank
+from data.deepbank import tree_utils  # local file import from baselines.t5
 
 # Node indexes.
 Variable = str

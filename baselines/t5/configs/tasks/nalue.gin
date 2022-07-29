@@ -19,8 +19,8 @@ from t5x import checkpoints
 from t5x import utils
 
 # Register necessary SeqIO Tasks/Mixtures.
-import uncertainty_baselines.baselines.t5.data.mixtures
-import nalue as nalue_task  # local file import from baselines.t5.data.tasks
+import data.mixtures  # local file import from baselines.t5
+from data.tasks import nalue as nalue_task  # local file import from baselines.t5
 
 MIXTURE_OR_TASK_NAME = 'nalue'
 

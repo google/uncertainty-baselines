@@ -22,7 +22,7 @@ This config is used for models pretrained on either JFT-300M or ImageNet-21K.
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 # CIFAR-10/100 subpopulation datasets.
 CIFAR10_SUBPOPL_DATA_FILES = []

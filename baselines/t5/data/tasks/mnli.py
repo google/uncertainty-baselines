@@ -50,9 +50,9 @@ import seqio
 from t5.data import preprocessors as t5_preprocessors
 import tensorflow as tf
 
-import metrics as ub_metrics  # local file import from baselines.t5.data
-import preprocessors as ub_preprocessors  # local file import from baselines.t5.data
-import utils as task_utils  # local file import from baselines.t5.data.tasks
+from data import metrics as ub_metrics  # local file import from baselines.t5
+from data import preprocessors as ub_preprocessors  # local file import from baselines.t5
+from data.tasks import utils as task_utils  # local file import from baselines.t5
 
 TaskRegistry = seqio.TaskRegistry
 

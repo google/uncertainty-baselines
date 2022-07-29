@@ -16,10 +16,10 @@
 """Tests for MultiWoz rules."""
 
 import tensorflow as tf
-import constrained_evaluation as eval_model  # local file import from experimental.language_structure.psl
-import data  # local file import from experimental.language_structure.psl
-import psl_model_multiwoz as model  # local file import from experimental.language_structure.psl
-import psl_model_multiwoz_test_util as test_util  # local file import from experimental.language_structure.psl
+from psl import constrained_evaluation as eval_model  # local file import from experimental.language_structure
+from psl import data  # local file import from experimental.language_structure
+from psl import psl_model_multiwoz as model  # local file import from experimental.language_structure
+from psl import psl_model_multiwoz_test_util as test_util  # local file import from experimental.language_structure
 
 
 class PslRulesTest(tf.test.TestCase):

@@ -25,7 +25,7 @@ include 'third_party/py/uncertainty_baselines/baselines/t5/configs/models/encode
 # copybara:replace_end
 
 import decoding  # local file import from baselines.t5
-import models  # local file import from baselines.t5.models
+from models import models  # local file import from baselines.t5
 
 # Decoding override. We by default, generate prediction by looking at top-5 beams.
 models.EncoderDecoderBeamScoreModel.predict_batch_with_aux.num_decodes = 5

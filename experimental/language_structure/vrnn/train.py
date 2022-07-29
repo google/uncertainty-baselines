@@ -34,13 +34,13 @@ import ml_collections.config_flags
 import numpy as np
 import tensorflow as tf
 from uncertainty_baselines.datasets import datasets
-import data_preprocessor as preprocessor  # local file import from experimental.language_structure.vrnn
-import data_utils  # local file import from experimental.language_structure.vrnn
-import linear_vrnn  # local file import from experimental.language_structure.vrnn
-import model_config  # local file import from experimental.language_structure.vrnn
-import psl_utils  # local file import from experimental.language_structure.vrnn
-import train_lib  # local file import from experimental.language_structure.vrnn
-import utils  # local file import from experimental.language_structure.vrnn
+from vrnn import data_preprocessor as preprocessor  # local file import from experimental.language_structure
+from vrnn import data_utils  # local file import from experimental.language_structure
+from vrnn import linear_vrnn  # local file import from experimental.language_structure
+from vrnn import model_config  # local file import from experimental.language_structure
+from vrnn import psl_utils  # local file import from experimental.language_structure
+from vrnn import train_lib  # local file import from experimental.language_structure
+from vrnn import utils  # local file import from experimental.language_structure
 
 
 _DOMAIN_LABEL_NAME = preprocessor.DOMAIN_LABEL_NAME

@@ -18,10 +18,10 @@ from __gin__ import dynamic_registration
 from t5x import utils
 
 # Register necessary SeqIO Tasks/Mixtures.
-import uncertainty_baselines.baselines.t5.data.mixtures
+import data.mixtures  # local file import from baselines.t5
 
 import decoding  # local file import from baselines.t5
-import models  # local file import from baselines.t5.models
+from models import models  # local file import from baselines.t5
 
 MIXTURE_OR_TASK_NAME = 'deepbank_1.1_infer'
 

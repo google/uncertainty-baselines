@@ -22,7 +22,7 @@ This config is suitable for BE->BE pretraining->finetuning.
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 
 # CIFAR-10/100 subpopulation datasets.

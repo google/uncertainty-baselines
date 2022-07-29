@@ -16,7 +16,7 @@
 """Tests for graph_utils."""
 from absl import logging
 from absl.testing import absltest
-import graph_utils  # local file import from baselines.t5.data.deepbank
+from data.deepbank import graph_utils  # local file import from baselines.t5
 
 
 class DAGParseTest(absltest.TestCase):

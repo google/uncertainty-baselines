@@ -32,8 +32,8 @@ from typing import Any, Dict, Optional, Sequence, Union
 import numpy as np
 import tensorflow as tf
 import bert_utils  # local file import from baselines.clinc_intent
-import model_config  # local file import from experimental.language_structure.vrnn
-import utils  # local file import from experimental.language_structure.vrnn
+from vrnn import model_config  # local file import from experimental.language_structure
+from vrnn import utils  # local file import from experimental.language_structure
 
 from official.nlp.bert import bert_models
 from official.nlp.bert import configs

@@ -18,7 +18,7 @@ from __gin__ import dynamic_registration
 import seqio
 
 import decoding  # local file import from baselines.t5
-import models  # local file import from baselines.t5.models
+from models import models  # local file import from baselines.t5
 
 from t5x import adafactor
 from t5x.examples.t5 import network

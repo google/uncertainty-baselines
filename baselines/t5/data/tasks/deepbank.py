@@ -22,7 +22,7 @@ import seqio
 import t5.data
 import tensorflow as tf
 
-import metrics as ub_metrics  # local file import from baselines.t5.data
+from data import metrics as ub_metrics  # local file import from baselines.t5
 
 
 TaskRegistry = seqio.TaskRegistry

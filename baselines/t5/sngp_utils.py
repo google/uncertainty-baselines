@@ -25,7 +25,7 @@ from t5x import adafactor
 from t5x import losses
 from t5x import models
 from t5x import utils
-import models as ub_models  # local file import from baselines.t5.models
+from models import models as ub_models  # local file import from baselines.t5
 
 unfreeze = flax.core.unfreeze
 Array = models.Array

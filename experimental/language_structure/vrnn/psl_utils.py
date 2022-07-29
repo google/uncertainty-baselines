@@ -18,11 +18,11 @@
 from typing import Any, Dict, List, Sequence
 
 import tensorflow as tf
-import data as data_utils  # local file import from experimental.language_structure.psl
-import psl_model  # local file import from experimental.language_structure.psl
-import psl_model_dstc_synthetic  # local file import from experimental.language_structure.psl
-import psl_model_multiwoz  # local file import from experimental.language_structure.psl
-import data_preprocessor as preprocessor  # local file import from experimental.language_structure.vrnn
+from psl import data as data_utils  # local file import from experimental.language_structure
+from psl import psl_model  # local file import from experimental.language_structure
+from psl import psl_model_dstc_synthetic  # local file import from experimental.language_structure
+from psl import psl_model_multiwoz  # local file import from experimental.language_structure
+from vrnn import data_preprocessor as preprocessor  # local file import from experimental.language_structure
 
 _INPUT_ID_NAME = preprocessor.INPUT_ID_NAME
 

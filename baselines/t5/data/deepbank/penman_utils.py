@@ -26,9 +26,9 @@ from typing import Any, Dict, List, Text
 
 from absl import logging
 import numpy as np
-import metrics_utils  # local file import from baselines.t5.data
-import graph_utils  # local file import from baselines.t5.data.deepbank
-import lispress_utils  # local file import from baselines.t5.data.deepbank
+from data import metrics_utils  # local file import from baselines.t5
+from data.deepbank import graph_utils  # local file import from baselines.t5
+from data.deepbank import lispress_utils  # local file import from baselines.t5
 
 
 class PENMANStr(object):

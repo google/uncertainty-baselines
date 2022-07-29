@@ -21,6 +21,7 @@ import seqio
 import t5.data
 import metrics_utils  # local file import from baselines.t5.data
 import graph_utils  # local file import from baselines.t5.data.deepbank
+import penman_utils  # local file import from baselines.t5.data.deepbank
 
 DEFAULT_VOCAB = t5.data.get_default_vocabulary()
 ObjectList = List[Tuple[Text, Text, Text]]
@@ -63,10 +64,12 @@ class GraphInfo(object):
     # Sequence log_prob should include EOS symbol.
     self.seq_log_prob = np.sum(beam_scores[:len(self.token_ids)+1])
     self.sentence = sentence
-    pred_penman = metrics_utils.token_transfer(prediction, data_version)
-    self.pred_penman = metrics_utils.transfer_to_penman(pred_penman)
-    target_penman = metrics_utils.token_transfer(target, data_version)
-    self.target_penman = metrics_utils.transfer_to_penman(target_penman)
+    self.pred_penman = penman_utils.PENMANStr(
+        prediction, variable_free=True, retokenized=True,
+        data_version=data_version).penman
+    self.target_penman = penman_utils.PENMANStr(
+        target, variable_free=True, retokenized=True,
+        data_version=data_version).penman
     self.instances, self.attributes, self.relations = [], [], []
     self.pred_parsed = True
     try:
@@ -79,9 +82,10 @@ class GraphInfo(object):
 
   def get_performance_score(self):
     """Get precision, recall and Smatch scores."""
-    if not self.pred_penman:
+    if not self.pred_parsed:
       return 0.00, 0.00, 0.00
-    return graph_utils.get_smatch(self.pred_penman, self.target_penman)
+    return graph_utils.get_smatch(self.pred_penman,
+                                  self.target_penman)
 
 
 class MetaGraph(object):
@@ -165,12 +169,8 @@ class MetaGraph(object):
     """
     # TODO(lzi): check if the length of lists will change due to error in
     #   `get_object_lists_and_prob_dicts`.
-    subgraph_infos = metrics_utils.merge_token_prob(graph_info.tokens,
-                                                    graph_info.log_probs,
-                                                    data_version)
-    penman_with_prob = metrics_utils.assign_prob_to_penman(
-        subgraph_infos, data_version)
-    penman_with_prob = metrics_utils.transfer_to_penman(penman_with_prob)
+    penman_with_prob = penman_utils.assign_prob_to_penman(
+        graph_info.tokens, graph_info.log_probs, data_version)
     dag_with_prob = graph_utils.parse_string_to_dag(penman_with_prob)
     dag_with_prob.change_node_prefix(prefix)
     (instances_with_prob,

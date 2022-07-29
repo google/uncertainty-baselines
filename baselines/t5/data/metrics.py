@@ -31,6 +31,7 @@ import tensorflow as tf
 
 import metrics_utils  # local file import from baselines.t5.data
 import graph_utils  # local file import from baselines.t5.data.deepbank
+import penman_utils  # local file import from baselines.t5.data.deepbank
 
 
 NEG_INF = t5x_decoding.NEG_INF
@@ -177,8 +178,10 @@ def deepbank_metrics(targets: List[Text],
   recall_by_node = collections.defaultdict(int)
 
   for t, p in zip(targets, predictions):
-    target = metrics_utils.token_transfer(t, data_version=data_version)
-    predicted = metrics_utils.token_transfer(p, data_version=data_version)
+    target = penman_utils.reverse_tokened_graph_str(
+        t, data_version=data_version)
+    predicted = penman_utils.reverse_tokened_graph_str(
+        p, data_version=data_version)
     if target == predicted:
       num_correct += 1
     if metrics_utils.find_root(target) == metrics_utils.find_root(predicted):
@@ -221,18 +224,23 @@ def deepbank_metrics_v2(targets: List[Text],
   total_match_attr_num, total_test_attr_num, total_gold_attr_num = 0, 0, 0
 
   for t, p in zip(targets, predictions):
-    # Transfers the original input/output to PENMAN.
-    target = metrics_utils.token_transfer(t, data_version=data_version)
-    target_penman = metrics_utils.transfer_to_penman(target)
-    predicted = metrics_utils.token_transfer(p, data_version=data_version)
-    predicted_penman = metrics_utils.transfer_to_penman(predicted)
+    # Transfers the original input/output to PENMAN object.
+    target_penman = penman_utils.PENMANStr(
+        t, variable_free=True, retokenized=True,
+        data_version=data_version).penman
+    predicted_penman = penman_utils.PENMANStr(
+        p, variable_free=True, retokenized=True,
+        data_version=data_version).penman
     # Computes info for Smatch scores.
     match_node_num, test_node_num, gold_node_num, _ = graph_utils.get_dag_match(
-        predicted_penman, target_penman, just_match_instance=True)
+        predicted_penman, target_penman,
+        just_match_instance=True)
     match_edge_num, test_edge_num, gold_edge_num, _ = graph_utils.get_dag_match(
-        predicted_penman, target_penman, just_match_relation=True)
+        predicted_penman, target_penman,
+        just_match_relation=True)
     match_attr_num, test_attr_num, gold_attr_num, _ = graph_utils.get_dag_match(
-        predicted_penman, target_penman, just_match_attribute=True)
+        predicted_penman, target_penman,
+        just_match_attribute=True)
 
     total_match_node_num += match_node_num
     total_test_node_num += test_node_num
@@ -333,19 +341,15 @@ def deepbank_uncertainty_metrics(
     ]
     log_prob = log_prob[:len(tokens)]
 
-    subgraph_infos = metrics_utils.merge_token_prob(tokens, log_prob,
-                                                    data_version)
-    pred_graph_str = metrics_utils.assign_prob_to_penman(
-        subgraph_infos, data_version)
-    pred_graph_str = metrics_utils.transfer_to_penman(pred_graph_str)
-
-    gold_graph_str = metrics_utils.token_transfer(
-        target, data_version=data_version)
-    gold_graph_str = metrics_utils.transfer_to_penman(gold_graph_str)
+    pred_penman_with_prob = penman_utils.assign_prob_to_penman(
+        tokens, log_prob, data_version)
+    gold_penman = penman_utils.PENMANStr(
+        target, variable_free=True, retokenized=True,
+        data_version=data_version).penman
 
     (node_prob_match_list, attr_prob_match_list,
      edge_prob_match_list) = graph_utils.get_dag_match_for_calibration(
-         pred_graph_str, gold_graph_str)
+         pred_penman_with_prob, gold_penman)
     all_node_prob_match_list += node_prob_match_list
     all_attr_prob_match_list += attr_prob_match_list
     all_edge_prob_match_list += edge_prob_match_list

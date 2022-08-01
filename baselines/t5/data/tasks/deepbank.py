@@ -15,6 +15,8 @@
 
 """Task specification for DeepBank."""
 import functools
+import os
+
 from typing import Any, Dict, Optional, Text, Sequence
 
 import seqio
@@ -180,6 +182,7 @@ def get_deepbank_metric_fns(data_version='v1'):
       ub_metrics.seq2seq_uncertainty_metrics]
 
 
+# Defines canonical tasks.
 t5.data.TaskRegistry.add(
     'deepbank',
     t5.data.Task,
@@ -209,6 +212,27 @@ t5.data.TaskRegistry.add(
     text_preprocessor=None,
     metric_fns=get_deepbank_metric_fns(data_version='v1'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
+
+# Registers retrieval-augmented tasks.
+RETRIEVAL_DATA_TYPES = ['random_retrieval_on_gold']
+RETRIEVAL_DATA_SUBTYPES = [
+    f'num_examplar={n}_depth={d}' for n in (1, 3, 5) for d in (1, 2, 3)]  # pylint:disable=g-complex-comprehension
+
+for retrieval_data_type in RETRIEVAL_DATA_TYPES:
+  for retrieval_data_subtype in RETRIEVAL_DATA_SUBTYPES:
+    retrieval_config = get_retrieval_augmented_data_config(
+        data_type=retrieval_data_type, data_subtype=retrieval_data_subtype)
+
+    # Replaces `=` sign since seqio task name does not allow it.
+    retrieval_data_name = retrieval_data_subtype.replace('=', '_')
+    t5.data.TaskRegistry.add(
+        f'deepbank_1.1_{retrieval_data_type}_{retrieval_data_name}',
+        t5.data.Task,
+        dataset_fn=functools.partial(parsing_dataset, params=retrieval_config),
+        splits=['train', 'validation', 'test'],
+        text_preprocessor=None,
+        metric_fns=get_deepbank_metric_fns(data_version='v1'),
+        shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 # OOD eval data on tail linguistic phenomenon.
 ood_valency_config = dataset_configs(

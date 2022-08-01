@@ -343,6 +343,12 @@ def deepbank_uncertainty_metrics(
 
     pred_penman_with_prob = penman_utils.assign_prob_to_penman(
         tokens, log_prob, data_version)
+    try:
+      _ = graph_utils.parse_string_to_dag(pred_penman_with_prob)
+    except LookupError:
+      # The predicted graph here is an ill-formed graph. Skip.
+      logging.warning('Fail to parse DAG: %s', pred_penman_with_prob)
+      continue
     gold_penman = penman_utils.PENMANStr(
         target, variable_free=True, retokenized=True,
         data_version=data_version).penman

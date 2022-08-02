@@ -103,7 +103,6 @@ class EnsembleEvalTest(absltest.TestCase):
           eval_period=4,
           random_seed=0,
           summarize_config_fn=gin_utils.summarize_gin_config,
-          use_gda=False,
       )
 
     self.do_training = do_training

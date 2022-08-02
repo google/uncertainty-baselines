@@ -19,7 +19,8 @@ import seqio
 from t5x.examples.t5 import network
 
 import decoding  # local file import from baselines.t5
-import sngp_utils  # local file import from baselines.t5
+import utils as ub_utils  # local file import from baselines.t5
+from models import gp_models  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_gp
 
 # Loss HParam defaults
@@ -33,8 +34,8 @@ DROPOUT_RATE = 0.1
 
 # Optimizer
 # `learning_rate` is set by `Trainer.learning_rate_fn`.
-OPTIMIZER = @sngp_utils.AdafactorGP()
-sngp_utils.AdafactorGP:
+OPTIMIZER = @ub_utils.AdafactorGP()
+ub_utils.AdafactorGP:
   decay_rate = 0.8
   step_offset = 0
 
@@ -44,8 +45,8 @@ seqio.SentencePieceVocabulary.sentencepiece_model_file = "/bigstore/t5-data/voca
 NUM_EMBEDDINGS = 32128  # vocab size rounded to a multiple of 128 for TPU efficiency
 
 # Model class.
-MODEL = @sngp_utils.EncoderDecoderGPBeamScoreModel()
-sngp_utils.EncoderDecoderGPBeamScoreModel:
+MODEL = @gp_models.EncoderDecoderGPBeamScoreModel()
+gp_models.EncoderDecoderGPBeamScoreModel:
   module = @t5_gp.TransformerGaussianProcess()
   input_vocabulary = %VOCABULARY
   output_vocabulary = %VOCABULARY

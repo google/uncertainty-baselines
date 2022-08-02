@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for sngp_utils."""
+"""Tests for gp_models."""
 
 import functools
 
@@ -23,10 +23,11 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
-import sngp_utils  # local file import from baselines.t5
+import utils as ub_utils  # local file import from baselines.t5
+from models import gp_models  # local file import from baselines.t5
 
 
-class SNGPUtilsTest(absltest.TestCase):
+class GPModelsTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -47,7 +48,7 @@ class SNGPUtilsTest(absltest.TestCase):
         self.sow('intermediates', 'gp_head_state_new', head_state_new)
         return jnp.zeros(target.shape + (3,))
 
-    self.model = sngp_utils.EncoderDecoderGPModel(Head(), None, None, None)
+    self.model = gp_models.EncoderDecoderGPModel(Head(), None, None, None)
     self.batch = {
         'encoder_input_tokens': jnp.array([[1, 2, 0], [2, 0, 1]]),
         'decoder_input_tokens': jnp.array([[2, 1, 0, 1], [0, 2, 1, 1]]),
@@ -71,7 +72,7 @@ class SNGPUtilsTest(absltest.TestCase):
                            flax.core.unfreeze(self.grads['gp_head_state']))
 
   def test_adafactor_update_gp_state(self):
-    optimizer_def = sngp_utils.AdafactorGP()
+    optimizer_def = ub_utils.AdafactorGP()
     init_state = optimizer_def.init_state(self.params)
     new_params, _ = optimizer_def.apply_gradient(optimizer_def.hyper_params,
                                                  self.params, init_state,

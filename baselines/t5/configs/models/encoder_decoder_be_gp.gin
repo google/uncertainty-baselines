@@ -20,7 +20,7 @@ from t5x import adafactor
 from t5x.examples.t5 import network
 
 import decoding  # local file import from baselines.t5
-import sngp_utils  # local file import from baselines.t5
+import utils as ub_utils  # local file import from baselines.t5
 from models import be_models  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_be_gp
 
@@ -35,8 +35,8 @@ DROPOUT_RATE = 0.1
 
 # Optimizer
 # `learning_rate` is set by `Trainer.learning_rate_fn`.
-OPTIMIZER = @sngp_utils.AdafactorGP()
-sngp_utils.AdafactorGP:
+OPTIMIZER = @ub_utils.AdafactorGP()
+ub_utils.AdafactorGP:
   decay_rate = 0.8
   step_offset = 0
 

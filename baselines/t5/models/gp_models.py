@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Some helpers for using sngp binary."""
+"""EncoderDecoder models for GP Transformer."""
 
 from typing import Mapping, Optional
 
@@ -21,7 +21,6 @@ import flax
 from flax.core import scope as flax_scope
 import jax
 import jax.numpy as jnp
-from t5x import adafactor
 from t5x import losses
 from t5x import models
 from t5x import utils
@@ -31,7 +30,6 @@ unfreeze = flax.core.unfreeze
 Array = models.Array
 
 
-# TODO(phandu): Move this class to `ub.baselines.t5.models`.
 class EncoderDecoderGPModel(models.EncoderDecoderModel):
   """A wrapper of t5x.models.EncoderDecoderModel to support mutable updates."""
 
@@ -116,18 +114,6 @@ class EncoderDecoderGPModel(models.EncoderDecoderModel):
             ('decoder/gp_head_state/.*precision_matrix', ('embed', 'vocab')),
             ('decoder/gp_head_state/step', ()),
         ])
-
-
-class AdafactorGP(adafactor.Adafactor):
-  """A wrapper of t5x.adafactor.Adafactor to support mutable updates."""
-
-  def apply_param_gradient(self, step, hyper_params, param, state, grad, path):
-    if 'gp_head_state' in path:
-      # For head_state parameters, we will use grad as the new value.
-      return grad.astype(param.dtype), state
-
-    return super().apply_param_gradient(step, hyper_params, param, state, grad,
-                                        path)
 
 
 class EncoderDecoderGPClassifierModel(ub_models.EncoderDecoderClassifierModel,

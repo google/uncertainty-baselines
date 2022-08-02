@@ -35,7 +35,8 @@ from t5x import utils
 import t5x.examples.t5.network as t5_network
 import tensorflow as tf
 
-import sngp_utils  # local file import from baselines.t5
+import utils as ub_utils  # local file import from baselines.t5
+from models import gp_models  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_gp
 
 
@@ -57,8 +58,8 @@ class SNGPTest(absltest.TestCase):
         num_decoder_layers=1,
         head_dim=2,
         mlp_dim=8)
-    optimizer_def = sngp_utils.AdafactorGP()
-    model = sngp_utils.EncoderDecoderGPModel(
+    optimizer_def = ub_utils.AdafactorGP()
+    model = gp_models.EncoderDecoderGPModel(
         module=t5_gp.TransformerGaussianProcess(
             config=transformer_config, steps_per_epoch=2),
         input_vocabulary=vocabulary,

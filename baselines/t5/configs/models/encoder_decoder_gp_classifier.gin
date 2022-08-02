@@ -21,8 +21,9 @@ from data.tasks import nalue as nalue_task  # local file import from baselines.t
 from t5x import utils
 from t5x.examples.t5 import network
 
-import sngp_utils  # local file import from baselines.t5
 import decoding  # local file import from baselines.t5
+import utils as ub_utils  # local file import from baselines.t5
+from models import gp_models  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_gp
 
 # Loss HParam defaults
@@ -43,8 +44,8 @@ NORMALIZE_INPUT = True
 
 # Optimizer
 # `learning_rate` is set by `Trainer.learning_rate_fn`.
-OPTIMIZER = @sngp_utils.AdafactorGP()
-sngp_utils.AdafactorGP:
+OPTIMIZER = @ub_utils.AdafactorGP()
+ub_utils.AdafactorGP:
   decay_rate = 0.8
   step_offset = 0
 
@@ -57,8 +58,8 @@ NUM_EMBEDDINGS = 32128  # vocab size rounded to a multiple of 128 for TPU effici
 # Note: We will use a classifier version of the EncoderDecoder model whose
 # score_batch() function returns class logits rather than sequence-level
 # (unnormalized) log likelihood scores.
-MODEL = @sngp_utils.EncoderDecoderGPClassifierModel()
-sngp_utils.EncoderDecoderGPClassifierModel:
+MODEL = @gp_models.EncoderDecoderGPClassifierModel()
+gp_models.EncoderDecoderGPClassifierModel:
   label_tokens = %LABEL_TOKENS
   module = @t5_gp.TransformerGaussianProcess()
   input_vocabulary = %VOCABULARY
@@ -83,13 +84,13 @@ network.T5Config:
   dropout_rate = %DROPOUT_RATE
 
 # Decoding override to write Top-K beams and scores to output.
-sngp_utils.EncoderDecoderGPClassifierModel.predict_batch_with_aux.num_decodes = 3
-sngp_utils.EncoderDecoderGPClassifierModel.predict_batch_with_aux.return_all_decodes = True
-sngp_utils.EncoderDecoderGPClassifierModel.score_batch.num_decodes = 3
-sngp_utils.EncoderDecoderGPClassifierModel.score_batch.return_beam_predictions = True
+gp_models.EncoderDecoderGPClassifierModel.predict_batch_with_aux.num_decodes = 3
+gp_models.EncoderDecoderGPClassifierModel.predict_batch_with_aux.return_all_decodes = True
+gp_models.EncoderDecoderGPClassifierModel.score_batch.num_decodes = 3
+gp_models.EncoderDecoderGPClassifierModel.score_batch.return_beam_predictions = True
 
 # Set beam search parameters.
-sngp_utils.EncoderDecoderGPClassifierModel.decode_fn = @decoding.beam_search
+gp_models.EncoderDecoderGPClassifierModel.decode_fn = @decoding.beam_search
 
 # Remove the brevity penalty that is unnecessary for classification.
 decoding.beam_search.alpha = 0.

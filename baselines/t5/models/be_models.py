@@ -20,7 +20,7 @@ from flax.core import scope as flax_scope
 import jax
 import jax.numpy as jnp
 import t5x.models as t5x_models
-import sngp_utils  # local file import from baselines.t5
+from models import gp_models  # local file import from baselines.t5
 from models import models as ub_models  # local file import from baselines.t5
 
 Array = t5x_models.Array
@@ -105,7 +105,7 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
 
 
 class EncoderDecoderBEGpClassifierModel(EncoderDecoderBEClassifierModel,
-                                        sngp_utils.EncoderDecoderGPModel):
+                                        gp_models.EncoderDecoderGPModel):
   """A wrapper of EncoderDecoderClassifierModel for BatchEnsemble and GP."""
 
   def loss_fn(
@@ -123,8 +123,8 @@ class EncoderDecoderBEGpClassifierModel(EncoderDecoderBEClassifierModel,
     if loss_weights is not None:
       batch['decoder_loss_weights'] = jnp.tile(loss_weights, [ens_size] + [1] *
                                                (loss_weights.ndim - 1))
-    return sngp_utils.EncoderDecoderGPModel.loss_fn(self, params, batch,
-                                                    dropout_rng)
+    return gp_models.EncoderDecoderGPModel.loss_fn(self, params, batch,
+                                                   dropout_rng)
 
   def get_initial_variables(
       self,
@@ -132,7 +132,7 @@ class EncoderDecoderBEGpClassifierModel(EncoderDecoderBEClassifierModel,
       input_shapes: Mapping[str, Array],
       input_types: Optional[Mapping[str, jnp.dtype]] = None
   ) -> flax_scope.FrozenVariableDict:
-    initial_variables = sngp_utils.EncoderDecoderGPModel.get_initial_variables(
+    initial_variables = gp_models.EncoderDecoderGPModel.get_initial_variables(
         self, rng=rng, input_shapes=input_shapes, input_types=input_types)
     return initial_variables
 

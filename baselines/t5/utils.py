@@ -26,6 +26,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import seqio
+from t5x import adafactor
 from t5x import optimizers
 from t5x import partitioning
 from t5x import train_state as train_state_lib
@@ -270,6 +271,18 @@ def process_beam_prediction_outputs(
     beam_outputs_dict['beam_scores'] = beam_scores[::-1]
 
   return beam_outputs_dict
+
+
+class AdafactorGP(adafactor.Adafactor):
+  """A wrapper of t5x.adafactor.Adafactor to support mutable updates."""
+
+  def apply_param_gradient(self, step, hyper_params, param, state, grad, path):
+    if 'gp_head_state' in path:
+      # For head_state parameters, we will use grad as the new value.
+      return grad.astype(param.dtype), state
+
+    return super().apply_param_gradient(step, hyper_params, param, state, grad,
+                                        path)
 
 
 def latest_checkpoint_paths(model_sweep_dir: str,

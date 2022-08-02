@@ -70,6 +70,7 @@ network.T5Config:
 # Decoding override to write Top-K beams and scores to output.
 models.EncoderDecoderClassifierModel.predict_batch_with_aux.num_decodes = 3
 models.EncoderDecoderClassifierModel.predict_batch_with_aux.return_all_decodes = True
+models.EncoderDecoderClassifierModel.score_batch.num_decodes = 3
 models.EncoderDecoderClassifierModel.score_batch.return_beam_predictions = True
 
 # Set beam search parameters.
@@ -78,3 +79,11 @@ models.EncoderDecoderClassifierModel.decode_fn = @decoding.beam_search
 # Remove the brevity penalty that is unnecessary for classification.
 decoding.beam_search.alpha = 0.
 decoding.beam_search.return_token_scores = True
+
+EVAL_DROPOUT_SEED = None
+EVAL_NUM_MCDROPOUT_SAMPLES = None
+ENSEMBLE_PROBS = True
+models.EncoderDecoderClassifierModel.score_batch:
+  dropout_seed = %EVAL_DROPOUT_SEED
+  num_mcdropout_samples = %EVAL_NUM_MCDROPOUT_SAMPLES
+  ensemble_probs = %ENSEMBLE_PROBS

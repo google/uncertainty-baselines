@@ -94,6 +94,7 @@ t5_be_gp.TransformerBEGp:
 # Decoding override to write Top-K beams and scores to output.
 be_models.EncoderDecoderBEGpClassifierModel.predict_batch_with_aux.num_decodes = 3
 be_models.EncoderDecoderBEGpClassifierModel.predict_batch_with_aux.return_all_decodes = True
+be_models.EncoderDecoderBEGpClassifierModel.score_batch.num_decodes = 3
 be_models.EncoderDecoderBEGpClassifierModel.score_batch.return_beam_predictions = True
 
 # Set beam search parameters.

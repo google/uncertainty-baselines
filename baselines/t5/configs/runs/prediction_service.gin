@@ -23,7 +23,6 @@ include 'third_party/py/t5x/configs/runs/prediction_service.gin'
 import __main__ as prediction_service
 from t5x import partitioning
 from t5x import utils
-import prediction_service_lib  # local file import from baselines.t5
 from models import models  # local file import from baselines.t5
 # This is the full list of intermediates that are being tracked right now via
 # sow calls in the code for EncoderDecoder models.
@@ -34,25 +33,6 @@ from models import models  # local file import from baselines.t5
 INFERENCE_MODE = 'score'
 INTERMEDIATES_TO_TRACK = ['entropy/logits', 'entropy/token_entropy']
 
-MODEL = %gin.REQUIRED
-FEATURE_LENGTHS = %gin.REQUIRED
-BATCH_SIZE = None
-STATIC_DECODER_PARAMS = None
-
-prediction_service.start_services:
-  create_handler_fns = @prediction_service_lib.StandardHandlerFn
-
-prediction_service_lib.StandardHandlerFn:
-  model = %MODEL
-  batch_size = %BATCH_SIZE
-  feature_lengths = %FEATURE_LENGTHS
-  default_inference_mode = %INFERENCE_MODE
-  intermediates_to_track = %INTERMEDIATES_TO_TRACK
-  restore_checkpoint_cfg = @utils.RestoreCheckpointConfig()
-  partitioner = @partitioning.PjitPartitioner()
-  create_inference_task_fn = @prediction_service.create_inference_task
-  static_decoder_params = %STATIC_DECODER_PARAMS
-  score_inference_mode_cls = @prediction_service_lib.ScoreTokenEntropies
 
 # Needed for some metric functions which require intermediate computations to
 # be exported.

@@ -85,6 +85,7 @@ network.T5Config:
 # Decoding override to write Top-K beams and scores to output.
 sngp_utils.EncoderDecoderGPClassifierModel.predict_batch_with_aux.num_decodes = 3
 sngp_utils.EncoderDecoderGPClassifierModel.predict_batch_with_aux.return_all_decodes = True
+sngp_utils.EncoderDecoderGPClassifierModel.score_batch.num_decodes = 3
 sngp_utils.EncoderDecoderGPClassifierModel.score_batch.return_beam_predictions = True
 
 # Set beam search parameters.

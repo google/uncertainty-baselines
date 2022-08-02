@@ -101,11 +101,18 @@ MixtureRegistry.add(
     default_rate=1.)
 
 # DeepBank 1.1 dataset with retrieved subgraphs based on gold graphs.
-for retrieval_data_type in deepbank_config.RETRIEVAL_DATA_TYPES:
-  for retrieval_data_subtype in deepbank_config.RETRIEVAL_DATA_SUBTYPES:
-    retrieval_data_name = retrieval_data_subtype.replace('=', '_')
-    task_name = f'deepbank_1.1_{retrieval_data_type}_{retrieval_data_name}'
-    MixtureRegistry.add(task_name, tasks=[task_name,], default_rate=1.)
+for type_name in deepbank_config.RETRIEVAL_DATA_TYPES:
+  for subtype_name in deepbank_config.RETRIEVAL_DATA_SUBTYPES:
+    subtype_name_normalized = subtype_name.replace('=', '_')
+    task_name = f'deepbank_1.1_{type_name}_{subtype_name_normalized}'
+    ood_task_names = [
+        f'deepbank_1.1_ood_{ood_name}_{type_name}_{subtype_name_normalized}'
+        for ood_name in deepbank_config.RETRIEVAL_DATA_OOD_NAMES
+    ]
+    MixtureRegistry.add(
+        task_name, tasks=[
+            task_name,
+        ] + ood_task_names, default_rate=1.)
 
 # DeepBank 1.1 dataset with input augmentation and OOD eval.
 MixtureRegistry.add(

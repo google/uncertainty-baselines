@@ -217,6 +217,10 @@ t5.data.TaskRegistry.add(
 RETRIEVAL_DATA_TYPES = ['random_retrieval_on_gold']
 RETRIEVAL_DATA_SUBTYPES = [
     f'num_examplar={n}_depth={d}' for n in (1, 3, 5) for d in (1, 2, 3)]  # pylint:disable=g-complex-comprehension
+RETRIEVAL_DATA_OOD_NAMES = [
+    'brown', 'csli', 'ecommerce', 'esd', 'essay', 'fracas', 'logon', 'mrs',
+    'semcor', 'tanaka', 'trec', 'verbmobil', 'wiki'
+]
 
 for retrieval_data_type in RETRIEVAL_DATA_TYPES:
   for retrieval_data_subtype in RETRIEVAL_DATA_SUBTYPES:
@@ -224,15 +228,35 @@ for retrieval_data_type in RETRIEVAL_DATA_TYPES:
         data_type=retrieval_data_type, data_subtype=retrieval_data_subtype)
 
     # Replaces `=` sign since seqio task name does not allow it.
-    retrieval_data_name = retrieval_data_subtype.replace('=', '_')
+    subtype_name = retrieval_data_subtype.replace('=', '_')
     t5.data.TaskRegistry.add(
-        f'deepbank_1.1_{retrieval_data_type}_{retrieval_data_name}',
+        f'deepbank_1.1_{retrieval_data_type}_{subtype_name}',
         t5.data.Task,
         dataset_fn=functools.partial(parsing_dataset, params=retrieval_config),
         splits=['train', 'validation', 'test'],
         text_preprocessor=None,
         metric_fns=get_deepbank_metric_fns(data_version='v1'),
         shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
+
+for retrieval_data_type in RETRIEVAL_DATA_TYPES:
+  for retrieval_data_subtype in RETRIEVAL_DATA_SUBTYPES:
+    # Replaces `=` sign since seqio task name does not allow it.
+    subtype_name = retrieval_data_subtype.replace('=', '_')
+    for ood_name in RETRIEVAL_DATA_OOD_NAMES:
+      retrieval_ood_config = get_retrieval_augmented_data_config(
+          data_type=retrieval_data_type,
+          data_subtype=retrieval_data_subtype,
+          ood_data_name=ood_name)
+
+      t5.data.TaskRegistry.add(
+          f'deepbank_1.1_ood_{ood_name}_{retrieval_data_type}_{subtype_name}',
+          t5.data.Task,
+          dataset_fn=functools.partial(
+              parsing_dataset, params=retrieval_ood_config),
+          splits=['validation', 'test'],
+          text_preprocessor=None,
+          metric_fns=get_deepbank_metric_fns(data_version='v1'),
+          shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 # OOD eval data on tail linguistic phenomenon.
 ood_valency_config = dataset_configs(

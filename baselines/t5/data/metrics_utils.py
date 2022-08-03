@@ -17,6 +17,8 @@
 import re
 from typing import Dict, List, Text
 
+from absl import logging
+
 
 # Argument edge types shared by DeepBank 1.0 and DeepBank 1.1.
 MISC = ['-of']
@@ -511,8 +513,11 @@ def graph_to_nodeseq(graph_str: Text,
     if x[0] == ':':
       continue
     if x[0] == '*':
-      node_name = nodeseq.pop()
-      nodeseq.append(node_name + x)
+      if nodeseq:
+        node_name = nodeseq.pop()
+        nodeseq.append(node_name + x)
+      else:
+        logging.warning('Fail to retrieve inference in %s', graph_str)
       continue
     nodeseq.append(x)
 

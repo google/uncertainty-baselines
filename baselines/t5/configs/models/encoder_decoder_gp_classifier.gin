@@ -17,7 +17,6 @@ from __gin__ import dynamic_registration
 
 import seqio
 
-from data.tasks import nalue as nalue_task  # local file import from baselines.t5
 from t5x import utils
 from t5x.examples.t5 import network
 

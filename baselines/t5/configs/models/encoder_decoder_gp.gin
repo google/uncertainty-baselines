@@ -76,10 +76,10 @@ t5_gp.TransformerGaussianProcess:
   steps_per_epoch = %STEPS_PER_EPOCH
 
 # Decoding override to write Top-K beams and scores to output.
-models.EncoderDecoderBeamScoreModel.predict_batch_with_aux.num_decodes = 5
-models.EncoderDecoderBeamScoreModel.predict_batch_with_aux.return_all_decodes = True
+gp_models.EncoderDecoderGPBeamScoreModel.predict_batch_with_aux.num_decodes = 5
+gp_models.EncoderDecoderGPBeamScoreModel.predict_batch_with_aux.return_all_decodes = True
 
 # Set beam search parameters.
-models.EncoderDecoderBeamScoreModel.decode_fn = @decoding.beam_search
+gp_models.EncoderDecoderGPBeamScoreModel.decode_fn = @decoding.beam_search
 decoding.beam_search.alpha = 0.6
 decoding.beam_search.return_token_scores = True

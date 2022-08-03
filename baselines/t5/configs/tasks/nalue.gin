@@ -34,6 +34,10 @@ LABEL_TOKENS = @nalue_task.get_nalue_intent_tokens()
 USE_CACHED_TASKS = False
 
 # Adjust checkpoint saving.
+utils.CheckpointConfig:
+  restore = @utils.RestoreCheckpointConfig()
+  save = @utils.SaveCheckpointConfig()  # Set to `None` to skip checkpoint saving during hyperparameter sweeping.
+
 utils.SaveCheckpointConfig:
   period = 10000
   dtype = 'float32'

@@ -32,13 +32,6 @@ TASK_FEATURE_LENGTHS = {'inputs': 512, 'targets': 512}
 # Disable caching since ub tasks are not cached in the official directory.
 USE_CACHED_TASKS = False
 
-# Adjust checkpoint saving.
-utils.SaveCheckpointConfig:
-  period = 10000
-  dtype = 'float32'
-  keep = 5  # keep the latest 5 checkpoints.
-  save_dataset = False  # don't checkpoint dataset state
-
 # Decoding override to write Top-K beams and scores to output.
 models.EncoderDecoderBeamScoreModel.predict_batch_with_aux.num_decodes = 5
 models.EncoderDecoderBeamScoreModel.predict_batch_with_aux.return_all_decodes = True

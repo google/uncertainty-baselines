@@ -32,6 +32,10 @@ LABEL_TOKENS = ('<extra_id_0>', '<extra_id_1>')
 USE_CACHED_TASKS = False
 
 # Adjust checkpoint saving.
+utils.CheckpointConfig:
+  restore = @utils.RestoreCheckpointConfig()
+  save = @utils.SaveCheckpointConfig()  # Set to `None` to skip checkpoint saving during hyperparameter sweeping.
+
 utils.SaveCheckpointConfig:
   period = 10000
   dtype = 'float32'

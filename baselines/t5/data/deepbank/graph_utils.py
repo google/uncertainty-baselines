@@ -1033,6 +1033,59 @@ def get_mapping_dict(prefix1, prefix2, mapping):
   return mapping_dict
 
 
+def find_mismatched_node_idxs(mapping, prefix1, prefix2,
+                              instances1, attributes1, relations1,
+                              instances2, attributes2, relations2):
+  """Finds mismatched node indexes."""
+  node_dict1 = transfer_triple_to_dict(instances1, "node")
+  # Excludes alignment information in attributes.
+  attributes1 = [(a[0], a[1], a[2]) for a in attributes1 if a[0] != "lnk"]
+  attribute_dict1 = transfer_triple_to_dict(attributes1, "attribute")
+  edge_dict1 = transfer_triple_to_dict(relations1, "edge")
+  node_dict2 = transfer_triple_to_dict(instances2, "node")
+  # Excludes alignment information in attributes.
+  attributes2 = [(a[0], a[1], a[2]) for a in attributes2 if a[0] != "lnk"]
+  attribute_dict2 = transfer_triple_to_dict(attributes2, "attribute")
+  edge_dict2 = transfer_triple_to_dict(relations2, "edge")
+
+  mismatched_node_idxs = set()
+  # Adds mismatched node indexes based on node/attribute match.
+  for i, j in enumerate(mapping):
+    if j == -1:
+      mismatched_node_idxs.add(prefix1+str(i))
+      continue
+    node_value1 = node_dict1[prefix1+str(i)]
+    node_value2 = node_dict2[prefix2+str(j)]
+    if node_value1 != node_value2: mismatched_node_idxs.add(prefix1+str(i))
+    if prefix1+str(i) in attribute_dict1:
+      attr_value1 = attribute_dict1[prefix1+str(i)]
+      if prefix2+str(j) not in attribute_dict2:
+        mismatched_node_idxs.add(prefix1+str(i))
+      else:
+        attr_value2 = attribute_dict2[prefix2+str(j)]
+        if attr_value1 != attr_value2: mismatched_node_idxs.add(prefix1+str(i))
+  # Adds mismatched node indexes based on edge match.
+  mapping_dict = get_mapping_dict(prefix1, prefix2, mapping)
+  for (edge_start1, edge_end1), edge_value_list1 in edge_dict1.items():
+    # To include a gold edge in the subgraph, we only need to include
+    # the source node so the entire edge will be included when
+    # we search the subgraph starting from the source node.
+    if edge_start1 not in mapping_dict or edge_end1 not in mapping_dict:
+      mismatched_node_idxs.add(edge_start1)
+    else:
+      edge_start2 = mapping_dict[edge_start1]
+      edge_end2 = mapping_dict[edge_end1]
+      if (edge_start2, edge_end2) not in edge_dict2:
+        # Though the start and end node are matched, the correponding edge
+        # in the predicted graph cannot be found.
+        mismatched_node_idxs.add(edge_start1)
+      else:
+        edge_value_list2 = edge_dict2[(edge_start2, edge_end2)]
+        if set(edge_value_list1) != set(edge_value_list2):
+          mismatched_node_idxs.add(edge_start1)
+  return mismatched_node_idxs
+
+
 def transfer_triple_to_dict(triple_list, object_type="node"):
   """Transfers the list of triple set to dict for searching graph components."""
   # TODO(lzi): Change `attribute_dict` since there can be more than one
@@ -1496,3 +1549,33 @@ def get_random_linear_subgraph(penman_with_align,
   align_dict = _get_align_dict_from_attributes(subgraph_attributes)
   align_sent = _get_align_sent(subgraph_idxs, align_dict, sentence)
   return subgraph_penman, align_sent
+
+
+def get_oracle_linear_subgraph(tgt_instances, tgt_attributes, tgt_relations,
+                               sentence,
+                               oracle_node_idx, oracle_node_idxs,
+                               level=3,
+                               return_align_sent=True):
+  """Gets oracle linearized subgraph in PENMAN and return aligned sentence if required."""
+  parent_dict, child_dict = _get_parent_and_child_dict(tgt_relations)
+  # Initialization of subgraph indexes.
+  subgraph_idxs = set()
+  subgraph_idxs = _get_subgraph_idxs(subgraph_idxs, oracle_node_idx,
+                                     parent_dict, child_dict, level)
+  # Excludes oracle node indexes that are already included in the subgraph.
+  oracle_node_idxs = [
+      idx for idx in oracle_node_idxs if idx not in subgraph_idxs
+  ]
+  (subgraph_instances, subgraph_attributes,
+   subgraph_relations) = _get_subgraph_triples(subgraph_idxs, tgt_instances,
+                                               tgt_attributes, tgt_relations)
+  linear_triples = _transfer_to_linear_triples(subgraph_instances,
+                                               subgraph_attributes,
+                                               subgraph_relations)
+  subgraph_penman = graph_linear_utils.encode(
+      linear_triples, oracle_node_idx, new_line=False)
+  if not return_align_sent:
+    return subgraph_penman, oracle_node_idxs
+  align_dict = _get_align_dict_from_attributes(subgraph_attributes)
+  align_sent = _get_align_sent(subgraph_idxs, align_dict, sentence)
+  return subgraph_penman, align_sent, oracle_node_idxs

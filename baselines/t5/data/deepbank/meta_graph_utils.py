@@ -40,7 +40,8 @@ class GraphInfo(object):
                prediction: Text,
                target: Text,
                vocab: seqio.SentencePieceVocabulary = DEFAULT_VOCAB,
-               data_version: Text = 'v0'):
+               data_version: Text = 'v0',
+               prefix: Text = 'a'):
     """Constructs a GraphInfo Example.
 
     Args:
@@ -52,6 +53,7 @@ class GraphInfo(object):
       target: Pretokenized target output.
       vocab: The SentencePieceVocabulary used for model training.
       data_version: Deepbank data version.
+      prefix: The prefix of graph nodes.
     """
     self.data_version = data_version
     # token id '0' represents padding and '1' represents EOS symbol.
@@ -74,11 +76,14 @@ class GraphInfo(object):
     self.pred_parsed = True
     try:
       dag = graph_utils.parse_string_to_dag(self.pred_penman)
+      dag.change_node_prefix(prefix)
     except LookupError:
       self.pred_parsed = False
     if self.pred_parsed:
       self.instances, self.attributes, self.relations = dag.get_triples()
       if not self.instances: self.pred_parsed = False
+    else:
+      self.instances, self.attributes, self.relations = [], [], []
 
   def get_performance_score(self):
     """Get precision, recall and Smatch scores."""

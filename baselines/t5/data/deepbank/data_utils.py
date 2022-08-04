@@ -17,6 +17,7 @@
 
 Forked from the Ex2 codebase.
 """
+import json
 import pickle
 from typing import Any, Dict, Text, Generator
 import tensorflow as tf
@@ -80,3 +81,11 @@ def text_line_generator(filename: Text,
         yield line.strip()
 
     reader.close()
+
+
+def json_line_generator(
+    filename: Text) -> Generator[Dict[Text, Any], None, None]:
+  """Gets json object from files."""
+  with tf.io.gfile.GFile(filename, "r") as reader:
+    for line in reader:
+      yield json.loads(line)

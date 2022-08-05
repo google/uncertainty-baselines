@@ -72,7 +72,7 @@ class PENMANStr(object):
       self.penman = graph_str
       self.variable_free_penman = transfer_to_variable_free_penman(self.penman)
       self.retokened_variable_free_penman = retoken_graph_str(
-          self.variable_free_penman)
+          self.variable_free_penman, data_version)
 
 
 def transfer_to_variable_free_penman(penman_str: Text) -> Text:

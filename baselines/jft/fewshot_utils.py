@@ -19,14 +19,16 @@ import functools
 import multiprocessing.pool
 
 from absl import logging
-from big_vision import input_pipeline
-import big_vision.pp.builder as pp_builder
+from clu import preprocess_spec
+import jax
 import jax.numpy as jnp
 import numpy as np
 import robustness_metrics as rm
 from sklearn.linear_model import LogisticRegression
 import tensorflow_datasets as tfds
+import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
+import preprocess_utils  # local file import from baselines.jft
 
 
 def evaluate(clfs, x_test, labels_test, x_ood_test, eval_ood_detection):
@@ -215,6 +217,27 @@ class LogRegFewShotEvaluator:
     self.ens_size = ens_size
     self.l2_selection_scheme = l2_selection_scheme
 
+  def _get_split(self, dataset, split, pp_eval, data_dir=None):
+    if isinstance(pp_eval, str):
+      pp_eval = preprocess_spec.parse(
+          spec=pp_eval, available_ops=preprocess_utils.all_ops())
+
+    split_ds = input_utils.get_data(
+        dataset=dataset,
+        split=split,
+        rng=None,
+        process_batch_size=self.batch_size // jax.process_count(),
+        preprocess_fn=pp_eval,
+        cache="batched",
+        num_epochs=1,
+        repeat_after_batching=True,
+        shuffle=False,
+        prefetch_size=2,
+        drop_remainder=False,
+        data_dir=data_dir)
+
+    return split_ds
+
   # Setup input pipeline.
   def _get_dataset(self, dataset, train_split, test_split):
     """Lazy-loads given dataset."""
@@ -222,32 +245,16 @@ class LogRegFewShotEvaluator:
     try:
       return self._datasets[key]
     except KeyError:
-      # TODO(kehanghan): Switch to `input_utils.get_data` instead of this
-      # non-deterministic `input_pipeline.make_for_inference`.
-      train_ds, batches_tr = input_pipeline.make_for_inference(
-          dataset=dataset,
-          split=train_split,
-          batch_size=self.batch_size,
-          # TODO(kehanghan): Switch to `clu.preprocess_spec` instead of this
-          # non-deterministic `pp_builder.get_preprocess_fn`.
-          # clu example usage: preprocess_spec.parse(spec=self.pp_tr,
-          # available_ops=preprocess_utils.all_ops()).
-          preprocess_fn=pp_builder.get_preprocess_fn(self.pp_tr))
-      test_ds, batches_te = input_pipeline.make_for_inference(
-          dataset=dataset,
-          split=test_split,
-          batch_size=self.batch_size,
-          preprocess_fn=pp_builder.get_preprocess_fn(self.pp_te))
+      train_ds = self._get_split(dataset, train_split, self.pp_tr)
+      test_ds = self._get_split(dataset, test_split, self.pp_te)
       num_classes = tfds.builder(dataset).info.features["label"].num_classes
-      return self._datasets.setdefault(
-          key, (train_ds, batches_tr, test_ds, batches_te, num_classes))
+      return self._datasets.setdefault(key, (train_ds, test_ds, num_classes))
 
-  def _get_repr(self, params, data, steps, **kwargs):
+  def _get_repr(self, params, data, **kwargs):
     """Compute representation for the whole dataset."""
     pre_logits_list = []
     labels_list = []
-    for batch, _ in zip(input_pipeline.start_input_pipeline(data, 0),
-                        range(steps)):
+    for batch, _ in input_utils.start_input_pipeline(data, 0):
       pre_logits, labels, mask = self.repr_fn(
           params, batch["image"], batch["label"], batch["_mask"], **kwargs)
       # Shapes at this point are:
@@ -268,20 +275,19 @@ class LogRegFewShotEvaluator:
                               eval_ood_detection, ood_dataset, ood_train_split,
                               ood_test_split, **kw):
     """Compute few-shot metrics on one dataset."""
-    train_ds, steps_tr, test_ds, steps_te, num_classes = self._get_dataset(
-        dataset, train_split, test_split)
+    train_ds, test_ds, num_classes = self._get_dataset(dataset, train_split,
+                                                       test_split)
     logging.info("[fewshot][%s]: Precomputing train (%s)", dataset, train_split)
-    repr_train, labels_train = self._get_repr(params, train_ds, steps_tr, **kw)
+    repr_train, labels_train = self._get_repr(params, train_ds, **kw)
     logging.info("[fewshot][%s]: Precomputing test (%s)", dataset, test_split)
-    repr_test, labels_test = self._get_repr(params, test_ds, steps_te, **kw)
+    repr_test, labels_test = self._get_repr(params, test_ds, **kw)
     # For OOD detection.
     if eval_ood_detection:
-      _, _, ood_test_ds, steps_ood_te, _ = self._get_dataset(ood_dataset,
-                                                             ood_train_split,
-                                                             ood_test_split)
+      _, ood_test_ds, _ = self._get_dataset(ood_dataset, ood_train_split,
+                                            ood_test_split)
       logging.info("[fewshot][%s]: Precomputing ood (%s)", dataset,
                    ood_test_split)
-      repr_ood_test, _ = self._get_repr(params, ood_test_ds, steps_ood_te, **kw)
+      repr_ood_test, _ = self._get_repr(params, ood_test_ds, **kw)
 
     logging.info("[fewshot][%s]: solving systems", dataset)
 

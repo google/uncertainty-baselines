@@ -63,8 +63,15 @@ _DEFAULT_OOD_PATTERNS_WIKI_AUG = {}
 
 # User must provide train pattern path.
 _DEFAULT_V0_TRAIN_PATTERNS = [
-    '/train_patterns/train.tfr*',
+    '/train_patterns/v0_train.tfr*',
 ]
+_DEFAULT_V1_TRAIN_PATTERNS = [
+    '/train_patterns/v1_train.tfr*',
+]
+_DEFAULT_V1_AUG_TRAIN_PATTERNS = [
+    '/train_patterns/v1_aug_train.tfr*',
+]
+
 
 
 def dataset_configs(  # pylint:disable=dangerous-default-value

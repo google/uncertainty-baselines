@@ -61,6 +61,10 @@ _DEFAULT_OOD_PATTERNS_TANAKA_AUG = {}
 _DEFAULT_OOD_PATTERNS_VERBMOBIL_AUG = {}
 _DEFAULT_OOD_PATTERNS_WIKI_AUG = {}
 
+# User must provide train pattern path.
+_DEFAULT_V0_TRAIN_PATTERNS = [
+    '/train_patterns/train.tfr*',
+]
 
 
 def dataset_configs(  # pylint:disable=dangerous-default-value

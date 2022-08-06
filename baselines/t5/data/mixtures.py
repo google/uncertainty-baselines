@@ -77,64 +77,8 @@ MixtureRegistry.add(
     ],
     default_rate=1.)
 
-# ========================== Graph Semantic Parsing ============================
-deepbank_subpopulation_tasks = ['deepbank_ood_valency', 'deepbank_ood_lang10']
-deepbank_ood_tasks = [
-    f'deepbank_ood_{data_name}'
-    for data_name in deepbank_config.ood_config_patterns.keys()
-]
-deepbank_ood_aug_tasks = [
-    f'deepbank_ood_aug_{data_name}'
-    for data_name in deepbank_config.ood_aug_config_patterns.keys()
-]
-
-# (Deprecated) DeepBank 1.0 dataset.
-MixtureRegistry.add(
-    'deepbank', tasks=[
-        'deepbank',
-    ], default_rate=1.)
-
-# DeepBank 1.1 dataset with out-of-domain (OOD) data eval.
-MixtureRegistry.add(
-    'deepbank_1.1',
-    tasks=['deepbank_1.1'] + deepbank_ood_tasks,
-    default_rate=1.)
-
-# DeepBank 1.1 dataset with retrieved subgraphs based on gold graphs.
-for type_name in deepbank_config.RETRIEVAL_DATA_TYPES:
-  for subtype_name in deepbank_config.RETRIEVAL_DATA_SUBTYPES:
-    subtype_name_normalized = subtype_name.replace('=', '_')
-    task_name = f'deepbank_1.1_{type_name}_{subtype_name_normalized}'
-    ood_task_names = [
-        f'deepbank_1.1_ood_{ood_name}_{type_name}_{subtype_name_normalized}'
-        for ood_name in deepbank_config.RETRIEVAL_DATA_OOD_NAMES
-    ]
-    MixtureRegistry.add(
-        task_name, tasks=[
-            task_name,
-        ] + ood_task_names, default_rate=1.)
-
-# DeepBank 1.1 dataset with input augmentation and OOD eval.
-MixtureRegistry.add(
-    'deepbank_1.1_aug',
-    tasks=['deepbank_1.1_aug',] + deepbank_ood_aug_tasks,
-    default_rate=1.)
-
-# DeepBank datasets for inference, with subpopulation data included.
-MixtureRegistry.add(
-    'deepbank_infer',
-    tasks=['deepbank'] + deepbank_subpopulation_tasks + deepbank_ood_tasks,
-    default_rate=1.)
-
-MixtureRegistry.add(
-    'deepbank_1.1_infer',
-    tasks=['deepbank_1.1'] + deepbank_subpopulation_tasks + deepbank_ood_tasks,
-    default_rate=1.)
-
-MixtureRegistry.add(
-    'deepbank_1.1_aug_infer',
-    tasks=['deepbank_1.1_aug'] + deepbank_ood_aug_tasks,
-    default_rate=1.)
+# TODO(jerelu): Remove GOOGLE-INTERNAL for deepbank registry once the data is
+# fully open-sourced.
 
 # ====================== Dataflow Semantic Parsing =============================
 MixtureRegistry.add('smcalflow', tasks=['smcalflow'], default_rate=1.)

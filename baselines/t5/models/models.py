@@ -203,7 +203,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
         dropout_rngs = jnp.expand_dims(dropout_rng, 0)
 
     batch_params = jax.tree_util.tree_map(lambda *vals: jnp.stack(vals),
-                                               *params_list)
+                                          *params_list)
 
     def get_sequence_scores_and_intermediates(vals):
       params, dropout_rng = vals
@@ -288,8 +288,8 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
       num_mcdropout_samples: The number of dropout samples for evaluation. If
         provided, we will perform MC Dropout evaluation.
       ensemble_probs: Whether to perform ensemble in probs or logits spaces.
-      intermediates_to_track: A list/tuple of intermediate fields to return.
-        We will flatten `intermediates` and only return values for flatten keys
+      intermediates_to_track: A list/tuple of intermediate fields to return. We
+        will flatten `intermediates` and only return values for flatten keys
         that are specified in this list/tuple.
       num_decodes: the number of beams to use in beam search.
 
@@ -347,8 +347,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     return sequence_scores
 
   def _compute_logits_from_slice(self,
-                                 flat_ids,
-                                 flat_cache,
+                                 decoding_state,
                                  params,
                                  encoded_inputs,
                                  raw_inputs,
@@ -373,8 +372,8 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     replicas because we will not perform ensemble over the cache.
 
     Args:
-      flat_ids: The input token slices.
-      flat_cache: The last cache value.
+      decoding_state: Current decoding state, including current token ids and
+        cache.
       params: A batch of sets of parameters.
       encoded_inputs: A batch of encoded inputs that correspond to the above
         batch of params.
@@ -387,6 +386,9 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     Returns:
       A tuple of logits and the new cache.
     """
+    flat_ids = decoding_state.cur_token
+    flat_cache = decoding_state.cache
+
     # `params`, `encoded_inputs`, `rngs` have additional ensemble batch
     # dimensions [K, ...] so we rename them here to for readability.
     batch_params = params
@@ -506,7 +508,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
         batch_rngs = {'dropout': jnp.expand_dims(dropout_rng, 0)}
 
     batch_params = jax.tree_util.tree_map(lambda *vals: jnp.stack(vals),
-                                               *params_list)
+                                          *params_list)
 
     def get_cache(args):
       params, rngs = args

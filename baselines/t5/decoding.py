@@ -105,7 +105,7 @@ def beam_init(batch_size: int,
 def beam_search(
     inputs: jnp.ndarray,
     cache: Mapping[str, jnp.ndarray],
-    tokens_to_logits: Callable[[jnp.ndarray, Mapping[str, jnp.ndarray]],
+    tokens_to_logits: Callable[[t5x_decoding.DecodingState],
                                Tuple[jnp.ndarray, Mapping[str, jnp.ndarray]]],
     eos_id: int,
     num_decodes: int = 4,
@@ -195,7 +195,12 @@ def beam_search(
 
     # Call fast-decoder model on current tokens to get next-position logits.
     # --> [batch * beam, vocab]
-    flat_logits, new_flat_cache = tokens_to_logits(flat_ids, flat_cache)
+    decoding_state = t5x_decoding.DecodingState(
+        cur_index=state.cur_index,
+        sequences=flatten_beam_dim(state.live_seqs),
+        cur_token=flat_ids,
+        cache=flat_cache)
+    flat_logits, new_flat_cache = tokens_to_logits(decoding_state)
 
     # unflatten beam dimension
     # [batch * beam, vocab] --> [batch, beam, vocab]

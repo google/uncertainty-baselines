@@ -38,16 +38,13 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
     target_tokens = batch['decoder_target_tokens']
     # Tile the labels for batch ensembles.
     ens_size = self.module.ens_size
-    batch['decoder_target_tokens'] = jnp.tile(target_tokens, [ens_size] +
-                                              [1] * (target_tokens.ndim - 1))
+    batch['decoder_target_tokens'] = jnp.tile(target_tokens, [ens_size] + [1] *
+                                              (target_tokens.ndim - 1))
     loss_weights = batch['decoder_loss_weights']
     if loss_weights is not None:
       batch['decoder_loss_weights'] = jnp.tile(loss_weights, [ens_size] + [1] *
                                                (loss_weights.ndim - 1))
-    return super().loss_fn(
-        params,
-        batch,
-        dropout_rng)
+    return super().loss_fn(params, batch, dropout_rng)
 
   def _compute_argmax_score(
       self,
@@ -65,8 +62,8 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
     if return_intermediates:
       sequence_scores, intermediates = sequence_scores
     if ens_size > 1:
-      sequence_scores = jnp.reshape(sequence_scores, (ens_size, -1) +
-                                    sequence_scores.shape[1:])
+      sequence_scores = jnp.reshape(sequence_scores,
+                                    (ens_size, -1) + sequence_scores.shape[1:])
       if ensemble_probs:
         # Computes log(mean(exp(logits))) along the first dimension.
         sequence_scores = (
@@ -78,8 +75,7 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
     return sequence_scores
 
   def _compute_logits_from_slice(self,
-                                 flat_ids,
-                                 flat_cache,
+                                 decoding_state,
                                  params,
                                  encoded_inputs,
                                  raw_inputs,
@@ -90,8 +86,8 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
     ens_size = self.module.ens_size
     k = jax.tree_util.tree_flatten(params)[0][0].shape[0]
     flat_logits, new_cache = super()._compute_logits_from_slice(
-        flat_ids, flat_cache, params, encoded_inputs, raw_inputs,
-        max_decode_length, rngs, ensemble_probs)
+        decoding_state, params, encoded_inputs, raw_inputs, max_decode_length,
+        rngs, ensemble_probs)
     if ens_size > 1:
       flat_logits = jnp.reshape(flat_logits,
                                 (k, ens_size, -1) + flat_logits.shape[1:])
@@ -163,8 +159,7 @@ class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,
         ensemble_probs=ensemble_probs)
 
   def _compute_logits_from_slice(self,
-                                 flat_ids,
-                                 flat_cache,
+                                 decoding_state,
                                  params,
                                  encoded_inputs,
                                  raw_inputs,
@@ -174,8 +169,7 @@ class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,
     """Token slice to logits from decoder model."""
     return EncoderDecoderBEClassifierModel._compute_logits_from_slice(
         self,
-        flat_ids,
-        flat_cache,
+        decoding_state,
         params,
         encoded_inputs,
         raw_inputs,

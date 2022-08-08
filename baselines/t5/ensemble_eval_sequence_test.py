@@ -124,8 +124,7 @@ class EnsembleEvalTest(absltest.TestCase):
         return super().predict_batch_with_aux(*args, **kwargs)
 
       def _compute_logits_from_slice(self,
-                                     flat_ids,
-                                     flat_cache,
+                                     decoding_state,
                                      params,
                                      encoded_inputs,
                                      raw_inputs,
@@ -136,13 +135,14 @@ class EnsembleEvalTest(absltest.TestCase):
           warnings.warn('Deduplicate flat_ids')
           k = jax.tree_util.tree_flatten(params)[0][0].shape[0]
           # Select 1 replica and populate it accross k replicas.
-          replica = flat_ids[:(flat_ids.shape[0] // k)]
+          replica = decoding_state.cur_token[:(
+              decoding_state.cur_token.shape[0] // k)]
           flat_ids = jnp.broadcast_to(replica, (k,) + replica.shape)
           flat_ids = jnp.reshape(flat_ids, (-1,) + flat_ids.shape[2:])
+          decoding_state.replace(cur_token=flat_ids)
 
         return super()._compute_logits_from_slice(
-            flat_ids,
-            flat_cache,
+            decoding_state,
             params,
             encoded_inputs,
             raw_inputs,

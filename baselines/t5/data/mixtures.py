@@ -20,7 +20,6 @@ This module contains different mixtures for training T5 models.
 import seqio
 
 import data.tasks  # local file import from baselines.t5  # pylint: disable=unused-import
-from data.tasks import deepbank as deepbank_config  # local file import from baselines.t5
 from data.tasks import mnli as mnli_config  # local file import from baselines.t5
 
 MixtureRegistry = seqio.MixtureRegistry
@@ -77,8 +76,6 @@ MixtureRegistry.add(
     ],
     default_rate=1.)
 
-# TODO(jerelu): Remove GOOGLE-INTERNAL for deepbank registry once the data is
-# fully open-sourced.
 
 # ====================== Dataflow Semantic Parsing =============================
 MixtureRegistry.add('smcalflow', tasks=['smcalflow'], default_rate=1.)

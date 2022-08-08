@@ -15,8 +15,6 @@
 
 """Register all tasks."""
 
-import data.tasks.dataflow  # local file import from baselines.t5
-import data.tasks.deepbank  # local file import from baselines.t5
 import data.tasks.mnli  # local file import from baselines.t5
 import data.tasks.nalue  # local file import from baselines.t5
 import data.tasks.toxic_comments  # local file import from baselines.t5

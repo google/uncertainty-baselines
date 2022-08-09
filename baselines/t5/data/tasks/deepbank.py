@@ -225,7 +225,7 @@ t5.data.TaskRegistry.add(
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 # Registers retrieval-augmented tasks.
-RETRIEVAL_DATA_TYPES = ['random_retrieval_on_gold']
+RETRIEVAL_DATA_TYPES = ['random_retrieval_on_gold', 'oracle_retrieval_on_gold']
 RETRIEVAL_DATA_SUBTYPES = [
     f'num_examplar={n}_depth={d}' for n in (1, 3, 5) for d in (1, 2, 3)]  # pylint:disable=g-complex-comprehension
 RETRIEVAL_DATA_OOD_NAMES = [

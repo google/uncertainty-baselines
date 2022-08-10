@@ -31,6 +31,7 @@ import tensorflow_datasets as tfds
 PreProcessFn = Callable[
     [Union[int, tf.Tensor, Sequence[tf.Tensor], types.Features]],
     types.Features]
+FilterFn = Callable[[types.Features], bool]
 
 # Same as PreProcessFn except also takes an integer first argument.
 _EnumeratedPreProcessFn = Callable[
@@ -107,7 +108,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
                download_data: bool = False,
                decoders: Optional[Dict[str, tfds.decode.Decoder]] = None,
                cache: bool = False,
-               label_key: str = 'label'):
+               label_key: str = 'label',
+               filter_fn: Optional[FilterFn] = None):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -147,6 +149,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       cache: Whether or not to cache the dataset after it is returned from
         dataset_builder.as_dataset(...) (before preprocessing is applied).
       label_key: The name of the field holding the label.
+      filter_fn: The filter function for tf.data.Dataset.filter().
     """
     self.name = name
     self._split = split
@@ -201,6 +204,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     if self._fingerprint_key is None:
       self._fingerprint_key = '_enumerate_added_example_id'
       self._add_fingerprint_key = True
+
+    self._filter_fn = filter_fn
 
   # This method can be overridden to add custom info via info.metadata.
   @property
@@ -348,6 +353,9 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     dataset = dataset.map(
         preprocess_fn,
         num_parallel_calls=self._num_parallel_parser_calls)
+
+    if self._filter_fn:
+      dataset = dataset.filter(self._filter_fn)
 
     if self._mask_and_pad and not self._drop_remainder:
       # If we're not dropping the remainder, but we are adding masking +

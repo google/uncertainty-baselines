@@ -1086,6 +1086,28 @@ def find_mismatched_node_idxs(mapping, prefix1, prefix2,
   return mismatched_node_idxs
 
 
+def find_uncertain_node_idxs(instance_prob_dict, attribute_prob_dict,
+                             relation_prob_dict, mapping, prefix1, prefix2,
+                             return_probs=False):
+  """Finds the corresponding gold node indexes based on uncertainty in ascending order."""
+  idx_prob_dict = instance_prob_dict.copy()
+  for attr_idx, attr_prob in attribute_prob_dict.items():
+    if idx_prob_dict[attr_idx] > attr_prob:
+      idx_prob_dict[attr_idx] = attr_prob
+  for (_, edge_start, _), edge_prob in relation_prob_dict.items():
+    if idx_prob_dict[edge_start] > edge_prob:
+      idx_prob_dict[edge_start] = edge_prob
+  mapping_dict = get_mapping_dict(prefix1, prefix2, mapping)
+  uncertain_node_idxs_with_probs = [(mapping_dict[idx], prob)
+                                    for (idx, prob) in idx_prob_dict.items()
+                                    if idx in mapping_dict]
+  uncertain_node_idxs_with_probs = sorted(
+      uncertain_node_idxs_with_probs, key=lambda y: y[1], reverse=True)
+  if return_probs:
+    return uncertain_node_idxs_with_probs
+  return [idx for (idx, prob) in uncertain_node_idxs_with_probs]
+
+
 def transfer_triple_to_dict(triple_list, object_type="node"):
   """Transfers the list of triple set to dict for searching graph components."""
   # TODO(lzi): Change `attribute_dict` since there can be more than one
@@ -1579,3 +1601,15 @@ def get_oracle_linear_subgraph(tgt_instances, tgt_attributes, tgt_relations,
   align_dict = _get_align_dict_from_attributes(subgraph_attributes)
   align_sent = _get_align_sent(subgraph_idxs, align_dict, sentence)
   return subgraph_penman, align_sent, oracle_node_idxs
+
+
+def get_uncertain_linear_subgraph(tgt_instances, tgt_attributes, tgt_relations,
+                                  sentence,
+                                  uncertain_node_idx, uncertain_node_idxs,
+                                  level=3,
+                                  return_align_sent=True):
+  """Gets uncertain linearized subgraph in PENMAN and return aligned sentence if required."""
+  return get_oracle_linear_subgraph(tgt_instances, tgt_attributes,
+                                    tgt_relations, sentence, uncertain_node_idx,
+                                    uncertain_node_idxs, level,
+                                    return_align_sent)

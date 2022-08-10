@@ -30,6 +30,9 @@ TASK_FEATURE_LENGTHS = {'inputs': 512, 'targets': 512}
 # Disable caching since ub tasks are not cached in the official directory.
 USE_CACHED_TASKS = False
 
+# Adjust evaluation period.
+EVAL_PERIOD = 2500
+
 # Adjust checkpoint saving.
 utils.CheckpointConfig:
   restore = @utils.RestoreCheckpointConfig()

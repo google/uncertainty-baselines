@@ -245,29 +245,30 @@ def transfer_to_penman(graph_str: Text) -> Text:
 def retoken_graph_str(graph_str: Text, data_version: str = 'v0') -> Text:
   """Retokenizes the graph string using custom tokenization."""
   new_graph_str_list = []
-  name_to_token_maps_ = metrics_utils.NAME_TO_TOKEN_MAPS[data_version]
+  name_to_token_map = metrics_utils.NAME_TO_TOKEN_MAPS[data_version]
   for token in graph_str.split():
     if token.startswith(':'):
       # The token here is an edge.
       edge_name = token.split('-of')[0]
-      retoken = token.replace(edge_name, name_to_token_maps_[edge_name])
+      retoken = token.replace(edge_name, name_to_token_map[edge_name])
       if '-of' in retoken:
-        retoken = retoken.replace('-of', ' ' + name_to_token_maps_['-of'])
+        retoken = retoken.replace('-of', ' ' + name_to_token_map['-of'])
       new_graph_str_list.append(retoken)
-    elif token.startswith('_'):
+    elif token.startswith('_') and data_version in ['v0', 'v1']:
       # The token here is a content node, we move the postfix before
       # the lemma to make the tokenization recognize the postfix as
       # non-tokenizable token, e.g., _look_v_up -> v_up_look_.
+      # Note that this only works for Deepbank v0 and v1.
       lemma = token.split('_')[1]
       postfix = '_'.join(token.split('_')[2:])
-      if postfix in name_to_token_maps_:
-        retoken = name_to_token_maps_[postfix] + '_' + lemma + '_'
+      if postfix in name_to_token_map:
+        retoken = name_to_token_map[postfix] + '_' + lemma + '_'
       else:
         retoken = postfix + '_' + lemma + '_'
       new_graph_str_list.append(retoken)
     else:
-      if token in name_to_token_maps_:
-        new_graph_str_list.append(name_to_token_maps_[token])
+      if token in name_to_token_map:
+        new_graph_str_list.append(name_to_token_map[token])
       else:
         new_graph_str_list.append(token)
   return ' '.join(new_graph_str_list)
@@ -289,8 +290,9 @@ def reverse_tokened_graph_str(graph_str: Text,
           retoken = new_graph_str_list.pop() + '-of'
       else:
         retoken = token
-    elif token.endswith('_'):
+    elif token.endswith('_') and data_version in ['v0', 'v1']:
       # The token here is a content node.
+      # Note that this only works for Deepbank v0 and v1.
       postfix = '_'.join(token.split('_')[:-2])
       lemma = token.split('_')[-2]
       if postfix in token_map:
@@ -299,6 +301,8 @@ def reverse_tokened_graph_str(graph_str: Text,
         retoken = '_' + '<nolemma>' + '_' + token_map[lemma]
       else:
         retoken = '_' + lemma + '_' + postfix
+    elif token in token_map:
+      retoken = token_map[token]
     else:
       retoken = token
     new_graph_str_list.append(retoken)
@@ -555,29 +559,31 @@ def convert_snips_mtop_to_penman(output_str: str,
   level_arg_dict = collections.defaultdict(int)
   current_level = -1
   carg_stack = []
-  name_to_token_maps = metrics_utils.NAME_TO_TOKEN_MAPS[dataset_name]
+  name_to_token_map = metrics_utils.NAME_TO_TOKEN_MAPS[dataset_name]
   for token in output_str.split():
     if token == '[':
       current_level += 1
       if current_level > 0:
         arg_name = ':ARG' + str(level_arg_dict[current_level] + 1)
         graph_str_list.append(arg_name)
-        retok_graph_str_list.append(name_to_token_maps[arg_name])
+        retok_graph_str_list.append(name_to_token_map[arg_name])
         level_arg_dict[current_level] += 1
       graph_str_list.append('(')
       retok_graph_str_list.append('(')
     elif token == ']':
       if carg_stack:
         graph_str_list.append(':carg " ' + '_'.join(carg_stack) + ' "')
-        retok_graph_str_list.append(name_to_token_maps[':carg'] + ' " ' +
+        retok_graph_str_list.append(name_to_token_map[':carg'] + ' " ' +
                                     '_'.join(carg_stack) + ' "')
         carg_stack = []
       graph_str_list.append(')')
       retok_graph_str_list.append(')')
       current_level -= 1
-    elif token in name_to_token_maps:
-      graph_str_list.append(token)
-      retok_graph_str_list.append(name_to_token_maps[token])
+    elif token.replace(':', '#') in name_to_token_map:
+      # The replacement from ':' to '#' is to prevent error when parsing
+      # into DAGs.
+      graph_str_list.append(token.replace(':', '#'))
+      retok_graph_str_list.append(name_to_token_map[token.replace(':', '#')])
     else:
       carg_stack.append(token)
   if use_custom_token:

@@ -286,6 +286,77 @@ def deepbank_metrics_v2(targets: List[Text],
   return analysis
 
 
+def dataflow_metrics(targets: List[Text],
+                     predictions: List[Text],
+                     dataset_name: str = 'snips') -> Dict[Text, float]:
+  """Returns eval metrics for seq2seq semantic parsing with SMATCH metrics."""
+  total_match_node_num, total_test_node_num, total_gold_node_num = 0, 0, 0
+  total_match_edge_num, total_test_edge_num, total_gold_edge_num = 0, 0, 0
+  total_match_attr_num, total_test_attr_num, total_gold_attr_num = 0, 0, 0
+
+  for t, p in zip(targets, predictions):
+    # Transfers the original input/output to PENMAN object.
+    target_penman = penman_utils.PENMANStr(
+        t, variable_free=True, retokenized=True,
+        data_version=dataset_name).penman
+    predicted_penman = penman_utils.PENMANStr(
+        p, variable_free=True, retokenized=True,
+        data_version=dataset_name).penman
+    # Computes info for Smatch scores.
+    match_node_num, test_node_num, gold_node_num, _ = graph_utils.get_dag_match(
+        predicted_penman, target_penman,
+        just_match_instance=True)
+    match_edge_num, test_edge_num, gold_edge_num, _ = graph_utils.get_dag_match(
+        predicted_penman, target_penman,
+        just_match_relation=True)
+    match_attr_num, test_attr_num, gold_attr_num, _ = graph_utils.get_dag_match(
+        predicted_penman, target_penman,
+        just_match_attribute=True)
+
+    total_match_node_num += match_node_num
+    total_test_node_num += test_node_num
+    total_gold_node_num += gold_node_num
+
+    total_match_edge_num += match_edge_num
+    total_test_edge_num += test_edge_num
+    total_gold_edge_num += gold_edge_num
+
+    total_match_attr_num += match_attr_num
+    total_test_attr_num += test_attr_num
+    total_gold_attr_num += gold_attr_num
+
+  node_p = _safe_divide(total_match_node_num, total_test_node_num)
+  node_r = _safe_divide(total_match_node_num, total_gold_node_num)
+
+  edge_p = _safe_divide(total_match_edge_num, total_test_edge_num)
+  edge_r = _safe_divide(total_match_edge_num, total_gold_edge_num)
+
+  attr_p = _safe_divide(total_match_attr_num, total_test_attr_num)
+  attr_r = _safe_divide(total_match_attr_num, total_gold_attr_num)
+
+  total_match_num = total_match_node_num + total_match_edge_num + total_match_attr_num
+  total_test_num = total_test_node_num + total_test_edge_num + total_test_attr_num
+  total_gold_num = total_gold_node_num + total_gold_edge_num + total_gold_attr_num
+  total_p = _safe_divide(total_match_num, total_test_num)
+  total_r = _safe_divide(total_match_num, total_gold_num)
+
+  analysis = dict(
+      node_precision=node_p,
+      node_recall=node_r,
+      node_smatch=_safe_divide(2 * node_p * node_r, node_p + node_r),
+      edge_precision=edge_p,
+      edge_recall=edge_r,
+      edge_smatch=_safe_divide(2 * edge_p * edge_r, edge_p + edge_r),
+      attribute_precision=attr_p,
+      attribute_recall=attr_r,
+      attribute_smatch=_safe_divide(2 * attr_p * attr_r, attr_p + attr_r),
+      total_precision=total_p,
+      total_recall=total_r,
+      total_smatch=_safe_divide(2 * total_p * total_r, total_p + total_r))
+
+  return analysis
+
+
 def deepbank_uncertainty_metrics(
     targets: List[Text],
     predictions: List[Text],

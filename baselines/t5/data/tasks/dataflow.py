@@ -102,6 +102,17 @@ snips_penman_config = utils.dataset_configs(
     train_patterns=_DEFAULT_SNIPS_PENMAN_TRAIN_PATTERNS,
     eval_patterns=_DEFAULT_SNIPS_PENMAN_EVAL_PATTERNS)
 
+
+# Evaluation metrics.
+def get_dataflow_metric_fns(dataset_name='snips'):
+  """Returns metrics to be used for deepbank tasks."""
+  return [
+      ub_metrics.seq2seq_metrics,
+      ub_metrics.seq2seq_uncertainty_metrics,
+      functools.partial(ub_metrics.dataflow_metrics,
+                        dataset_name=dataset_name)]
+
+
 # Academic parsing tasks for data flow datasets.
 # TODO(jereliu): Deprecate in favor of seqio.TaskRegistry.
 
@@ -123,8 +134,7 @@ t5.data.TaskRegistry.add(
         utils.parsing_dataset, params=smcalflow_penman_config),
     splits={'train': 'train', 'validation': 'validation', 'test': 'validation'},
     text_preprocessor=None,
-    metric_fns=[ub_metrics.seq2seq_metrics,
-                ub_metrics.seq2seq_uncertainty_metrics],
+    metric_fns=get_dataflow_metric_fns(dataset_name='smcalflow'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 t5.data.TaskRegistry.add(
@@ -166,8 +176,7 @@ t5.data.TaskRegistry.add(
         'test': 'test'
     },
     text_preprocessor=None,
-    metric_fns=[ub_metrics.seq2seq_metrics,
-                ub_metrics.seq2seq_uncertainty_metrics],
+    metric_fns=get_dataflow_metric_fns(dataset_name='mtop'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 t5.data.TaskRegistry.add(
@@ -195,6 +204,5 @@ t5.data.TaskRegistry.add(
         'test': 'test'
     },
     text_preprocessor=None,
-    metric_fns=[ub_metrics.seq2seq_metrics,
-                ub_metrics.seq2seq_uncertainty_metrics],
+    metric_fns=get_dataflow_metric_fns(dataset_name='snips'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)

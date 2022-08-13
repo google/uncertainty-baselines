@@ -17,6 +17,7 @@
 
 import functools
 import os
+from typing import Sequence
 
 from absl import logging
 from clu import metric_writers
@@ -24,51 +25,48 @@ from flax import linen as nn
 from flax.training import checkpoints
 from flax.training import train_state  # Useful dataclass to keep train state
 import jax
+from jax.lib import xla_bridge
 import jax.numpy as jnp
 import numpy as np
 import optax
 import tensorflow as tf
+import tf2jax
 
 
 class MLP(nn.Module):
-  """A simple MLP model."""
-  # TODO(dvij): Remove hardcording of layer sizes here
+  hidden_sizes: Sequence[int]
+  output_size: int
 
   @nn.compact
   def __call__(self, x):
-    x = x.reshape((x.shape[0], -1))  # flatten
-    for _ in range(2):
-      x = nn.Dense(features=100)(x)
-      x = nn.relu(x)
-    x = nn.Dense(features=10)(x)
+    for sz in self.hidden_sizes:
+      x = nn.relu(nn.Dense(sz)(x))
+    x = nn.Dense(self.output_size)(x)
     return x
 
 
-def preprocess_batch(loaded_model, input_shape, batch):
-  image = tf.image.resize(batch['image'], input_shape[:2])
-  image = tf.keras.applications.resnet50.preprocess_input(image)
-  return np.squeeze(loaded_model(image).numpy()), batch['label']
-
-
 def cross_entropy_loss(*, logits, labels):
-  labels_onehot = jax.nn.one_hot(labels, num_classes=10)
-  return optax.softmax_cross_entropy(logits=logits, labels=labels_onehot).mean()
+  logits = jnp.reshape(logits, [logits.shape[0], 1])
+  labels = jnp.reshape(labels, [labels.shape[0], 1])
+  return optax.sigmoid_binary_cross_entropy(logits=logits, labels=labels).mean()
 
 
-def create_train_state(hidden_sizes, output_size,
-                       input_shape, rng, learning_rate):
+def create_train_state(hidden_sizes, output_size, input_shape, rng,
+                       learning_rate):
   """Creates initial `TrainState`."""
-  del hidden_sizes, output_size
-  mlp = MLP()
+  mlp = MLP(hidden_sizes, output_size)
   params = mlp.init(rng, jnp.ones([1] + list(input_shape)))['params']
   tx = optax.adam(learning_rate)
-  return train_state.TrainState.create(
-      apply_fn=mlp.apply, params=params, tx=tx)
+  return train_state.TrainState.create(apply_fn=mlp.apply, params=params, tx=tx)
 
 
 def compute_metrics(*, logits, labels):
+  """Compute metrics."""
   loss = cross_entropy_loss(logits=logits, labels=labels)
-  accuracy = jnp.mean(jnp.argmax(logits, -1) == labels)
+  logits = jnp.reshape(logits, [logits.shape[0], 1])
+  labels = jnp.reshape(labels, [labels.shape[0], 1])
+  accuracy = jnp.mean(
+      (2 * labels - 1) * logits > 0, axis=0)
   metrics = {
       'loss': loss,
       'accuracy': accuracy,
@@ -76,52 +74,76 @@ def compute_metrics(*, logits, labels):
   return metrics
 
 
-def train_step(hidden_sizes, output_size, state, features, labels):
+def train_step(hidden_sizes, output_size, jax_func,
+               state, jax_params, images, labels):
   """Train for a single step."""
-  del hidden_sizes, output_size
+  jax_output, jax_params = jax_func(jax_params, images)
+  features = jnp.reshape(jax_output, [images.shape[0], -1])
   def loss_fn(params):
-    logits = MLP().apply({'params': params}, features)
+    logits = MLP(hidden_sizes, output_size).apply({'params': params}, features)
     loss = cross_entropy_loss(logits=logits, labels=labels)
     return loss, logits
+
   grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
   (_, logits), grads = grad_fn(state.params)
   state = state.apply_gradients(grads=grads)
   metrics = compute_metrics(logits=logits, labels=labels)
-  return state, metrics
+  return state, metrics, jax_params
 
 
-def eval_step(hidden_sizes, output_size, params, features, labels):
-  del hidden_sizes, output_size
-  logits = MLP().apply({'params': params}, features)
-  return compute_metrics(logits=logits, labels=labels)
+def eval_step(hidden_sizes, output_size, jax_func,
+              params, jax_params, images, labels):
+  jax_output, jax_params = jax_func(jax_params, images)
+  features = jnp.reshape(jax_output, [images.shape[0], -1])
+  logits = MLP(hidden_sizes, output_size).apply({'params': params}, features)
+  return compute_metrics(logits=logits, labels=labels), jax_params, logits
 
 
-def train_loop(config, workdir, train_ds, val_ds):
+def eval_model(hidden_sizes, output_size, jax_func,
+               params, jax_params, images):
+  jax_output, jax_params = jax_func(jax_params, images)
+  features = jnp.reshape(jax_output, [images.shape[0], -1])
+  logits = MLP(hidden_sizes, output_size).apply({'params': params}, features)
+  return jax.nn.sigmoid(logits)
+
+
+def train_loop(config, workdir, train_ds, val_ds, preprocess):
   """Excute training loop based on parameters specified in config."""
-   # Create pretrained resnet model
+  logging.info('JAX process: %d / %d', jax.process_index(), jax.process_count())
+  logging.info('JAX local devices: %r', jax.local_devices())
+  logging.info(xla_bridge.get_backend().platform)
+
+  # Create pretrained resnet model
   # TODO(dvij): Remove hardcording of pretrained model here
   loaded_model = tf.keras.Sequential([
       tf.keras.applications.resnet50.ResNet50(
           include_top=False, weights='imagenet'),
       tf.keras.layers.GlobalAveragePooling2D()
   ])
-  preprocess = functools.partial(preprocess_batch, loaded_model,
-                                 config.input_shape)
+  predictions = loaded_model(preprocess(next(train_ds))[0])
+  f = tf.function(loaded_model, jit_compile=True)
+  x = jnp.zeros([predictions.shape[0]] +
+                list(config.input_shape))  # Define a sample input
+  jax_func, jax_params = tf2jax.convert(f, x)
 
   # Initialize fine tuning model
   rng = jax.random.PRNGKey(config.train_seed)
   rng, init_rng = jax.random.split(rng)
-  feature_shape = preprocess(next(train_ds))[0].shape[1:]
+  feature_shape = predictions.shape[1:]
+  batch_size = predictions.shape[0]
 
   state = create_train_state(config.model.hidden_sizes,
                              config.model.output_size, feature_shape, init_rng,
                              config.optimizer.learning_rate)
   train_step_model = jax.jit(
       functools.partial(train_step, config.model.hidden_sizes,
-                        config.model.output_size))
+                        config.model.output_size, jax_func))
   eval_step_model = jax.jit(
       functools.partial(eval_step, config.model.hidden_sizes,
-                        config.model.output_size))
+                        config.model.output_size, jax_func))
+  evaluate_model = jax.jit(
+      functools.partial(eval_model, config.model.hidden_sizes,
+                        config.model.output_size, jax_func))
   del init_rng  # Must not be used anymore.
 
   # Create Checkpointing and logging utilities
@@ -139,16 +161,24 @@ def train_loop(config, workdir, train_ds, val_ds):
   best_params = state
   # Main training loop
   for step in range(step_init, config.optimizer.num_steps):
-    features, labels = preprocess(next(train_ds))
-    state, _ = train_step_model(state, features, labels)
+    images, labels = preprocess(next(train_ds))
+    images = images[np.mod(np.arange(batch_size), images.shape[0]), ...]
+    labels = labels[np.mod(np.arange(batch_size), labels.shape[0]), ...]
+    state, _, jax_params = train_step_model(state, jax_params, images, labels)
     if step % config.logging_frequency == 0:
-      features, labels = preprocess(next(val_ds))
-      eval_metrics = eval_step_model(state.params, features, labels)
-      if best_accuracy_val < eval_metrics['accuracy']:
-        best_accuracy_val = eval_metrics['accuracy']
+      logging.info(xla_bridge.get_backend().platform)
+      images, labels = preprocess(next(val_ds))
+      images = images[np.mod(np.arange(batch_size), images.shape[0]), ...]
+      labels = labels[np.mod(np.arange(batch_size), labels.shape[0]), ...]
+      eval_metrics, jax_params, _ = eval_step_model(
+          state.params, jax_params, images, labels)
+      if best_accuracy_val < eval_metrics['accuracy'].item():
+        best_accuracy_val = eval_metrics['accuracy'].item()
         best_params = state
       measures = {
-          'acc': eval_metrics['accuracy'], 'best_acc': best_accuracy_val}
+          'acc': eval_metrics['accuracy'].item(),
+          'best_acc': best_accuracy_val
+      }
       for key, val in measures.items():
         logging.info('%s: %f', key, val)
       writer.write_scalars(step, measures)
@@ -156,9 +186,12 @@ def train_loop(config, workdir, train_ds, val_ds):
       if (step % config.checkpoint_every == 0 or
           step == config.optimizer.num_steps):
         checkpoints.save_checkpoint(
-            checkpoint_dir, (step, best_params),
-            step=step,
-            overwrite=True)
+            checkpoint_dir, (step, best_params), step=step, overwrite=True)
 
+  def predictor(batch):
+    images, _ = preprocess(batch)
+    init_shape = images.shape[0]
+    images = images[np.mod(np.arange(batch_size), images.shape[0]), ...]
+    return evaluate_model(state.params, jax_params, images)[:init_shape]
 
-
+  return predictor

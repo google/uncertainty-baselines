@@ -22,6 +22,9 @@ def get_config():
   config = config_dict.ConfigDict()
   config.train = get_train_config()
   config.index = 0
+  config.num_splits = 10
+  config.dataset_seed = 0
+  config.datatable = '/datatable/users/dvij/shoshin'
   return config
 
 
@@ -37,7 +40,7 @@ def get_train_config():
   config.checkpoint_every = 10000
 
   config.optimizer = get_optimizer_config()
-  config.model = get_model_config([100, 100], 10)
+  config.model = get_model_config([100, 100], 1)
 
   return config
 
@@ -46,7 +49,7 @@ def get_optimizer_config():
   """Get optimizer config."""
   config = config_dict.ConfigDict()
   config.learning_rate = 1e-3
-  config.num_steps = 100000
+  config.num_steps = 2001
   return config
 
 

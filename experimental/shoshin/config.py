@@ -24,6 +24,8 @@ def get_config():
   config.index = 0
   config.num_splits = 10
   config.dataset_seed = 0
+  config.train_bias = False
+  config.bias_id = -1  # experiment id from which to load bias labels
   config.datatable = '/datatable/users/dvij/shoshin'
   return config
 

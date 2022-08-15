@@ -25,8 +25,10 @@ from typing import Sequence
 from absl import app
 from absl import flags
 from ml_collections import config_flags
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import read_predictions  # local file import from experimental.shoshin
 import training  # local file import from experimental.shoshin
 
 from google3.learning.deepmind.researchdata import datatables
@@ -41,10 +43,18 @@ _WORKDIR = flags.DEFINE_string(
 flags.mark_flags_as_required(['config', 'workdir'])
 
 
-def preprocess_batch(input_shape, batch):
+def preprocess_batch(input_shape, df_result, batch):
+  """Preprocess a batch of samples."""
   image = tf.image.resize(batch['image'], input_shape[:2])
   image = tf.keras.applications.resnet50.preprocess_input(image)
   label = batch['attributes']['Male'].astype(int)
+  if df_result is not None:
+    in_sample = df_result.loc[
+        map(str, batch['tfds_id'].tolist()), 'prediction_insample']
+    out_sample = df_result.loc[
+        map(str, batch['tfds_id'].tolist()), 'prediction_outsample']
+    bias_label = np.abs(np.array(in_sample) - np.array(out_sample))
+    label = np.stack([label.flatten(), bias_label.flatten()], axis=-1)
   return image.numpy(), label
 
 
@@ -113,27 +123,37 @@ def main(argv: Sequence[str]) -> None:
       writers=(getpass.getuser(),))
   table = (f'/datatable/xid/{experiment.id}/predictions' if experiment.id > 0
            else config.datatable)
-  with datatables.Writer(
-      table,
-      keys=[('index', int), ('id', str)],
-      fixed_key_values=[
-          config.index,
-      ],
-      options=datatables.WriterOptions(acls=acls)) as writer:
+  if config.train_bias:
+    bias_id = config.bias_id if config.bias_id > 0 else experiment.id
+    df_bias = read_predictions.read_predictions(bias_id)
+    preprocess = functools.partial(
+        preprocess_batch, config.train.input_shape, df_bias)
+    writer = None
+  else:
+    writer = datatables.Writer(
+        table,
+        keys=[('index', int), ('id', str)],
+        fixed_key_values=[
+            config.index,
+        ],
+        options=datatables.WriterOptions(acls=acls))
+    preprocess = functools.partial(preprocess_batch, config.train.input_shape,
+                                   None)
 
-    trains_ds, vals_ds, train_ds_iterator, val_ds_iterator = (
-        create_datasets_iterators(config.num_splits, config.dataset_seed,
-                                  config.index, batch_size,
-                                  config.train.eval_batch_size))
-    predictor = training.train_loop(
-        config.train, workdir, train_ds_iterator, val_ds_iterator,
-        functools.partial(preprocess_batch, config.train.input_shape))
+  trains_ds, vals_ds, train_ds_iterator, val_ds_iterator = (
+      create_datasets_iterators(config.num_splits, config.dataset_seed,
+                                config.index, batch_size,
+                                config.train.eval_batch_size))
+  predictor = training.train_loop(
+      config.train, workdir, train_ds_iterator, val_ds_iterator,
+      preprocess)
+  if writer:
     write_predictions(
         predictor, tfds.as_numpy(trains_ds.batch(batch_size)), writer, True)
     write_predictions(
         predictor, tfds.as_numpy(
             vals_ds.batch(config.train.eval_batch_size)), writer, False)
-
+    writer.close()
 
 if __name__ == '__main__':
   app.run(main)

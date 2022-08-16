@@ -28,6 +28,7 @@ ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/introspecti
     --dataset_name=cardiotoxicity \
     --model_name=mlp \
     --num_epochs=10 \
+    --output_dir=/tmp/cardiotox/ \  # can be a CNS path
     --train_main_only=True
 
 To train MLP on Cardiotoxicity Fingerprint dataset locally with two output
@@ -39,7 +40,7 @@ ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/introspecti
     --alsologtostderr \
     --dataset_name=cardiotoxicity \
     --model_name=mlp \
-    --output_dir=/cns/ok-d/home/jihyeonlee/cardiotox/ \
+    --output_dir=/tmp/cardiotox/ \  # can be a CNS path
     --num_epochs=10
 
 # pylint: enable=line-too-long
@@ -47,7 +48,7 @@ ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/introspecti
 
 import itertools
 import os
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from absl import app
 from absl import flags
@@ -103,6 +104,16 @@ flags.DEFINE_float('bias_value_threshold', None, 'Threshold to generate bias '
                    upper_bound=1.)
 flags.DEFINE_boolean('save_bias_table', True,
                      'If True, saves table mapping example ID to bias label.')
+flags.DEFINE_boolean('save_model_checkpoints', True,
+                     'If True, saves checkpoints with best validation AUC '
+                     'for the main task during training.')
+flags.DEFINE_boolean('early_stopping', True,
+                     'If True, stops training when validation AUC does not '
+                     'improve any further after 3 epochs.')
+
+
+# Subdirectory for checkpoints in FLAGS.output_dir.
+CHECKPOINTS_SUBDIR = 'checkpoints'
 
 
 class IntrospectiveActiveSampling(tf.keras.Model):
@@ -127,7 +138,7 @@ class IntrospectiveActiveSampling(tf.keras.Model):
     y_true_main = tf.one_hot(labels, depth=2)
 
     with tf.GradientTape() as tape:
-      y_pred = self.model(features, training=True)
+      y_pred = self(features, training=True)
 
       y_true_bias = None
       if self.train_bias:
@@ -153,7 +164,7 @@ class IntrospectiveActiveSampling(tf.keras.Model):
   def test_step(self, inputs):
     features, labels, example_ids = inputs
     y_true_main = tf.one_hot(labels, depth=2)
-    y_pred = self.model(features, training=False)
+    y_pred = self(features, training=False)
 
     y_true_bias = None
     if self.train_bias:
@@ -216,46 +227,45 @@ def evaluate_model(model: tf.keras.Model, eval_ds: Dict[str, tf.data.Dataset]):
     model: Keras model to be evaluated.
     eval_ds: Dictionary mapping evaluation dataset name to the dataset.
   """
-  # Evaluate on validation set.
-  model.compile(metrics={
-      'main': [tf.keras.metrics.CategoricalAccuracy(name='acc'),
-               tf.keras.metrics.AUC(name='auc')],
-      'bias': [tf.keras.metrics.CategoricalAccuracy(name='acc'),
-               tf.keras.metrics.AUC(name='auc')]
-  })
+  checkpoint_dir = os.path.join(FLAGS.output_dir, CHECKPOINTS_SUBDIR)
+  best_latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+  load_status = model.load_weights(best_latest_checkpoint)
+  load_status.assert_consumed()
   for ds_name in eval_ds.keys():
     result = model.evaluate(eval_ds[ds_name], return_dict=True)
+    logging.info('Evaluation Dataset Name: %s', ds_name)
     logging.info('Main Acc: %f', result['main_acc'])
     logging.info('Main AUC: %f', result['main_auc'])
     logging.info('Bias Acc: %f', result['bias_acc'])
     logging.info('Bias Acc: %f', result['bias_auc'])
 
 
-def run_train(
-    train_ds: tf.data.Dataset,
-    val_ds: tf.data.Dataset,
+def init_model(
+    model_name: str,
     train_bias: bool,
     experiment_name: str,
+    hidden_sizes: Optional[List[int]] = None,
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
-  """Initializes and trains model on given training and validation data.
+  """Initializes an IntrospectiveActiveSampling with a base model.
 
   Args:
-    train_ds: Training dataset.
-    val_ds: Evaluation dataset.
-    train_bias: Boolean for whether or not to train bias head.
-    experiment_name: String to name model being trained.
+    model_name: String name of model class.
+    train_bias: Boolean for whether or not to train bias output head.
+    experiment_name: String describing experiment to use model name.
+    hidden_sizes: List of integers for sizes of hidden layers if MLP
+      model chosen.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
 
   Returns:
-    Trained model.
+    Initialized IntrospectiveActiveSampling model.
   """
-  model_class = models.get_model(FLAGS.model_name)
+  model_class = models.get_model(model_name)
   if FLAGS.model_name == 'mlp':
-    hidden_sizes = [int(size) for size in FLAGS.hidden_sizes]
+    hidden_sizes = [int(size) for size in hidden_sizes]
     base_model = model_class(
-        train_bias=train_bias, name=FLAGS.model_name, hidden_sizes=hidden_sizes)
+        train_bias=train_bias, name=model_name, hidden_sizes=hidden_sizes)
   else:
-    base_model = model_class(train_bias=False, name=FLAGS.model_name)
+    base_model = model_class(train_bias=train_bias, name=model_name)
 
   introspective_model = IntrospectiveActiveSampling(model=base_model,
                                                     train_bias=train_bias,
@@ -264,21 +274,77 @@ def run_train(
     introspective_model.update_id_to_bias_table(example_id_to_bias_table)
 
   introspective_model = compile_model(introspective_model)
+  return introspective_model
 
+
+def run_train(
+    train_ds: tf.data.Dataset,
+    val_ds: tf.data.Dataset,
+    train_bias: bool,
+    experiment_name: str,
+    callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
+  """Initializes and trains model on given training and validation data.
+
+  Args:
+    train_ds: Training dataset.
+    val_ds: Evaluation dataset.
+    train_bias: Boolean for whether or not to train bias head.
+    experiment_name: String to name model being trained.
+    callbacks: Keras Callbacks, like saving checkpoints or early stopping.
+    example_id_to_bias_table: Hash table mapping example ID to bias label.
+
+  Returns:
+    Trained model.
+  """
+  introspective_model = init_model(
+      model_name=FLAGS.model_name,
+      train_bias=train_bias,
+      experiment_name=experiment_name,
+      hidden_sizes=FLAGS.hidden_sizes,
+      example_id_to_bias_table=example_id_to_bias_table
+  )
   introspective_model.fit(
-      train_ds, validation_data=val_ds, epochs=FLAGS.num_epochs)
+      train_ds,
+      validation_data=val_ds,
+      epochs=FLAGS.num_epochs,
+      callbacks=callbacks)
   return introspective_model
 
 
 def main(_) -> None:
   dataset_builder = data.get_dataset(FLAGS.dataset_name)
+  callbacks = []
+  if FLAGS.save_model_checkpoints:
+    save_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=os.path.join(
+            FLAGS.output_dir, CHECKPOINTS_SUBDIR,
+            'epoch-{epoch:02d}-val_auc-{val_main_auc:.2f}.ckpt'),
+        monitor='val_main_auc',
+        mode='max',
+        save_weights_only=True,
+        save_best_only=True)
+    callbacks.append(save_checkpoint_callback)
+
+  if FLAGS.early_stopping:
+    early_stopping_callback = tf.keras.callbacks.EarlyStopping(
+        monitor='val_auc',
+        min_delta=0.001,
+        patience=3,
+        verbose=1,
+        mode='max',
+        baseline=None,
+        restore_best_weights=True
+    )
+    callbacks.append(early_stopping_callback)
 
   if FLAGS.train_main_only:
     # Trains only the main classification task with no bias output head.
     _, _, train_ds, eval_ds = dataset_builder(FLAGS.num_splits,
                                               FLAGS.batch_size)
     introspective_model = run_train(
-        train_ds, eval_ds['val'], train_bias=False, experiment_name='main_only')
+        train_ds, eval_ds['val'], train_bias=False, experiment_name='main_only',
+        callbacks=callbacks)
     evaluate_model(introspective_model, eval_ds)
 
   # TODO(jihyeonlee): Parallelize training models on different combinations
@@ -327,10 +393,9 @@ def main(_) -> None:
           eval_ds['val'],
           train_bias=True,
           experiment_name=combo_name,
+          callbacks=callbacks,
           example_id_to_bias_table=example_id_to_bias_table)
       evaluate_model(introspective_model, eval_ds)
-
-  # TODO(jihyeonlee): Will save model checkpoints in a FLAGS.output_dir.
 
   # TODO(jihyeonlee): Will add Waterbirds dataloader and ResNet model to support
   # vision modality.

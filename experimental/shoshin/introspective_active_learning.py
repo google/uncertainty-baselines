@@ -16,9 +16,10 @@
 r"""Model definition and binary for running Introspective Active Sampling.
 
 Usage:
-
-To train MLP on Cardiotoxicity Fingerprint dataset locally:
 # pylint: disable=line-too-long
+
+To train MLP on Cardiotoxicity Fingerprint dataset locally on only the main
+classification task (no bias):
 ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/introspective_active_learning.py \
   --adhoc_import_modules=uncertainty_baselines \
     -- \
@@ -28,17 +29,34 @@ ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/introspecti
     --model_name=mlp \
     --num_epochs=10 \
     --train_main_only=True
+
+To train MLP on Cardiotoxicity Fingerprint dataset locally with two output
+heads, one for the main task and one for bias:
+ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/introspective_active_learning.py \
+  --adhoc_import_modules=uncertainty_baselines \
+    -- \
+    --xm_runlocal \
+    --alsologtostderr \
+    --dataset_name=cardiotoxicity \
+    --model_name=mlp \
+    --output_dir=/cns/ok-d/home/jihyeonlee/cardiotox/ \
+    --num_epochs=10
+
 # pylint: enable=line-too-long
 """
 
-from typing import Dict
+import itertools
+import os
+from typing import Dict, Optional
 
 from absl import app
 from absl import flags
+from absl import logging
 import tensorflow as tf
 
 import data  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
+import utils  # local file import from experimental.shoshin
 
 
 FLAGS = flags.FLAGS
@@ -46,6 +64,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('dataset_name', '', 'Name of registered TF dataset to use.')
 flags.DEFINE_string('model_name', '', 'Name of registered model to use.')
 # TODO(jihyeonlee): Use num_classes flag across files.
+flags.DEFINE_string('output_dir', None, 'Output directory.')
 flags.DEFINE_integer('num_classes', 2, 'Number of classes for main task.')
 flags.DEFINE_integer('batch_size', 64, 'Batch size.')
 flags.DEFINE_integer('num_epochs', 10, 'Number of epochs.')
@@ -58,12 +77,32 @@ flags.DEFINE_integer(
 flags.register_validator('num_splits',
                          lambda value: 100 % value == 0,
                          message='100 must be divisible by --num_splits.')
+flags.DEFINE_integer('num_rounds', 3, 'Number of rounds of active sampling '
+                     'to conduct. Bias values are calculated for all examples '
+                     'at the end of every round.')
+flags.DEFINE_float('ood_ratio', 0.4, 'Ratio of splits that will be considered '
+                   'out-of-distribution from each combination. For example, '
+                   'when ood_ratio == 0.4 and num_splits == 5, 2 out of 5 '
+                   'slices of data will be excluded in training (for every '
+                   'combination used to train a model).')
 flags.DEFINE_list('hidden_sizes', '1024,512,128',
                   'Number and sizes of hidden layers for MLP model.')
 flags.DEFINE_boolean('train_main_only', False,
                      'If True, trains only main task head, not bias head.')
 flags.DEFINE_float('learning_rate', 1e-4, 'Learning rate.')
 flags.DEFINE_float('dropout_rate', 0.2, 'Dropout rate.')
+flags.DEFINE_float('bias_percentile_threshold', 0.2, 'Threshold to generate '
+                   'bias labels, using the top percentile of bias values. '
+                   'Uses percentile by default or --bias_value_threshold '
+                   'if it is specified.', lower_bound=0., upper_bound=1.)
+flags.DEFINE_float('bias_value_threshold', None, 'Threshold to generate bias '
+                   'labels, using the calculated bias value. If value is above '
+                   'the threshold, the bias label will be 1. Else, the bias '
+                   'label will be 0. Uses --bias_threshold_percentile if '
+                   'this flag is not specified.', lower_bound=0.,
+                   upper_bound=1.)
+flags.DEFINE_boolean('save_bias_table', True,
+                     'If True, saves table mapping example ID to bias label.')
 
 
 class IntrospectiveActiveSampling(tf.keras.Model):
@@ -76,6 +115,9 @@ class IntrospectiveActiveSampling(tf.keras.Model):
       self.id_to_bias_table = None
 
     self.model = model
+
+  def call(self, inputs):
+    return self.model(inputs)
 
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table
@@ -183,38 +225,110 @@ def evaluate_model(model: tf.keras.Model, eval_ds: Dict[str, tf.data.Dataset]):
   })
   for ds_name in eval_ds.keys():
     result = model.evaluate(eval_ds[ds_name], return_dict=True)
-    print(f"Toxicity Acc: {result['main_acc']}")
-    print(f"Toxicity AUC: {result['main_auc']}")
-    print(f"Bias Acc: {result['bias_acc']}")
-    print(f"Bias AUC: {result['bias_auc']}")
+    logging.info('Main Acc: %f', result['main_acc'])
+    logging.info('Main AUC: %f', result['main_auc'])
+    logging.info('Bias Acc: %f', result['bias_acc'])
+    logging.info('Bias Acc: %f', result['bias_auc'])
+
+
+def run_train(
+    train_ds: tf.data.Dataset,
+    val_ds: tf.data.Dataset,
+    train_bias: bool,
+    experiment_name: str,
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
+  """Initializes and trains model on given training and validation data.
+
+  Args:
+    train_ds: Training dataset.
+    val_ds: Evaluation dataset.
+    train_bias: Boolean for whether or not to train bias head.
+    experiment_name: String to name model being trained.
+    example_id_to_bias_table: Hash table mapping example ID to bias label.
+
+  Returns:
+    Trained model.
+  """
+  model_class = models.get_model(FLAGS.model_name)
+  if FLAGS.model_name == 'mlp':
+    hidden_sizes = [int(size) for size in FLAGS.hidden_sizes]
+    base_model = model_class(
+        train_bias=train_bias, name=FLAGS.model_name, hidden_sizes=hidden_sizes)
+  else:
+    base_model = model_class(train_bias=False, name=FLAGS.model_name)
+
+  introspective_model = IntrospectiveActiveSampling(model=base_model,
+                                                    train_bias=train_bias,
+                                                    name=experiment_name)
+  if train_bias and example_id_to_bias_table:
+    introspective_model.update_id_to_bias_table(example_id_to_bias_table)
+
+  introspective_model = compile_model(introspective_model)
+
+  introspective_model.fit(
+      train_ds, validation_data=val_ds, epochs=FLAGS.num_epochs)
+  return introspective_model
 
 
 def main(_) -> None:
+  dataset_builder = data.get_dataset(FLAGS.dataset_name)
 
   if FLAGS.train_main_only:
     # Trains only the main classification task with no bias output head.
-    dataset_builder = data.get_dataset(FLAGS.dataset_name)
-    _, _, train_ds, eval_ds = dataset_builder(
-        FLAGS.num_splits, FLAGS.batch_size)
-    model_class = models.get_model(FLAGS.model_name)
-    hidden_sizes = [int(size) for size in FLAGS.hidden_sizes]
-    base_model = model_class(
-        train_bias=False, name='main_only_model', hidden_sizes=hidden_sizes)
-
-    introspective_model = IntrospectiveActiveSampling(model=base_model,
-                                                      train_bias=False,
-                                                      name='main_only')
-
-    introspective_model = compile_model(introspective_model)
-
-    introspective_model.fit(train_ds,
-                            validation_data=eval_ds['val'],
-                            epochs=FLAGS.num_epochs)
-
+    _, _, train_ds, eval_ds = dataset_builder(FLAGS.num_splits,
+                                              FLAGS.batch_size)
+    introspective_model = run_train(
+        train_ds, eval_ds['val'], train_bias=False, experiment_name='main_only')
     evaluate_model(introspective_model, eval_ds)
 
-  # TODO(jihyeonlee): In 'else' case, provide implementation of Introspective
-  # Active Sampling method. Plan is to check in local version first, then XM.
+  # TODO(jihyeonlee): Parallelize training models on different combinations
+  # using XM v2 pipelines.
+  else:
+    num_ood_splits = int(FLAGS.num_splits * FLAGS.ood_ratio)
+    num_id_splits = FLAGS.num_splits - num_ood_splits
+    train_combos = list(
+        itertools.combinations(range(FLAGS.num_splits), num_id_splits))
+    for round_idx in range(FLAGS.num_rounds):
+      logging.info('Running Round %d of Active Learning.', round_idx)
+      trained_models = []
+      train_splits, val_splits, _, _ = dataset_builder(
+          FLAGS.num_splits, FLAGS.batch_size)
+      model_dir = os.path.join(FLAGS.output_dir, f'round_{round_idx}')
+      tf.io.gfile.makedirs(model_dir)
+
+      logging.info(
+          'Training models on different splits of data to calculate bias...')
+      for combo in train_combos:
+        combo_name = '_'.join(map(str, combo))
+        combo_train = data.gather_data_splits(combo, train_splits)
+        combo_val = data.gather_data_splits(combo, val_splits)
+        combo_model = run_train(
+            combo_train,
+            combo_val,
+            train_bias=False,
+            experiment_name=combo_name)
+        trained_models.append(combo_model)
+
+      example_id_to_bias_table = utils.get_example_id_to_bias_label_table(
+          train_splits=train_splits,
+          val_splits=val_splits,
+          combos=train_combos,
+          trained_models=trained_models,
+          num_splits=FLAGS.num_splits,
+          bias_value_threshold=FLAGS.bias_value_threshold,
+          bias_percentile_threshold=FLAGS.bias_percentile_threshold,
+          save_dir=model_dir,
+          save_table=FLAGS.save_bias_table)
+
+      _, _, train_ds, eval_ds = dataset_builder(FLAGS.num_splits,
+                                                FLAGS.batch_size)
+      introspective_model = run_train(
+          train_ds,
+          eval_ds['val'],
+          train_bias=True,
+          experiment_name=combo_name,
+          example_id_to_bias_table=example_id_to_bias_table)
+      evaluate_model(introspective_model, eval_ds)
 
   # TODO(jihyeonlee): Will save model checkpoints in a FLAGS.output_dir.
 

@@ -15,6 +15,7 @@
 
 """Random-feature Gaussian Process model with T5 backbone."""
 from typing import Any, Optional
+import warnings
 
 import edward2.jax as ed
 import flax.core
@@ -45,8 +46,9 @@ class GaussianProcessDecoder(nn.Module):
 
   def setup(self):
     if self.config.logits_via_embedding:
-      raise ValueError('Sharing the embedding weights in the decoder output '
-                       'layer is not supported in the GP decoder.')
+      warnings.warn('Sharing the embedding weights in the decoder output '
+                    'layer is not supported in the GP decoder.',
+                    RuntimeWarning)
     # pylint:disable=not-a-mapping
     if self.use_gp_layer:
       covmat_momentum = None if self.covmat_momentum < 0. else self.covmat_momentum
@@ -166,12 +168,18 @@ class GaussianProcessDecoder(nn.Module):
     self.sow('intermediates', 'pre_logits', y)
     # [batch, length, emb_dim] -> [batch, length, vocab_size]
     if not self.use_gp_layer:
-      logits = t5_layers.DenseGeneral(
-          cfg.vocab_size,
-          dtype=jnp.float32,  # Use float32 for stabiliity.
-          kernel_axes=('embed', 'vocab'),
-          name='logits_dense')(
-              y)
+      if cfg.logits_via_embedding:
+        # Use the transpose of embedding matrix for logit transform.
+        logits = self.shared_embedding.attend(y)
+        # Correctly normalize pre-softmax logits for this shared case.
+        logits = logits / jnp.sqrt(y.shape[-1])
+      else:
+        logits = t5_layers.DenseGeneral(
+            cfg.vocab_size,
+            dtype=jnp.float32,  # Use float32 for stabiliity.
+            kernel_axes=('embed', 'vocab'),
+            name='logits_dense')(
+                y)
       self.sow('intermediates', 'logits', logits)
     else:
       # NOTE: In t5x.trainer, dropout_rng is not None when training and is

@@ -110,6 +110,8 @@ def get_dataflow_metric_fns(dataset_name='snips'):
       ub_metrics.seq2seq_metrics,
       ub_metrics.seq2seq_uncertainty_metrics,
       functools.partial(ub_metrics.dataflow_metrics,
+                        dataset_name=dataset_name),
+      functools.partial(ub_metrics.dataflow_uncertainty_metrics,
                         dataset_name=dataset_name)]
 
 

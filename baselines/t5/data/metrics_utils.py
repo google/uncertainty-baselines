@@ -475,6 +475,18 @@ SMCALFLOW_ARG_EDGES = [
     ':holiday', ':results', ':dowConstraint', ':id', ':comment'
 ]
 
+# Adds dataflow node/edge maps for better reference in `metrics_utils.py`.
+DATAFLOW_NODES = {
+    'snips': SNIPS_INTENT,
+    'mtop': MTOP_INTENT,
+    'smcalflow': SMCALFLOW_NODES
+}
+DATAFLOW_ARG_EDGES = {
+    'snips': SNIPS_MTOP_ARG_EDGES,
+    'mtop': SNIPS_MTOP_ARG_EDGES,
+    'smcalflow': SMCALFLOW_ARG_EDGES
+}
+
 token_to_name_map = {}
 name_to_token_map = {}
 for idex, name in enumerate(SMCALFLOW_ARG_EDGES + SMCALFLOW_NODES):

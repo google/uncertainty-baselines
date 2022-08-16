@@ -17,7 +17,7 @@
 
 For graph semantic parsing, the input to seq2seq model is a serialization
 format for DAGs. Specifically, we use PENMAN notation here. It looks similar to
-Lisp’s S-Expressions in using parentheses to indicate nested structures.
+Lisp's S-Expressions in using parentheses to indicate nested structures.
 """
 
 import collections
@@ -423,6 +423,99 @@ def _merge_token_prob(token_list: List[Text],
   return subgraph_infos
 
 
+def _merge_token_prob_for_dataflow(
+    token_list: List[Text],
+    beam_scores: List[float],
+    dataset_name: str = 'snips') -> List[Dict[Text, Any]]:
+  """Merges tokens to graph subgraphs (nodes/attributes,edges), and sums up beam scores.
+
+  For example, for tokens ['discuss', '@', '-', '@', 'an', 'a', 'lytic', 's'],
+  and beam scores [0.0, -1.1920928955078125e-07, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+  we will merge tokens into 'discuss@-@analytics', and compute the corresponding
+  probability exp(sum([0.0, -1.1920928955078125e-07, 0.0, 0.0, 0.0, 0.0, 0.0,
+  0.0])).
+
+  Args:
+    token_list: a list of tokens to be merged.
+    beam_scores: a list of beam scores for each token position, the length is
+      equal to the length of `token_list`.
+    dataset_name: the name of the dataflow dataset.
+
+  Returns:
+    subgraph_infos: a list of dictionaries, which contiains the values and
+      probaibilties.
+  """
+  subgraph_infos = []
+  # If the attribute name is not finished, store the previous tokens
+  # in `node_stack`.
+  node_stack = []
+  # Records each token's start index and end index.
+  start, end = 0, 0
+  # Checks if the current token is in quotes.
+  start_quote = False
+  for i, token in enumerate(token_list):
+    token = token.replace(' ', '')
+    end_symbol_case = token and token[0] not in ['(', ')', '"']
+    edge_case = token in metrics_utils.DATAFLOW_ARG_EDGES[dataset_name]
+    node_case = token in metrics_utils.DATAFLOW_NODES[dataset_name]
+    attr_case = not(end_symbol_case or edge_case or node_case)
+    if not token:
+      end += 1
+      continue
+    elif token == '"':
+      # The start or end of a double quote.
+      if token_list[:i].count('"') % 2 == 0:
+        start_quote = True
+      else:
+        start_quote = False
+      if not start_quote and node_stack:
+        subgraph_infos.append({
+            'value': ''.join(node_stack),
+            'prob': np.exp(sum(beam_scores[start:end])),
+            'align': '%s-%s' % (start, end)
+        })
+        node_stack = []
+        start = end
+      end += 1
+      # Adds subgraph info for quote, which is non-mergable symbol.
+      subgraph_infos.append({
+          'value': token,
+          'prob': np.exp(sum(beam_scores[start:end])),
+          'align': '%s-%s' % (start, end)
+      })
+      start = end
+    elif start_quote or attr_case:
+      # Merges the pieces of attribute name in to a full name.
+      node_stack.append(token)
+      end += 1
+    else:
+      # Gets non-mergable symbol, first write the merged node from node_stack,
+      # and then write the non-mergable symbol.
+      if node_stack:
+        subgraph_infos.append({
+            'value': ''.join(node_stack),
+            'prob': np.exp(sum(beam_scores[start:end])),
+            'align': '%s-%s' % (start, end)
+        })
+        node_stack = []
+        start = end
+      end += 1
+      subgraph_infos.append({
+          'value': token,
+          'prob': np.exp(sum(beam_scores[start:end])),
+          'align': '%s-%s' % (start, end)
+      })
+      start = end
+  if node_stack:
+    # The graph is incomplete and `node_stack` has something left.
+    subgraph_infos.append({
+        'value': ''.join(node_stack),
+        'prob': np.exp(sum(beam_scores[start:end])),
+        'align': '%s-%s' % (start, end)
+    })
+  return subgraph_infos
+
+
 def _assign_prob_to_variable_free_penman(token_list: List[Text],
                                          beam_scores: List[float],
                                          data_version: str = 'v0') -> Text:
@@ -486,6 +579,47 @@ def _assign_prob_to_variable_free_penman(token_list: List[Text],
   return ' '.join(graph_str_list)
 
 
+def _assign_prob_to_variable_free_penman_for_dataflow(
+    token_list: List[Text],
+    beam_scores: List[float],
+    dataset_name: str = 'snips') -> Text:
+  """Assigns the probabilities from the model output to each node/edge in the varialbe PENMAN string.
+
+  Example output: ( unknown_1.0 :ARG1_0.9999 ( _look_v_1_0.9987 ))
+
+  Args:
+    token_list: a list of tokens from the model output.
+    beam_scores: a list of beam scores for each token position, the length is
+      equal to the length of `token_list`.
+    dataset_name: name of the dataflow dataset.
+
+  Returns:
+    A variable-free penman string with probabilities attached to
+      nodes/attributes/edges.
+  """
+  subgraph_infos = _merge_token_prob_for_dataflow(token_list, beam_scores,
+                                                  dataset_name)
+  graph_str_list = []
+  quote_count = 0
+  for subgraph_info in subgraph_infos:
+    token = subgraph_info['value']
+    prob = subgraph_info['prob']
+    if token in metrics_utils.DATAFLOW_ARG_EDGES[
+        dataset_name] and token != ':carg' and quote_count % 2 == 0:
+      # The token here is an edge.
+      token_prob = token + '_' + str(prob)
+    elif token in ['(', ')', ':carg']:
+      # For those symbol, there is no need to assign probabilities.
+      token_prob = token
+    elif token == '"':
+      quote_count += 1
+      token_prob = token
+    else:
+      token_prob = token + '_' + str(prob)
+    graph_str_list.append(token_prob)
+  return ' '.join(graph_str_list)
+
+
 def assign_prob_to_penman(token_list: List[Text],
                           beam_scores: List[float],
                           data_version: str = 'v0') -> Text:
@@ -504,6 +638,27 @@ def assign_prob_to_penman(token_list: List[Text],
   """
   variable_free_penman_with_prob = _assign_prob_to_variable_free_penman(
       token_list, beam_scores, data_version)
+  return transfer_to_penman(variable_free_penman_with_prob)
+
+
+def assign_prob_to_penman_for_dataflow(token_list: List[Text],
+                                       beam_scores: List[float],
+                                       dataset_name: str = 'snips') -> Text:
+  """Assigns the probabilities from the model output to each node/edge in the PENMAN string for dataflow datasets.
+
+  Example output: ( x0 / FenceConferenceRoom_0.9997083374102744 )
+
+  Args:
+    token_list: a list of tokens from the model output.
+    beam_scores: a list of beam scores for each token position, the length is
+      equal to the length of `token_list`.
+    dataset_name: name of the dataflow dataset.
+
+  Returns:
+    A penman string with probabilities attached to nodes/attributes/edges.
+  """
+  variable_free_penman_with_prob = _assign_prob_to_variable_free_penman_for_dataflow(
+      token_list, beam_scores, dataset_name)
   return transfer_to_penman(variable_free_penman_with_prob)
 
 

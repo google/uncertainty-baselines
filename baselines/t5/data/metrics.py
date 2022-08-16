@@ -424,6 +424,130 @@ def deepbank_uncertainty_metrics(
         target, variable_free=True, retokenized=True,
         data_version=data_version).penman
 
+    # Generates a list of predictive probability and predictive accuracy for
+    # node/attribute/edge predictions.
+    (node_prob_match_list, attr_prob_match_list,
+     edge_prob_match_list) = graph_utils.get_dag_match_for_calibration(
+         pred_penman_with_prob, gold_penman)
+    all_node_prob_match_list += node_prob_match_list
+    all_attr_prob_match_list += attr_prob_match_list
+    all_edge_prob_match_list += edge_prob_match_list
+
+  def compositional_eval(prob_match_list):
+    model_pred_confs = np.array([p for (p, _) in prob_match_list],
+                                dtype=np.float32)
+    model_pred_confs_ece = np.stack([1. - model_pred_confs, model_pred_confs],
+                                    axis=-1)
+    correct_predictions = np.array([c for (_, c) in prob_match_list])
+    correct_predictions_fl = np.array(correct_predictions, dtype=np.float32)
+    ece = rm_metrics.ExpectedCalibrationError(num_bins=num_ece_bins)
+    ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+    calib_auroc = rm_metrics.CalibrationAUC(
+        curve='ROC', correct_pred_as_pos_label=False)
+    calib_auprc = rm_metrics.CalibrationAUC(
+        curve='PR', correct_pred_as_pos_label=False)
+    calib_auroc.add_batch(
+        np.ones_like(correct_predictions_fl),
+        confidence=model_pred_confs,
+        label=correct_predictions_fl)
+    calib_auprc.add_batch(
+        np.ones_like(correct_predictions_fl),
+        confidence=model_pred_confs,
+        label=correct_predictions_fl)
+    return ece, calib_auroc, calib_auprc
+
+  # Node evaluation
+  node_ece, node_calib_auroc, node_calib_auprc = compositional_eval(
+      all_node_prob_match_list)
+  # Node evaluation
+  attr_ece, attr_calib_auroc, attr_calib_auprc = compositional_eval(
+      all_attr_prob_match_list)
+  # Edge evaluation
+  edge_ece, edge_calib_auroc, edge_calib_auprc = compositional_eval(
+      all_edge_prob_match_list)
+  analysis = dict(
+      node_ece=node_ece.result()['ece'],
+      node_calib_auroc=node_calib_auroc.result()['calibration_auc'],
+      node_calib_auprc=node_calib_auprc.result()['calibration_auc'],
+      attr_ece=attr_ece.result()['ece'],
+      attr_calib_auroc=attr_calib_auroc.result()['calibration_auc'],
+      attr_calib_auprc=attr_calib_auprc.result()['calibration_auc'],
+      edge_ece=edge_ece.result()['ece'],
+      edge_calib_auroc=edge_calib_auroc.result()['calibration_auc'],
+      edge_calib_auprc=edge_calib_auprc.result()['calibration_auc'],
+  )
+  return analysis
+
+
+def dataflow_uncertainty_metrics(
+    targets: List[Text],
+    predictions: List[Text],
+    aux_values: Dict[Text, Any],
+    vocab: seqio.SentencePieceVocabulary = DEFAULT_VOCAB,
+    dataset_name: str = 'snips',
+    num_ece_bins: int = 15) -> Dict[Text, float]:
+  """Returns compositional uncertainty metrics for DataFlow graphs.
+
+  This function takes `predictions` (a list of strings) and `aux_values`
+  (a dictionary of token score values) from `EncoderDecoderBeamScoreModel`'s
+  `predict_batch_with_aux` function, and use them to compute model's calibration
+  performance.
+
+  Note that to ensure seqio to correctly feed the output of
+  `predict_batch_with_aux` to this metric. The first three positional metrics
+  must be ('targets', 'predictions', 'aux_values').
+
+  Args:
+    targets: target strings for model prediction, shape (batch_size,).
+    predictions: predicted strings for model prediction, shape (batch_size,).
+    aux_values: A dictionary of auxillary information provided by the
+      `predict_batch_with_aux` function. It must have a field `scores` which
+      contains token-level log probabilities with shape (batch_size,
+      max_seq_length).
+    vocab: The SentencePieceVocabulary used for model training.
+    dataset_name: name of the dataflow dataset.
+    num_ece_bins: The number of bins to use for expected calibration error (ECE)
+      metric.
+
+  Returns:
+    A dictionary of metric values.
+  """
+  log_probs = aux_values.get('scores', None)
+  log_probs = np.array(log_probs, dtype=np.float32)
+
+  if log_probs is None:
+    raise ValueError('Cannot find the field `scores` from `aux_values`.')
+  # The `log_probs` should be token-level probabilties,
+  # with shape (batch_size, max_seq_length)
+  if log_probs.ndim != 2:
+    raise ValueError('Incorrect dimension for `log_probs`, which should be 2.'
+                     f'Got {log_probs.ndim}.')
+
+  all_node_prob_match_list = []
+  all_attr_prob_match_list = []
+  all_edge_prob_match_list = []
+  for pred, target, log_prob in zip(predictions, targets, log_probs):
+    token_ids = vocab.encode(pred)
+    tokens = [
+        metrics_utils.single_token_transfer(vocab.decode([id]), dataset_name)
+        for id in token_ids
+    ]
+    log_prob = log_prob[:len(tokens)]
+
+    pred_penman_with_prob = penman_utils.assign_prob_to_penman_for_dataflow(
+        tokens, log_prob, dataset_name)
+    try:
+      _ = graph_utils.parse_string_to_dag(pred_penman_with_prob)
+    except LookupError:
+      # The predicted graph here is an ill-formed graph. Skip.
+      logging.warning('Fail to parse DAG: %s', pred_penman_with_prob)
+      continue
+    gold_penman = penman_utils.PENMANStr(
+        target, variable_free=True, retokenized=True,
+        data_version=dataset_name).penman
+
+    # Generates a list of predictive probability and predictive accuracy for
+    # node/attribute/edge predictions.
     (node_prob_match_list, attr_prob_match_list,
      edge_prob_match_list) = graph_utils.get_dag_match_for_calibration(
          pred_penman_with_prob, gold_penman)

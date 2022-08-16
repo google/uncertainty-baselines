@@ -34,8 +34,8 @@ def get_train_config():
   """Get training config."""
   config = config_dict.ConfigDict()
   config.train_seed = 0
-  config.train_batch_size = 128
-  config.eval_batch_size = 128
+  config.train_batch_size = 64
+  config.eval_batch_size = 64
   config.input_shape = (224, 224, 3)
 
   config.logging_frequency = 1000
@@ -51,7 +51,7 @@ def get_optimizer_config():
   """Get optimizer config."""
   config = config_dict.ConfigDict()
   config.learning_rate = 1e-3
-  config.num_steps = 2001
+  config.num_steps = 1001
   return config
 
 

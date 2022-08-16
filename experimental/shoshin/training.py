@@ -48,11 +48,7 @@ class MLP(nn.Module):
 def cross_entropy_loss(*, logits, labels):
   logits = jnp.reshape(logits, [logits.shape[0], -1])
   labels = jnp.reshape(labels, [labels.shape[0], -1])
-  loss_label = optax.sigmoid_binary_cross_entropy(
-      logits=jnp.reshape(logits[:, 0], [-1, 1]),
-      labels=jnp.reshape(labels[:, 0], [-1, 1])).mean()
-  loss_bias = jnp.mean(jnp.abs(jax.nn.sigmoid(logits[:, 1]) - labels[:, 1]))
-  return loss_label + loss_bias
+  return optax.sigmoid_binary_cross_entropy(logits=logits, labels=labels).mean()
 
 
 def create_train_state(hidden_sizes, output_size, input_shape, rng,
@@ -153,8 +149,6 @@ def train_loop(config, workdir, train_ds, val_ds, preprocess):
   del init_rng  # Must not be used anymore.
 
   # Create Checkpointing and logging utilities
-  best_accuracy_val = 0
-
   checkpoint_dir = os.path.join(workdir, 'checkpoints')
   logging.info('Checkpoint directory is %s', checkpoint_dir)
   step_init = 0
@@ -164,7 +158,6 @@ def train_loop(config, workdir, train_ds, val_ds, preprocess):
   writer = metric_writers.create_default_writer(
       workdir, just_logging=jax.process_index() > 0)
   writer.write_hparams(dict(config))
-  best_params = state
   # Main training loop
   for step in range(step_init, config.optimizer.num_steps):
     images, labels = preprocess(next(train_ds))
@@ -178,20 +171,20 @@ def train_loop(config, workdir, train_ds, val_ds, preprocess):
       labels = labels[np.mod(np.arange(batch_size), labels.shape[0]), ...]
       eval_metrics, jax_params, _ = eval_step_model(
           state.params, jax_params, images, labels)
-      if best_accuracy_val < eval_metrics['accuracy']:
-        best_accuracy_val = eval_metrics['accuracy']
-        best_params = state
-      measures = eval_metrics
-      measures['best_acc'] = best_accuracy_val
-      for key, val in measures.items():
-        logging.info('%s: %f', key, val)
+      measures = {}
+      for key, val in eval_metrics.items():
+        measures[key] = val.item()
+        logging.info('%s: %f', key, val.item())
       writer.write_scalars(step, measures)
     if config.checkpoint_every:
       if (step % config.checkpoint_every == 0 or
           step == config.optimizer.num_steps):
         checkpoints.save_checkpoint(
-            checkpoint_dir, (step, best_params), step=step, overwrite=True)
+            checkpoint_dir, (step, state.params), step=step, overwrite=True)
 
+  checkpoints.save_checkpoint(
+            checkpoint_dir + '/best',
+      (step, state.params), step=-1, overwrite=True)
   def predictor(batch):
     images, _ = preprocess(batch)
     init_shape = images.shape[0]

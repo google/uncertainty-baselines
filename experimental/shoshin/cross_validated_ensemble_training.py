@@ -113,10 +113,11 @@ def main(argv: Sequence[str]) -> None:
   xm_client = xmanager_api.XManagerApi(xm_deployment_env='alphabet')
   experiment = xm_client.get_current_experiment()
   wid = xm_client.get_current_work_unit().id
-  workdir = (
-      f'/xfile/{getpass.getuser()}/{experiment.id}/{wid}/' if experiment.id > 0
-      else FLAGS.workdir)
-
+  if experiment.id > 0:
+    workdir = _WORKDIR.value.format(
+        username=getpass.getuser(), xid=experiment.id, wid=wid)
+  else:
+    workdir = _WORKDIR.value
   acls = datatables.DatatableACLs(
       owners=(getpass.getuser(),),
       readers=('all-person-users',),
@@ -139,7 +140,6 @@ def main(argv: Sequence[str]) -> None:
         options=datatables.WriterOptions(acls=acls))
     preprocess = functools.partial(preprocess_batch, config.train.input_shape,
                                    None)
-
   trains_ds, vals_ds, train_ds_iterator, val_ds_iterator = (
       create_datasets_iterators(config.num_splits, config.dataset_seed,
                                 config.index, batch_size,

@@ -17,6 +17,7 @@
 
 from typing import Any, Dict, Optional, Union
 
+from absl import logging
 import numpy as np
 from robustness_metrics.common import types
 import tensorflow.compat.v2 as tf
@@ -24,6 +25,8 @@ import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import augment_utils
 from uncertainty_baselines.datasets import augmix
 from uncertainty_baselines.datasets import base
+from uncertainty_baselines.datasets.google.privileged_information import AnnotatorPIMixin
+
 
 # We use the convention of using mean = np.mean(train_images, axis=(0,1,2))
 # and std = np.std(train_images, axis=(0,1,2)).

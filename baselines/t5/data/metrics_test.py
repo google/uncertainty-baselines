@@ -281,5 +281,46 @@ class SequenceClassificationBeamTest(test_utils.BaseMetricsTest,
                                np.array(expected_confidence), atol=1e-3)
 
 
+class Seq2seqTest(test_utils.BaseMetricsTest, parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.vocab = task_utils.get_default_vocab()
+    self.targets = ['The hat is nice', 'The house is large']
+    self.predictions = ['The bag is very nice', 'Doors are small']
+    self.token_scores = [[-2, -3, -4, -7, -5, -1, -3, -10],
+                         [-3, -4, -2, -3, -9, -2, -1, -11]]
+    self.beam_scores = [-22, -12]
+
+  def test_beam_scores_agree_with_token_scores(self):
+    for score, beam_score, pred in zip(self.token_scores, self.beam_scores,
+                                       self.predictions):
+      seq_length = len(pred.split(' ')) + 1
+      assert sum(score[:seq_length]) == beam_score
+
+  def test_sequence_level_uncertainty_metrics(self):
+    actual_metrics = metrics.seq2seq_uncertainty_metrics(
+        self.targets, self.predictions, {'scores': self.beam_scores})
+    expected_metrics = {
+        'sequence_ece': 3e-06,
+        'sequence_calib_auroc': 0.0,
+        'sequence_calib_auprc': 1.0
+    }
+    self.assertDictClose(actual_metrics, expected_metrics, places=4)
+
+  def test_token_level_uncertainty_metrics(self):
+    actual_metrics = metrics.seq2seq_uncertainty_metrics(
+        self.targets, self.predictions, {'scores': self.token_scores})
+    expected_metrics = {
+        'token_ece': 0.21678,
+        'token_calib_auroc': 0.69048,
+        'token_calib_auprc': 0.79448,
+        'sequence_ece': 3e-06,
+        'sequence_calib_auroc': 0.0,
+        'sequence_calib_auprc': 1.0
+    }
+    self.assertDictClose(actual_metrics, expected_metrics, places=4)
+
+
 if __name__ == '__main__':
   absltest.main()

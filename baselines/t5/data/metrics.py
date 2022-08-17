@@ -83,58 +83,16 @@ def seq2seq_metrics(targets: List[Text],
   return dict(sequence_accuracy=_safe_divide(num_correct, num_total))
 
 
-def seq2seq_uncertainty_metrics(
-    targets: List[Text], predictions: List[Text],
-    aux_values: Dict[Text, Any],
-    vocab: seqio.SentencePieceVocabulary = DEFAULT_VOCAB,
-    num_ece_bins: int = 15) -> Dict[Text, float]:
-  """Returns uncertainty metrics for seq2seq without assuming any structure.
-
-  This function takes `predictions` (a list of strings) and `aux_values`
-  (a dictionary of token score values) from `EncoderDecoderBeamScoreModel`'s
-  `predict_batch_with_aux` function, and use them to compute model's calibration
-  performance.
-
-  Note that to ensure seqio to correctly feed the output of
-  `predict_batch_with_aux` to this metric. The first three positional metrics
-  must be ('targets', 'predictions', 'aux_values').
-
-  Args:
-    targets: target strings for model prediction, shape (batch_size,).
-    predictions: predicted strings for model prediction, shape (batch_size,).
-    aux_values: A dictionary of auxillary information provided by the
-      `predict_batch_with_aux` function. It must have a field `scores` which
-      contains token-level log probabilities with shape (batch_size,
-      max_seq_length).
-    vocab: The SentencePieceVocabulary used for model training.
-    num_ece_bins: The number of bins to use for expected calibration error (ECE)
-      metric.
-
-  Returns:
-    A dictionary of metric values.
-  """
-  log_probs = aux_values.get('scores', None)
-
-  if log_probs is None:
-    raise ValueError('Cannot find the field `scores` from `aux_values`.')
+def _seq2seq_uncertainty_metrics(targets: List[Text],
+                                 predictions: List[Text],
+                                 log_probs: np.ndarray,
+                                 num_ece_bins: int = 15,
+                                 metric_prefix: str = '') -> Dict[Text, float]:
+  """Returns uncertainty metrics for seq2seq tasks."""
 
   # Convert to numpy.
   targets = np.array(targets)
   predictions = np.array(predictions)
-  log_probs = np.array(log_probs, dtype=np.float32)
-
-  # Compute sequence-level probability.
-  # If log probability is on token level with shape (batch_size, seq_len),
-  # Reduce it back to sequence-level score (batch_size, ).
-  if log_probs.ndim == 2:
-    # The sum of `log_probs` is only up to the length of sequence.
-    # Note that the token at position = `seq_length` is an EOS symbol, whose
-    # probability should count towards the sequence probability.
-    seq_lengths = [len(vocab.encode(pred)) + 1 for pred in predictions]
-    log_probs = np.array([
-        np.sum(log_prob[:seq_length])
-        for log_prob, seq_length in zip(log_probs, seq_lengths)
-    ], dtype=np.float32)
 
   model_pred_confs = np.exp(log_probs)
   model_pred_confs_ece = np.stack([1. - model_pred_confs, model_pred_confs],
@@ -161,9 +119,106 @@ def seq2seq_uncertainty_metrics(
       confidence=model_pred_confs,
       label=correct_predictions_fl)
 
-  return {'sequence_ece': ece.result()['ece'],
-          'sequence_calib_auroc': calib_auroc.result()['calibration_auc'],
-          'sequence_calib_auprc': calib_auprc.result()['calibration_auc']}
+  return {
+      f'{metric_prefix}ece': ece.result()['ece'],
+      f'{metric_prefix}calib_auroc': calib_auroc.result()['calibration_auc'],
+      f'{metric_prefix}calib_auprc': calib_auprc.result()['calibration_auc']
+  }
+
+
+def seq2seq_uncertainty_metrics(
+    targets: List[Text],
+    predictions: List[Text],
+    aux_values: Dict[Text, Any],
+    vocab: seqio.SentencePieceVocabulary = DEFAULT_VOCAB,
+    num_ece_bins: int = 15) -> Dict[Text, float]:
+  """Returns uncertainty metrics for seq2seq without assuming any structure.
+
+  This function takes `predictions` (a list of strings) and `aux_values`
+  (a dictionary of token score values) from `EncoderDecoderBeamScoreModel`'s
+  `predict_batch_with_aux` function, and use them to compute model's calibration
+  performance. The token level implementation follows [1], formula (5).
+
+  Note that to ensure seqio to correctly feed the output of
+  `predict_batch_with_aux` to this metric. The first three positional metrics
+  must be ('targets', 'predictions', 'aux_values').
+
+  ## Reference
+
+  [1]: Aviral Kumar, Sunita Sarawagi. Calibration of Encoder Decoder Models for
+       Neural Machine Translation. https://arxiv.org/abs/1903.00802
+
+  Args:
+    targets: target strings for model prediction, shape (batch_size,).
+    predictions: predicted strings for model prediction, shape (batch_size,).
+    aux_values: A dictionary of auxillary information provided by the
+      `predict_batch_with_aux` function. It must have a field `scores` which
+      contains sequence-level or token-level log probabilities with shape
+      (batch_size,) or (batch_size, max_seq_length) respectively.
+    vocab: The SentencePieceVocabulary used for model training.
+    num_ece_bins: The number of bins to use for expected calibration error (ECE)
+      metric.
+
+  Returns:
+    A dictionary of metric values.
+  """
+  log_probs = aux_values.get('scores', None)
+
+  if log_probs is None:
+    raise ValueError('Cannot find the field `scores` from `aux_values`.')
+
+  # Convert to numpy.
+  log_probs = np.array(log_probs, dtype=np.float32)
+
+  # Compute sequence-level probability.
+  # If log probability is on token level with shape (batch_size, seq_len),
+  # Reduce it back to sequence-level score (batch_size, ).
+  metrics = {}
+  if log_probs.ndim == 2:
+    token_targets = []
+    token_predictions = []
+    token_log_probs = []
+    seq_log_probs = []
+    for (target, pred, log_prob) in zip(targets, predictions, log_probs):
+      # Note that the token at position = `seq_length` is an EOS symbol, whose
+      # probability should count towards the sequence probability.
+      pred_encoded = list(vocab.encode(pred)) + [vocab.eos_id]
+      target_encoded = list(vocab.encode(target)) + [vocab.eos_id]
+      pred_length = len(pred_encoded)
+      target_length = len(target_encoded)
+      if target_length > pred_length:
+        target_encoded = target_encoded[:pred_length]
+      elif target_length < pred_length:
+        target_encoded = target_encoded + [vocab.pad_id] * (
+            pred_length - target_length)
+
+      # The sum of `log_prob` is only up to the length of sequence.
+      log_prob = log_prob[:pred_length]
+
+      token_targets.extend(target_encoded)
+      token_predictions.extend(pred_encoded)
+      token_log_probs.extend(log_prob.tolist())
+      seq_log_probs.append(np.sum(log_prob))
+
+    token_log_probs = np.array(token_log_probs, dtype=np.float32)
+    log_probs = np.array(seq_log_probs, dtype=np.float32)
+    # TODO(phandu): Add weighted token ECE metric following
+    # Section 2.2.2 of [1].
+    metrics = _seq2seq_uncertainty_metrics(
+        token_targets,
+        token_predictions,
+        token_log_probs,
+        num_ece_bins=num_ece_bins,
+        metric_prefix='token_')
+
+  sequence_metrics = _seq2seq_uncertainty_metrics(
+      targets,
+      predictions,
+      log_probs,
+      num_ece_bins=num_ece_bins,
+      metric_prefix='sequence_')
+  metrics.update(sequence_metrics)
+  return metrics
 
 
 def deepbank_metrics(targets: List[Text],

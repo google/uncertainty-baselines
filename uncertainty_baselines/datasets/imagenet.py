@@ -38,6 +38,7 @@ IMAGENET_MEAN = np.array([[[0.485, 0.456, 0.406]]], dtype=np.float32)
 IMAGENET_STDDEV = np.array([[[0.229, 0.224, 0.225]]], dtype=np.float32)
 
 
+
 def _tuple_dict_fn_converter(fn, *args):
 
   def dict_fn(batch_dict):

@@ -31,28 +31,30 @@ import uncertainty_baselines as ub
 import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
-
 flags.DEFINE_float('label_smoothing', 0., 'Label smoothing parameter in [0,1].')
-flags.register_validator('label_smoothing',
-                         lambda ls: ls >= 0.0 and ls <= 1.0,
-                         message='--label_smoothing must be in [0, 1].')
+flags.register_validator(
+    'label_smoothing',
+    lambda ls: ls >= 0.0 and ls <= 1.0,
+    message='--label_smoothing must be in [0, 1].')
 
 # Data Augmentation flags.
 flags.DEFINE_bool('augmix', False,
                   'Whether to perform AugMix [4] on the input data.')
-flags.DEFINE_integer('aug_count', 1,
-                     'Number of augmentation operations in AugMix to perform '
-                     'on the input image. In the simgle model context, it'
-                     'should be 1. In the ensembles context, it should be'
-                     'ensemble_size if we perform random_augment only; It'
-                     'should be (ensemble_size - 1) if we perform augmix.')
+flags.DEFINE_integer(
+    'aug_count', 1, 'Number of augmentation operations in AugMix to perform '
+    'on the input image. In the simgle model context, it'
+    'should be 1. In the ensembles context, it should be'
+    'ensemble_size if we perform random_augment only; It'
+    'should be (ensemble_size - 1) if we perform augmix.')
 flags.DEFINE_float('augmix_prob_coeff', 0.5, 'Augmix probability coefficient.')
-flags.DEFINE_integer('augmix_depth', -1,
-                     'Augmix depth, -1 meaning sampled depth. This corresponds'
-                     'to line 7 in the Algorithm box in [4].')
-flags.DEFINE_integer('augmix_width', 3,
-                     'Augmix width. This corresponds to the k in line 5 in the'
-                     'Algorithm box in [4].')
+flags.DEFINE_integer(
+    'augmix_depth', -1,
+    'Augmix depth, -1 meaning sampled depth. This corresponds'
+    'to line 7 in the Algorithm box in [4].')
+flags.DEFINE_integer(
+    'augmix_width', 3,
+    'Augmix width. This corresponds to the k in line 5 in the'
+    'Algorithm box in [4].')
 
 # Fine-grained specification of the hyperparameters (used when FLAGS.l2 is None)
 flags.DEFINE_float('bn_l2', None, 'L2 reg. coefficient for batch-norm layers.')
@@ -72,8 +74,9 @@ flags.DEFINE_float('dense_bias_l2', None,
 # PosteriorNetwork-specific flags
 flags.DEFINE_integer('latent_dim', 16, 'Dimensionality of the latent space.')
 flags.DEFINE_integer('flow_depth', 8, 'Number of layers for the latent flow.')
-flags.DEFINE_integer('flow_width', None, 'Width of the latent flow layers. '
-                     'Only used for maf flows.')
+flags.DEFINE_integer(
+    'flow_width', None, 'Width of the latent flow layers. '
+    'Only used for maf flows.')
 flags.DEFINE_enum('flow_type', 'radial', ['maf', 'radial', 'affine'],
                   'Type of normalizing flow to be used in the latent space.')
 flags.DEFINE_float('entropy_reg', 0.01, 'Entropy regularizer for the UCE loss.')
@@ -136,8 +139,8 @@ def main(argv):
 
   # Note that stateless_{fold_in,split} may incur a performance cost, but a
   # quick side-by-side test seemed to imply this was minimal.
-  seeds = tf.random.experimental.stateless_split(
-      [FLAGS.seed, FLAGS.seed + 1], 2)[:, 0]
+  seeds = tf.random.experimental.stateless_split([FLAGS.seed, FLAGS.seed + 1],
+                                                 2)[:, 0]
   train_builder = ub.datasets.get(
       FLAGS.dataset,
       data_dir=data_dir,
@@ -145,7 +148,8 @@ def main(argv):
       split=tfds.Split.TRAIN,
       seed=seeds[0],
       aug_params=aug_params,
-      validation_percent=1. - FLAGS.train_proportion,)
+      validation_percent=1. - FLAGS.train_proportion,
+  )
   train_dataset = train_builder.load(batch_size=batch_size)
   validation_dataset = None
   steps_per_validation = 0
@@ -160,9 +164,7 @@ def main(argv):
         validation_dataset)
     steps_per_validation = validation_builder.num_examples // batch_size
   clean_test_builder = ub.datasets.get(
-      FLAGS.dataset,
-      split=tfds.Split.TEST,
-      data_dir=data_dir)
+      FLAGS.dataset, split=tfds.Split.TEST, data_dir=data_dir)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
@@ -222,9 +224,8 @@ def main(argv):
         decay_ratio=FLAGS.lr_decay_ratio,
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
-    optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=1.0 - FLAGS.one_minus_momentum,
-                                        nesterov=True)
+    optimizer = tf.keras.optimizers.SGD(
+        lr_schedule, momentum=1.0 - FLAGS.one_minus_momentum, nesterov=True)
     metrics = {
         'train/negative_log_likelihood':
             tf.keras.metrics.Mean(),
@@ -243,10 +244,12 @@ def main(argv):
     }
     if validation_dataset:
       metrics.update({
-          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
-          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-          'validation/ece': rm.metrics.ExpectedCalibrationError(
-              num_bins=FLAGS.num_bins),
+          'validation/negative_log_likelihood':
+              tf.keras.metrics.Mean(),
+          'validation/accuracy':
+              tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/ece':
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
       })
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
@@ -273,14 +276,14 @@ def main(argv):
   @tf.function
   def train_step(iterator):
     """Training StepFn."""
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
 
-      uce_loss_fn = ed.losses.uce_loss(sparse=True,
-                                       entropy_reg=FLAGS.entropy_reg,
-                                       num_classes=num_classes)
+      uce_loss_fn = ed.losses.uce_loss(
+          sparse=True, entropy_reg=FLAGS.entropy_reg, num_classes=num_classes)
 
       if FLAGS.augmix and FLAGS.aug_count >= 1:
         # Index 0 at augmix processing is the unperturbed image.
@@ -310,6 +313,7 @@ def main(argv):
   @tf.function
   def test_step(iterator, dataset_split, dataset_name, num_steps):
     """Evaluation StepFn."""
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
@@ -339,16 +343,23 @@ def main(argv):
   @tf.function
   def cifar10h_test_step(iterator, num_steps):
     """Evaluation StepFn."""
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
-      labels = inputs['labels']
+      labels = inputs['pi_features']['annotator_labels']
+      if FLAGS.label_smoothing == 0:
+        labels = tf.one_hot(
+            tf.cast(labels, tf.int32), num_classes, dtype=tf.float32)
+
+      avg_labels = tf.reduce_mean(
+          labels, axis=1, keepdims=False)  # Compute average label.
       alphas = model(images, training=False)
       probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
 
       negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(
           from_logits=False,
-          reduction=tf.keras.losses.Reduction.NONE)(labels, probs)
+          reduction=tf.keras.losses.Reduction.NONE)(avg_labels, probs)
 
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
       metrics['cifar10h/nll'].update_state(negative_log_likelihood)
@@ -383,20 +394,16 @@ def main(argv):
     eta_seconds = (max_steps - current_step) / steps_per_sec
     message = ('{:.1%} completion: epoch {:d}/{:d}. {:.1f} steps/s. '
                'ETA: {:.0f} min. Time elapsed: {:.0f} min'.format(
-                   current_step / max_steps,
-                   epoch + 1,
-                   FLAGS.train_epochs,
-                   steps_per_sec,
-                   eta_seconds / 60,
-                   time_elapsed / 60))
+                   current_step / max_steps, epoch + 1, FLAGS.train_epochs,
+                   steps_per_sec, eta_seconds / 60, time_elapsed / 60))
     logging.info(message)
     if tb_callback:
       tb_callback.on_epoch_end(epoch)
 
     if validation_dataset:
       validation_iterator = iter(validation_dataset)
-      test_step(
-          validation_iterator, 'validation', 'clean', steps_per_validation)
+      test_step(validation_iterator, 'validation', 'clean',
+                steps_per_validation)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):

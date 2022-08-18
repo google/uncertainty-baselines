@@ -174,7 +174,7 @@ class MetaGraph(object):
     """
     # TODO(lzi): check if the length of lists will change due to error in
     #   `get_object_lists_and_prob_dicts`.
-    penman_with_prob = penman_utils.assign_prob_to_penman(
+    penman_with_prob = penman_utils.get_assign_prob_func(data_version)(
         graph_info.tokens, graph_info.log_probs, data_version)
     dag_with_prob = graph_utils.parse_string_to_dag(penman_with_prob)
     dag_with_prob.change_node_prefix(prefix)

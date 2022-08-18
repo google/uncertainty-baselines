@@ -69,13 +69,17 @@ class PENMANStr(object):
             self.variable_free_penman, data_version)
       self.penman = transfer_to_penman(self.variable_free_penman)
     else:
+      # We only set `rewrite_reference` to True if it is for DeepBank dataset.
+      rewrite_reference = data_version in ['v0', 'v1']
       self.penman = graph_str
-      self.variable_free_penman = transfer_to_variable_free_penman(self.penman)
+      self.variable_free_penman = transfer_to_variable_free_penman(
+          self.penman, rewrite_reference)
       self.retokened_variable_free_penman = retoken_graph_str(
           self.variable_free_penman, data_version)
 
 
-def transfer_to_variable_free_penman(penman_str: Text) -> Text:
+def transfer_to_variable_free_penman(penman_str: Text,
+                                     rewrite_reference: bool = True) -> Text:
   """Tranfers penman graph strings to variable-free penman strings.
 
   This function mainly addresses the rename of reentrancies (node reference),
@@ -86,6 +90,7 @@ def transfer_to_variable_free_penman(penman_str: Text) -> Text:
 
   Args:
     penman_str: the input penman string.
+    rewrite_reference: whether to rewrite reference.
 
   Returns:
     variable-free penman string.
@@ -94,9 +99,11 @@ def transfer_to_variable_free_penman(penman_str: Text) -> Text:
   instances, _, _ = dag.get_triples()
   node_dict = graph_utils.transfer_triple_to_dict(instances, 'node')
   # Pattern for detecting reentrancies (node reference).
-  pattern = re.compile(r' [e|x|i][0-9]+')
-  reference_idxs = [x.lstrip() for x in re.findall(pattern, penman_str)]
-  reference_values = [node_dict[x] for x in reference_idxs]
+  reference_idxs, reference_values = [], []
+  if rewrite_reference:
+    pattern = re.compile(r' [e|x|i][0-9]+')
+    reference_idxs = [x.lstrip() for x in re.findall(pattern, penman_str)]
+    reference_values = [node_dict[x] for x in reference_idxs]
   # Assign new value to reentrancies by adding stars.
   reference_new_value_dict = {}
   # `value_counts` is for counting number of reference per node value.
@@ -250,8 +257,9 @@ def retoken_graph_str(graph_str: Text, data_version: str = 'v0') -> Text:
     if token.startswith(':'):
       # The token here is an edge.
       edge_name = token.split('-of')[0]
-      retoken = token.replace(edge_name, name_to_token_map[edge_name])
-      if '-of' in retoken:
+      if edge_name in name_to_token_map:
+        retoken = token.replace(edge_name, name_to_token_map[edge_name])
+      if '-of' in retoken and '-of' in name_to_token_map:
         retoken = retoken.replace('-of', ' ' + name_to_token_map['-of'])
       new_graph_str_list.append(retoken)
     elif token.startswith('_') and data_version in ['v0', 'v1']:
@@ -455,7 +463,7 @@ def _merge_token_prob_for_dataflow(
   start_quote = False
   for i, token in enumerate(token_list):
     token = token.replace(' ', '')
-    end_symbol_case = token and token[0] not in ['(', ')', '"']
+    end_symbol_case = token in ['(', ')', '"']
     edge_case = token in metrics_utils.DATAFLOW_ARG_EDGES[dataset_name]
     node_case = token in metrics_utils.DATAFLOW_NODES[dataset_name]
     attr_case = not(end_symbol_case or edge_case or node_case)
@@ -660,6 +668,16 @@ def assign_prob_to_penman_for_dataflow(token_list: List[Text],
   variable_free_penman_with_prob = _assign_prob_to_variable_free_penman_for_dataflow(
       token_list, beam_scores, dataset_name)
   return transfer_to_penman(variable_free_penman_with_prob)
+
+
+def get_assign_prob_func(dataset_name: str = 'snips'):
+  """Gets the corresponding assign prob function based on dataset name."""
+  if dataset_name in ['v0', 'v1']:
+    return assign_prob_to_penman
+  elif dataset_name in ['snips', 'mtop', 'smcalflow']:
+    return assign_prob_to_penman_for_dataflow
+  else:
+    raise ValueError(f'{dataset_name} is not supported.')
 
 
 def _transfer_dataflow_src_history(input_str: str,

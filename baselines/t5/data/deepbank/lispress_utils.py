@@ -32,8 +32,9 @@ SPECIAL_TOKEN_MAP = {
     '>': '_greater', '<': '_less', '>=': '_g_eq', '<=': '_l_equal',
     '?=': '_q_equal', '?~=': '_q_t_qual', '?>': '_q_greater',
     '?<': '_q_less', '?>=': '_q_g_equal', '?<=': '_q_l_equal',
-    '[]': '_empty_list'
-}
+    '[]': '_empty_list', 'x0': '_refer_x0', 'x1': '_refer_x1',
+    'x2': '_refer_x2', 'x3': '_refer_x3', 'x4': '_refer_x4',
+    'x5': '_refer_x5', 'x6': '_refer_x6'}
 
 
 def _is_beginning_control_char(next_c: str):

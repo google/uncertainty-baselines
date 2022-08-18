@@ -451,8 +451,13 @@ SMCALFLOW_SPECIAL_NODES = [
     '_empty_list', '_q_less'
 ]
 SMCALFLOW_REFERENCE_NODES = ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x6']
+SMCALFLOW_REFERENCE_REWRITE_NODES = [
+    '_refer_x0', '_refer_x1', '_refer_x2', '_refer_x3', '_refer_x4',
+    '_refer_x5', '_refer_x6'
+]
 SMCALFLOW_NODES = (
-    SMCALFLOW_FUNC_NODES + SMCALFLOW_SPECIAL_NODES + SMCALFLOW_REFERENCE_NODES)
+    SMCALFLOW_FUNC_NODES + SMCALFLOW_SPECIAL_NODES +
+    SMCALFLOW_REFERENCE_REWRITE_NODES)
 
 # Edges for SMCalflow, including 95 edges.
 SMCALFLOW_ARG_EDGES = [

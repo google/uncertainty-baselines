@@ -65,10 +65,10 @@ FLAGS = flags.FLAGS
 def fetch_temperature(config, replicated_params):
   if config.model.temperature > 0:
     return config.model.temperature
+  prefix = 'multiclass_head' if config.model.multiclass else 'multilabel_head'
   lower = config.model.temperature_lower_bound
   upper = config.model.temperature_upper_bound
-  t = jax.nn.sigmoid(
-      replicated_params['temp_layer']['temperature_pre_sigmoid'][0])
+  t = jax.nn.sigmoid(replicated_params[prefix]['temperature_pre_sigmoid'][0])
   return float((upper - lower) * t + lower)
 
 
@@ -249,7 +249,7 @@ def main(config, output_dir):
 
   write_note('Initializing model...')
   logging.info('config.model = %s', config.get('model'))
-  model = ub.models.bit_resnet(
+  model = ub.models.bit_resnet_heteroscedastic(
       num_classes=config.num_classes, **config.get('model', {}))
 
   # We want all parameters to be created in host RAM, not on any device, they'll
@@ -260,20 +260,46 @@ def main(config, output_dir):
     image_size = tuple(train_ds.element_spec['image'].shape[2:])
     logging.info('image_size = %s', image_size)
     dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
-    params = flax.core.unfreeze(model.init(rng, dummy_input,
+
+    rng, diag_noise_rng, standard_noise_rng = jax.random.split(rng, num=3)
+    init_rngs = {'params': rng, 'diag_noise_samples': diag_noise_rng,
+                 'standard_norm_noise_samples': standard_noise_rng}
+
+    params = flax.core.unfreeze(model.init(init_rngs, dummy_input,
                                            train=False))['params']
 
-    # Set bias in the head to a low value, such that loss is small initially.
-    params['head']['bias'] = jnp.full_like(
-        params['head']['bias'], config.get('init_head_bias', 0))
+    head = ('multiclass_head' if config.get('model', {}).get('multiclass')
+            else 'multilabel_head')
 
-    # init head kernel to all zeros for fine-tuning
+    # Set bias in the head to a low value, such that loss is small initially.
+    if head in params:
+      params[head]['loc_layer']['bias'] = jnp.full_like(
+          params[head]['loc_layer']['bias'], config.get('init_head_bias', 0))
+
+    # Init head kernel to all zeros for fine-tuning.
     if config.get('model_init'):
-      params['head']['kernel'] = jnp.full_like(params['head']['kernel'], 0)
+      params[head]['loc_layer']['kernel'] = jnp.full_like(
+          params[head]['loc_layer']['kernel'], 0)
+      params[head]['diag_layer']['kernel'] = jnp.full_like(
+          params[head]['diag_layer']['kernel'], 0)
+      params[head]['diag_layer']['bias'] = jnp.full_like(
+          params[head]['diag_layer']['bias'], 0)
+
+      if 'scale_layer_homoscedastic' in params[head]:
+        params[head]['scale_layer_homoscedastic']['kernel'] = jnp.full_like(
+            params[head]['scale_layer_homoscedastic']['kernel'], 0)
+        params[head]['scale_layer_homoscedastic']['bias'] = jnp.full_like(
+            params[head]['scale_layer_homoscedastic']['bias'], 0)
+      if 'scale_layer_heteroscedastic' in params[head]:
+        params[head]['scale_layer_heteroscedastic']['kernel'] = jnp.full_like(
+            params[head]['scale_layer_heteroscedastic']['kernel'], 0)
+        params[head]['scale_layer_heteroscedastic']['bias'] = jnp.full_like(
+            params[head]['scale_layer_heteroscedastic']['bias'], 0)
 
     return params
 
-  rng, rng_init = jax.random.split(rng)
+  (rng, rng_init, rng_dropout, diag_noise_rng,
+   standard_noise_rng) = jax.random.split(rng, num=5)
   params_cpu = init(rng_init)
 
   if jax.host_id() == 0:
@@ -285,9 +311,13 @@ def main(config, output_dir):
   def evaluation_fn(params, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False)
+    logits, out = model.apply(
+        {'params': flax.core.freeze(params)}, images, train=False,
+        rngs={
+            'dropout': rng_dropout,
+            'diag_noise_samples': diag_noise_rng,
+            'standard_norm_noise_samples': standard_noise_rng
+        })
 
     losses = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -305,9 +335,13 @@ def main(config, output_dir):
 
   @partial(jax.pmap, axis_name='batch')
   def cifar_10h_evaluation_fn(params, images, labels, mask):
-    logits, out = model.apply({'params': flax.core.freeze(params)},
-                              images,
-                              train=False)
+    logits, out = model.apply(
+        {'params': flax.core.freeze(params)}, images, train=False,
+        rngs={
+            'dropout': rng_dropout,
+            'diag_noise_samples': diag_noise_rng,
+            'standard_norm_noise_samples': standard_noise_rng
+        })
 
     losses = getattr(train_utils, config.get('loss', 'softmax_xent'))(
         logits=logits, labels=labels, reduction=False)
@@ -329,9 +363,13 @@ def main(config, output_dir):
   # Setup function for computing representation.
   @partial(jax.pmap, axis_name='batch')
   def representation_fn(params, images, labels, mask):
-    _, outputs = model.apply({'params': flax.core.freeze(params)},
-                             images,
-                             train=False)
+    _, outputs = model.apply(
+        {'params': flax.core.freeze(params)}, images, train=False,
+        rngs={
+            'dropout': rng_dropout,
+            'diag_noise_samples': diag_noise_rng,
+            'standard_norm_noise_samples': standard_noise_rng
+        })
     representation = outputs[config.fewshot.representation_layer]
     representation = jax.lax.all_gather(representation, 'batch')
     labels = jax.lax.all_gather(labels, 'batch')
@@ -356,11 +394,15 @@ def main(config, output_dir):
     # Get device-specific loss rng.
     rng, rng_model = jax.random.split(rng, 2)
     rng_model_local = jax.random.fold_in(rng_model, jax.lax.axis_index('batch'))
+    rng_model_local, diag_noise_rng, standard_noise_rng = jax.random.split(
+        rng_model_local, num=3)
 
     def loss_fn(params, images, labels):
       logits, _ = model.apply(
           {'params': flax.core.freeze(params)}, images,
-          train=True, rngs={'dropout': rng_model_local})
+          rngs={'dropout': rng_model_local,
+                'diag_noise_samples': diag_noise_rng,
+                'standard_norm_noise_samples': standard_noise_rng})
       accuracy = jnp.mean(jnp.equal(
           jnp.argmax(logits, axis=-1),
           jnp.argmax(labels, axis=-1)))

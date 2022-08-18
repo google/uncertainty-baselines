@@ -19,10 +19,42 @@ Ported from:
 https://github.com/google-research/scenic/blob/main/scenic/projects/baselines/bit_resnet.py.
 """
 
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
+
+
+class ScaleLogitsWithLearnedTemp(nn.Module):
+  """Layer which scales logits with a learned temperature parameter."""
+  temperature: float = 1.0
+  temp_lower: float = 0.05
+  temp_upper: float = 5.0
+
+  def setup(self):
+    self._temperature_pre_sigmoid = self.param('temperature_pre_sigmoid',
+                                               nn.initializers.zeros, (1,))
+
+  def get_temperature(self):
+    if self.temperature > 0:
+      return self.temperature
+
+    t = jax.nn.sigmoid(self._temperature_pre_sigmoid)
+    return (self.temp_upper - self.temp_lower) * t + self.temp_lower
+
+  @nn.compact
+  def __call__(self, logits):
+    """Returns temperature scaled logits.
+
+    Args:
+      logits: Tensor. The pre temperature scaled logits.
+
+    Returns:
+      Tuple: (Tensor logits - temperature scaled, temperature parameter).
+    """
+    temperature = self.get_temperature()
+    return (logits / temperature, temperature)
 
 
 def weight_standardize(w: jnp.ndarray,
@@ -43,15 +75,11 @@ class IdentityLayer(nn.Module):
 
 
 class StdConv(nn.Conv):
-  """Convolution with weight standardized kernel."""
 
-  def param(self,
-            name: str,
-            initializer: Callable[..., Any],
-            shape: Tuple[int, ...]):
-    param = super().param(name, initializer, shape)
+  def param(self, name, *a, **kw):
+    param = super().param(name, *a, **kw)
     if name == 'kernel':
-      param = weight_standardize(param, axis=[0, 1, 2], eps=1e-10)
+      param = weight_standardize(param, axis=[0, 1, 2], eps=1e-5)
     return param
 
 
@@ -166,6 +194,9 @@ class BitResNet(nn.Module):
   width_factor: int = 1
   num_layers: int = 50
   max_output_stride: int = 32
+  temperature: float = 1.0
+  temp_lower: float = 0.05
+  temp_upper: float = 5.0
 
   @nn.compact
   def __call__(self,
@@ -232,6 +263,15 @@ class BitResNet(nn.Module):
         self.num_outputs,
         kernel_init=nn.initializers.zeros,
         name='head')(x)
+
+    temp_layer = ScaleLogitsWithLearnedTemp(temperature=self.temperature,
+                                            temp_lower=self.temp_lower,
+                                            temp_upper=self.temp_upper,
+                                            name='temp_layer')
+    x, temp = temp_layer(x)
+
+    representations['temperature'] = temp
+
     return x, representations
 
 
@@ -258,9 +298,15 @@ def bit_resnet(
     num_classes: int,
     num_layers: int,
     width_factor: int,
-    gn_num_groups: int = 32) -> nn.Module:
+    gn_num_groups: int = 32,
+    temperature: float = 1.0,
+    temperature_lower_bound: float = 0.05,
+    temperature_upper_bound: float = 5.0) -> nn.Module:
   return BitResNet(
       num_outputs=num_classes,
       gn_num_groups=gn_num_groups,
       width_factor=width_factor,
-      num_layers=num_layers)
+      num_layers=num_layers,
+      temperature=temperature,
+      temp_lower=temperature_lower_bound,
+      temp_upper=temperature_upper_bound)

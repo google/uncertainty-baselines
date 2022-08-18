@@ -74,6 +74,7 @@ try:
   from uncertainty_baselines.models import vit_batchensemble
   from uncertainty_baselines.models import vit_batchensemble_gp
   from uncertainty_baselines.models.bit_resnet import bit_resnet
+  from uncertainty_baselines.models.bit_resnet_heteroscedastic import bit_resnet_heteroscedastic
   from uncertainty_baselines.models.vit import vision_transformer
   from uncertainty_baselines.models.vit_batchensemble import vision_transformer_be
   from uncertainty_baselines.models.vit_batchensemble_gp import vision_transformer_be_gp

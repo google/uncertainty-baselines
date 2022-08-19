@@ -418,7 +418,8 @@ def deepbank_uncertainty_metrics(
     aux_values: Dict[Text, Any],
     vocab: seqio.SentencePieceVocabulary = DEFAULT_VOCAB,
     data_version: str = 'v0',
-    num_ece_bins: int = 15) -> Dict[Text, float]:
+    num_ece_bins: int = 15,
+    smatch_threshold: float = 0.85) -> Dict[Text, float]:
   """Returns compositional uncertainty metrics for DeepBank graphs.
 
   This function takes `predictions` (a list of strings) and `aux_values`
@@ -441,6 +442,7 @@ def deepbank_uncertainty_metrics(
     data_version: DeepBank version.
     num_ece_bins: The number of bins to use for expected calibration error (ECE)
       metric.
+    smatch_threshold: Threshold for defining a good smatch score.
 
   Returns:
     A dictionary of metric values.
@@ -459,12 +461,15 @@ def deepbank_uncertainty_metrics(
   all_node_prob_match_list = []
   all_attr_prob_match_list = []
   all_edge_prob_match_list = []
+  all_smatch_score_list = []
+  seq_log_probs = []
   for pred, target, log_prob in zip(predictions, targets, log_probs):
     token_ids = vocab.encode(pred)
     tokens = [
         metrics_utils.single_token_transfer(vocab.decode([id]), data_version)
         for id in token_ids
     ]
+    seq_log_probs.append(np.sum(log_prob[:len(tokens)+1]))
     log_prob = log_prob[:len(tokens)]
 
     pred_penman_with_prob = penman_utils.assign_prob_to_penman(
@@ -475,9 +480,15 @@ def deepbank_uncertainty_metrics(
       # The predicted graph here is an ill-formed graph. Skip.
       logging.warning('Fail to parse DAG: %s', pred_penman_with_prob)
       continue
+
+    pred_penman = penman_utils.PENMANStr(
+        pred, variable_free=True, retokenized=True,
+        data_version=data_version).penman
     gold_penman = penman_utils.PENMANStr(
         target, variable_free=True, retokenized=True,
         data_version=data_version).penman
+    _, _, smatch_score = graph_utils.get_smatch(pred_penman, gold_penman)
+    all_smatch_score_list.append(smatch_score)
 
     # Generates a list of predictive probability and predictive accuracy for
     # node/attribute/edge predictions.
@@ -520,6 +531,30 @@ def deepbank_uncertainty_metrics(
   # Edge evaluation
   edge_ece, edge_calib_auroc, edge_calib_auprc = compositional_eval(
       all_edge_prob_match_list)
+  # Uncertainty metrics based on smtach
+  model_pred_confs = np.exp(np.array(seq_log_probs, dtype=np.float32))
+  model_pred_confs_ece = np.stack([1. - model_pred_confs, model_pred_confs],
+                                  axis=-1)
+  correct_predictions = np.array(
+      [s >= smatch_threshold for s in all_smatch_score_list])
+  correct_predictions_fl = np.array(correct_predictions, dtype=np.float32)
+
+  smatch_ece = rm_metrics.ExpectedCalibrationError(num_bins=num_ece_bins)
+  smatch_calib_auroc = rm_metrics.CalibrationAUC(
+      curve='ROC', correct_pred_as_pos_label=False)
+  smatch_calib_auprc = rm_metrics.CalibrationAUC(
+      curve='PR', correct_pred_as_pos_label=False)
+
+  smatch_ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+  smatch_calib_auroc.add_batch(
+      np.ones_like(correct_predictions_fl),
+      confidence=model_pred_confs,
+      label=correct_predictions_fl)
+  smatch_calib_auprc.add_batch(
+      np.ones_like(correct_predictions_fl),
+      confidence=model_pred_confs,
+      label=correct_predictions_fl)
+
   analysis = dict(
       node_ece=node_ece.result()['ece'],
       node_calib_auroc=node_calib_auroc.result()['calibration_auc'],
@@ -530,6 +565,9 @@ def deepbank_uncertainty_metrics(
       edge_ece=edge_ece.result()['ece'],
       edge_calib_auroc=edge_calib_auroc.result()['calibration_auc'],
       edge_calib_auprc=edge_calib_auprc.result()['calibration_auc'],
+      smatch_ece=smatch_ece.result()['ece'],
+      smatch_calib_auroc=smatch_calib_auroc.result()['calibration_auc'],
+      smatch_calib_auprc=smatch_calib_auprc.result()['calibration_auc'],
   )
   return analysis
 
@@ -540,7 +578,8 @@ def dataflow_uncertainty_metrics(
     aux_values: Dict[Text, Any],
     vocab: seqio.SentencePieceVocabulary = DEFAULT_VOCAB,
     dataset_name: str = 'snips',
-    num_ece_bins: int = 15) -> Dict[Text, float]:
+    num_ece_bins: int = 15,
+    smatch_threshold: float = 0.85) -> Dict[Text, float]:
   """Returns compositional uncertainty metrics for DataFlow graphs.
 
   This function takes `predictions` (a list of strings) and `aux_values`
@@ -563,6 +602,7 @@ def dataflow_uncertainty_metrics(
     dataset_name: name of the dataflow dataset.
     num_ece_bins: The number of bins to use for expected calibration error (ECE)
       metric.
+    smatch_threshold: Threshold for defining a good smatch score.
 
   Returns:
     A dictionary of metric values.
@@ -581,12 +621,15 @@ def dataflow_uncertainty_metrics(
   all_node_prob_match_list = []
   all_attr_prob_match_list = []
   all_edge_prob_match_list = []
+  all_smatch_score_list = []
+  seq_log_probs = []
   for pred, target, log_prob in zip(predictions, targets, log_probs):
     token_ids = vocab.encode(pred)
     tokens = [
         metrics_utils.single_token_transfer(vocab.decode([id]), dataset_name)
         for id in token_ids
     ]
+    seq_log_probs.append(np.sum(log_prob[:len(tokens)+1]))
     log_prob = log_prob[:len(tokens)]
 
     pred_penman_with_prob = penman_utils.assign_prob_to_penman_for_dataflow(
@@ -597,9 +640,15 @@ def dataflow_uncertainty_metrics(
       # The predicted graph here is an ill-formed graph. Skip.
       logging.warning('Fail to parse DAG: %s', pred_penman_with_prob)
       continue
+
+    pred_penman = penman_utils.PENMANStr(
+        pred, variable_free=True, retokenized=True,
+        data_version=dataset_name).penman
     gold_penman = penman_utils.PENMANStr(
         target, variable_free=True, retokenized=True,
         data_version=dataset_name).penman
+    _, _, smatch_score = graph_utils.get_smatch(pred_penman, gold_penman)
+    all_smatch_score_list.append(smatch_score)
 
     # Generates a list of predictive probability and predictive accuracy for
     # node/attribute/edge predictions.
@@ -642,6 +691,30 @@ def dataflow_uncertainty_metrics(
   # Edge evaluation
   edge_ece, edge_calib_auroc, edge_calib_auprc = compositional_eval(
       all_edge_prob_match_list)
+  # Uncertainty metrics based on smtach
+  model_pred_confs = np.exp(np.array(seq_log_probs, dtype=np.float32))
+  model_pred_confs_ece = np.stack([1. - model_pred_confs, model_pred_confs],
+                                  axis=-1)
+  correct_predictions = np.array(
+      [s >= smatch_threshold for s in all_smatch_score_list])
+  correct_predictions_fl = np.array(correct_predictions, dtype=np.float32)
+
+  smatch_ece = rm_metrics.ExpectedCalibrationError(num_bins=num_ece_bins)
+  smatch_calib_auroc = rm_metrics.CalibrationAUC(
+      curve='ROC', correct_pred_as_pos_label=False)
+  smatch_calib_auprc = rm_metrics.CalibrationAUC(
+      curve='PR', correct_pred_as_pos_label=False)
+
+  smatch_ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+  smatch_calib_auroc.add_batch(
+      np.ones_like(correct_predictions_fl),
+      confidence=model_pred_confs,
+      label=correct_predictions_fl)
+  smatch_calib_auprc.add_batch(
+      np.ones_like(correct_predictions_fl),
+      confidence=model_pred_confs,
+      label=correct_predictions_fl)
+
   analysis = dict(
       node_ece=node_ece.result()['ece'],
       node_calib_auroc=node_calib_auroc.result()['calibration_auc'],
@@ -652,6 +725,9 @@ def dataflow_uncertainty_metrics(
       edge_ece=edge_ece.result()['ece'],
       edge_calib_auroc=edge_calib_auroc.result()['calibration_auc'],
       edge_calib_auprc=edge_calib_auprc.result()['calibration_auc'],
+      smatch_ece=smatch_ece.result()['ece'],
+      smatch_calib_auroc=smatch_calib_auroc.result()['calibration_auc'],
+      smatch_calib_auprc=smatch_calib_auprc.result()['calibration_auc'],
   )
   return analysis
 

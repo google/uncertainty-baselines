@@ -20,7 +20,8 @@ main training task and an optional second for bias. Any of these models can
 serve as the base model trained in Introspective Active Sampling.
 """
 
-from typing import List
+import dataclasses
+from typing import List, Optional
 
 import tensorflow as tf
 
@@ -45,37 +46,42 @@ def get_model(name: str):
   return MODEL_REGISTRY[name]
 
 
+@dataclasses.dataclass
+class ModelTrainingParameters:
+  model_name: str
+  train_bias: bool
+  num_classes: int
+  num_epochs: float = 10
+  learning_rate: float = 1e-4
+  hidden_sizes: Optional[List[int]] = None
+
+
 @register_model('mlp')
 class MLP(tf.keras.Model):
   """Defines a MLP model class with two output heads.
 
   One output head is for the main training task, while the other is an optional
   head to train on bias labels. Inputs are feature vectors.
-
-  Attributes:
-    train_bias: Boolean that, when true, trains a second output head for bias.
-    name: String representing name of the model.
-    hidden_sizes: List of integers for the size and number of hidden layers.
   """
 
   def __init__(self,
-               train_bias: bool,
-               name: str,
-               hidden_sizes: List[int]):
-    super(MLP, self).__init__(name=name)
-    self.train_bias = train_bias
+               model_params: ModelTrainingParameters):
+    super(MLP, self).__init__(name=model_params.model_name)
 
     self.dense_layers = tf.keras.models.Sequential(name='hidden')
-    for size in hidden_sizes:
+    for size in model_params.hidden_sizes:
       self.dense_layers.add(tf.keras.layers.Dense(size,
                                                   activation='relu',
                                                   kernel_regularizer='l2'))
       self.dense_layers.add(tf.keras.layers.Dropout(0.2))
 
     self.output_main = tf.keras.layers.Dense(
-        2, activation='softmax', name='main')
+        model_params.num_classes, activation='softmax', name='main')
     self.output_bias = tf.keras.layers.Dense(
-        2, trainable=self.train_bias, activation='softmax', name='bias')
+        model_params.num_classes,
+        trainable=model_params.train_bias,
+        activation='softmax',
+        name='bias')
 
   def call(self, inputs):
     x = self.dense_layers(inputs)

@@ -14,11 +14,14 @@
 # limitations under the License.
 
 """Data loader for the Jigsaw toxicity classification datasets."""
+
+from collections.abc import Collection, Sequence
 import json
 import os
 from typing import Any, Dict, Optional, Tuple, Union
 
 from absl import logging
+import pandas as pd
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -53,6 +56,10 @@ _DATASET_TYPES = ['tfrecord', 'csv', 'tfds']
 NUM_EXAMPLES_JSON = 'num_examples.json'
 
 BIAS_EXAMPLE_IDS_JSON = 'bias_ids.json'
+
+_ID_NAME = 'id'
+_IS_TRAIN_NAME = 'is_train'
+_SIGNAL_NAMES = [_IS_TRAIN_NAME]
 
 
 def _build_tfrecord_dataset(glob_dir: str,
@@ -95,6 +102,46 @@ def _make_features_spec(
     features_spec_dict.update({subtype: tf.io.FixedLenFeature([], tf.float32)})
 
   return features_spec_dict
+
+
+def _load_signals(data_path: str) -> pd.DataFrame:
+  with tf.io.gfile.GFile(data_path, 'r') as f:
+    signals = pd.read_csv(f)
+  return signals
+
+
+class _KeyValueStore(object):
+  """Storing key-(multi-)value pairs."""
+
+  def __init__(self, data: pd.DataFrame, key_name: str):
+    """Initializes multiple key-value lookup tables based on the data."""
+
+    self._data = data
+    self._key_name = key_name
+    self._value_names = set(
+        column for column in self._data.columns if column != self._key_name)
+
+    self._lookup_tables = {}
+    keys = tf.convert_to_tensor(self._data[self._key_name], dtype=tf.string)
+    for value_name in self._value_names:
+      values = tf.convert_to_tensor(self._data[value_name])
+      table = tf.lookup.StaticHashTable(
+          tf.lookup.KeyValueTensorInitializer(keys, values), default_value=0)
+      self._lookup_tables[value_name] = table
+
+  def lookup(self, keys: tf.Tensor,
+             value_names: Sequence[str]) -> dict[str, tf.Tensor]:
+    """Searchs values of `value_names` by `keys`."""
+    return {
+        value_name: self._lookup_tables[value_name].lookup(keys)
+        for value_name in value_names
+        if value_name in self._value_names
+    }
+
+  @property
+  def value_names(self) -> Collection[str]:
+    """Value names in the store."""
+    return self._value_names
 
 
 class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
@@ -149,25 +196,23 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
     return self._tfds_dataset_builder._download_and_prepare(  # pylint: disable=protected-access
         dl_manager, download_config)
 
-  def _as_dataset(
-      self,
-      split: tfds.Split,
-      decoders=None,
-      read_config=None,
-      shuffle_files=False) -> tf.data.Dataset:
+  def _as_dataset(self,
+                  split: tfds.Split,
+                  decoders=None,
+                  read_config=None,
+                  shuffle_files=False) -> tf.data.Dataset:
     raise NotImplementedError
 
   # Note that we override `as_dataset` instead of `_as_dataset` to avoid any
   # `data_dir` reading logic.
-  def as_dataset(
-      self,
-      split: tfds.Split,
-      *,
-      batch_size=None,
-      decoders=None,
-      read_config=None,
-      shuffle_files=False,
-      as_supervised=False) -> tf.data.Dataset:
+  def as_dataset(self,
+                 split: tfds.Split,
+                 *,
+                 batch_size=None,
+                 decoders=None,
+                 read_config=None,
+                 shuffle_files=False,
+                 as_supervised=False) -> tf.data.Dataset:
     """Constructs a `tf.data.Dataset`, see parent class for documentation."""
     is_training = split == tfds.Split.TRAIN
     if self._dataset_type == 'tfds':
@@ -235,7 +280,9 @@ class _JigsawToxicityDataset(base.BaseDataset):
                data_dir: Optional[str] = None,
                dataset_type: str = 'tfrecord',
                is_training: Optional[bool] = None,
-               tf_hub_preprocessor_url: Optional[str] = None):  # pytype: disable=annotation-type-mismatch
+               tf_hub_preprocessor_url: Optional[str] = None,
+               signals: Optional[pd.DataFrame] = None,
+               only_keep_train_examples: bool = False):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -243,16 +290,15 @@ class _JigsawToxicityDataset(base.BaseDataset):
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
-      additional_labels: names of additional labels (e.g. toxicity subtypes),
-        as well as identity labels for the case of CivilCommentsIdentities.
-      multi_task_labels: name of the additional label for multi-task
-        training. Available only for dataset_type='csv'.
+      additional_labels: names of additional labels (e.g. toxicity subtypes), as
+        well as identity labels for the case of CivilCommentsIdentities.
+      multi_task_labels: name of the additional label for multi-task training.
+        Available only for dataset_type='csv'.
       multi_task_label_threshold: threshold used to produce binary bias label
-        from the soft labels, i.e.,
-        multi_task_label = I(soft_label > multi_task_label_threshold). If
-        `None` then no threshold is applied..
-      validation_percent: the percent of the training set to use as a
-        validation set.
+        from the soft labels, i.e., multi_task_label = I(soft_label >
+        multi_task_label_threshold). If `None` then no threshold is applied..
+      validation_percent: the percent of the training set to use as a validation
+        set.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
       max_seq_length: maximum sequence length of the tokenized sentences.
@@ -273,11 +319,14 @@ class _JigsawToxicityDataset(base.BaseDataset):
       tf_hub_preprocessor_url: The TF Hub url to the BERT tokenizer. If given,
         then the raw text from TFDS will be augmented with the BERT-compatible
         `input_mask`, `input_ids`, and `segment_ids`.
+      signals: The Pandas DataFrame storing signals for each example id.
+      only_keep_train_examples: whether to filter examples by signal
+        `{_IS_TRAIN_NAME}`.
     """
     dataset_type = dataset_type.lower()
     if dataset_type not in _DATASET_TYPES:
       raise ValueError(
-          f'dataset_type musy be one of {_DATASET_TYPES}, got `{dataset_type}`.'
+          f'dataset_type must be one of {_DATASET_TYPES}, got `{dataset_type}`.'
       )
     if dataset_type != 'tfds' and data_dir is None:
       raise ValueError('`data_dir` cannot be None if `dataset_type`!="tfds".')
@@ -305,14 +354,32 @@ class _JigsawToxicityDataset(base.BaseDataset):
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
 
+    self._only_keep_train_examples = only_keep_train_examples
+    if self._only_keep_train_examples:
+      if split not in ['train', tfds.Split.TRAIN]:
+        raise ValueError(
+            f'Expect split to be `train` when `only_keep_train_examples` is '
+            f'True, found {split}')
+      if signals is None:
+        raise ValueError(
+            'Expect valid signals when `only_keep_train_examples` is True')
+      filter_fn = lambda x: x[_IS_TRAIN_NAME] == 1
+    else:
+      filter_fn = None
+
+    self._signals = signals
+    if self._signals is not None:
+      self._signal_db = _KeyValueStore(self._signals, key_name=_ID_NAME)
+    else:
+      self._signal_db = None
+
     if validation_percent == 0:
       # This value will never be used.
       num_validation_examples = (
           dataset_builder.info.splits['validation'].num_examples)
     else:
       num_train_examples = dataset_builder.info.splits['train'].num_examples
-      num_validation_examples = (
-          int(num_train_examples * validation_percent))
+      num_validation_examples = (int(num_train_examples * validation_percent))
 
     # Reading locally does not support tfds.core.ReadInstruction (yet), so we
     # also default to split = {'train', 'validation'} if data_dir is provided.
@@ -338,7 +405,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
         num_parallel_parser_calls=num_parallel_parser_calls,
         drop_remainder=drop_remainder,
         download_data=download_data,
-        label_key='toxicity')
+        label_key='toxicity',
+        filter_fn=filter_fn)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""
@@ -367,6 +435,10 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
       # Read in sentences.
       parsed_example = {'id': feature_id, 'features': feature, 'labels': label}
+
+      if self._signal_db is not None:
+        signals = self._signal_db.lookup(feature_id, _SIGNAL_NAMES)
+        parsed_example.update(signals)
 
       # Append processed input for BERT model.
       if self.tf_hub_preprocessor_url:
@@ -401,6 +473,12 @@ class _JigsawToxicityDataset(base.BaseDataset):
       return parsed_example
 
     return _example_parser
+
+  @property
+  def num_examples(self):
+    if self._only_keep_train_examples:
+      return self._signals[_IS_TRAIN_NAME].sum()
+    return super().num_examples
 
 
 class WikipediaToxicityDataset(_JigsawToxicityDataset):

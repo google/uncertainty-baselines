@@ -15,6 +15,7 @@
 
 """Register parser tasks."""
 import functools
+import os
 
 import seqio
 import t5.data
@@ -115,9 +116,21 @@ def get_dataflow_metric_fns(dataset_name='snips'):
                         dataset_name=dataset_name)]
 
 
+def get_retrieval_augmented_data_config(data_type='random_retrieval_on_gold',
+                                        data_subtype='num_examplar=1_depth=1'):
+  """Prepares retrieval-augmented data config."""
+  data_root_path = '/cns/nm-d/home/lzi/public/smcalflow/t5/'
+  data_full_path = os.path.join(data_root_path, data_type, data_subtype)
+  train_patterns = [f'{data_full_path}/train.tfr*']
+  eval_patterns = dict(
+      validation=f'{data_full_path}/valid.tfr*',
+      test=f'{data_full_path}/valid.tfr*')
+  return utils.dataset_configs(
+      train_patterns=train_patterns, eval_patterns=eval_patterns)
+
+
 # Academic parsing tasks for data flow datasets.
 # TODO(jereliu): Deprecate in favor of seqio.TaskRegistry.
-
 t5.data.TaskRegistry.add(
     'smcalflow',
     t5.data.Task,
@@ -138,6 +151,44 @@ t5.data.TaskRegistry.add(
     text_preprocessor=None,
     metric_fns=get_dataflow_metric_fns(dataset_name='smcalflow'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
+
+# Registers retrieval-augmented tasks.
+RETRIEVAL_DATA_TYPES = [
+    'random_retrieval_on_gold', 'oracle_retrieval_on_gold',
+    'uncertain_retrieval_on_gold'
+]
+RETRIEVAL_DATA_SUBTYPES = [
+    f'num_examplar={n}_depth={d}' for n in (1, 3, 5) for d in (1, 2, 3)]  # pylint:disable=g-complex-comprehension
+for retrieval_data_type in RETRIEVAL_DATA_TYPES:
+  for retrieval_data_subtype in RETRIEVAL_DATA_SUBTYPES:
+    retrieval_config = get_retrieval_augmented_data_config(
+        data_type=retrieval_data_type, data_subtype=retrieval_data_subtype)
+
+    # Replaces `=` sign since seqio task name does not allow it.
+    subtype_name = retrieval_data_subtype.replace('=', '_')
+
+    # Registers both a train-only task and a eval-only task.
+    t5.data.TaskRegistry.add(
+        f'smcalflow_penman_{retrieval_data_type}_{subtype_name}',
+        t5.data.Task,
+        dataset_fn=functools.partial(
+            utils.parsing_dataset, params=retrieval_config),
+        splits=['train'],
+        text_preprocessor=None,
+        metric_fns=get_dataflow_metric_fns(dataset_name='smcalflow'),
+        shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
+
+    # Eval-only data, can be used to evaluate the robustness of a
+    # retieval-augmented model to different retrieval methods.
+    t5.data.TaskRegistry.add(
+        f'smcalflow_penman_eval_{retrieval_data_type}_{subtype_name}',
+        t5.data.Task,
+        dataset_fn=functools.partial(
+            utils.parsing_dataset, params=retrieval_config),
+        splits=['validation', 'test'],
+        text_preprocessor=None,
+        metric_fns=get_dataflow_metric_fns(dataset_name='smcalflow'),
+        shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 t5.data.TaskRegistry.add(
     'multiwoz',

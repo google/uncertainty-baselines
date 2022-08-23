@@ -81,6 +81,20 @@ MixtureRegistry.add(
 MixtureRegistry.add('smcalflow', tasks=['smcalflow'], default_rate=1.)
 MixtureRegistry.add(
     'smcalflow_penman', tasks=['smcalflow_penman'], default_rate=1.)
+# SMCalflow dataset with retrieved subgraphs based on gold graphs.
+# evaluate on different retrieval strategies.
+for type_name in dataflow_config.RETRIEVAL_DATA_TYPES:
+  for subtype_name in dataflow_config.RETRIEVAL_DATA_SUBTYPES:
+    subtype_name_normalized = subtype_name.replace('=', '_')
+    task_name = f'smcalflow_penman_{type_name}_{subtype_name_normalized}'
+    eval_task_names = [
+        f'smcalflow_penman_eval_{type_name}_{subtype_name_normalized}'
+        for type_name in deepbank_config.RETRIEVAL_DATA_TYPES
+    ]
+    MixtureRegistry.add(
+        task_name, tasks=[
+            task_name,
+        ] + eval_task_names, default_rate=1.)
 
 MixtureRegistry.add('multiwoz', tasks=['multiwoz'], default_rate=1.)
 

@@ -1024,12 +1024,14 @@ def get_smatch(cur_dag1,
     return precision, recall, 0.00
 
 
-def get_mapping_dict(prefix1, prefix2, mapping):
+def get_mapping_dict(prefix1, prefix2, mapping, reverse=False):
   """Transfers the mapping list to mapping dict."""
   mapping_dict = {}
   for i, j in enumerate(mapping):
     if j != -1:
       mapping_dict[prefix1 + str(i)] = prefix2 + str(j)
+  if reverse:
+    mapping_dict = {v: k for k, v in mapping_dict.items()}
   return mapping_dict
 
 
@@ -1087,7 +1089,7 @@ def find_mismatched_node_idxs(mapping, prefix1, prefix2,
 
 
 def find_uncertain_node_idxs(instance_prob_dict, attribute_prob_dict,
-                             relation_prob_dict, mapping, prefix1, prefix2,
+                             relation_prob_dict, mapping_dict,
                              return_probs=False):
   """Finds the corresponding gold node indexes based on uncertainty in ascending order."""
   idx_prob_dict = instance_prob_dict.copy()
@@ -1097,7 +1099,6 @@ def find_uncertain_node_idxs(instance_prob_dict, attribute_prob_dict,
   for (_, edge_start, _), edge_prob in relation_prob_dict.items():
     if idx_prob_dict[edge_start] > edge_prob:
       idx_prob_dict[edge_start] = edge_prob
-  mapping_dict = get_mapping_dict(prefix1, prefix2, mapping)
   uncertain_node_idxs_with_probs = [(mapping_dict[idx], prob)
                                     for (idx, prob) in idx_prob_dict.items()
                                     if idx in mapping_dict]

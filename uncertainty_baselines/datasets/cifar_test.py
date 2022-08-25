@@ -15,6 +15,8 @@
 
 """Tests for CIFAR."""
 
+from unittest import mock
+
 from absl.testing import parameterized
 import tensorflow as tf
 import uncertainty_baselines as ub

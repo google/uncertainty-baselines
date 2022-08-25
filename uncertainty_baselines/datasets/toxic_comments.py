@@ -59,7 +59,10 @@ BIAS_EXAMPLE_IDS_JSON = 'bias_ids.json'
 
 _ID_NAME = 'id'
 _IS_TRAIN_NAME = 'is_train'
-_SIGNAL_NAMES = [_IS_TRAIN_NAME]
+_SIGNAL_NAMES = [
+    _IS_TRAIN_NAME, 'pseudo_labels', 'use_pseudo_label', 'bias_rank',
+    'uncertainty', 'bias', 'noise', 'variance', 'error'
+]
 
 
 def _build_tfrecord_dataset(glob_dir: str,
@@ -124,9 +127,9 @@ class _KeyValueStore(object):
     self._lookup_tables = {}
     keys = tf.convert_to_tensor(self._data[self._key_name], dtype=tf.string)
     for value_name in self._value_names:
-      values = tf.convert_to_tensor(self._data[value_name])
+      values = tf.convert_to_tensor(self._data[value_name], dtype=tf.float32)
       table = tf.lookup.StaticHashTable(
-          tf.lookup.KeyValueTensorInitializer(keys, values), default_value=0)
+          tf.lookup.KeyValueTensorInitializer(keys, values), default_value=0.)
       self._lookup_tables[value_name] = table
 
   def lookup(self, keys: tf.Tensor,
@@ -282,7 +285,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
                is_training: Optional[bool] = None,
                tf_hub_preprocessor_url: Optional[str] = None,
                signals: Optional[pd.DataFrame] = None,
-               only_keep_train_examples: bool = False):  # pytype: disable=annotation-type-mismatch
+               only_keep_train_examples: bool = False,
+               **kwargs):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -322,6 +326,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
       signals: The Pandas DataFrame storing signals for each example id.
       only_keep_train_examples: whether to filter examples by signal
         `{_IS_TRAIN_NAME}`.
+      **kwargs: arguments to be passed to the base class.
     """
     dataset_type = dataset_type.lower()
     if dataset_type not in _DATASET_TYPES:
@@ -406,7 +411,8 @@ class _JigsawToxicityDataset(base.BaseDataset):
         drop_remainder=drop_remainder,
         download_data=download_data,
         label_key='toxicity',
-        filter_fn=filter_fn)
+        filter_fn=filter_fn,
+        **kwargs)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:
     """Create a pre-process function to return labels and sentence tokens."""

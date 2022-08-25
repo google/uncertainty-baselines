@@ -98,7 +98,6 @@ class EnsembleEvalTest(absltest.TestCase):
           eval_period=4,
           random_seed=0,
           summarize_config_fn=gin_utils.summarize_gin_config,
-          use_gda=False,
       )
 
     self.do_training = do_training
@@ -122,7 +121,7 @@ class EnsembleEvalTest(absltest.TestCase):
       output_dir = os.path.join(model_dir, 'ensemble')
       # Use all checkpoints.
       restore_checkpoint_cfg = utils.RestoreCheckpointConfig(
-          path=model_dir, mode='all', use_gda=False)
+          path=model_dir, mode='all')
       eval_lib.evaluate(
           model=self.model,
           dataset_cfg=train_dataset_cfg,

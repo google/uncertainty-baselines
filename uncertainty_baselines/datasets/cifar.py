@@ -66,8 +66,7 @@ class _CifarDataset(base.BaseDataset):
                data_dir: Optional[str] = None,
                use_bfloat16: bool = False,
                aug_params: Optional[Dict[str, Any]] = None,
-               is_training: Optional[bool] = None,
-               is_cifar10h: Optional[bool] = False):
+               is_training: Optional[bool] = None):
     """Create a CIFAR10 or CIFAR100 tf.data.Dataset builder.
 
     Args:
@@ -105,7 +104,6 @@ class _CifarDataset(base.BaseDataset):
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
-      is_cifar10h: Whether or not to load the Cifar10H labels for Cifar10.
     """
     self._normalize = normalize
     dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
@@ -136,7 +134,6 @@ class _CifarDataset(base.BaseDataset):
       # Hard target in the first epoch!
       aug_params['mixup_coeff'] = tf.ones([ensemble_size, 10])
     self._aug_params = aug_params
-
 
     mixup_alpha = self._aug_params.get('mixup_alpha', 0)
     label_smoothing = self._aug_params.get('label_smoothing', 0.)

@@ -22,8 +22,9 @@ feature will vary depending on the type of data (feature vector, image, etc.),
 and the label is specific to the main task.
 """
 
+import dataclasses
 import json
-from typing import Any, Dict, Iterator, List, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -56,6 +57,16 @@ def get_dataset(name: str):
     raise ValueError(
         f'Unknown dataset: {name}\nPossible choices: {DATASET_REGISTRY.keys()}')
   return DATASET_REGISTRY[name]
+
+
+@dataclasses.dataclass
+class Dataloader:
+  train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
+  val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
+  train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
+  eval_ds: Optional[Dict[
+      str,
+      tf.data.Dataset]] = None  # Validation and any additional test datasets.
 
 
 def gather_data_splits(slice_idx: List[int],
@@ -124,8 +135,7 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
 @register_dataset('cardiotoxicity')
 def get_cardiotoxicity_dataset(
     num_splits: int, batch_size: int
-) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset, Dict[
-        str, tf.data.Dataset]]:
+) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
@@ -185,5 +195,6 @@ def get_cardiotoxicity_dataset(
       'test': test_ds,
       'test2': test2_ds
   }
-  return train_splits, val_splits, train_ds, eval_datasets
+  return Dataloader(train_splits, val_splits, train_ds, eval_datasets)
+
 

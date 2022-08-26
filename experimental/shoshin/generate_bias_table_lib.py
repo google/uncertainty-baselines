@@ -15,7 +15,6 @@
 
 """Utilities for Introspective Active Sampling.
 
-TODO(jihyeonlee): Check if table generation function is still necessary.
 Library of utilities for the Introspecive Active Sampling method. Includes a
 function to generate a table mapping example ID to bias label, which can be
 used to train the bias output head.
@@ -29,28 +28,70 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
+import data  # local file import from experimental.shoshin
+import models  # local file import from experimental.shoshin
+import train_tf_lib  # local file import from experimental.shoshin
+
+
+EXAMPLE_ID_KEY = 'example_id'
+BIAS_LABEL_KEY = 'bias_label'
+# Subdirectory for models trained on splits in FLAGS.output_dir.
+COMBOS_SUBDIR = 'combos'
+
+
+def load_trained_models(combos_dir: str,
+                        model_params: models.ModelTrainingParameters):
+  """Loads models trained on different combinations of data splits."""
+  trained_models = []
+  for combo_name in tf.io.gfile.listdir(combos_dir):
+    combo_model = train_tf_lib.init_model(
+        model_params=model_params,
+        experiment_name=combo_name)
+    ckpt_dir = os.path.join(combos_dir, combo_name, 'checkpoints')
+    best_latest_checkpoint = tf.train.latest_checkpoint(ckpt_dir)
+    load_status = combo_model.load_weights(best_latest_checkpoint)
+    # Optimizer will not be loaded (https://b.corp.google.com/issues/124099628),
+    # so expect only partial load. This is not currently an issue because
+    # model is only used for inference.
+    load_status.expect_partial()
+    load_status.assert_existing_objects_matched()
+    trained_models.append(combo_model)
+  return trained_models
+
+
+def load_existing_bias_table(path_to_table: str):
+  df = pd.read_csv(path_to_table)
+  init = tf.lookup.KeyValueTensorInitializer(
+      keys=tf.convert_to_tensor(
+          df[EXAMPLE_ID_KEY].to_numpy(), dtype=tf.string),
+      values=tf.convert_to_tensor(
+          df[BIAS_LABEL_KEY].to_numpy(), dtype=tf.int64),
+      key_dtype=tf.string,
+      value_dtype=tf.int64)
+  return tf.lookup.StaticHashTable(init, default_value=0)
+
 
 def get_example_id_to_bias_label_table(
-    train_splits: tf.data.Dataset, val_splits: tf.data.Dataset,
-    combos: List[List[int]], trained_models: List[tf.keras.Model],
+    dataloader: data.Dataloader,
+    combos_dir: str, trained_models: List[tf.keras.Model],
     num_splits: int,
-    bias_value_threshold: float,
-    bias_percentile_threshold: Optional[float] = None,
+    bias_percentile_threshold: float,
+    bias_value_threshold: Optional[float] = None,
     save_dir: Optional[str] = None,
     save_table: Optional[bool] = True) -> tf.lookup.StaticHashTable:
   """Generates a lookup table mapping example ID to bias label.
 
   Args:
-    train_splits: Splits of training dataset.
-    val_splits: Splits of validation dataset.
-    combos: Lists of indices indicating the in-domain splits used to train
-      models.
+    dataloader: Dataclass object containing training and validation data.
+    combos_dir: Directory of model checkpoints by the combination of data splits
+      used in training.
     trained_models: List of trained models.
     num_splits: Total number of slices that data was split into.
-    bias_value_threshold: Float representing the bias value threshold, above
-      which examples will receive a bias label of 1 (and 0 if below).
     bias_percentile_threshold: Float representing the percentile of bias
       values to give a label of 1 (and 0 for all others).
+    bias_value_threshold: Float representing the bias value threshold, above
+      which examples will receive a bias label of 1 (and 0 if below). Use
+      percentile by default.
     save_dir: Directory in which bias table will be saved as CSV.
     save_table: Boolean for whether or not to save table.
 
@@ -67,16 +108,16 @@ def get_example_id_to_bias_label_table(
     # 3. Calculate the bias value and, using the threshold, bias label.
     id_predictions_all = []
     ood_predictions_all = []
-    labels = list(train_splits[split_idx].map(
+    labels = list(dataloader.train_splits[split_idx].map(
         lambda feats, label, example_id: label).as_numpy_iterator())
-    labels += list(val_splits[split_idx].map(
+    labels += list(dataloader.val_splits[split_idx].map(
         lambda feats, label, example_id: label).as_numpy_iterator())
     labels = np.concatenate(labels)
-    for combo_idx, combo in enumerate(combos):
-      if split_idx in combo:
+    for combo_idx, combo in enumerate(tf.io.gfile.listdir(combos_dir)):
+      if str(split_idx) in combo:
         model = trained_models[combo_idx]
-        id_predictions_train = model.predict(train_splits[split_idx])
-        id_predictions_val = model.predict(val_splits[split_idx])
+        id_predictions_train = model.predict(dataloader.train_splits[split_idx])
+        id_predictions_val = model.predict(dataloader.val_splits[split_idx])
         id_predictions = tf.concat(
             [id_predictions_train['main'], id_predictions_val['main']], axis=0)
         id_predictions = tf.gather_nd(
@@ -84,8 +125,9 @@ def get_example_id_to_bias_label_table(
         id_predictions_all.append(id_predictions)
       else:
         model = trained_models[combo_idx]
-        ood_predictions_train = model.predict(train_splits[split_idx])
-        ood_predictions_val = model.predict(val_splits[split_idx])
+        ood_predictions_train = model.predict(
+            dataloader.train_splits[split_idx])
+        ood_predictions_val = model.predict(dataloader.val_splits[split_idx])
         ood_predictions = tf.concat(
             [ood_predictions_train['main'], ood_predictions_val['main']],
             axis=0)
@@ -93,9 +135,9 @@ def get_example_id_to_bias_label_table(
             ood_predictions, tf.expand_dims(labels, axis=1), batch_dims=1)
         ood_predictions_all.append(ood_predictions)
 
-    example_ids = list(train_splits[split_idx].map(
+    example_ids = list(dataloader.train_splits[split_idx].map(
         lambda feats, label, example_id: example_id).as_numpy_iterator())
-    example_ids += list(val_splits[split_idx].map(
+    example_ids += list(dataloader.val_splits[split_idx].map(
         lambda feats, label, example_id: example_id).as_numpy_iterator())
     example_ids = np.concatenate(example_ids)
     example_ids_all.append(example_ids)

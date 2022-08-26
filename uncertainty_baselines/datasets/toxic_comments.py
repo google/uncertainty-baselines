@@ -15,10 +15,9 @@
 
 """Data loader for the Jigsaw toxicity classification datasets."""
 
-from collections.abc import Collection, Sequence
 import json
 import os
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Collection, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
 import pandas as pd

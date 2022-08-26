@@ -195,10 +195,14 @@ def seq2seq_uncertainty_metrics(
       # The sum of `log_prob` is only up to the length of sequence.
       log_prob = log_prob[:pred_length]
 
-      token_targets.extend(target_encoded)
-      token_predictions.extend(pred_encoded)
-      token_log_probs.extend(log_prob.tolist())
       seq_log_probs.append(np.sum(log_prob))
+      # Length of log_prob might be less than length of the encoded sequence.
+      # This rarely happens and we will skip those sequences when computing
+      # token metrics.
+      if len(log_prob) == pred_length:
+        token_targets.extend(target_encoded)
+        token_predictions.extend(pred_encoded)
+        token_log_probs.extend(log_prob.tolist())
 
     token_log_probs = np.array(token_log_probs, dtype=np.float32)
     log_probs = np.array(seq_log_probs, dtype=np.float32)

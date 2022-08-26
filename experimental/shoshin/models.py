@@ -51,7 +51,7 @@ class ModelTrainingParameters:
   model_name: str
   train_bias: bool
   num_classes: int
-  num_epochs: float = 10
+  num_epochs: float
   learning_rate: float = 1e-4
   hidden_sizes: Optional[List[int]] = None
 

@@ -303,6 +303,7 @@ class Seq2seqTest(test_utils.BaseMetricsTest, parameterized.TestCase):
         self.targets, self.predictions, {'scores': self.beam_scores})
     expected_metrics = {
         'sequence_ece': 3e-06,
+        'sequence_weighted_ece': 3.04e-6,
         'sequence_calib_auroc': 0.0,
         'sequence_calib_auprc': 1.0
     }
@@ -313,9 +314,11 @@ class Seq2seqTest(test_utils.BaseMetricsTest, parameterized.TestCase):
         self.targets, self.predictions, {'scores': self.token_scores})
     expected_metrics = {
         'token_ece': 0.21678,
+        'token_weighted_ece': 0.1838,
         'token_calib_auroc': 0.69048,
         'token_calib_auprc': 0.79448,
         'sequence_ece': 3e-06,
+        'sequence_weighted_ece': 3.04e-6,
         'sequence_calib_auroc': 0.0,
         'sequence_calib_auprc': 1.0
     }

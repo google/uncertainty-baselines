@@ -104,12 +104,15 @@ def _seq2seq_uncertainty_metrics(targets: List[Text],
 
   # Define sequence-level uncertainty metrics (ECE and calibration AUC).
   ece = rm_metrics.ExpectedCalibrationError(num_bins=num_ece_bins)
+  weighted_ece = rm_metrics.ExpectedCalibrationError(
+      num_bins=num_ece_bins, weighted=True)
   calib_auroc = rm_metrics.CalibrationAUC(
       curve='ROC', correct_pred_as_pos_label=False)
   calib_auprc = rm_metrics.CalibrationAUC(
       curve='PR', correct_pred_as_pos_label=False)
 
   ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+  weighted_ece.add_batch(model_pred_confs_ece, label=correct_predictions)
   calib_auroc.add_batch(
       np.ones_like(correct_predictions_fl),
       confidence=model_pred_confs,
@@ -121,6 +124,7 @@ def _seq2seq_uncertainty_metrics(targets: List[Text],
 
   return {
       f'{metric_prefix}ece': ece.result()['ece'],
+      f'{metric_prefix}weighted_ece': weighted_ece.result()['ece'],
       f'{metric_prefix}calib_auroc': calib_auroc.result()['calibration_auc'],
       f'{metric_prefix}calib_auprc': calib_auprc.result()['calibration_auc']
   }
@@ -206,8 +210,6 @@ def seq2seq_uncertainty_metrics(
 
     token_log_probs = np.array(token_log_probs, dtype=np.float32)
     log_probs = np.array(seq_log_probs, dtype=np.float32)
-    # TODO(phandu): Add weighted token ECE metric following
-    # Section 2.2.2 of [1].
     metrics = _seq2seq_uncertainty_metrics(
         token_targets,
         token_predictions,

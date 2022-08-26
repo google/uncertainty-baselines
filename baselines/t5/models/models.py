@@ -626,9 +626,10 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
       params: t5x_models.PyTreeDef,
       batch: Mapping[str, jnp.ndarray],
       rng: Optional[jnp.ndarray] = None,
+      *,
       return_scores: bool = False,
-      num_mcdropout_samples: Optional[int] = None,
       dropout_seed: Optional[int] = None,
+      num_mcdropout_samples: Optional[int] = None,
       ensemble_probs: bool = True,
   ) -> Union[jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
     """Thin wrapper around `self.predict_batch_with_aux`.
@@ -639,32 +640,75 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
       rng: an optional RNG key to use during prediction (e.g., for decoding).
       return_scores: whether to return log-likelihood scores along with the
         predicted sequence.
+      dropout_seed: The seed to generate random keys for dropout samples.
       num_mcdropout_samples: The number of dropout samples for evaluation. If
         provided, we will perform MC Dropout evaluation.
-      dropout_seed: The seed to generate random keys for dropout samples.
       ensemble_probs: Whether to perform ensemble in probs or logits spaces.
 
     Returns:
       The model predictions with optional scores.
     """
-    dropout_rng = None
-    if dropout_seed is not None:
-      dropout_rng = jax.random.PRNGKey(dropout_seed)
-    if num_mcdropout_samples is not None:
-      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)
     # The return value is a 2-tuple of the predicted sequences and the
     # scores for each predicted sequence.
     predictions, scores_dict = self.predict_batch_with_aux(
         params=params,
         batch=batch,
         rng=rng,
-        dropout_rng=dropout_rng,
+        dropout_seed=dropout_seed,
+        num_mcdropout_samples=num_mcdropout_samples,
         ensemble_probs=ensemble_probs)
     scores = scores_dict['scores']
 
     if return_scores:
       return predictions, scores
     return predictions
+
+  def predict_batch_with_aux(
+      self,
+      params: t5x_models.PyTreeDef,
+      batch: Mapping[str, jnp.ndarray],
+      rng: Optional[jax.random.KeyArray] = None,
+      decoder_params: Optional[MutableMapping[str, Any]] = None,
+      return_all_decodes: bool = False,
+      num_decodes: int = 1,
+      *,
+      dropout_seed: Optional[int] = None,
+      num_mcdropout_samples: Optional[int] = None,
+      ensemble_probs: bool = True,
+  ) -> Tuple[jnp.ndarray, Mapping[str, jnp.ndarray]]:
+    """Predict with fast decoding beam search on a batch.
+
+    Args:
+      params: model parameters.
+      batch: a batch of inputs.
+      rng: an optional RNG key to use during prediction (e.g., for decoding).
+      decoder_params: additional (model-independent) parameters for the decoder.
+      return_all_decodes: whether to return the entire beam or just the top-1.
+      num_decodes: the number of beams to use in beam search.
+      dropout_seed: The seed to generate random keys for dropout samples.
+      num_mcdropout_samples: The number of dropout samples for evaluation. If
+        provided, we will perform MC Dropout evaluation.
+      ensemble_probs: Whether to perform ensemble in probs or logits spaces.
+
+    Returns:
+      A tuple containing:
+        the batch of predictions, with the entire beam if requested
+        an auxiliary dictionary of decoder scores
+    """
+    dropout_rng = None
+    if dropout_seed is not None:
+      dropout_rng = jax.random.PRNGKey(dropout_seed)
+    if num_mcdropout_samples is not None:
+      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)
+    return super().predict_batch_with_aux(
+        params=params,
+        batch=batch,
+        rng=rng,
+        decoder_params=decoder_params,
+        return_all_decodes=return_all_decodes,
+        num_decodes=num_decodes,
+        dropout_rng=dropout_rng,
+        ensemble_probs=ensemble_probs)
 
   def score_batch(
       self,

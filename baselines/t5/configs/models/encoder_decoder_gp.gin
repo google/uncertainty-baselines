@@ -76,10 +76,28 @@ t5_gp.TransformerGaussianProcess:
   steps_per_epoch = %STEPS_PER_EPOCH
 
 # Decoding override to write Top-K beams and scores to output.
-NUM_DECODES = 5
+EVAL_DROPOUT_SEED = None
+EVAL_NUM_MCDROPOUT_SAMPLES = None
+ENSEMBLE_PROBS = True
+NUM_DECODES = 1
 RETURN_ALL_DECODES = False
-gp_models.EncoderDecoderGPBeamScoreModel.predict_batch_with_aux.num_decodes = %NUM_DECODES
-gp_models.EncoderDecoderGPBeamScoreModel.predict_batch_with_aux.return_all_decodes = %RETURN_ALL_DECODES
+
+gp_models.EncoderDecoderGPBeamScoreModel.score_batch:
+  dropout_seed = %EVAL_DROPOUT_SEED
+  num_mcdropout_samples = %EVAL_NUM_MCDROPOUT_SAMPLES
+  ensemble_probs = %ENSEMBLE_PROBS
+
+gp_models.EncoderDecoderGPBeamScoreModel.predict_batch:
+  dropout_seed = %EVAL_DROPOUT_SEED
+  num_mcdropout_samples = %EVAL_NUM_MCDROPOUT_SAMPLES
+  ensemble_probs = %ENSEMBLE_PROBS
+
+gp_models.EncoderDecoderGPBeamScoreModel.predict_batch_with_aux:
+  num_decodes = %NUM_DECODES
+  return_all_decodes = %RETURN_ALL_DECODES
+  dropout_seed = %EVAL_DROPOUT_SEED
+  num_mcdropout_samples = %EVAL_NUM_MCDROPOUT_SAMPLES
+  ensemble_probs = %ENSEMBLE_PROBS
 
 # Set beam search parameters.
 RETURN_TOKEN_SCORES = True

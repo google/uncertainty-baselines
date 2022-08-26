@@ -80,4 +80,6 @@ models.EncoderDecoderBeamScoreModel.predict_batch:
 models.EncoderDecoderBeamScoreModel.predict_batch_with_aux:
   num_decodes = %NUM_DECODES
   return_all_decodes = %RETURN_ALL_DECODES
+  dropout_seed = %EVAL_DROPOUT_SEED
+  num_mcdropout_samples = %EVAL_NUM_MCDROPOUT_SAMPLES
   ensemble_probs = %ENSEMBLE_PROBS

@@ -224,7 +224,7 @@ class LogRegFewShotEvaluator:
     except KeyError:
       # TODO(kehanghan): Switch to `input_utils.get_data` instead of this
       # non-deterministic `input_pipeline.make_for_inference`.
-      train_ds, batches_tr = input_pipeline.make_for_inference(
+      train_ds, batches_tr = input_pipeline.make_for_inference(  # pytype: disable=wrong-keyword-args
           dataset=dataset,
           split=train_split,
           batch_size=self.batch_size,
@@ -233,7 +233,7 @@ class LogRegFewShotEvaluator:
           # clu example usage: preprocess_spec.parse(spec=self.pp_tr,
           # available_ops=preprocess_utils.all_ops()).
           preprocess_fn=pp_builder.get_preprocess_fn(self.pp_tr))
-      test_ds, batches_te = input_pipeline.make_for_inference(
+      test_ds, batches_te = input_pipeline.make_for_inference(  # pytype: disable=wrong-keyword-args
           dataset=dataset,
           split=test_split,
           batch_size=self.batch_size,

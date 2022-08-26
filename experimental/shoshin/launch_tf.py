@@ -175,12 +175,12 @@ def main(_) -> None:
 
   if FLAGS.train_main_only:
     # Trains only the main classification task with no bias output head.
-    train_splits, val_splits, _, eval_ds = dataset_builder(
-        FLAGS.num_splits, FLAGS.batch_size)
+    dataloader = dataset_builder(FLAGS.num_splits, FLAGS.batch_size)
     included_splits_idx = [int(i) for i in FLAGS.included_splits_idx]
     train_data = data.gather_data_splits(included_splits_idx,
-                                         train_splits)
-    val_data = data.gather_data_splits(included_splits_idx, val_splits)
+                                         dataloader.train_splits)
+    val_data = data.gather_data_splits(included_splits_idx,
+                                       dataloader.val_splits)
     two_head_model = train_tf.run_train(
         train_data,
         val_data,
@@ -189,7 +189,7 @@ def main(_) -> None:
         callbacks=callbacks)
     train_tf.evaluate_model(two_head_model,
                             os.path.join(FLAGS.output_dir, CHECKPOINTS_SUBDIR),
-                            eval_ds)
+                            dataloader.eval_ds)
 
   # TODO(jihyeonlee): Parallelize training models on different combinations
   # using XM v2 pipelines.
@@ -202,22 +202,22 @@ def main(_) -> None:
     ]
     for round_idx in range(FLAGS.num_rounds):
       logging.info('Running Round %d of Active Learning.', round_idx)
-      train_splits, val_splits, _, eval_ds = dataset_builder(
-          FLAGS.num_splits, FLAGS.batch_size)
+      dataloader = dataset_builder(FLAGS.num_splits, FLAGS.batch_size)
       model_dir = os.path.join(FLAGS.output_dir, f'round_{round_idx}')
       tf.io.gfile.makedirs(model_dir)
 
       logging.info(
           'Training models on different splits of data to calculate bias...')
       model_params.train_bias = False
-      trained_models = train_tf.run_ensemble(train_idx_combos=train_combos,
-                                             train_splits=train_splits,
-                                             val_splits=val_splits,
-                                             model_params=model_params)
+      trained_models = train_tf.run_ensemble(
+          train_idx_combos=train_combos,
+          train_splits=dataloader.train_splits,
+          val_splits=dataloader.val_splits,
+          model_params=model_params)
 
       example_id_to_bias_table = utils.get_example_id_to_bias_label_table(
-          train_splits=train_splits,
-          val_splits=val_splits,
+          train_splits=dataloader.train_splits,
+          val_splits=dataloader.val_splits,
           combos=train_combos,
           trained_models=trained_models,
           num_splits=FLAGS.num_splits,
@@ -226,29 +226,28 @@ def main(_) -> None:
           save_dir=model_dir,
           save_table=FLAGS.save_bias_table)
 
-      _, _, train_ds, eval_ds = dataset_builder(FLAGS.num_splits,
-                                                FLAGS.batch_size)
+      dataloader = dataset_builder(FLAGS.num_splits, FLAGS.batch_size)
       model_params.train_bias = True
       if FLAGS.train_stage_2_as_ensemble:
         trained_models = train_tf.run_ensemble(
             train_idx_combos=train_combos,
-            train_splits=train_splits,
-            val_splits=val_splits,
+            train_splits=dataloader.train_splits,
+            val_splits=dataloader.val_splits,
             model_params=model_params,
             callbacks=callbacks,
             example_id_to_bias_table=example_id_to_bias_table,
-            eval_ds=eval_ds)
+            eval_ds=dataloader.eval_ds)
       else:
         two_head_model = train_tf.run_train(
-            train_ds,
-            eval_ds['val'],
+            dataloader.train_ds,
+            dataloader.eval_ds['val'],
             model_params=model_params,
             experiment_name=f'round_{round_idx}',
             callbacks=callbacks,
             example_id_to_bias_table=example_id_to_bias_table)
         train_tf.evaluate_model(
-            two_head_model, os.path.join(FLAGS.output_dir,
-                                         CHECKPOINTS_SUBDIR), eval_ds)
+            two_head_model, os.path.join(FLAGS.output_dir, CHECKPOINTS_SUBDIR),
+            dataloader.eval_ds)
 
   # TODO(jihyeonlee): Will add Waterbirds dataloader and ResNet model to support
   # vision modality.

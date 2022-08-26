@@ -55,9 +55,9 @@ from absl import flags
 from absl import logging
 import tensorflow as tf
 import data  # local file import from experimental.shoshin
+import generate_bias_table_lib  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
 import train_tf  # local file import from experimental.shoshin
-import utils  # local file import from experimental.shoshin
 
 
 # Subdirectory for checkpoints in FLAGS.output_dir.
@@ -215,7 +215,7 @@ def main(_) -> None:
                                              val_splits=val_splits,
                                              model_params=model_params)
 
-      example_id_to_bias_table = utils.get_example_id_to_bias_label_table(
+      example_id_to_bias_table = generate_bias_table_lib.get_example_id_to_bias_label_table(
           train_splits=train_splits,
           val_splits=val_splits,
           combos=train_combos,

@@ -13,292 +13,224 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-r"""Training pipeline for a two-headed output model, where one head is for bias.
+r"""Binary to run training.
 
-Includes the model definition, which implements two-headed output using
-custom losses and allows for any base model. Also provides training pipeline,
-starting from compiling and initializing the model, fitting on training data,
-and evaluating on provided eval datasets.
+You can run just this file to train locally or use xm_launch.py to launch on
+XManager.
+
+Usage:
+# pylint: disable=line-too-long
+
+To train MLP on Cardiotoxicity Fingerprint dataset locally on only the main
+classification task (no bias):
+ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/train_tf.py \
+  --adhoc_import_modules=uncertainty_baselines \
+    -- \
+    --xm_runlocal \
+    --alsologtostderr \
+    --dataset_name=cardiotoxicity \
+    --model_name=mlp \
+    --num_epochs=10 \
+    --output_dir=/tmp/cardiotox/ \  # can be a CNS path
+    --train_main_only=True
+
+To train MLP on Cardiotoxicity Fingerprint dataset locally with two output
+heads, one for the main task and one for bias:
+ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/train_tf.py \
+  --adhoc_import_modules=uncertainty_baselines \
+    -- \
+    --xm_runlocal \
+    --alsologtostderr \
+    --dataset_name=cardiotoxicity \
+    --model_name=mlp \
+    --output_dir=/tmp/cardiotox/ \  # can be a CNS path
+    --num_epochs=10
+
+# pylint: enable=line-too-long
 """
 
-from typing import Dict, List, Optional
+import logging as native_logging
+import os
 
+from absl import app
+from absl import flags
 from absl import logging
 import tensorflow as tf
-
 import data  # local file import from experimental.shoshin
+import generate_bias_table_lib  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
+import train_tf_lib  # local file import from experimental.shoshin
 
 
-class TwoHeadedOutputModel(tf.keras.Model):
-  """Defines a two-headed output model."""
-
-  def __init__(self, model: tf.keras.Model, train_bias: bool, name: str):
-    super(TwoHeadedOutputModel, self).__init__(name=name)
-    self.train_bias = train_bias
-    if self.train_bias:
-      self.id_to_bias_table = None
-
-    self.model = model
-
-  def call(self, inputs):
-    return self.model(inputs)
-
-  def update_id_to_bias_table(self, table):
-    self.id_to_bias_table = table
-
-  def train_step(self, inputs):
-    features, labels, example_ids = inputs
-    y_true_main = tf.one_hot(labels, depth=2)
-
-    with tf.GradientTape() as tape:
-      y_pred = self(features, training=True)
-
-      y_true_bias = None
-      if self.train_bias:
-        if self.id_to_bias_table is None:
-          raise ValueError('id_to_bias_table must not be None.')
-        y_true_bias = self.id_to_bias_table.lookup(example_ids)
-        y_true_bias = tf.one_hot(y_true_bias, depth=2)
-      y_true = {
-          'main': y_true_main,
-          'bias': y_true_bias
-      }
-      total_loss = self.compiled_loss(y_true, y_pred)
-      total_loss += sum(self.losses)  # Regularization loss
-
-    gradients = tape.gradient(total_loss, self.model.trainable_variables)
-    self.optimizer.apply_gradients(
-        zip(gradients, self.model.trainable_variables))
-
-    self.compiled_metrics.update_state(y_true, y_pred)
-    results = {m.name: m.result() for m in self.metrics}
-    return results
-
-  def test_step(self, inputs):
-    features, labels, example_ids = inputs
-    y_true_main = tf.one_hot(labels, depth=2)
-    y_pred = self(features, training=False)
-
-    y_true_bias = None
-    if self.train_bias:
-      if self.id_to_bias_table is None:
-        raise ValueError('id_to_bias_table must not be None.')
-      y_true_bias = self.id_to_bias_table.lookup(example_ids)
-      y_true_bias = tf.one_hot(y_true_bias, depth=2)
-
-    y_true = {
-        'main': y_true_main,
-        'bias': y_true_bias
-    }
-
-    self.compiled_metrics.update_state(y_true, y_pred)
-    results = {m.name: m.result() for m in self.metrics}
-    return results
+# Subdirectory for checkpoints in FLAGS.output_dir.
+CHECKPOINTS_SUBDIR = 'checkpoints'
 
 
-def compute_loss_main(y_true_main: tf.Tensor, y_pred_main: tf.Tensor):
-  """Defines loss function for main classification task."""
-  loss_func = tf.keras.losses.CategoricalCrossentropy(from_logits=False)
-  return loss_func(y_true_main, y_pred_main)
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string('dataset_name', '', 'Name of registered TF dataset to use.')
+flags.DEFINE_string('model_name', '', 'Name of registered model to use.')
+# TODO(jihyeonlee): Use num_classes flag across files.
+flags.DEFINE_string('output_dir', None, 'Output directory.')
+flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
+                  'directory. If False, only logs to console.')
+flags.DEFINE_integer('num_classes', 2, 'Number of classes for main task.')
+flags.DEFINE_integer('batch_size', 64, 'Batch size.')
+flags.DEFINE_integer('num_epochs', 10, 'Number of epochs.')
+# Model parameter flags.
+flags.DEFINE_integer(
+    'num_splits', 5, 'Number of shards into which train and '
+    'val will be split to train models used in bias label '
+    'generation. Use a number that can divide 100 easily since we use '
+    'TFDS functionality to split the dataset by percentage.')
+flags.register_validator(
+    'num_splits',
+    lambda value: 100 % value == 0,
+    message='100 must be divisible by --num_splits.')
+flags.DEFINE_list(
+    'included_splits_idx',
+    '0,1,2,3,4',
+    'Indices of the data splits to include in training. '
+    'Uses all by default.')
+flags.DEFINE_integer(
+    'num_rounds', 3, 'Number of rounds of active sampling '
+    'to conduct. Bias values are calculated for all examples '
+    'at the end of every round.')
+flags.DEFINE_float(
+    'ood_ratio', 0.4, 'Ratio of splits that will be considered '
+    'out-of-distribution from each combination. For example, '
+    'when ood_ratio == 0.4 and num_splits == 5, 2 out of 5 '
+    'slices of data will be excluded in training (for every '
+    'combination used to train a model).')
+flags.DEFINE_list('hidden_sizes', '1024,512,128',
+                  'Number and sizes of hidden layers for MLP model.')
+flags.DEFINE_boolean('train_main_only', False,
+                     'If True, trains only main task head, not bias head.')
+flags.DEFINE_float('learning_rate', 1e-4, 'Learning rate.')
+flags.DEFINE_float('dropout_rate', 0.2, 'Dropout rate.')
+flags.DEFINE_float('bias_percentile_threshold', 0.2, 'Threshold to generate '
+                   'bias labels, using the top percentile of bias values. '
+                   'Uses percentile by default or --bias_value_threshold '
+                   'if it is specified.', lower_bound=0., upper_bound=1.)
+flags.DEFINE_float('bias_value_threshold', None, 'Threshold to generate bias '
+                   'labels, using the calculated bias value. If value is above '
+                   'the threshold, the bias label will be 1. Else, the bias '
+                   'label will be 0. Uses --bias_threshold_percentile if '
+                   'this flag is not specified.', lower_bound=0.,
+                   upper_bound=1.)
+flags.DEFINE_string('path_to_existing_bias_table', '',
+                    'Path to an existing bias table to use in training the '
+                    'bias head. If unspecified, generates new one.')
+flags.DEFINE_boolean('save_bias_table', True,
+                     'If True, saves table mapping example ID to bias label '
+                     'as bias_table.csv in output_dir.')
+flags.DEFINE_boolean('save_model_checkpoints', True,
+                     'If True, saves checkpoints with best validation AUC '
+                     'for the main task during training.')
+flags.DEFINE_boolean('early_stopping', True,
+                     'If True, stops training when validation AUC does not '
+                     'improve any further after 3 epochs.')
+flags.DEFINE_boolean('train_stage_2_as_ensemble', False,
+                     'If True, trains stage 2 model (stage 1 is calculating '
+                     'bias table; stage 2 is training on main task with a '
+                     'bias head) as an ensemble of models. If False, trains a '
+                     'single model.')
+flags.DEFINE_boolean('train_single_model', False,
+                     'If True, trains stage 2 model (stage 1 is calculating '
+                     'bias table; stage 2 is training on main task with a '
+                     'bias head) as an ensemble of models. If False, trains a '
+                     'single model.')
 
 
-def compute_loss_bias(y_true_bias: tf.Tensor, y_pred_bias: tf.Tensor):
-  """Defines loss function for bias classification task."""
-  loss_func = tf.keras.losses.CategoricalCrossentropy(from_logits=False)
-  return loss_func(y_true_bias, y_pred_bias)
+def main(_) -> None:
+  dataset_builder = data.get_dataset(FLAGS.dataset_name)
+  if FLAGS.keep_logs:
+    tf.io.gfile.makedirs(FLAGS.output_dir)
+    stream = tf.io.gfile.GFile(os.path.join(FLAGS.output_dir, 'log'), mode='w')
+    stream_handler = native_logging.StreamHandler(stream)
+    logging.get_absl_logger().addHandler(stream_handler)
 
-
-def compile_model(model: tf.keras.Model, learning_rate: float):
-  """Compiles model with optimizer, custom loss functions, and metrics."""
-  model.compile(
-      optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-      loss={
-          'main': compute_loss_main,
-          'bias': compute_loss_bias
-      },
-      loss_weights={
-          'main': 1,
-          'bias': 1 if model.train_bias else 0
-      },
-      metrics={
-          'main': [
-              tf.keras.metrics.CategoricalAccuracy(name='acc'),
-              tf.keras.metrics.AUC(name='auc')
-          ],
-          'bias': [
-              tf.keras.metrics.CategoricalAccuracy(name='acc'),
-              tf.keras.metrics.AUC(name='auc')
-          ]
-      },
-      weighted_metrics=[])
-  return model
-
-
-def evaluate_model(model: tf.keras.Model,
-                   output_dir: str,
-                   eval_ds: Dict[str, tf.data.Dataset]):
-  """Evaluates model on given validation and/or test datasets.
-
-  Args:
-    model: Keras model to be evaluated.
-    output_dir: Directory path to write model checkpoints.
-    eval_ds: Dictionary mapping evaluation dataset name to the dataset.
-  """
-  best_latest_checkpoint = tf.train.latest_checkpoint(output_dir)
-  load_status = model.load_weights(best_latest_checkpoint)
-  load_status.assert_consumed()
-  for ds_name in eval_ds.keys():
-    result = model.evaluate(
-        eval_ds[ds_name], return_dict=True)
-    logging.info('Evaluation Dataset Name: %s', ds_name)
-    logging.info('Main Acc: %f', result['main_acc'])
-    logging.info('Main AUC: %f', result['main_auc'])
-    logging.info('Bias Acc: %f', result['bias_acc'])
-    logging.info('Bias Acc: %f', result['bias_auc'])
-
-
-def init_model(
-    model_params: models.ModelTrainingParameters,
-    experiment_name: str,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
-  """Initializes an TwoHeadedOutputModel with a base model.
-
-  Args:
-    model_params: Dataclass object containing model and training parameters.
-    experiment_name: String describing experiment to use model name.
-    example_id_to_bias_table: Hash table mapping example ID to bias label.
-
-  Returns:
-    Initialized TwoHeadedOutputModel model.
-  """
-  model_class = models.get_model(model_params.model_name)
-  base_model = model_class(model_params=model_params)
-
-  two_head_model = TwoHeadedOutputModel(
-      model=base_model,
-      train_bias=model_params.train_bias,
-      name=experiment_name)
-
-  if model_params.train_bias and example_id_to_bias_table:
-    two_head_model.update_id_to_bias_table(example_id_to_bias_table)
-
-  two_head_model = compile_model(two_head_model, model_params.learning_rate)
-  return two_head_model
-
-
-def run_train(
-    train_ds: tf.data.Dataset,
-    val_ds: tf.data.Dataset,
-    model_params: models.ModelTrainingParameters,
-    experiment_name: str,
-    callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
-  """Initializes and trains model on given training and validation data.
-
-  Args:
-    train_ds: Training dataset.
-    val_ds: Evaluation dataset.
-    model_params: Dataclass object containing model and training parameters.
-    experiment_name: String to describe model being trained.
-    callbacks: Keras Callbacks, like saving checkpoints or early stopping.
-    example_id_to_bias_table: Hash table mapping example ID to bias label.
-
-  Returns:
-    Trained model.
-  """
-  two_head_model = init_model(
-      model_params=model_params,
-      experiment_name=experiment_name,
-      example_id_to_bias_table=example_id_to_bias_table
+  model_params = models.ModelTrainingParameters(
+      model_name=FLAGS.model_name,
+      train_bias=False,
+      num_classes=FLAGS.num_classes,
+      num_epochs=FLAGS.num_epochs,
+      learning_rate=FLAGS.learning_rate,
+      hidden_sizes=[int(size) for size in FLAGS.hidden_sizes]
   )
-  two_head_model.fit(
-      train_ds,
-      validation_data=val_ds,
-      epochs=model_params.num_epochs,
-      callbacks=callbacks)
-  return two_head_model
 
+  output_dir = FLAGS.output_dir
+  # Train only the main task without a bias head or rounds of active learning.
+  if FLAGS.train_main_only or FLAGS.train_single_model:
+    num_rounds = 1
+  else:
+    num_rounds = FLAGS.num_rounds
 
-def run_ensemble(
-    train_idx_combos: List[List[int]],
-    train_splits: tf.data.Dataset,
-    val_splits: tf.data.Dataset,
-    model_params: models.ModelTrainingParameters,
-    callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
-    eval_ds: Optional[Dict[str, tf.data.Dataset]] = None
-) -> List[tf.keras.Model]:
-  """Trains an ensemble of models and optionally gets their average predictions.
+  for round_idx in range(num_rounds):
+    logging.info('Running Round %d of Training.', round_idx)
+    dataloader = dataset_builder(FLAGS.num_splits, FLAGS.batch_size)
+    if not FLAGS.train_single_model:
+      output_dir = os.path.join(FLAGS.output_dir, f'round_{round_idx}')
+    tf.io.gfile.makedirs(output_dir)
 
-  Args:
-    train_idx_combos: List of indices of data splits to include.
-    train_splits: Training data splits.
-    val_splits: Validation data splits.
-    model_params: Dataclass object containing model and training parameters.
-    callbacks: Keras Callbacks, like saving checkpoints or early stopping.
-    example_id_to_bias_table: Hash table mapping example ID to bias label.
-    eval_ds: Dictionary mapping evaluation dataset name to the dataset. If
-      provided, gets average predictions on each dataset using ensemble.
-      If None, does nothing.
+    example_id_to_bias_table = None
+    if not FLAGS.train_main_only:
+      # Bias head will be trained as well, so gets bias labels.
+      if FLAGS.path_to_existing_bias_table:
+        example_id_to_bias_table = generate_bias_table_lib.load_existing_bias_table(
+            FLAGS.path_to_existing_bias_table)
+      else:
+        logging.info(
+            'Training models on different splits of data to calculate bias...')
+        model_params.train_bias = False
+        combos_dir = os.path.join(output_dir,
+                                  generate_bias_table_lib.COMBOS_SUBDIR)
+        _ = train_tf_lib.run_ensemble(
+            dataloader=dataloader,
+            model_params=model_params,
+            num_splits=FLAGS.num_splits,
+            ood_ratio=FLAGS.ood_ratio,
+            output_dir=combos_dir,
+            save_model_checkpoints=FLAGS.save_model_checkpoints,
+            early_stopping=FLAGS.early_stopping)
+        trained_models = generate_bias_table_lib.load_trained_models(
+            combos_dir, model_params)
+        example_id_to_bias_table = generate_bias_table_lib.get_example_id_to_bias_label_table(
+            dataloader=dataloader,
+            combos_dir=combos_dir,
+            trained_models=trained_models,
+            num_splits=FLAGS.num_splits,
+            bias_value_threshold=FLAGS.bias_value_threshold,
+            bias_percentile_threshold=FLAGS.bias_percentile_threshold,
+            save_dir=output_dir,
+            save_table=FLAGS.save_bias_table)
 
-  Returns:
-    List of trained models and, optionally, predictions.
-  """
-  ensemble = []
-  for combo in train_idx_combos:
-    combo_name = '_'.join(map(str, combo))
-    combo_train = data.gather_data_splits(combo, train_splits)
-    combo_val = data.gather_data_splits(combo, val_splits)
-    combo_model = run_train(
-        combo_train,
-        combo_val,
+    model_params.train_bias = not FLAGS.train_main_only
+    if FLAGS.train_main_only and FLAGS.included_splits_idx:
+      # Likely training a single model on a combination of data splits.
+      included_splits_idx = [int(i) for i in FLAGS.included_splits_idx]
+      train_ds = data.gather_data_splits(included_splits_idx,
+                                         dataloader.train_splits)
+      val_ds = data.gather_data_splits(included_splits_idx,
+                                       dataloader.val_splits)
+      dataloader.train_ds = train_ds
+      dataloader.eval_ds['val'] = val_ds
+
+    train_tf_lib.train_and_evaluate(
+        train_as_ensemble=FLAGS.train_stage_2_as_ensemble,
+        dataloader=dataloader,
         model_params=model_params,
-        experiment_name=combo_name,
-        callbacks=callbacks,
+        num_splits=FLAGS.num_splits,
+        ood_ratio=FLAGS.ood_ratio,
+        checkpoint_dir=os.path.join(output_dir, CHECKPOINTS_SUBDIR),
+        experiment_name='stage_2',
+        save_model_checkpoints=FLAGS.save_model_checkpoints,
+        early_stopping=FLAGS.early_stopping,
         example_id_to_bias_table=example_id_to_bias_table)
-    ensemble.append(combo_model)
 
-  if eval_ds and example_id_to_bias_table:
-    # Calculates average predictions using ensemble and uses them in evaluation.
-    for ds_name in eval_ds.keys():
-      test_examples = eval_ds[ds_name]
-      y_pred_main = []
-      y_pred_bias = []
-      for model in ensemble:
-        ensemble_prob_samples = model.predict(test_examples)
-        y_pred_main.append(ensemble_prob_samples['main'])
-        y_pred_bias.append(ensemble_prob_samples['bias'])
-      y_pred_main = tf.reduce_mean(y_pred_main, axis=0)
-      y_pred_bias = tf.reduce_mean(y_pred_bias, axis=0)
-      y_true_main = list(test_examples.map(
-          lambda feats, label, example_id: label).as_numpy_iterator())
-      y_true_main = tf.concat(y_true_main, axis=0)
-      y_true_main = tf.convert_to_tensor(y_true_main, dtype=tf.int64)
-      y_true_main = tf.one_hot(y_true_main, depth=2)
-      example_ids = list(test_examples.map(
-          lambda feats, label, example_id: example_id).as_numpy_iterator())
-      example_ids = tf.concat(example_ids, axis=0)
-      example_ids = tf.convert_to_tensor(example_ids, dtype=tf.string)
-      y_true_bias = example_id_to_bias_table.lookup(example_ids)
-      y_true_bias = tf.one_hot(y_true_bias, depth=2)
-      for m in ensemble[0].metrics:
-        m.reset_state()
-      ensemble[0].compiled_metrics.update_state({
-          'main': y_true_main,
-          'bias': y_true_bias
-      }, {
-          'main': y_pred_main,
-          'bias': y_pred_bias
-      })
-      result = {m.name: m.result() for m in ensemble[0].metrics}
-      logging.info('Evaluation Dataset Name: %s', ds_name)
-      logging.info('Main Acc: %f', result['main_acc'])
-      logging.info('Main AUC: %f', result['main_auc'])
-      # TODO(jihyeonlee): Bias labels are not calculated for other evaluation
-      # datasets beyond validation, e.g. 'test' or 'test2' for Cardiotox.
-      # Provide way to save the predictions themselves.
-      logging.info('Bias Acc: %f', result['bias_acc'])
-      logging.info('Bias AUC: %f', result['bias_auc'])
+  # TODO(jihyeonlee): Will add Waterbirds dataloader and ResNet model to support
+  # vision modality.
 
-  return ensemble
+
+if __name__ == '__main__':
+  app.run(main)

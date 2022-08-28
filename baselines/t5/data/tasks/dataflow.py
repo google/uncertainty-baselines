@@ -157,21 +157,23 @@ RETRIEVAL_DATA_TYPES = [
     'random_retrieval_on_gold', 'oracle_retrieval_on_gold',
     'uncertain_retrieval_on_gold', 'oracle+uncertain_retrieval_on_gold'
 ]
+RETRIEVAL_DATA_TYPES_NORMALIZED = [
+    data_type.replace('+', '_') for data_type in RETRIEVAL_DATA_TYPES
+]
 RETRIEVAL_DATA_SUBTYPES = [
     f'num_examplar={n}_depth={d}' for n in (1, 3, 5) for d in (1, 2, 3)]  # pylint:disable=g-complex-comprehension
-for retrieval_data_type in RETRIEVAL_DATA_TYPES:
-  for retrieval_data_subtype in RETRIEVAL_DATA_SUBTYPES:
+RETRIEVAL_DATA_SUBTYPES_NORMALIZED = [
+    subtype_name.replace('=', '_') for subtype_name in RETRIEVAL_DATA_SUBTYPES
+]
+for retrieval_data_type, retrieval_data_type_normalized in zip(
+    RETRIEVAL_DATA_TYPES, RETRIEVAL_DATA_TYPES_NORMALIZED):
+  for retrieval_data_subtype, retrieval_data_subtype_normalized in zip(
+      RETRIEVAL_DATA_SUBTYPES, RETRIEVAL_DATA_SUBTYPES_NORMALIZED):
     retrieval_config = get_retrieval_augmented_data_config(
         data_type=retrieval_data_type, data_subtype=retrieval_data_subtype)
-    # Replaces `+` sign since seqio task name does not allow it.
-    retrieval_data_type_name = retrieval_data_type.replace('+', '_')
-
-    # Replaces `=` sign since seqio task name does not allow it.
-    subtype_name = retrieval_data_subtype.replace('=', '_')
-
     # Registers both a train-only task and a eval-only task.
     t5.data.TaskRegistry.add(
-        f'smcalflow_penman_{retrieval_data_type_name}_{subtype_name}',
+        f'smcalflow_penman_{retrieval_data_type_normalized}_{retrieval_data_subtype_normalized}',
         t5.data.Task,
         dataset_fn=functools.partial(
             utils.parsing_dataset, params=retrieval_config),
@@ -183,7 +185,7 @@ for retrieval_data_type in RETRIEVAL_DATA_TYPES:
     # Eval-only data, can be used to evaluate the robustness of a
     # retieval-augmented model to different retrieval methods.
     t5.data.TaskRegistry.add(
-        f'smcalflow_penman_eval_{retrieval_data_type_name}_{subtype_name}',
+        f'smcalflow_penman_eval_{retrieval_data_type_normalized}_{retrieval_data_subtype_normalized}',
         t5.data.Task,
         dataset_fn=functools.partial(
             utils.parsing_dataset, params=retrieval_config),

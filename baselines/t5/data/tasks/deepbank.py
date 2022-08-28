@@ -225,29 +225,32 @@ t5.data.TaskRegistry.add(
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 # Registers retrieval-augmented tasks.
-RETRIEVAL_DATA_TYPES = ['random_retrieval_on_gold', 'oracle_retrieval_on_gold',
-                        'uncertain_retrieval_on_gold',
-                        'oracle+uncertain_retrieval_on_gold']
+RETRIEVAL_DATA_TYPES = [
+    'random_retrieval_on_gold', 'oracle_retrieval_on_gold',
+    'uncertain_retrieval_on_gold', 'oracle+uncertain_retrieval_on_gold'
+]
+RETRIEVAL_DATA_TYPES_NORMALIZED = [
+    data_type.replace('+', '_') for data_type in RETRIEVAL_DATA_TYPES
+]
 RETRIEVAL_DATA_SUBTYPES = [
     f'num_examplar={n}_depth={d}' for n in (1, 3, 5) for d in (1, 2, 3)]  # pylint:disable=g-complex-comprehension
+RETRIEVAL_DATA_SUBTYPES_NORMALIZED = [
+    subtype_name.replace('=', '_') for subtype_name in RETRIEVAL_DATA_SUBTYPES
+]
 RETRIEVAL_DATA_OOD_NAMES = [
     'brown', 'csli', 'ecommerce', 'esd', 'essay', 'fracas', 'logon', 'mrs',
     'semcor', 'tanaka', 'trec', 'verbmobil', 'wiki'
 ]
 
-for retrieval_data_type in RETRIEVAL_DATA_TYPES:
-  for retrieval_data_subtype in RETRIEVAL_DATA_SUBTYPES:
+for retrieval_data_type, retrieval_data_type_normalized in zip(
+    RETRIEVAL_DATA_TYPES, RETRIEVAL_DATA_TYPES_NORMALIZED):
+  for retrieval_data_subtype, retrieval_data_subtype_normalized in zip(
+      RETRIEVAL_DATA_SUBTYPES, RETRIEVAL_DATA_SUBTYPES_NORMALIZED):
     retrieval_config = get_retrieval_augmented_data_config(
         data_type=retrieval_data_type, data_subtype=retrieval_data_subtype)
-    # Replaces `+` sign since seqio task name does not allow it.
-    retrieval_data_type_name = retrieval_data_type.replace('+', '_')
-
-    # Replaces `=` sign since seqio task name does not allow it.
-    subtype_name = retrieval_data_subtype.replace('=', '_')
-
     # Register both a train-only task and a eval-only task.
     t5.data.TaskRegistry.add(
-        f'deepbank_1.1_{retrieval_data_type_name}_{subtype_name}',
+        f'deepbank_1.1_{retrieval_data_type_normalized}_{retrieval_data_subtype_normalized}',
         t5.data.Task,
         dataset_fn=functools.partial(parsing_dataset, params=retrieval_config),
         splits=['train'],
@@ -258,7 +261,7 @@ for retrieval_data_type in RETRIEVAL_DATA_TYPES:
     # Eval-only data, can be used to evaluate the robustness of a
     # retreival-augmented model to different retrieval methods.
     t5.data.TaskRegistry.add(
-        f'deepbank_1.1_eval_{retrieval_data_type_name}_{subtype_name}',
+        f'deepbank_1.1_eval_{retrieval_data_type_normalized}_{retrieval_data_subtype_normalized}',
         t5.data.Task,
         dataset_fn=functools.partial(parsing_dataset, params=retrieval_config),
         splits=['validation', 'test'],
@@ -267,13 +270,10 @@ for retrieval_data_type in RETRIEVAL_DATA_TYPES:
         shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
 
-for retrieval_data_type in RETRIEVAL_DATA_TYPES:
-  for retrieval_data_subtype in RETRIEVAL_DATA_SUBTYPES:
-    # Replaces `+` sign since seqio task name does not allow it.
-    retrieval_data_type_name = retrieval_data_type.replace('+', '_')
-
-    # Replaces `=` sign since seqio task name does not allow it.
-    subtype_name = retrieval_data_subtype.replace('=', '_')
+for retrieval_data_type, retrieval_data_type_normalized in zip(
+    RETRIEVAL_DATA_TYPES, RETRIEVAL_DATA_TYPES_NORMALIZED):
+  for retrieval_data_subtype, retrieval_data_subtype_normalized in zip(
+      RETRIEVAL_DATA_SUBTYPES, RETRIEVAL_DATA_SUBTYPES_NORMALIZED):
     for ood_name in RETRIEVAL_DATA_OOD_NAMES:
       retrieval_ood_config = get_retrieval_augmented_data_config(
           data_type=retrieval_data_type,
@@ -281,7 +281,7 @@ for retrieval_data_type in RETRIEVAL_DATA_TYPES:
           ood_data_name=ood_name)
 
       t5.data.TaskRegistry.add(
-          f'deepbank_1.1_ood_{ood_name}_{retrieval_data_type_name}_{subtype_name}',
+          f'deepbank_1.1_ood_{ood_name}_{retrieval_data_type_normalized}_{retrieval_data_subtype_normalized}',
           t5.data.Task,
           dataset_fn=functools.partial(
               parsing_dataset, params=retrieval_ood_config),

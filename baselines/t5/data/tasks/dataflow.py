@@ -47,13 +47,13 @@ _DEFAULT_MTOP_EVAL_PATTERNS = {
 
 # MTOP data (English subset) with output string in penman format.
 _DEFAULT_MTOP_PENMAN_TRAIN_PATTERNS = [
-    '/cns/nm-d/home/lzi/public/mtop/t5/train.tfr*',
+    '/cns/nm-d/home/lzi/public/mtop/t5/penman/train.tfr*',
 ]
 _DEFAULT_MTOP_PENMAN_EVAL_PATTERNS = {
     'validation':
-        '/cns/nm-d/home/lzi/public/mtop/t5/dev.tfr*',
+        '/cns/nm-d/home/lzi/public/mtop/t5/penman/dev.tfr*',
     'test':
-        '/cns/nm-d/home/lzi/public/mtop/t5/test.tfr*',
+        '/cns/nm-d/home/lzi/public/mtop/t5/penman/test.tfr*',
 }
 
 # SNIPS data.
@@ -69,13 +69,13 @@ _DEFAULT_SNIPS_EVAL_PATTERNS = {
 
 # SNIPS data with output string in penman format.
 _DEFAULT_SNIPS_PENMAN_TRAIN_PATTERNS = [
-    '/cns/nm-d/home/lzi/public/snips/t5/train.tfr*',
+    '/cns/nm-d/home/lzi/public/snips/t5/penman/train.tfr*',
 ]
 _DEFAULT_SNIPS_PENMAN_EVAL_PATTERNS = {
     'validation':
-        '/cns/nm-d/home/lzi/public/snips/t5/dev.tfr*',
+        '/cns/nm-d/home/lzi/public/snips/t5/penman/dev.tfr*',
     'test':
-        '/cns/nm-d/home/lzi/public/snips/t5/test.tfr*',
+        '/cns/nm-d/home/lzi/public/snips/t5/penman/test.tfr*',
 }
 
 # In-domain training and evaluation data.
@@ -116,15 +116,20 @@ def get_dataflow_metric_fns(dataset_name='snips'):
                         dataset_name=dataset_name)]
 
 
-def get_retrieval_augmented_data_config(data_type='random_retrieval_on_gold',
+def get_retrieval_augmented_data_config(dataset_name='smcalflow',
+                                        data_type='random_retrieval_on_gold',
                                         data_subtype='num_examplar=1_depth=1'):
   """Prepares retrieval-augmented data config."""
-  data_root_path = '/cns/nm-d/home/lzi/public/smcalflow/t5/'
+  data_root_path = f'/cns/nm-d/home/lzi/public/{dataset_name}/t5/'
   data_full_path = os.path.join(data_root_path, data_type, data_subtype)
   train_patterns = [f'{data_full_path}/train.tfr*']
   eval_patterns = dict(
-      validation=f'{data_full_path}/valid.tfr*',
-      test=f'{data_full_path}/valid.tfr*')
+      validation=f'{data_full_path}/dev.tfr*',
+      test=f'{data_full_path}/test.tfr*')
+  if dataset_name == 'smcalflow':
+    eval_patterns = dict(
+        validation=f'{data_full_path}/valid.tfr*',
+        test=f'{data_full_path}/valid.tfr*')
   return utils.dataset_configs(
       train_patterns=train_patterns, eval_patterns=eval_patterns)
 
@@ -152,7 +157,7 @@ t5.data.TaskRegistry.add(
     metric_fns=get_dataflow_metric_fns(dataset_name='smcalflow'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
 
-# Registers retrieval-augmented tasks.
+# Registers retrieval-augmented tasks for SMCalflow.
 RETRIEVAL_DATA_TYPES = [
     'random_retrieval_on_gold', 'oracle_retrieval_on_gold',
     'uncertain_retrieval_on_gold', 'oracle+uncertain_retrieval_on_gold'
@@ -263,3 +268,35 @@ t5.data.TaskRegistry.add(
     text_preprocessor=None,
     metric_fns=get_dataflow_metric_fns(dataset_name='snips'),
     shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
+
+# Registers retrieval-augmented tasks for SNIPS.
+for retrieval_data_type, retrieval_data_type_normalized in zip(
+    RETRIEVAL_DATA_TYPES, RETRIEVAL_DATA_TYPES_NORMALIZED):
+  for retrieval_data_subtype, retrieval_data_subtype_normalized in zip(
+      RETRIEVAL_DATA_SUBTYPES, RETRIEVAL_DATA_SUBTYPES_NORMALIZED):
+    retrieval_config = get_retrieval_augmented_data_config(
+        dataset_name='snips',
+        data_type=retrieval_data_type,
+        data_subtype=retrieval_data_subtype)
+    # Registers both a train-only task and a eval-only task.
+    t5.data.TaskRegistry.add(
+        f'snips_penman_{retrieval_data_type_normalized}_{retrieval_data_subtype_normalized}',
+        t5.data.Task,
+        dataset_fn=functools.partial(
+            utils.parsing_dataset, params=retrieval_config),
+        splits=['train'],
+        text_preprocessor=None,
+        metric_fns=get_dataflow_metric_fns(dataset_name='snips'),
+        shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)
+
+    # Eval-only data, can be used to evaluate the robustness of a
+    # retieval-augmented model to different retrieval methods.
+    t5.data.TaskRegistry.add(
+        f'snips_penman_eval_{retrieval_data_type_normalized}_{retrieval_data_subtype_normalized}',
+        t5.data.Task,
+        dataset_fn=functools.partial(
+            utils.parsing_dataset, params=retrieval_config),
+        splits=['validation', 'test'],
+        text_preprocessor=None,
+        metric_fns=get_dataflow_metric_fns(dataset_name='snips'),
+        shuffle_buffer_size=_DEFAULT_SHUFFLE_BUFFER_SIZE)

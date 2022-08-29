@@ -102,3 +102,16 @@ MixtureRegistry.add('mtop_penman', tasks=['mtop_penman'], default_rate=1.)
 
 MixtureRegistry.add('snips', tasks=['snips'], default_rate=1.)
 MixtureRegistry.add('snips_penman', tasks=['snips_penman'], default_rate=1.)
+# SNIPS dataset with retrieved subgraphs based on gold graphs.
+# evaluate on different retrieval strategies.
+for type_name in dataflow_config.RETRIEVAL_DATA_TYPES_NORMALIZED:
+  for subtype_name in dataflow_config.RETRIEVAL_DATA_SUBTYPES_NORMALIZED:
+    task_name = f'snips_penman_{type_name}_{subtype_name}'
+    eval_task_names = [
+        f'snips_penman_eval_{type_name}_{subtype_name}'
+        for type_name in dataflow_config.RETRIEVAL_DATA_TYPES_NORMALIZED
+    ]
+    MixtureRegistry.add(
+        task_name, tasks=[
+            task_name,
+        ] + eval_task_names, default_rate=1.)

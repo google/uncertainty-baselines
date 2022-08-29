@@ -116,7 +116,6 @@ class MCDropoutEvalTest(absltest.TestCase):
           eval_period=4,
           random_seed=0,
           summarize_config_fn=gin_utils.summarize_gin_config,
-          use_gda=False,
       )
 
     def do_evaluating(eval_fn, model_dir):
@@ -125,8 +124,7 @@ class MCDropoutEvalTest(absltest.TestCase):
           dataset_cfg=train_dataset_cfg,
           restore_checkpoint_cfg=utils.RestoreCheckpointConfig(
               path=os.path.join(model_dir, 'checkpoint_2'),
-              mode='specific',
-              use_gda=False),
+              mode='specific'),
           partitioner=partitioner,
           output_dir=os.path.join(model_dir, 'mcdropout'),
           inference_evaluator_cls=inference_evaluator_cls)

@@ -103,7 +103,6 @@ class EnsembleEvalTest(absltest.TestCase):
           eval_period=4,
           random_seed=0,
           summarize_config_fn=gin_utils.summarize_gin_config,
-          use_gda=False,
       )
 
     self.do_training = do_training
@@ -188,8 +187,7 @@ class EnsembleEvalTest(absltest.TestCase):
         output_dir = os.path.join(model_dir, metric_name)
         restore_checkpoint_cfg = utils.RestoreCheckpointConfig(
             path=[checkpoint_path] * ensemble_size,
-            mode='specific',
-            use_gda=False)
+            mode='specific')
 
         with mock.patch.object(
             metrics,
@@ -225,7 +223,7 @@ class EnsembleEvalTest(absltest.TestCase):
       self.do_training(model, model_dir, train_dataset_cfg)
       # Use all checkpoints.
       restore_checkpoint_cfg = utils.RestoreCheckpointConfig(
-          path=model_dir, mode='all', use_gda=False)
+          path=model_dir, mode='all')
 
       for deduplicate_flat_ids in [False, True]:
         metric_name = f'dedup_{deduplicate_flat_ids}'

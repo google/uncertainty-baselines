@@ -124,7 +124,7 @@ def get_retrieval_augmented_data_config(dataset_name='smcalflow',
   data_full_path = os.path.join(data_root_path, data_type, data_subtype)
   train_patterns = [f'{data_full_path}/train.tfr*']
   eval_patterns = dict(
-      validation=f'{data_full_path}/dev.tfr*',
+      validation=f'{data_full_path}/test.tfr*',
       test=f'{data_full_path}/test.tfr*')
   if dataset_name == 'smcalflow':
     eval_patterns = dict(

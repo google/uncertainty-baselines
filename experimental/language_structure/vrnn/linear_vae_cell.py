@@ -598,7 +598,8 @@ class VanillaLinearVAECell(_VAECell):
     initial_state, samples_processed = inputs[0], inputs[1]
     return [tf.concat([initial_state, samples_processed], axis=1)]
 
-  def _prepare_decoder_inputs(self, inputs: _TensorMapList) -> _TensorMapList:
+  def _prepare_decoder_inputs(  # pytype: disable=signature-mismatch  # overriding-parameter-type-checks
+      self, inputs: _TensorMapList) -> _TensorMapList:
     last_step_removed = [
         {key: value[:, :-1] for key, value in input.items()} for input in inputs
     ]

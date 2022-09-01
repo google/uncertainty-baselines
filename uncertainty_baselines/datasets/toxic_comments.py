@@ -60,7 +60,7 @@ _ID_NAME = 'id'
 _IS_TRAIN_NAME = 'is_train'
 _SIGNAL_NAMES = [
     _IS_TRAIN_NAME, 'pseudo_labels', 'use_pseudo_label', 'bias_rank',
-    'uncertainty', 'bias', 'noise', 'variance', 'error'
+    'uncertainty', 'bias', 'noise', 'variance', 'error', 'error_rank',
 ]
 
 

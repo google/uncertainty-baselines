@@ -39,6 +39,6 @@ utils.SaveCheckpointConfig:
   checkpointer_cls = @checkpoints.SaveBestCheckpointer
 
 checkpoints.SaveBestCheckpointer:
-  metric_name_to_monitor = 'inference_eval/xsum/eval/sequence_accuracy'
+  metric_name_to_monitor = 'inference_eval/xsum/eval/rouge1'
   metric_mode = 'max'
   keep_checkpoints_without_metrics = False

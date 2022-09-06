@@ -41,53 +41,34 @@ import os
 
 from absl import app
 from absl import flags
+from ml_collections import config_flags
 import data  # local file import from experimental.shoshin
 import generate_bias_table_lib  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
+from configs import base_config  # local file import from experimental.shoshin
 
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('dataset_name', '', 'Name of registered TF dataset to use.')
-flags.DEFINE_string('model_name', '', 'Name of registered model to use.')
-flags.DEFINE_string('output_dir', None, 'Output directory.')
-flags.DEFINE_integer('num_classes', 2, 'Number of classes for main task.')
-flags.DEFINE_integer('num_epochs', 10, 'Number of epochs.')
-flags.DEFINE_integer(
-    'num_splits', 5, 'Number of shards into which train and '
-    'val will be split to train models used in bias label '
-    'generation. Use a number that can divide 100 easily since we use '
-    'TFDS functionality to split the dataset by percentage.')
-flags.DEFINE_integer('batch_size', 64, 'Batch size.')
-flags.DEFINE_list('hidden_sizes', '1024,512,128',
-                  'Number and sizes of hidden layers for MLP model.')
-flags.DEFINE_float('learning_rate', 1e-4, 'Learning rate.')
-flags.DEFINE_float('bias_percentile_threshold', 0.2, 'Threshold to generate '
-                   'bias labels, using the top percentile of bias values. '
-                   'Uses percentile by default or --bias_value_threshold '
-                   'if it is specified.', lower_bound=0., upper_bound=1.)
-flags.DEFINE_float('bias_value_threshold', None, 'Threshold to generate bias '
-                   'labels, using the calculated bias value. If value is above '
-                   'the threshold, the bias label will be 1. Else, the bias '
-                   'label will be 0. Uses --bias_threshold_percentile if '
-                   'this flag is not specified.', lower_bound=0.,
-                   upper_bound=1.)
+config_flags.DEFINE_config_file('config')
 
 
 def main(_) -> None:
 
+  config = FLAGS.config
+  base_config.check_flags(config)
+
   model_params = models.ModelTrainingParameters(
-      model_name=FLAGS.model_name,
-      train_bias=False,
-      num_classes=FLAGS.num_classes,
-      num_epochs=FLAGS.num_epochs,
-      learning_rate=FLAGS.learning_rate,
-      hidden_sizes=[int(size) for size in FLAGS.hidden_sizes]
-    )
+      model_name=config.model.name,
+      train_bias=config.train_bias,
+      num_classes=config.data.num_classes,
+      num_epochs=config.training.num_epochs,
+      learning_rate=config.optimizer.learning_rate,
+      hidden_sizes=config.model.hidden_sizes,
+  )
 
-  dataset_builder = data.get_dataset(FLAGS.dataset_name)
-
-  dataloader = dataset_builder(FLAGS.num_splits, FLAGS.batch_size)
-  combos_dir = os.path.join(FLAGS.output_dir,
+  dataset_builder = data.get_dataset(config.data.name)
+  dataloader = dataset_builder(config.data.num_splits, config.data.batch_size)
+  combos_dir = os.path.join(config.output_dir,
                             generate_bias_table_lib.COMBOS_SUBDIR)
   trained_models = generate_bias_table_lib.load_trained_models(
       combos_dir, model_params)
@@ -95,10 +76,10 @@ def main(_) -> None:
       dataloader=dataloader,
       combos_dir=combos_dir,
       trained_models=trained_models,
-      num_splits=FLAGS.num_splits,
-      bias_percentile_threshold=FLAGS.bias_percentile_threshold,
-      bias_value_threshold=FLAGS.bias_value_threshold,
-      save_dir=FLAGS.output_dir,
+      num_splits=config.data.num_splits,
+      bias_percentile_threshold=config.bias_percentile_threshold,
+      bias_value_threshold=config.bias_value_threshold,
+      save_dir=config.output_dir,
       save_table=True)
 
 

@@ -94,5 +94,6 @@ def get_config() -> ml_collections.ConfigDict:
 
   config.model = ml_collections.ConfigDict()
   config.model.name = ''
+  config.model.hidden_sizes = None
 
   return config

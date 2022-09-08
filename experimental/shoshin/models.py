@@ -27,6 +27,7 @@ import tensorflow as tf
 
 
 MODEL_REGISTRY = {}
+RESNET_IMAGE_SIZE = 224
 
 
 def register_model(name: str):
@@ -85,6 +86,44 @@ class MLP(tf.keras.Model):
 
   def call(self, inputs):
     x = self.dense_layers(inputs)
+    out_main = self.output_main(x)
+    out_bias = self.output_bias(x)
+    return {
+        'main': out_main,
+        'bias': out_bias
+    }
+
+
+@register_model('resnet')
+class ResNet(tf.keras.Model):
+  """Defines a MLP model class with two output heads.
+
+  One output head is for the main training task, while the other is an optional
+  head to train on bias labels. Inputs are feature vectors.
+  """
+
+  def __init__(self,
+               model_params: ModelTrainingParameters):
+    super(ResNet, self).__init__(name=model_params.model_name)
+
+    self.resnet_model = tf.keras.applications.resnet50.ResNet50(
+        include_top=False,
+        weights='imagenet',
+        input_shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3),
+        classes=model_params.num_classes,
+        pooling='avg'
+        # TODO(jihyeonlee): Consider making pooling method a flag.
+    )
+    self.output_main = tf.keras.layers.Dense(
+        model_params.num_classes, activation='softmax', name='main')
+    self.output_bias = tf.keras.layers.Dense(
+        model_params.num_classes,
+        trainable=model_params.train_bias,
+        activation='softmax',
+        name='bias')
+
+  def call(self, inputs):
+    x = self.resnet_model(inputs)
     out_main = self.output_main(x)
     out_bias = self.output_bias(x)
     return {

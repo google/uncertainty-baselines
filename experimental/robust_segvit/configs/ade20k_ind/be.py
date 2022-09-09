@@ -81,7 +81,7 @@ def get_config(runlocal=''):
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'ade20k_ind_deterministic'
+  config.experiment_name = 'ade20k_ind_segmenter_be'
 
   # Dataset.
   config.dataset_name = 'robust_segvit_segmentation'
@@ -104,7 +104,7 @@ def get_config(runlocal=''):
   config.model.patches.size = (STRIDE, STRIDE)
 
   config.model.backbone = ml_collections.ConfigDict()
-  config.model.backbone.type = 'vit'
+  config.model.backbone.type = 'vit_be'
   config.model.backbone.mlp_dim = mlp_dim
   config.model.backbone.num_heads = num_heads
   config.model.backbone.num_layers = num_layers
@@ -115,7 +115,13 @@ def get_config(runlocal=''):
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear'
+  config.model.decoder.type = 'linear_be'
+
+  # BE variables
+  config.model.backbone.ens_size = 3
+  config.model.backbone.random_sign_init = -0.5
+  config.model.backbone.be_layers = (22, 23)
+  config.fast_weight_lr_multiplier = 1.0
 
   # Training.
   config.trainer_name = 'segvit_trainer'
@@ -124,7 +130,7 @@ def get_config(runlocal=''):
   config.l2_decay_factor = 0.0
   config.max_grad_norm = 1.0
   config.label_smoothing = None
-  config.num_training_epochs = ml_collections.FieldReference(100)
+  config.num_training_epochs = ml_collections.FieldReference(50)
   config.batch_size = 32
   config.rng_seed = 0
   config.focal_loss_gamma = 0.0
@@ -140,7 +146,7 @@ def get_config(runlocal=''):
   config.lr_configs.warmup_steps = 1 * config.get_ref('steps_per_epoch')
   config.lr_configs.steps_per_cycle = config.get_ref(
       'num_training_epochs') * config.get_ref('steps_per_epoch')
-  config.lr_configs.base_learning_rate = 1e-4
+  config.lr_configs.base_learning_rate = 3e-5
 
   # model and data dtype
   config.model_dtype_str = 'float32'
@@ -225,11 +231,11 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
 
 
 def get_sweep(hyper):
-  """Defines the hyper-parameters sweeps for doing grid search."""
+  """Defines the hyper-parameters sweeps for grid search."""
 
-  learning_rate = hyper.sweep('config.lr_configs.base_learning_rate',
-                              [1e-4, 3e-4, 3e-5, 1e-5])
+  random_sign_init = hyper.sweep('config.model.backbone.random_sign_init',
+                                 [-0.5, 0.5])
+  fast_weight_lr_multiplier = hyper.sweep('config.fast_weight_lr_multiplier',
+                                          [0.5, 1.0, 2.0])
 
-  epochs = hyper.sweep('config.num_training_epochs', [100, 50, 200, 250])
-
-  return hyper.product([learning_rate, epochs])
+  return hyper.product([random_sign_init, fast_weight_lr_multiplier])

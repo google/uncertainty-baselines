@@ -146,10 +146,11 @@ def get_config(runlocal=''):
   config.log_eval_steps = 1 * config.get_ref('steps_per_epoch')
 
   # Evaluation.
+  config.eval_mode = False
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
-  config.eval_mode = False
-  config.eval_robustness = False  # gets called only for eval_mode=True
+  config.eval_covariate_shift = True
+  config.eval_label_shift = True
 
   if runlocal:
     config.count_flops = False

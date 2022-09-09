@@ -81,7 +81,7 @@ def get_config(runlocal=''):
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'ade20k_ind_deterministic'
+  config.experiment_name = 'ade20k_ind_segmenter_het_hyper'
 
   # Dataset.
   config.dataset_name = 'robust_segvit_segmentation'
@@ -115,8 +115,21 @@ def get_config(runlocal=''):
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear'
+  config.model.decoder.type = 'het'
 
+  # Het layer params
+  # temp: wide sweep [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]
+  config.model.decoder.temperature = 1.0
+  # efficient low rank approx ~ FxK where K is the classes. False for K<20.
+  config.model.decoder.param_efficient = False
+  # F as a low rank approx of KxK matrix has num_factors:
+  # imagenet~15, jft~50, cifar~6, cityscapes~sweep(5-10).
+  config.model.decoder.num_factors = 5
+  # mc_samples: use as much as can be afforded, ideally > 10.
+  config.model.decoder.mc_samples = 1000
+  config.model.decoder.return_locs = False
+  # turn on to run an approx on KHW x KHW instead of KxK.
+  config.model.decoder.share_samples_across_batch = False
   # Training.
   config.trainer_name = 'segvit_trainer'
   config.optimizer = 'adam'
@@ -140,7 +153,7 @@ def get_config(runlocal=''):
   config.lr_configs.warmup_steps = 1 * config.get_ref('steps_per_epoch')
   config.lr_configs.steps_per_cycle = config.get_ref(
       'num_training_epochs') * config.get_ref('steps_per_epoch')
-  config.lr_configs.base_learning_rate = 1e-4
+  config.lr_configs.base_learning_rate = 3e-5
 
   # model and data dtype
   config.model_dtype_str = 'float32'
@@ -226,10 +239,15 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
 
 def get_sweep(hyper):
   """Defines the hyper-parameters sweeps for doing grid search."""
+  parameters = [
+      hyper.sweep('config.model.decoder.num_factors',
+                  hyper.discrete([5, 10, 20, 50])),
+      hyper.sweep('config.model.decoder.temperature',
+                  [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]),
+      hyper.sweep('config.model.decoder.share_samples_across_batch',
+                  [True, False]),
+      hyper.sweep('config.model.decoder.param_efficient',
+                  [True, False]),
+  ]
 
-  learning_rate = hyper.sweep('config.lr_configs.base_learning_rate',
-                              [1e-4, 3e-4, 3e-5, 1e-5])
-
-  epochs = hyper.sweep('config.num_training_epochs', [100, 50, 200, 250])
-
-  return hyper.product([learning_rate, epochs])
+  return hyper.product(parameters)

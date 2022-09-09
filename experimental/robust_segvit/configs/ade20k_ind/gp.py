@@ -81,7 +81,7 @@ def get_config(runlocal=''):
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'ade20k_ind_deterministic'
+  config.experiment_name = 'ade20k_ind_segmenter_gp'
 
   # Dataset.
   config.dataset_name = 'robust_segvit_segmentation'
@@ -115,7 +115,20 @@ def get_config(runlocal=''):
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear'
+  config.model.decoder.type = 'gp'
+
+  # GP layer params
+  config.model.decoder.gp_layer = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs.ridge_penalty = 1.
+  # Disable momentum in order to use exact covariance update for finetuning.
+  # Disable to allow exact cov update.
+  config.model.decoder.gp_layer.covmat_kwargs.momentum = 0.99
+  config.model.decoder.mean_field_factor = 1.
+  # Additional params
+  config.model.decoder.gp_layer.normalize_input = True
+  config.model.decoder.gp_layer.hidden_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.hidden_kwargs.feature_scale = 1.
 
   # Training.
   config.trainer_name = 'segvit_trainer'
@@ -140,7 +153,7 @@ def get_config(runlocal=''):
   config.lr_configs.warmup_steps = 1 * config.get_ref('steps_per_epoch')
   config.lr_configs.steps_per_cycle = config.get_ref(
       'num_training_epochs') * config.get_ref('steps_per_epoch')
-  config.lr_configs.base_learning_rate = 1e-4
+  config.lr_configs.base_learning_rate = 3e-5
 
   # model and data dtype
   config.model_dtype_str = 'float32'
@@ -226,10 +239,14 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
 
 def get_sweep(hyper):
   """Defines the hyper-parameters sweeps for doing grid search."""
+  parameters = [
+      hyper.sweep('config.model.decoder.gp_layer.normalize_input',
+                  [True, False]),
+      hyper.sweep('config.model.decoder.mean_field_factor',
+                  hyper.discrete(range(1, 10))),
+      hyper.sweep('config.model.decoder.gp_layer.hidden_kwargs.feature_scale',
+                  [1.0, 2.0]),
+  ]
+  return hyper.product(parameters)
 
-  learning_rate = hyper.sweep('config.lr_configs.base_learning_rate',
-                              [1e-4, 3e-4, 3e-5, 1e-5])
 
-  epochs = hyper.sweep('config.num_training_epochs', [100, 50, 200, 250])
-
-  return hyper.product([learning_rate, epochs])

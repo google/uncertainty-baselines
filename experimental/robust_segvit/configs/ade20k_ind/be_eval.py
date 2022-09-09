@@ -218,10 +218,10 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
     raise NotImplementedError('')
 
   overwrites.append(
-      hyper.sweep('config.pretrained_backbone_configs.checkpoint_format',
+      hyper.sweep('config.checkpoint_configs.checkpoint_format',
                   [backbone_origin]))
   overwrites.append(
-      hyper.sweep('config.pretrained_backbone_configs.checkpoint_path', [
+      hyper.sweep('config.checkpoint_configs.checkpoint_path', [
           CHECKPOINT_PATHS[(backbone_origin, vit_size, stride, resnet_size,
                             classifier, upstream_task)]
       ]))

@@ -944,6 +944,23 @@ def train(
 
   # Wait until computations are done before exiting.
   jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
+
+  del dataset
+
+  # ----------------------------------------------------------------------------
+  # Evaluate OOD datasets
+  eval_summary_ood = evaluate_ood_step(
+      train_state=train_state,
+      config=config,
+      rng=rng,
+      model=model,
+      lead_host=lead_host,
+      writer=writer,
+      workdir=workdir,
+  )
+
+  eval_summary.update(eval_summary_ood)
+
   # Return the train and eval summary after last step for testing.
   return train_state, train_summary, eval_summary
 
@@ -1093,7 +1110,67 @@ def eval_ckpt(
   del dataset
 
   # ----------------------------------------------------------------------------
+  # Evaluate OOD datasets
+  eval_summary_ood = evaluate_ood_step(
+      train_state=train_state,
+      config=config,
+      rng=rng,
+      model=model,
+      lead_host=lead_host,
+      writer=writer,
+      workdir=workdir,
+  )
+
+  eval_summary.update(eval_summary_ood)
+
+  # Return the train and eval summary after last step for testing.
+  return train_state, _, eval_summary
+
+
+def evaluate_ood_step(
+    *,
+    train_state: train_utils.TrainState,
+    config: ml_collections.ConfigDict,
+    rng: jnp.ndarray,
+    model: Any,
+    lead_host: Any,
+    writer: metric_writers.MetricWriter,
+    workdir: str,
+) -> Dict[str, Any]:
+  """OOD evaluation given loaded model.
+
+  The datasets are loaded given for each type of corruption given the flags.
+
+  Args:
+    train_state: train state.
+    config: experiment configuration.
+    rng: jax rng.
+    model: model with loaded checkpoint.
+    lead_host: Evaluate global metrics on one of the hosts (lead_host) given
+    writer: CLU metrics writer instance.
+      intermediate values collected from all hosts.
+    workdir: Directory where to store outputs.
+  Returns:
+    eval_summary: summary evaluation
+  """
+  del workdir
+
   if config.get('eval_covariate_shift', False):
+
+    eval_step_pmapped = jax.pmap(
+        functools.partial(
+            eval_step,
+            flax_model=model.flax_model,
+            metrics_fn=model.get_metrics_fn('validation'),
+            config=config,
+            debug=config.debug_eval),
+        axis_name='batch',
+        # We can donate the eval_batch's buffer.
+    )
+
+    eval_summary = None
+    global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
+    global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
 
     eval_ood_covariate = {'cityscapes_c': evaluate_cityscapes_c,
                           'ade20k_ind_c': evaluate_ade20k_corrupted,}
@@ -1176,9 +1253,7 @@ def eval_ckpt(
 
     # Wait until computations are done before exiting.
     jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
-
-  # Return the train and eval summary after last step for testing.
-  return train_state, _, eval_summary
+  return eval_summary
 
 
 def evaluate_cityscapes_c(

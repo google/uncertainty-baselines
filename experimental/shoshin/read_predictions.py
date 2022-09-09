@@ -28,15 +28,11 @@ def read_predictions(xid):
   df_agg = df.groupby(by=['id', 'in_sample']).agg('mean').reset_index()
   df_insample = df_agg.loc[df_agg['in_sample'], :]
   df_outsample = df_agg.loc[~df_agg['in_sample'], :]
-  df_result = pd.merge(
-      df_insample, df_outsample, on=['id', 'label', 'label_attr'])
-  df_result = df_result.loc[:, [
-      'id', 'label', 'label_attr', 'prediction_x', 'prediction_y'
-  ]]
-  df_result = df_result.rename(
-      columns={
-          'prediction_x': 'prediction_insample',
-          'prediction_y': 'prediction_outsample'
-      })
+  df_result = pd.merge(df_insample, df_outsample, on=['id'])
+  df_result = df_result.loc[:, ['id', 'prediction_x', 'prediction_y']]
+  df_result = df_result.rename(columns={
+      'prediction_x': 'prediction_insample',
+      'prediction_y': 'prediction_outsample'
+  })
   df_result = df_result.set_index('id')
   return df_result

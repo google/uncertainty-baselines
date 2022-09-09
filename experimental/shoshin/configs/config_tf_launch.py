@@ -24,15 +24,22 @@ def get_config():
   config.index = 0
   config.num_splits = 10
   config.dataset_seed = 0
-  config.train_bias = False
-  config.bias_id = -1  # experiment id from which to load bias labels
   config.datatable = '/datatable/users/dvij/shoshin'
+  config.dataset = 'cardiotoxicity'
   return config
 
 
 def get_train_config():
   """Get training config."""
   config = config_dict.ConfigDict()
+  config.save_model_checkpoints = True
+  config.output_dir = '/tmp/shoshin/'
+  config.early_stopping = True
+  config.num_splits = 10
+  config.batch_size = 128
+  config.train_bias = False
+  config.bias_id = -1  # experiment id from which to load bias labels
+
   config.train_seed = 0
   config.train_batch_size = 64
   config.eval_batch_size = 64
@@ -51,13 +58,15 @@ def get_optimizer_config():
   """Get optimizer config."""
   config = config_dict.ConfigDict()
   config.learning_rate = 1e-3
-  config.num_steps = 1001
+  config.num_epochs = 10
   return config
 
 
 def get_model_config(hidden_sizes, output_size):
   """Get model config."""
   config = config_dict.ConfigDict()
+  config.train_bias = False
+  config.model_name = 'mlp'
   config.hidden_sizes = hidden_sizes
   config.output_size = output_size
   return config

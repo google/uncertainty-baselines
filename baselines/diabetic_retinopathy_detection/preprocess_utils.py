@@ -15,7 +15,7 @@
 
 """Preprocessing utilities."""
 
-import collections
+from collections import abc
 import dataclasses
 from typing import List, Optional, Tuple, Union
 
@@ -26,7 +26,7 @@ Features = preprocess_spec.Features
 
 
 def _maybe_repeat(arg, n_reps):
-  if not isinstance(arg, collections.Sequence):
+  if not isinstance(arg, abc.Sequence):
     arg = (arg,) * n_reps
   return arg
 

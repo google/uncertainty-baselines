@@ -346,6 +346,10 @@ def beam_search(
   # Converts the cumulative sum of log probs to token-level log probs.
   # --> [batch, beams, length]
   finished_token_scores = jnp.diff(finished_prob_seqs, axis=2)
+  # Clip the last value caused by the `diff` operator of the padding
+  # value 0.0 and the last cumulative sum. That value is positive because
+  # the sum of all log probabilities is negative.
+  finished_token_scores = jnp.clip(finished_token_scores, a_max=0.)
 
   if return_token_scores:
     return finished_seqs[:, :, 1:], finished_token_scores

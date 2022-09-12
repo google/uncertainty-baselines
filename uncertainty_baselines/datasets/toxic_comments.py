@@ -59,8 +59,16 @@ BIAS_EXAMPLE_IDS_JSON = 'bias_ids.json'
 _ID_NAME = 'id'
 _IS_TRAIN_NAME = 'is_train'
 _SIGNAL_NAMES = [
-    _IS_TRAIN_NAME, 'pseudo_labels', 'use_pseudo_label', 'bias_rank',
-    'ensemble_diversity', 'bias', 'noise', 'variance', 'error', 'error_rank',
+    _IS_TRAIN_NAME,
+    'pseudo_labels',
+    'use_pseudo_label',
+    'bias_rank',
+    'ensemble_diversity',
+    'bias',
+    'noise',
+    'variance',
+    'error',
+    'error_rank',
 ]
 
 
@@ -155,6 +163,7 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
                max_seq_length: int,
                data_dir: Optional[str],
                dataset_type: str = 'tfrecord',
+               shard: Optional[int] = None,
                **kwargs):
     self._tfds_dataset_builder = tfds_dataset_builder
     self._max_seq_length = max_seq_length
@@ -170,6 +179,7 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
     # appending the class name and version.
     self._data_dir = data_dir
     self._dataset_type = dataset_type
+    self._shard = shard
 
   def _maybe_load_json(self, data_dir, json_name):
     """Reads the number of examples from directory if available."""
@@ -237,10 +247,10 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
       # Reading locally.
       logging.info('Reading from local TFRecords with BERT features %s',
                    self._data_dir)
-      return _build_tfrecord_dataset(
-          glob_dir=os.path.join(self._data_dir,
-                                _TF_RECORD_NAME_PATTERNS[split]),
-          is_training=is_training)
+      glob_dir = os.path.join(self._data_dir, _TF_RECORD_NAME_PATTERNS[split])
+      if self._shard is not None:
+        glob_dir = glob_dir.replace('*', '{:05d}-of-*'.format(self._shard))
+      return _build_tfrecord_dataset(glob_dir=glob_dir, is_training=is_training)
 
   def _info(self) -> tfds.core.DatasetInfo:
     raise NotImplementedError
@@ -285,6 +295,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
                tf_hub_preprocessor_url: Optional[str] = None,
                signals: Optional[pd.DataFrame] = None,
                only_keep_train_examples: bool = False,
+               shard: Optional[int] = None,
                **kwargs):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
@@ -325,6 +336,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
       signals: The Pandas DataFrame storing signals for each example id.
       only_keep_train_examples: whether to filter examples by signal
         `{_IS_TRAIN_NAME}`.
+      shard: the specific tfrecord shard to be read.
       **kwargs: arguments to be passed to the base class.
     """
     dataset_type = dataset_type.lower()
@@ -335,9 +347,10 @@ class _JigsawToxicityDataset(base.BaseDataset):
     if dataset_type != 'tfds' and data_dir is None:
       raise ValueError('`data_dir` cannot be None if `dataset_type`!="tfds".')
 
+    self._shard = shard
     dataset_builder = _JigsawToxicityDatasetBuilder(
         tfds.builder(name, try_gcs=try_gcs), max_seq_length, data_dir,
-        dataset_type)
+        dataset_type, self._shard)
     self.tf_hub_preprocessor_url = tf_hub_preprocessor_url
     self.additional_labels = additional_labels
     self.multi_task_labels = multi_task_labels
@@ -421,29 +434,38 @@ class _JigsawToxicityDataset(base.BaseDataset):
       """Preprocesses sentences as well as toxicity and other labels."""
       if self._dataset_type == 'tfrecord':
         # Directly return parsed tf records.
-        return tf.io.parse_example(example['features'], self.feature_spec)
-
-      # Load example depending on dataset type.
-      if self._dataset_type == 'csv':
-        (feature_id, feature, label, noise, bias, uncertainty,
-         margin) = example['features']
-        multitask_signals = {
-            'noise': noise,
-            'bias': bias,
-            'uncertainty': uncertainty,
-            'margin': margin
-        }
+        parsed_example = tf.io.parse_example(example['features'],
+                                             self.feature_spec)
+        feature_id = parsed_example['id']
       else:
-        label = example['toxicity']
-        feature = example['text']
-        feature_id = example['id']
+        # Load example depending on dataset type.
+        if self._dataset_type == 'csv':
+          (feature_id, feature, label, noise, bias, uncertainty,
+           margin) = example['features']
+          multitask_signals = {
+              'noise': noise,
+              'bias': bias,
+              'uncertainty': uncertainty,
+              'margin': margin
+          }
+        else:
+          label = example['toxicity']
+          feature = example['text']
+          feature_id = example['id']
 
-      # Read in sentences.
-      parsed_example = {'id': feature_id, 'features': feature, 'labels': label}
+        # Read in sentences.
+        parsed_example = {
+            'id': feature_id,
+            'features': feature,
+            'labels': label
+        }
 
       if self._signal_db is not None:
         signals = self._signal_db.lookup(feature_id, _SIGNAL_NAMES)
         parsed_example.update(signals)
+
+      if self._dataset_type == 'tfrecord':
+        return parsed_example
 
       # Append processed input for BERT model.
       if self.tf_hub_preprocessor_url:
@@ -481,6 +503,12 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
   @property
   def num_examples(self):
+    if (self._dataset_type == 'tfrecord' and
+        'num_examples' in self.tfds_info.metadata):
+      key = (
+          self._split
+          if self._shard is None else f'{self._split}-{self._shard}')
+      return self.tfds_info.metadata['num_examples'][key]
     if self._only_keep_train_examples:
       return self._signals[_IS_TRAIN_NAME].sum()
     return super().num_examples

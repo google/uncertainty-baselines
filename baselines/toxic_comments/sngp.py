@@ -53,43 +53,12 @@ from absl import flags
 from absl import logging
 
 import edward2 as ed
-import robustness_metrics as rm
 import tensorflow as tf
 from tensorflow_addons import losses as tfa_losses
-from tensorflow_addons import metrics as tfa_metrics
 
 import uncertainty_baselines as ub
-import metrics as tc_metrics  # local file import from baselines.toxic_comments
 import utils  # local file import from baselines.toxic_comments
-from uncertainty_baselines.datasets import toxic_comments as ds
 from tensorboard.plugins.hparams import api as hp
-
-# Data flags
-flags.DEFINE_string(
-    'in_dataset_dir', None,
-    'Path to in-domain dataset (WikipediaToxicityDataset).')
-flags.DEFINE_string(
-    'ood_dataset_dir', None,
-    'Path to out-of-domain dataset (CivilCommentsDataset).')
-flags.DEFINE_string(
-    'identity_dataset_dir', None,
-    'Path to out-of-domain dataset with identity labels '
-    '(CivilCommentsIdentitiesDataset).')
-
-# Model flags
-flags.DEFINE_string('model_family', 'bert',
-                    'Types of model to use. Can be either TextCNN or BERT.')
-
-# Model flags, BERT.
-flags.DEFINE_string(
-    'bert_dir', None,
-    'Directory to BERT pre-trained checkpoints and config files.')
-flags.DEFINE_string(
-    'bert_ckpt_dir', None, 'Directory to BERT pre-trained checkpoints. '
-    'If None then then default to {bert_dir}/bert_model.ckpt.')
-flags.DEFINE_string(
-    'bert_config_dir', None, 'Directory to BERT config files. '
-    'If None then then default to {bert_dir}/bert_config.json.')
 
 # Normalization flags.
 flags.DEFINE_bool(
@@ -141,8 +110,7 @@ flags.DEFINE_float(
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
 
-
-# Optimization and evaluation flags
+# Optimization flags.
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('per_core_batch_size', 32, 'Batch size per TPU core/GPU.')
 flags.DEFINE_float(
@@ -150,38 +118,23 @@ flags.DEFINE_float(
     'Base learning rate when total batch size is 128. It is '
     'scaled by the ratio of the total batch size to 128.')
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
+flags.DEFINE_float(
+    'warmup_proportion', 0.1,
+    'Proportion of training to perform linear learning rate warmup for. '
+    'E.g., 0.1 = 10% of training.')
 flags.DEFINE_integer(
     'checkpoint_interval', 5,
     'Number of epochs between saving checkpoints. Use -1 to '
     'never save checkpoints.')
 flags.DEFINE_integer('evaluation_interval', 1,
                      'Number of epochs between evaluation.')
-flags.DEFINE_integer('num_ece_bins', 15, 'Number of bins for ECE.')
-flags.DEFINE_integer(
-    'num_approx_bins', 1000,
-    'Number of bins for approximating collaborative and abstention metrics.')
-flags.DEFINE_list(
-    'fractions',
-    ['0.0', '0.001', '0.005', '0.01', '0.02', '0.05', '0.1', '0.15', '0.2'],
-    'A list of fractions of total examples to send to '
-    'the moderators (up to 1).')
-flags.DEFINE_string('output_dir', '/tmp/toxic_comments', 'Output directory.')
 flags.DEFINE_integer('train_epochs', 5, 'Number of training epochs.')
-flags.DEFINE_float(
-    'warmup_proportion', 0.1,
-    'Proportion of training to perform linear learning rate warmup for. '
-    'E.g., 0.1 = 10% of training.')
-flags.DEFINE_float(
-    'ece_label_threshold', 0.7,
-    'Threshold used to convert toxicity score into binary labels for computing '
-    'Expected Calibration Error (ECE). Default is 0.7 which is the threshold '
-    'value recommended by Jigsaw Conversation AI team.')
 flags.DEFINE_integer(
     'num_mc_samples', 1,
     'Number of Monte Carlo forward passes to collect for ensemble prediction. '
     'Currently can only be 1 since the model is deterministic.')
 
-# Loss type
+# Loss type.
 flags.DEFINE_enum('loss_type', 'cross_entropy',
                   ['cross_entropy', 'focal_cross_entropy', 'mse', 'mae'],
                   'Type of loss function to use.')
@@ -194,12 +147,6 @@ flags.DEFINE_float(
     'Exponentiate factor used in the focal loss [3]-[4] to '
     'upweight inconfident examples.')
 
-# Accelerator flags.
-flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
-flags.DEFINE_bool('use_bfloat16', False, 'Whether to use mixed precision.')
-flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores or number of GPUs.')
-flags.DEFINE_string('tpu', None,
-                    'Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
 
@@ -225,87 +172,68 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
-  test_batch_size = batch_size
+  test_batch_size = FLAGS.per_core_batch_size
   data_buffer_size = batch_size * 10
 
-  train_dataset_builder = ds.WikipediaToxicityDataset(
-      split='train',
-      data_dir=FLAGS.in_dataset_dir,
-      shuffle_buffer_size=data_buffer_size)
-  ind_dataset_builder = ds.WikipediaToxicityDataset(
-      split='test',
-      data_dir=FLAGS.in_dataset_dir,
-      drop_remainder=True,
-      shuffle_buffer_size=data_buffer_size)
-  ood_dataset_builder = ds.CivilCommentsDataset(
-      split='test',
-      data_dir=FLAGS.ood_dataset_dir,
-      drop_remainder=True,
-      shuffle_buffer_size=data_buffer_size)
-  ood_identity_dataset_builder = ds.CivilCommentsIdentitiesDataset(
-      split='test',
-      data_dir=FLAGS.identity_dataset_dir,
-      drop_remainder=True,
-      shuffle_buffer_size=data_buffer_size)
+  dataset_kwargs = dict(
+      shuffle_buffer_size=data_buffer_size,
+      tf_hub_preprocessor_url=FLAGS.bert_tokenizer_tf_hub_url)
 
-  train_dataset_builders = {
-      'wikipedia_toxicity_subtypes': train_dataset_builder
-  }
-  test_dataset_builders = {
-      'ind': ind_dataset_builder,
-      'ood': ood_dataset_builder,
-      'ood_identity': ood_identity_dataset_builder,
-  }
-  if FLAGS.prediction_mode and FLAGS.identity_prediction:
-    for dataset_name in utils.IDENTITY_LABELS:
-      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
-        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
-            split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_specific_dataset_dir, dataset_name),
-            drop_remainder=True,
-            shuffle_buffer_size=data_buffer_size)
-    for dataset_name in utils.IDENTITY_TYPES:
-      if utils.NUM_EXAMPLES[dataset_name]['test'] > 100:
-        test_dataset_builders[dataset_name] = ds.CivilCommentsIdentitiesDataset(
-            split='test',
-            data_dir=os.path.join(
-                FLAGS.identity_type_dataset_dir, dataset_name),
-            drop_remainder=True,
-            shuffle_buffer_size=data_buffer_size)
+  (train_dataset_builders, test_dataset_builders,
+   train_split_name) = utils.make_train_and_test_dataset_builders(
+       in_dataset_dir=FLAGS.in_dataset_dir,
+       ood_dataset_dir=FLAGS.ood_dataset_dir,
+       identity_dataset_dir=FLAGS.identity_dataset_dir,
+       train_dataset_type=FLAGS.dataset_type,
+       test_dataset_type='tfds',
+       use_cross_validation=FLAGS.use_cross_validation,
+       num_folds=FLAGS.num_folds,
+       train_fold_ids=FLAGS.train_fold_ids,
+       return_train_split_name=True,
+       cv_split_name=FLAGS.train_cv_split_name,
+       train_on_identity_subgroup_data=FLAGS.train_on_identity_subgroup_data,
+       test_on_identity_subgroup_data=FLAGS.test_on_identity_subgroup_data,
+       train_on_multi_task_label=FLAGS.train_on_multi_task_label,
+       multi_task_label_threshold=FLAGS.multi_task_label_threshold,
+       test_on_challenge_data=FLAGS.test_on_challenge_data,
+       identity_type_dataset_dir=FLAGS.identity_type_dataset_dir,
+       identity_specific_dataset_dir=FLAGS.identity_specific_dataset_dir,
+       challenge_dataset_dir=FLAGS.challenge_dataset_dir,
+       **dataset_kwargs)
+
+  if FLAGS.prediction_mode:
+    prediction_dataset_builders = utils.make_prediction_dataset_builders(
+        add_identity_datasets=FLAGS.identity_prediction,
+        identity_dataset_dir=FLAGS.identity_specific_dataset_dir,
+        add_cross_validation_datasets=FLAGS.use_cross_validation,
+        cv_dataset_dir=FLAGS.in_dataset_dir,
+        cv_dataset_type=FLAGS.dataset_type,
+        num_folds=FLAGS.num_folds,
+        train_fold_ids=FLAGS.train_fold_ids,
+        cv_split_name=FLAGS.test_cv_split_name,
+        **dataset_kwargs)
+
+    # Removes `cv_eval` since it overlaps with the `cv_eval_fold_*` datasets.
+    test_dataset_builders.pop('cv_eval', None)
+    test_dataset_builders.update(prediction_dataset_builders)
 
   class_weight = utils.create_class_weight(
       train_dataset_builders, test_dataset_builders)
   logging.info('class_weight: %s', str(class_weight))
+  logging.info('train_split_name: %s', train_split_name)
 
-  ds_info = train_dataset_builder.tfds_info
+  ds_info = test_dataset_builders['ind'].tfds_info
   # Positive and negative classes.
   num_classes = ds_info.metadata['num_classes']
 
-  train_datasets = {}
-  dataset_steps_per_epoch = {}
-  total_steps_per_epoch = 0
-
-  # TODO(jereliu): Apply strategy.experimental_distribute_dataset to the
-  # dataset_builders.
-  for dataset_name, dataset_builder in train_dataset_builders.items():
-    train_datasets[dataset_name] = dataset_builder.load(
-        batch_size=FLAGS.per_core_batch_size)
-    dataset_steps_per_epoch[dataset_name] = (
-        dataset_builder.num_examples // batch_size)
-    total_steps_per_epoch += dataset_steps_per_epoch[dataset_name]
-
-  test_datasets = {}
-  steps_per_eval = {}
-  for dataset_name, dataset_builder in test_dataset_builders.items():
-    test_datasets[dataset_name] = dataset_builder.load(
-        batch_size=test_batch_size)
-    if dataset_name in ['ind', 'ood', 'ood_identity']:
-      steps_per_eval[dataset_name] = (
-          dataset_builder.num_examples // test_batch_size)
-    else:
-      steps_per_eval[dataset_name] = (
-          utils.NUM_EXAMPLES[dataset_name]['test'] // test_batch_size)
+  # Build datasets.
+  train_datasets, test_datasets, dataset_steps_per_epoch, steps_per_eval = (
+      utils.build_datasets(train_dataset_builders, test_dataset_builders,
+                           batch_size, test_batch_size,
+                           per_core_batch_size=FLAGS.per_core_batch_size))
+  total_steps_per_epoch = sum(dataset_steps_per_epoch.values())
+  logging.info('dataset_steps_per_epoch: %s', dataset_steps_per_epoch)
+  logging.info('steps_per_eval: %s', steps_per_eval)
 
   if FLAGS.use_bfloat16:
     tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
@@ -342,6 +270,7 @@ def main(argv):
         bert_config=bert_config,
         gp_layer_kwargs=gp_layer_kwargs,
         spec_norm_kwargs=spec_norm_kwargs,
+        num_heads=2 if FLAGS.train_on_multi_task_label else 1,
         use_gp_layer=FLAGS.use_gp_layer,
         use_spec_norm_att=FLAGS.use_spec_norm_att,
         use_spec_norm_ffn=FLAGS.use_spec_norm_ffn,
@@ -360,33 +289,13 @@ def main(argv):
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
 
-    metrics = {
-        'train/negative_log_likelihood':
-            tf.keras.metrics.Mean(),
-        'train/accuracy':
-            tf.keras.metrics.Accuracy(),
-        'train/accuracy_weighted':
-            tf.keras.metrics.Accuracy(),
-        'train/auroc':
-            tf.keras.metrics.AUC(),
-        'train/loss':
-            tf.keras.metrics.Mean(),
-        'train/ece':
-            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins),
-        'train/precision':
-            tf.keras.metrics.Precision(),
-        'train/recall':
-            tf.keras.metrics.Recall(),
-        'train/f1':
-            tfa_metrics.F1Score(
-                num_classes=num_classes,
-                average='micro',
-                threshold=FLAGS.ece_label_threshold),
-    }
-
     checkpoint = tf.train.Checkpoint(model=model, optimizer=optimizer)
     if FLAGS.prediction_mode:
-      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.eval_checkpoint_dir)
+      eval_checkpoint_dir = FLAGS.eval_checkpoint_dir
+      if FLAGS.checkpoint_name is not None:
+        eval_checkpoint_dir = os.path.join(eval_checkpoint_dir,
+                                           FLAGS.checkpoint_name)
+      latest_checkpoint = tf.train.latest_checkpoint(eval_checkpoint_dir)
     else:
       latest_checkpoint = tf.train.latest_checkpoint(FLAGS.output_dir)
     initial_epoch = 0
@@ -404,142 +313,14 @@ def main(argv):
           repl_patterns=ub.models.bert_sngp.CHECKPOINT_REPL_PATTERNS)
       logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
 
-    metrics.update({
-        'test/negative_log_likelihood':
-            tf.keras.metrics.Mean(),
-        'test/auroc':
-            tf.keras.metrics.AUC(curve='ROC'),
-        'test/aupr':
-            tf.keras.metrics.AUC(curve='PR'),
-        'test/brier':
-            tf.keras.metrics.MeanSquaredError(),
-        'test/brier_weighted':
-            tf.keras.metrics.MeanSquaredError(),
-        'test/ece':
-            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins),
-        'test/acc':
-            tf.keras.metrics.Accuracy(),
-        'test/acc_weighted':
-            tf.keras.metrics.Accuracy(),
-        'test/eval_time':
-            tf.keras.metrics.Mean(),
-        'test/stddev':
-            tf.keras.metrics.Mean(),
-        'test/precision':
-            tf.keras.metrics.Precision(),
-        'test/recall':
-            tf.keras.metrics.Recall(),
-        'test/f1':
-            tfa_metrics.F1Score(
-                num_classes=num_classes,
-                average='micro',
-                threshold=FLAGS.ece_label_threshold)
-    })
-
-    for policy in ('uncertainty', 'toxicity'):
-      metrics.update({
-          'test_{}/calibration_auroc'.format(policy):
-              tc_metrics.CalibrationAUC(curve='ROC'),
-          'test_{}/calibration_auprc'.format(policy):
-              tc_metrics.CalibrationAUC(curve='PR')
-      })
-
-      for fraction in FLAGS.fractions:
-        metrics.update({
-            'test_{}/collab_acc_{}'.format(policy, fraction):
-                rm.metrics.OracleCollaborativeAccuracy(
-                    fraction=float(fraction), num_bins=FLAGS.num_approx_bins),
-            'test_{}/abstain_prec_{}'.format(policy, fraction):
-                tc_metrics.AbstainPrecision(
-                    abstain_fraction=float(fraction),
-                    num_approx_bins=FLAGS.num_approx_bins),
-            'test_{}/abstain_recall_{}'.format(policy, fraction):
-                tc_metrics.AbstainRecall(
-                    abstain_fraction=float(fraction),
-                    num_approx_bins=FLAGS.num_approx_bins),
-            'test_{}/collab_auroc_{}'.format(policy, fraction):
-                tc_metrics.OracleCollaborativeAUC(
-                    oracle_fraction=float(fraction),
-                    num_bins=FLAGS.num_approx_bins),
-            'test_{}/collab_auprc_{}'.format(policy, fraction):
-                tc_metrics.OracleCollaborativeAUC(
-                    oracle_fraction=float(fraction),
-                    curve='PR',
-                    num_bins=FLAGS.num_approx_bins),
-        })
-
-    for dataset_name, test_dataset in test_datasets.items():
-      if dataset_name != 'ind':
-        metrics.update({
-            'test/nll_{}'.format(dataset_name):
-                tf.keras.metrics.Mean(),
-            'test/auroc_{}'.format(dataset_name):
-                tf.keras.metrics.AUC(curve='ROC'),
-            'test/aupr_{}'.format(dataset_name):
-                tf.keras.metrics.AUC(curve='PR'),
-            'test/brier_{}'.format(dataset_name):
-                tf.keras.metrics.MeanSquaredError(),
-            'test/brier_weighted_{}'.format(dataset_name):
-                tf.keras.metrics.MeanSquaredError(),
-            'test/ece_{}'.format(dataset_name):
-                rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_ece_bins
-                                                   ),
-            'test/acc_{}'.format(dataset_name):
-                tf.keras.metrics.Accuracy(),
-            'test/acc_weighted_{}'.format(dataset_name):
-                tf.keras.metrics.Accuracy(),
-            'test/eval_time_{}'.format(dataset_name):
-                tf.keras.metrics.Mean(),
-            'test/stddev_{}'.format(dataset_name):
-                tf.keras.metrics.Mean(),
-            'test/precision_{}'.format(dataset_name):
-                tf.keras.metrics.Precision(),
-            'test/recall_{}'.format(dataset_name):
-                tf.keras.metrics.Recall(),
-            'test/f1_{}'.format(dataset_name):
-                tfa_metrics.F1Score(
-                    num_classes=num_classes,
-                    average='micro',
-                    threshold=FLAGS.ece_label_threshold)
-        })
-
-        for policy in ('uncertainty', 'toxicity'):
-          metrics.update({
-              'test_{}/calibration_auroc_{}'.format(policy, dataset_name):
-                  tc_metrics.CalibrationAUC(curve='ROC'),
-              'test_{}/calibration_auprc_{}'.format(policy, dataset_name):
-                  tc_metrics.CalibrationAUC(curve='PR'),
-          })
-
-          for fraction in FLAGS.fractions:
-            metrics.update({
-                'test_{}/collab_acc_{}_{}'.format(policy, fraction,
-                                                  dataset_name):
-                    rm.metrics.OracleCollaborativeAccuracy(
-                        fraction=float(fraction),
-                        num_bins=FLAGS.num_approx_bins),
-                'test_{}/abstain_prec_{}_{}'.format(policy, fraction,
-                                                    dataset_name):
-                    tc_metrics.AbstainPrecision(
-                        abstain_fraction=float(fraction),
-                        num_approx_bins=FLAGS.num_approx_bins),
-                'test_{}/abstain_recall_{}_{}'.format(policy, fraction,
-                                                      dataset_name):
-                    tc_metrics.AbstainRecall(
-                        abstain_fraction=float(fraction),
-                        num_approx_bins=FLAGS.num_approx_bins),
-                'test_{}/collab_auroc_{}_{}'.format(policy, fraction,
-                                                    dataset_name):
-                    tc_metrics.OracleCollaborativeAUC(
-                        oracle_fraction=float(fraction),
-                        num_bins=FLAGS.num_approx_bins),
-                'test_{}/collab_auprc_{}_{}'.format(policy, fraction,
-                                                    dataset_name):
-                    tc_metrics.OracleCollaborativeAUC(
-                        oracle_fraction=float(fraction),
-                        curve='PR',
-                        num_bins=FLAGS.num_approx_bins),
-            })
+    metrics = utils.create_train_and_test_metrics(
+        test_datasets,
+        num_classes=num_classes,
+        num_ece_bins=FLAGS.num_ece_bins,
+        ece_label_threshold=FLAGS.ece_label_threshold,
+        eval_collab_metrics=FLAGS.eval_collab_metrics,
+        num_approx_bins=FLAGS.num_approx_bins,
+        train_on_multi_task_label=FLAGS.train_on_multi_task_label)
 
   @tf.function
   def generate_sample_weight(labels, class_weight, label_threshold=0.7):
@@ -563,6 +344,9 @@ def main(argv):
 
       with tf.GradientTape() as tape:
         logits = model(features, training=True)
+
+        if FLAGS.train_on_multi_task_label:
+          logits, multi_task_logits = logits
 
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract logits
@@ -598,6 +382,14 @@ def main(argv):
 
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
+
+        if FLAGS.train_on_multi_task_label and FLAGS.multi_task_loss_weight > 0:
+          multi_task_logits = tf.squeeze(multi_task_logits, axis=1)
+          multi_task_labels = inputs['multi_task_labels']
+          multi_task_loss = tf.nn.sigmoid_cross_entropy_with_logits(
+              multi_task_labels, multi_task_logits)
+          loss += FLAGS.multi_task_loss_weight * multi_task_loss
+
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
 
@@ -646,6 +438,12 @@ def main(argv):
       for _ in range(FLAGS.num_mc_samples):
         logits = model(features, training=False)
 
+        multi_task_probs, multi_task_labels = None, None
+        if FLAGS.train_on_multi_task_label:
+          logits, multi_task_logits = logits
+          multi_task_probs = tf.nn.sigmoid(multi_task_logits)
+          multi_task_labels = inputs.get('multi_task_labels', None)
+
         if isinstance(logits, (list, tuple)):
           # If model returns a tuple of (logits, covmat), extract both.
           logits, covmat = logits
@@ -671,24 +469,12 @@ def main(argv):
       stddev = tf.reduce_mean(stddev_list, axis=0)
       probs_list = tf.nn.sigmoid(logits_list)
       probs = tf.reduce_mean(probs_list, axis=0)
-      # Cast labels to discrete for ECE computation.
-      ece_labels = tf.cast(labels > FLAGS.ece_label_threshold, tf.float32)
-      one_hot_labels = tf.one_hot(tf.cast(ece_labels, tf.int32),
-                                  depth=num_classes)
-      ece_probs = tf.concat([1. - probs, probs], axis=1)
-      pred_labels = tf.math.argmax(ece_probs, axis=-1)
-      auc_probs = tf.squeeze(probs, axis=1)
-
-      # Use normalized binary predictive variance as the confidence score.
-      # Since the prediction variance p*(1-p) is within range (0, 0.25),
-      # normalize it by maximum value so the confidence is between (0, 1).
-      calib_confidence = 1. - probs * (1. - probs) / .25
 
       ce = tf.nn.sigmoid_cross_entropy_with_logits(
           labels=tf.broadcast_to(
-              labels, [FLAGS.num_mc_samples, labels.shape[0]]),
-          logits=tf.squeeze(logits_list, axis=-1)
-      )
+              labels,
+              [FLAGS.num_mc_samples, tf.shape(labels)[0]]),
+          logits=tf.squeeze(logits_list, axis=-1))
       negative_log_likelihood = -tf.reduce_logsumexp(
           -ce, axis=0) + tf.math.log(float(FLAGS.num_mc_samples))
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
@@ -696,109 +482,23 @@ def main(argv):
       sample_weight = generate_sample_weight(
           labels, class_weight['test/{}'.format(dataset_name)],
           FLAGS.ece_label_threshold)
-      if dataset_name == 'ind':
-        metrics['test/negative_log_likelihood'].update_state(
-            negative_log_likelihood)
-        metrics['test/auroc'].update_state(labels, auc_probs)
-        metrics['test/aupr'].update_state(labels, auc_probs)
-        metrics['test/brier'].update_state(labels, auc_probs)
-        metrics['test/brier_weighted'].update_state(
-            tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece'].add_batch(ece_probs, label=ece_labels)
-        metrics['test/acc'].update_state(ece_labels, pred_labels)
-        metrics['test/acc_weighted'].update_state(
-            ece_labels, pred_labels, sample_weight=sample_weight)
-        metrics['test/eval_time'].update_state(eval_time)
-        metrics['test/stddev'].update_state(stddev)
-        metrics['test/precision'].update_state(ece_labels, pred_labels)
-        metrics['test/recall'].update_state(ece_labels, pred_labels)
-        metrics['test/f1'].update_state(one_hot_labels, ece_probs)
 
-        for policy in ('uncertainty', 'toxicity'):
-          # calib_confidence or decreasing toxicity score.
-          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
-
-          metrics['test_{}/calibration_auroc'.format(policy)].update_state(
-              ece_labels, pred_labels, confidence)
-          metrics['test_{}/calibration_auprc'.format(policy)].update_state(
-              ece_labels, pred_labels, confidence)
-
-          for fraction in FLAGS.fractions:
-            metrics['test_{}/collab_acc_{}'.format(policy, fraction)].add_batch(
-                ece_probs,
-                label=ece_labels,
-                custom_binning_score=binning_confidence)
-            metrics['test_{}/abstain_prec_{}'.format(
-                policy, fraction)].update_state(ece_labels, pred_labels,
-                                                confidence)
-            metrics['test_{}/abstain_recall_{}'.format(
-                policy, fraction)].update_state(ece_labels, pred_labels,
-                                                confidence)
-            metrics['test_{}/collab_auroc_{}'.format(
-                policy, fraction)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
-            metrics['test_{}/collab_auprc_{}'.format(
-                policy, fraction)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
-
-      else:
-        metrics['test/nll_{}'.format(dataset_name)].update_state(
-            negative_log_likelihood)
-        metrics['test/auroc_{}'.format(dataset_name)].update_state(
-            labels, auc_probs)
-        metrics['test/aupr_{}'.format(dataset_name)].update_state(
-            labels, auc_probs)
-        metrics['test/brier_{}'.format(dataset_name)].update_state(
-            labels, auc_probs)
-        metrics['test/brier_weighted_{}'.format(dataset_name)].update_state(
-            tf.expand_dims(labels, -1), probs, sample_weight=sample_weight)
-        metrics['test/ece_{}'.format(dataset_name)].add_batch(
-            ece_probs, label=ece_labels)
-        metrics['test/acc_{}'.format(dataset_name)].update_state(
-            ece_labels, pred_labels)
-        metrics['test/acc_weighted_{}'.format(dataset_name)].update_state(
-            ece_labels, pred_labels, sample_weight=sample_weight)
-        metrics['test/eval_time_{}'.format(dataset_name)].update_state(
-            eval_time)
-        metrics['test/stddev_{}'.format(dataset_name)].update_state(stddev)
-        metrics['test/precision_{}'.format(dataset_name)].update_state(
-            ece_labels, pred_labels)
-        metrics['test/recall_{}'.format(dataset_name)].update_state(
-            ece_labels, pred_labels)
-        metrics['test/f1_{}'.format(dataset_name)].update_state(
-            one_hot_labels, ece_probs)
-
-        for policy in ('uncertainty', 'toxicity'):
-          # calib_confidence or decreasing toxicity score.
-          confidence = 1. - probs if policy == 'toxicity' else calib_confidence
-          binning_confidence = tf.squeeze(confidence)
-
-          metrics['test_{}/calibration_auroc_{}'.format(
-              policy, dataset_name)].update_state(ece_labels, pred_labels,
-                                                  confidence)
-          metrics['test_{}/calibration_auprc_{}'.format(
-              policy, dataset_name)].update_state(ece_labels, pred_labels,
-                                                  confidence)
-
-          for fraction in FLAGS.fractions:
-            metrics['test_{}/collab_acc_{}_{}'.format(
-                policy, fraction, dataset_name)].add_batch(
-                    ece_probs,
-                    label=ece_labels,
-                    custom_binning_score=binning_confidence)
-            metrics['test_{}/abstain_prec_{}_{}'.format(
-                policy, fraction,
-                dataset_name)].update_state(ece_labels, pred_labels, confidence)
-            metrics['test_{}/abstain_recall_{}_{}'.format(
-                policy, fraction,
-                dataset_name)].update_state(ece_labels, pred_labels, confidence)
-            metrics['test_{}/collab_auroc_{}_{}'.format(
-                policy, fraction, dataset_name)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
-            metrics['test_{}/collab_auprc_{}_{}'.format(
-                policy, fraction, dataset_name)].update_state(
-                    labels, auc_probs, custom_binning_score=binning_confidence)
+      # Avoid directly modifying global variable `metrics` (which leads to an
+      # assign-before-use error) by creating an update function instead.
+      update_fn = utils.make_test_metrics_update_fn(
+          dataset_name,
+          sample_weight,
+          num_classes,
+          labels,
+          probs,
+          multi_task_labels,
+          multi_task_probs,
+          negative_log_likelihood,
+          eval_time=eval_time,
+          ece_label_threshold=FLAGS.ece_label_threshold,
+          train_on_multi_task_label=FLAGS.train_on_multi_task_label,
+          eval_collab_metrics=FLAGS.eval_collab_metrics)
+      update_fn(metrics)
 
     strategy.run(step_fn, args=(next(iterator),))
 
@@ -807,9 +507,18 @@ def main(argv):
     """Final Evaluation StepFn to save prediction to directory."""
 
     def step_fn(inputs):
+      ids = inputs['id']
+      texts = inputs['features']
+      text_ids = inputs['input_ids']
       bert_features, labels, additional_labels = utils.create_feature_and_label(
           inputs)
       logits = model(bert_features, training=False)
+
+      if FLAGS.train_on_multi_task_label:
+        logits, multi_task_logits = logits
+        # Not recording bias prediction for now.
+        del multi_task_logits
+
       if isinstance(logits, (list, tuple)):
         # If model returns a tuple of (logits, covmat), extract both.
         logits, covmat = logits
@@ -822,17 +531,21 @@ def main(argv):
 
       logits = ed.layers.utils.mean_field_logits(
           logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
-      features = inputs['input_ids']
-      return features, logits, labels, additional_labels
+      variances = tf.linalg.diag_part(covmat)
+      return texts, text_ids, logits, variances, labels, additional_labels, ids
 
-    (per_replica_texts, per_replica_logits, per_replica_labels,
-     per_replica_additional_labels) = (
+    (per_replica_texts, per_replica_text_ids, per_replica_logits,
+     per_replica_variances, per_replica_labels, per_replica_additional_labels,
+     per_replica_ids) = (
          strategy.run(step_fn, args=(next(iterator),)))
 
     if strategy.num_replicas_in_sync > 1:
       texts_list = tf.concat(per_replica_texts.values, axis=0)
+      text_ids_list = tf.concat(per_replica_text_ids.values, axis=0)
       logits_list = tf.concat(per_replica_logits.values, axis=0)
+      variances_list = tf.concat(per_replica_variances.values, axis=0)
       labels_list = tf.concat(per_replica_labels.values, axis=0)
+      ids_list = tf.concat(per_replica_ids.values, axis=0)
       additional_labels_dict = {}
       for additional_label in utils.IDENTITY_LABELS:
         if additional_label in per_replica_additional_labels:
@@ -840,8 +553,11 @@ def main(argv):
               per_replica_additional_labels[additional_label], axis=0)
     else:
       texts_list = per_replica_texts
+      text_ids_list = per_replica_text_ids
       logits_list = per_replica_logits
+      variances_list = per_replica_variances
       labels_list = per_replica_labels
+      ids_list = per_replica_ids
       additional_labels_dict = {}
       for additional_label in utils.IDENTITY_LABELS:
         if additional_label in per_replica_additional_labels:
@@ -849,7 +565,8 @@ def main(argv):
               additional_label] = per_replica_additional_labels[
                   additional_label]
 
-    return texts_list, logits_list, labels_list, additional_labels_dict
+    return (texts_list, text_ids_list, logits_list, variances_list, labels_list,
+            additional_labels_dict, ids_list)
 
   if FLAGS.prediction_mode:
     # Prediction and exit.
@@ -858,8 +575,11 @@ def main(argv):
       message = 'Final eval on dataset {}'.format(dataset_name)
       logging.info(message)
 
+      ids_all = []
       texts_all = []
+      text_ids_all = []
       logits_all = []
+      variances_all = []
       labels_all = []
       additional_labels_all_dict = {}
       if 'identity' in dataset_name:
@@ -874,11 +594,15 @@ def main(argv):
                   step, steps_per_eval[dataset_name], dataset_name)
               logging.info(message)
 
-            (text_step, logits_step, labels_step,
-             additional_labels_dict_step) = final_eval_step(test_iterator)
+            (text_step, text_ids_step, logits_step, variances_step, labels_step,
+             additional_labels_dict_step,
+             ids_step) = final_eval_step(test_iterator)
 
+            ids_all.append(ids_step)
             texts_all.append(text_step)
+            text_ids_all.append(text_ids_step)
             logits_all.append(logits_step)
+            variances_all.append(variances_step)
             labels_all.append(labels_step)
             if 'identity' in dataset_name:
               for identity_label_name in utils.IDENTITY_LABELS:
@@ -889,9 +613,12 @@ def main(argv):
         tf.experimental.async_clear_error()
         logging.info('Done with eval on %s', dataset_name)
 
+      ids_all = tf.concat(ids_all, axis=0)
       texts_all = tf.concat(texts_all, axis=0)
+      text_ids_all = tf.concat(text_ids_all, axis=0)
       logits_all = tf.concat(logits_all, axis=0)
       labels_all = tf.concat(labels_all, axis=0)
+      variances_all = tf.concat(variances_all, axis=0)
       additional_labels_all = []
       if additional_labels_all_dict:
         for identity_label_name in utils.IDENTITY_LABELS:
@@ -901,14 +628,26 @@ def main(argv):
       additional_labels_all = tf.convert_to_tensor(additional_labels_all)
 
       utils.save_prediction(
+          ids_all.numpy(),
+          path=os.path.join(FLAGS.output_dir, 'ids_{}'.format(dataset_name)))
+      utils.save_prediction(
           texts_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'texts_{}'.format(dataset_name)))
+      utils.save_prediction(
+          text_ids_all.numpy(),
+          path=os.path.join(FLAGS.output_dir,
+                            'text_ids_{}'.format(dataset_name)))
       utils.save_prediction(
           labels_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'labels_{}'.format(dataset_name)))
       utils.save_prediction(
           logits_all.numpy(),
           path=os.path.join(FLAGS.output_dir, 'logits_{}'.format(dataset_name)))
+      utils.save_prediction(
+          variances_all.numpy(),
+          path=os.path.join(FLAGS.output_dir,
+                            'variances_{}'.format(dataset_name)))
+
       if 'identity' in dataset_name:
         utils.save_prediction(
             additional_labels_all.numpy(),
@@ -970,10 +709,19 @@ def main(argv):
                      metrics['train/loss'].result(),
                      metrics['train/ece'].result()['ece'],
                      metrics['train/accuracy'].result())
+        logging.info('Test NLL: %.4f, AUROC: %.4f',
+                     metrics['test/negative_log_likelihood'].result(),
+                     metrics['test/auroc'].result())
 
-        total_results = {
-            name: metric.result() for name, metric in metrics.items()
-        }
+        # record results
+        total_results = {}
+        for name, metric in metrics.items():
+          try:
+            total_results[name] = metric.result()
+          except tf.errors.InvalidArgumentError:
+            logging.info('Error for metric "%s". Recording 0.', name)
+            total_results[name] = 0
+
         # Metrics from Robustness Metrics (like ECE) will return a dict with a
         # single key/value, instead of a scalar.
         total_results = {

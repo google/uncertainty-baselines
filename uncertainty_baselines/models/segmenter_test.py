@@ -25,12 +25,9 @@ import uncertainty_baselines as ub
 class SegVitTest(parameterized.TestCase):
 
   @parameterized.parameters(
-    (2, 2, 1, 12, 1, 'gap'),
-  )
-  def test_segmenter_transformer(self, num_classes, mlp_dim, num_heads, num_layers, hidden_size, classifier):
+      (2, 16, 224, 224),)
+  def test_segmenter_transformer(self, num_classes, hidden_size, img_h, img_w):
     # VisionTransformer.
-    img_h = 224
-    img_w = 224
     config = ml_collections.ConfigDict()
 
     config.num_classes = num_classes
@@ -43,17 +40,17 @@ class SegVitTest(parameterized.TestCase):
     config.backbone_configs.hidden_size = hidden_size
     config.backbone_configs.attention_dropout_rate = 0.
     config.backbone_configs.dropout_rate = 0.
-    config.backbone_configs.mlp_dim = mlp_dim
-    config.backbone_configs.num_heads = num_heads
-    config.backbone_configs.num_layers = num_layers
-    config.backbone_configs.classifier = classifier
+    config.backbone_configs.mlp_dim = 2
+    config.backbone_configs.num_heads = 1
+    config.backbone_configs.num_layers = 1
+    config.backbone_configs.classifier = 'gap'
 
     config.decoder_configs = ml_collections.ConfigDict()
     config.decoder_configs.type = 'linear'
 
     num_examples = 2
     inputs = jnp.ones([num_examples, img_h, img_w, 3], jnp.float32)
-    model = ub.models.segmenter_transformer(**config)
+    model = ub.models.SegVit(**config)
     key = jax.random.PRNGKey(0)
     variables = model.init(key, inputs, train=False)
 
@@ -61,8 +58,7 @@ class SegVitTest(parameterized.TestCase):
 
     self.assertEqual(logits.shape, (num_examples, img_h, img_w, num_classes))
     self.assertEqual(
-        set(outputs.keys()),
-        set(('stem', 'transformed', 'logits')))
+        set(outputs.keys()), set(('stem', 'transformed', 'logits')))
 
 
 if __name__ == '__main__':

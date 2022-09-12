@@ -43,6 +43,7 @@ import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
+import subpopl_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
@@ -94,8 +95,10 @@ def ensemble_prediction_fn(model_apply_fn, params, images, loss_as_str):
   ens_logits = jnp.asarray([logits for logits, _ in outputs])
   ens_logits = ens_logits_fn(ens_logits)
 
+  # ens_prelogits [ens_size, batch_size, hidden_size]
   ens_prelogits = jnp.asarray([out['pre_logits'] for _, out in outputs])
-  ens_prelogits = ens_logits_fn(ens_prelogits)
+  # ens_prelogits [batch_size, hidden_size, ens_size]
+  ens_prelogits = jnp.transpose(ens_prelogits, axes=[1, 2, 0])
 
   return ens_logits, ens_prelogits
 
@@ -210,6 +213,20 @@ def main(config, output_dir):
                 data_dir=config.get('data_dir'))
     })
 
+  if config.get('subpopl_cifar_data_file'):
+    dataset_builder = input_utils.cifar_from_sql(
+        sql_database=config.subpopl_cifar_data_file,
+        num_classes=config.num_classes)
+
+    subpopl_val_ds_splits = {  # pylint: disable=g-complex-comprehension
+        client_id: _get_val_split(
+            dataset_builder,
+            split=client_id,
+            pp_eval=config.pp_eval_subpopl_cifar,
+            data_dir=config.subpopl_cifar_data_file)
+        for client_id in dataset_builder.client_ids
+    }
+
   if config.get('eval_on_cifar_10h'):
     cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
         config.get('data_dir', None))
@@ -226,7 +243,7 @@ def main(config, output_dir):
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))  # pytype: disable=wrong-arg-types
     val_ds_splits['imagenet_real'] = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',
@@ -465,6 +482,15 @@ def main(config, output_dir):
         ensemble_params,
         n_prefetch=config.get('prefetch_to_device', 1))
     writer.write_scalars(step, ood_measurements)
+
+  # Perform subpopulation shift evaluation only if flag is provided.
+  if config.get('subpopl_cifar_data_file'):
+    subpopl_measurements = subpopl_utils.eval_subpopl_metrics(
+        subpopl_val_ds_splits,
+        evaluation_fn,
+        ensemble_params,
+        n_prefetch=config.get('prefetch_to_device', 1))
+    writer.write_scalars(step, scalars=subpopl_measurements)
 
   if 'fewshot' in config and fewshotter is not None:
     # Compute few-shot on-the-fly evaluation.

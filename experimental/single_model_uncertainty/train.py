@@ -61,7 +61,7 @@ def _train_step_fn(model: tf.keras.Model,
               tf.keras.losses.sparse_categorical_crossentropy(
                   y_true=labels, y_pred=logits, from_logits=True))
 
-        regularization_losses = model.get_losses_for(inputs=None)
+        regularization_losses = model.losses
         if regularization_losses:
           loss += tf.reduce_sum(regularization_losses)
         # Even though features/labels are the per-core batch size, we divide the
@@ -135,7 +135,8 @@ def run_train_loop(
     ood_dataset_builder: Optional[ub.datasets.BaseDataset] = None,
     ood_metrics: Optional[Dict[str, tf.keras.metrics.Metric]] = None,
     focal_loss_gamma: float = 0.0,
-    mean_field_factor: float = -1):
+    mean_field_factor: float = -1,
+    dempster_shafer_ood: bool = False):
   """Train, possibly evaluate the model, and record metrics."""
 
   checkpoint_manager = None
@@ -186,6 +187,7 @@ def run_train_loop(
        trial_dir=trial_dir,
        model=model,
        metrics=metrics,
+       dempster_shafer_ood=dempster_shafer_ood,
        ood_dataset_builder=ood_dataset_builder,
        ood_metrics=ood_metrics,
        mean_field_factor=mean_field_factor)

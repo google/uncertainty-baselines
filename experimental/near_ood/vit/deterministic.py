@@ -23,6 +23,8 @@ import os
 from absl import app
 from absl import flags
 from absl import logging
+from big_vision.pp import ops_general  # pylint: disable=unused-import
+from big_vision.pp import ops_image  # pylint: disable=unused-import
 from clu import metric_writers
 from clu import parameter_overview
 from clu import periodic_actions
@@ -43,7 +45,7 @@ import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
-import ood_utils  # local file import from experimental.near_ood.vit
+from vit import ood_utils  # local file import from experimental.near_ood
 
 # TODO(dusenberrymw): Open-source remaining imports.
 fewshot = None
@@ -190,7 +192,7 @@ def main(config, output_dir):
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))  # pytype: disable=wrong-arg-types
     val_iter_imagenet_real, val_steps = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',

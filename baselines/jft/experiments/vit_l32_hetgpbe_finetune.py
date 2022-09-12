@@ -22,7 +22,7 @@ This config is used for models pretrained on either JFT-300M or ImageNet-21K.
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 
 def get_config():
@@ -50,6 +50,11 @@ def get_config():
 
   config.prefetch_to_device = 2
   config.trial = 0
+
+  # Subpopulation shift evaluation. Parameters set in the sweep. If
+  # `config.subpopl_cifar_data_file` is None, this evaluation is skipped.
+  config.subpopl_cifar_data_file = None
+  config.pp_eval_subpopl_cifar = None
 
   # OOD evaluation. They're all set in the sweep.
   config.ood_datasets = []
@@ -120,21 +125,21 @@ def get_sweep(hyper):
   """Sweeps over datasets."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
   # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
-  cifar10_sweep = sweep_utils.cifar10(hyper, val_split='train[98%:]')
+  cifar10_sweep = sweep_utils.cifar10(hyper)
   cifar10_sweep.extend([
       hyper.sweep('config.model.num_factors', [3]),
       hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
   cifar10_sweep = hyper.product(cifar10_sweep)
 
-  cifar100_sweep = sweep_utils.cifar100(hyper, val_split='train[98%:]')
+  cifar100_sweep = sweep_utils.cifar100(hyper)
   cifar100_sweep.extend([
       hyper.sweep('config.model.num_factors', [10]),
       hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001]),
   ])
   cifar100_sweep = hyper.product(cifar100_sweep)
 
-  imagenet_sweep = sweep_utils.imagenet(hyper, val_split='train[99%:]')
+  imagenet_sweep = sweep_utils.imagenet(hyper)
   imagenet_sweep.extend([
       hyper.sweep('config.model.num_factors', [15]),
       hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),

@@ -20,7 +20,7 @@ r"""ViT + BatchEnsemble.
 # pylint: enable=line-too-long
 
 import ml_collections
-import common_fewshot  # local file import from baselines.jft.experiments
+from experiments import common_fewshot  # local file import from baselines.jft
 
 
 def get_config():
@@ -60,21 +60,26 @@ def get_config():
   config.model.transformer.attention_dropout_rate = 0.0
 
   # BatchEnsemble parameters.
-  config.model.transformer.be_layers = (21, 22, 23)
+  config.model.transformer.be_layers = (22, 23)
   config.model.transformer.ens_size = 3
   config.model.transformer.random_sign_init = -0.5
+  # TODO(trandustin): Remove `ensemble_attention` hparam once we no longer
+  # need checkpoints that only apply BE on the FF block.
+  config.model.transformer.ensemble_attention = True
   config.fast_weight_lr_multiplier = 1.0
 
   # Optimizer parameters.
   config.optim_name = 'Adam'
-  config.optim = ml_collections.ConfigDict(dict(beta1=0.9, beta2=0.999))
-  # TODO(trandustin): Ablate difference with config.weight_decay vs
-  # config.optim.weight_decay.
+  config.optim = ml_collections.ConfigDict()
+  config.optim.beta1 = 0.9
+  config.optim.beta2 = 0.999
+  # TODO(trandustin): Note BE uses config.weight_decay instead of
+  # config.optim.weight_decay as in typical ViT. xid/34376832 shows
+  # config.weight_decay is better for BE. Still need to sweep over LR though.
   config.weight_decay = 0.1
-  config.grad_clip_norm = None
 
   config.lr = ml_collections.ConfigDict()
-  config.lr.base = 6e-4  # LR likely has to be lower for larger models!
+  config.lr.base = 4e-4  # LR likely has to be lower for larger models!
   config.lr.warmup_steps = 10_000
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
@@ -99,10 +104,21 @@ def get_config():
 
 
 def get_sweep(hyper):
-  return hyper.product([])
   # Use this as a sensible sweep over hyperparameters.
-  # return hyper.product([
-  #     hyper.sweep('config.model.transformer.ens_size', [3]),
-  #     hyper.sweep('config.model.transformer.random_sign_init',
-  #                 [-0.5, 0.5, 0.75]),
-  # ])
+  return hyper.product([
+      hyper.chainit([
+          hyper.product([
+              hyper.sweep('config.model.transformer.ens_size', [2]),
+              hyper.sweep('config.model.transformer.be_layers',
+                          [(20, 21, 22, 23), (21, 22, 23)]),
+          ]),
+          hyper.product([
+              hyper.sweep('config.model.transformer.ens_size', [3]),
+              hyper.sweep('config.model.transformer.be_layers',
+                          [(21, 22, 23), (22, 23)]),
+          ]),
+      ]),
+      hyper.sweep('config.lr.base', [4e-4, 6e-4]),
+      hyper.sweep('config.model.transformer.random_sign_init',
+                  [-0.5, 0.5]),
+  ])

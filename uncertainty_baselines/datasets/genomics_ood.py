@@ -142,7 +142,8 @@ class GenomicsOodDataset(base.BaseDataset):
                data_dir: Optional[str] = None,
                is_training: Optional[bool] = None,
                validation_percent: Optional[float] = None,
-               normalize_by_cifar: Optional[bool] = None):
+               normalize_by_cifar: Optional[bool] = None,
+               drop_remainder: bool = False):
     """Create an Genomics OOD tf.data.Dataset builder.
 
     Args:
@@ -165,6 +166,9 @@ class GenomicsOodDataset(base.BaseDataset):
         set. It is not used.
       normalize_by_cifar: Whether normalize SVHN by CIFAR statistics. It is
         not used.
+      drop_remainder: whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size. This option
+        needs to be True for running on TPUs.
     """
     del validation_percent
     del normalize_by_cifar
@@ -179,6 +183,7 @@ class GenomicsOodDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
+        drop_remainder=drop_remainder,
         download_data=False)
 
   def _create_process_example_fn(self) -> base.PreProcessFn:

@@ -54,6 +54,8 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+
+import metrics as metrics_lib  # local file import from baselines.imagenet
 import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
@@ -136,6 +138,17 @@ flags.DEFINE_float(
     'The tunable multiplicative factor used in the mean-field approximation '
     'for the posterior mean of softmax Gaussian process. If -1 then use '
     'posterior mode instead of posterior mean. See [2] for detail.')
+flags.DEFINE_integer(
+    'gp_logit_mc_samples', 2500,
+    'The number of samples to be used for Monte Carlo approximation of the'
+    'Gaussian process output. If non-positive then use mean-field approximation'
+    'method.')
+flags.DEFINE_float(
+    'gp_logit_mc_amplitude', 15.,
+    'The kernel amplitude parameter to calibrate marginal variance during'
+    'Monte Carlo approximation to predictive probability. It corresponds to '
+    'the kernel amplitude parameter in the classic Gaussian process method.'
+    )
 flags.DEFINE_bool(
     'gp_output_imagenet_initializer', True,
     'Whether to initialize GP output layer using Gaussian with small '
@@ -160,6 +173,9 @@ NUM_CLASSES = 1000
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=1000, tau=10, kappa=2)
+
   del argv  # unused arg
 
   # Number of images in eval dataset.
@@ -211,17 +227,17 @@ def main(argv):
       'clean': clean_test_dataset
   }
   if FLAGS.corruptions_interval > 0:
-    corruption_types, max_intensity = utils.load_corrupted_test_info()
-    for name in corruption_types:
-      for intensity in range(1, max_intensity + 1):
-        dataset_name = '{0}_{1}'.format(name, intensity)
-        dataset = utils.load_corrupted_test_dataset(
-            batch_size=batch_size,
-            corruption_name=name,
-            corruption_intensity=intensity,
-            use_bfloat16=FLAGS.use_bfloat16)
-        test_datasets[dataset_name] = (
-            strategy.experimental_distribute_dataset(dataset))
+    corruption_types, max_severity = utils.load_corrupted_test_info()
+    for corruption_type in corruption_types:
+      for severity in range(1, max_severity + 1):
+        dataset_name = '{0}_{1}'.format(corruption_type, severity)
+        corrupted_builder = ub.datasets.ImageNetCorruptedDataset(
+            corruption_type=corruption_type,
+            severity=severity,
+            use_bfloat16=FLAGS.use_bfloat16,
+            data_dir=data_dir)
+        test_datasets[dataset_name] = corrupted_builder.load(
+            batch_size=batch_size, strategy=strategy)
 
   if FLAGS.use_bfloat16:
     tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
@@ -267,20 +283,28 @@ def main(argv):
                                         momentum=1.0 - FLAGS.one_minus_momentum,
                                         nesterov=True)
     metrics = {
-        'train/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'train/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'train/loss': tf.keras.metrics.Mean(),
-        'train/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
-        'test/negative_log_likelihood': tf.keras.metrics.Mean(),
-        'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-        'test/ece': rm.metrics.ExpectedCalibrationError(
-            num_bins=FLAGS.num_bins),
-        'test/stddev': tf.keras.metrics.Mean(),
+        'train/negative_log_likelihood':
+            tf.keras.metrics.Mean(),
+        'train/accuracy':
+            tf.keras.metrics.SparseCategoricalAccuracy(),
+        'train/loss':
+            tf.keras.metrics.Mean(),
+        'train/ece':
+            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/negative_log_likelihood':
+            tf.keras.metrics.Mean(),
+        'test/accuracy':
+            tf.keras.metrics.SparseCategoricalAccuracy(),
+        'test/ece':
+            rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
+        'test/stddev':
+            tf.keras.metrics.Mean(),
+        'test/joint_nll':
+            tf.keras.metrics.Mean(),
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
-      for intensity in range(1, max_intensity + 1):
+      for intensity in range(1, max_severity + 1):
         for corruption in corruption_types:
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
@@ -367,8 +391,9 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
 
-      logits_list = []
       stddev_list = []
+      logits_list = []
+      logit_samples_list = []
       for _ in range(FLAGS.num_dropout_samples):
         logits = model(images, training=False)
 
@@ -381,33 +406,48 @@ def main(argv):
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
+        stddev = tf.sqrt(tf.linalg.diag_part(covmat))
+        sample_shape = tf.concat([tf.constant([FLAGS.gp_logit_mc_samples]),
+                                  tf.shape(logits)], axis=0)
+        logit_samples = tf.random.normal(
+            shape=sample_shape,
+            mean=logits,
+            stddev=FLAGS.gp_logit_mc_amplitude * stddev[:, None])
         logits = ed.layers.utils.mean_field_logits(
             logits, covmat, mean_field_factor=FLAGS.gp_mean_field_factor)
-        stddev = tf.sqrt(tf.linalg.diag_part(covmat))
 
         stddev_list.append(stddev)
         logits_list.append(logits)
+        logit_samples_list.append(logit_samples)
 
       # Logits dimension is (num_samples, batch_size, num_classes).
-      logits_list = tf.stack(logits_list, axis=0)
       stddev_list = tf.stack(stddev_list, axis=0)
-
+      logits_list = tf.stack(logits_list, axis=0)
       stddev = tf.reduce_mean(stddev_list, axis=0)
       probs_list = tf.nn.softmax(logits_list)
       probs = tf.reduce_mean(probs_list, axis=0)
 
+      # Logits sample dimension is
+      # (num_dropout_samples, num_mc_samples, batch_size, num_classes).
+      logit_samples = tf.stack(logit_samples_list, axis=0)
+      logit_samples_nll = tf.concat(logit_samples_list, axis=0)
+      prob_samples = tf.nn.softmax(logit_samples)
+      probs_marginalized = tf.reduce_mean(prob_samples, axis=1)
+
       labels_broadcasted = tf.broadcast_to(
           labels, [FLAGS.num_dropout_samples, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
-          labels_broadcasted, logits_list, from_logits=True)
+          labels_broadcasted, probs_marginalized, from_logits=False)
       negative_log_likelihood = tf.reduce_mean(
           -tf.reduce_logsumexp(log_likelihoods, axis=[0]) +
           tf.math.log(float(FLAGS.num_dropout_samples)))
+      joint_nll = dyadic_nll(logit_samples_nll, tf.expand_dims(labels, axis=1))
 
       if dataset_name == 'clean':
         metrics['test/negative_log_likelihood'].update_state(
             negative_log_likelihood)
-        metrics['test/accuracy'].update_state(labels, probs)
+        metrics['test/joint_nll'].update_state(joint_nll)
+        metrics['test/accuracy'].update_state(labels, probs_marginalized)
         metrics['test/ece'].add_batch(probs, label=labels)
         metrics['test/stddev'].update_state(stddev)
       else:
@@ -466,7 +506,7 @@ def main(argv):
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       corrupt_results = utils.aggregate_corrupt_metrics(
-          corrupt_metrics, corruption_types, max_intensity,
+          corrupt_metrics, corruption_types, max_severity,
           FLAGS.alexnet_errors_path)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',

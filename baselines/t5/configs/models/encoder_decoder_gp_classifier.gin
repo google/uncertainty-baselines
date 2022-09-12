@@ -1,0 +1,96 @@
+# Copyright 2022 The Uncertainty Baselines Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# GP model configurations specific to classification tasks.
+from __gin__ import dynamic_registration
+
+import seqio
+
+from t5x import utils
+from t5x.examples.t5 import network
+
+import decoding  # local file import from baselines.t5
+import utils as ub_utils  # local file import from baselines.t5
+from models import gp_models  # local file import from baselines.t5
+from uncertainty_baselines.models import t5_gp
+
+# Loss HParam defaults
+# NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF)
+# the loss normalizing factor should be set to 1024 * 228 (pretraining
+# batch_size * target_token_length).
+Z_LOSS = 0.0001
+LABEL_SMOOTHING = 0.0
+LOSS_NORMALIZING_FACTOR = 233472
+DROPOUT_RATE = 0.1
+
+# To reset covariance matrix during fine-tuning, we need to set
+# STEPS_PER_EPOCH to a concrete value.
+STEPS_PER_EPOCH = None
+COVMAT_MOMENTUM = -1.
+MEAN_FIELD_FACTOR = -1.
+NORMALIZE_INPUT = True
+
+# Optimizer
+# `learning_rate` is set by `Trainer.learning_rate_fn`.
+OPTIMIZER = @ub_utils.AdafactorGP()
+ub_utils.AdafactorGP:
+  decay_rate = 0.8
+  step_offset = 0
+
+# Vocabulary (shared by encoder and decoder)
+VOCABULARY = @seqio.SentencePieceVocabulary()
+seqio.SentencePieceVocabulary.sentencepiece_model_file = "/bigstore/t5-data/vocabs/cc_all.32000.100extra/sentencepiece.model"
+NUM_EMBEDDINGS = 32128  # vocab size rounded to a multiple of 128 for TPU efficiency
+
+# Model class.
+# Note: We will use a classifier version of the EncoderDecoder model whose
+# score_batch() function returns class logits rather than sequence-level
+# (unnormalized) log likelihood scores.
+MODEL = @gp_models.EncoderDecoderGPClassifierModel()
+gp_models.EncoderDecoderGPClassifierModel:
+  label_tokens = %LABEL_TOKENS
+  module = @t5_gp.TransformerGaussianProcess()
+  input_vocabulary = %VOCABULARY
+  output_vocabulary = %VOCABULARY
+  optimizer_def = %OPTIMIZER
+  z_loss = %Z_LOSS
+  label_smoothing = %LABEL_SMOOTHING
+  loss_normalizing_factor = %LOSS_NORMALIZING_FACTOR
+
+t5_gp.TransformerGaussianProcess:
+  config = @network.T5Config()
+  covmat_momentum = %COVMAT_MOMENTUM
+  normalize_input = %NORMALIZE_INPUT
+  mean_field_factor = %MEAN_FIELD_FACTOR
+  ridge_penalty = 1.
+  steps_per_epoch = %STEPS_PER_EPOCH
+
+network.T5Config:
+  vocab_size = %NUM_EMBEDDINGS
+  dtype = 'bfloat16'
+  head_dim = 64
+  dropout_rate = %DROPOUT_RATE
+
+# Decoding override to write Top-K beams and scores to output.
+gp_models.EncoderDecoderGPClassifierModel.predict_batch_with_aux.num_decodes = 3
+gp_models.EncoderDecoderGPClassifierModel.predict_batch_with_aux.return_all_decodes = True
+gp_models.EncoderDecoderGPClassifierModel.score_batch.num_decodes = 3
+gp_models.EncoderDecoderGPClassifierModel.score_batch.return_beam_predictions = True
+
+# Set beam search parameters.
+gp_models.EncoderDecoderGPClassifierModel.decode_fn = @decoding.beam_search
+
+# Remove the brevity penalty that is unnecessary for classification.
+decoding.beam_search.alpha = 0.
+decoding.beam_search.return_token_scores = True

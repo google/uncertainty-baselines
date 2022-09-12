@@ -62,6 +62,7 @@ STATE_LABEL_NAME = 'label'
 DOMAIN_LABEL_NAME = 'domain_label'
 DIAL_LEN_NAME = 'dialog_len'
 DIAL_TURN_ID_NAME = 'dialog_turn_id'
+TRAIN_SAMPLE_MASK_NAME = 'train_sample_mask'
 
 FILENAME_META = 'meta.json'
 FILENAME_TOKENIZER = 'id_to_vocab.json'
@@ -71,14 +72,40 @@ FILENAME_TOKENIZER_DOMAIN_LABEL = 'id_to_vocab_domain_label.json'
 FILENAME_TRAIN = 'train.tfrecord'
 FILENAME_TEST = 'test.tfrecord'
 
-MAX_UTT_LEN = dict(simdial=40, multiwoz_synth=42, sgd_synth=76)
-MAX_DIALOG_LEN = dict(simdial=13, multiwoz_synth=7, sgd_synth=24)
+MAX_UTT_LEN = dict(
+    simdial=40,
+    multiwoz_synth=42,
+    sgd_synth=76,
+    sgd=79,
+    sgd_domain_adapation=79)
+MAX_DIALOG_LEN = dict(
+    simdial=13, multiwoz_synth=7, sgd_synth=24, sgd=25, sgd_domain_adapation=25)
 
-VOCAB_SIZE_UTT = dict(simdial=474, multiwoz_synth=1506, sgd_synth=6709)
-VOCAB_SIZE_LABEL = dict(simdial=52, multiwoz_synth=10, sgd_synth=39)
+VOCAB_SIZE_UTT = dict(
+    simdial=474,
+    multiwoz_synth=1506,
+    sgd_synth=6709,
+    sgd=11468,
+    sgd_domain_adapation=11468)
+VOCAB_SIZE_LABEL = dict(
+    simdial=52,
+    multiwoz_synth=10,
+    sgd_synth=39,
+    sgd=75,
+    sgd_domain_adapation=75)
 
-NUM_TRAIN = dict(simdial=6400, multiwoz_synth=7500, sgd_synth=8100)
-NUM_TEST = dict(simdial=1600, multiwoz_synth=1500, sgd_synth=2700)
+NUM_TRAIN = dict(
+    simdial=6400,
+    multiwoz_synth=7500,
+    sgd_synth=8100,
+    sgd=8151,
+    sgd_domain_adapation=12096)
+NUM_TEST = dict(
+    simdial=1600,
+    multiwoz_synth=1500,
+    sgd_synth=2700,
+    sgd=3945,
+    sgd_domain_adapation=3945)
 
 # Use test as stand-in for val. In practice we never use this dataset.
 NUM_VAL = NUM_TEST
@@ -93,7 +120,8 @@ def _build_dataset(glob_dir: str, is_training: bool) -> tf.data.Dataset:
 
 
 def _make_features_spec(
-    load_domain_label: bool) -> Dict[str, tf.io.FixedLenFeature]:
+    load_domain_label: bool,
+    load_train_sample_mask: bool) -> Dict[str, tf.io.FixedLenFeature]:
   """Specifies dataset example feature types."""
   feature_spec = {
       USR_UTT_NAME: tf.io.FixedLenFeature([], tf.string, default_value=''),
@@ -108,6 +136,9 @@ def _make_features_spec(
     feature_spec[DOMAIN_LABEL_NAME] = tf.io.FixedLenFeature([],
                                                             tf.string,
                                                             default_value='')
+  if load_train_sample_mask:
+    feature_spec[TRAIN_SAMPLE_MASK_NAME] = tf.io.FixedLenFeature(
+        [], tf.string, default_value='')
 
   return feature_spec
 
@@ -144,13 +175,33 @@ _CITATION = {
   journal={arXiv preprint arXiv:1805.04803},
   year={2018}
 }
-"""
+""",
+    'sgd':
+        """
+@inproceedings{rastogi2020towards,
+  title={Towards scalable multi-domain conversational agents: The schema-guided dialogue dataset},
+  author={Rastogi, Abhinav and Zang, Xiaoxue and Sunkara, Srinivas and Gupta, Raghav and Khaitan, Pranav},
+  booktitle={Proceedings of the AAAI Conference on Artificial Intelligence},
+  volume={34},
+  number={05},
+  pages={8689--8696},
+  year={2020}
 }
-_HOMEPAGE = {'simdial': 'https://github.com/snakeztc/SimDial'}
+""",
+}
+_HOMEPAGE = {
+    'simdial':
+        'https://github.com/snakeztc/SimDial',
+    'sgd':
+        'https://github.com/google-research-datasets/dstc8-schema-guided-dialogue'
+}
 _DESCRIPTION = {
     'simdial':
         ('Simulated goal-oriented conversations [1] generated for information '
-         'requests in four domains: bus, restaurant, weather, and movie.')
+         'requests in four domains: bus, restaurant, weather, and movie.'),
+    'sgd': ('Schema-Guided Dialogues consisting of over 20k annotated '
+            'multi-domain, task-oriented conversations between a human and a '
+            'virtual assistant'),
 }
 
 
@@ -211,6 +262,7 @@ class _DialogStateTrackingDatasetBuilder(tfds.core.DatasetBuilder):
     """Returns the `tfds.core.DatasetInfo` object."""
     metadata_dict = load_json(self._file_paths['metadata'])
     has_domain_label = metadata_dict.get('has_domain_label', False)
+    has_train_sample_mask = metadata_dict.get('has_train_sample_mask', False)
 
     features = {
         USR_UTT_NAME: tfds.features.Tensor(shape=[], dtype=tf.string),
@@ -229,6 +281,11 @@ class _DialogStateTrackingDatasetBuilder(tfds.core.DatasetBuilder):
       raise ValueError(
           'load_domain_label=True, but the dataset does not have domain label'
           'according to metadata ({}).'.format(self._file_paths['metadata']))
+
+    # Load train sample mask if it exists.
+    if has_train_sample_mask:
+      features[TRAIN_SAMPLE_MASK_NAME] = tfds.features.Tensor(
+          shape=[], dtype=tf.string)
 
     info = tfds.core.DatasetInfo(
         builder=self,
@@ -273,6 +330,7 @@ class _DialogStateTrackingDataset(base.BaseDataset):
                name: str,
                split: str,
                load_domain_label: bool = True,
+               load_train_sample_mask: bool = False,
                add_dialog_turn_id: Optional[bool] = False,
                shuffle_buffer_size: Optional[int] = None,
                num_parallel_parser_calls: int = 64,
@@ -289,6 +347,10 @@ class _DialogStateTrackingDataset(base.BaseDataset):
         names.
       load_domain_label: Whether to load dialog domain labels as well. Currently
         only wroks for `SGDSyntheticDataset`.
+      load_train_sample_mask: Whether to load train sample mask indicating if
+        the example is originally from the training set. The mask is used in
+        domain adaptation task where we merge the training set and test set in
+        unsupervised training.
       add_dialog_turn_id: Whether to add a unique id for each dialog turn.
       shuffle_buffer_size: the number of example to use in the shuffle buffer
         for tf.data.Dataset.shuffle().
@@ -306,6 +368,9 @@ class _DialogStateTrackingDataset(base.BaseDataset):
     self.load_domain_label = load_domain_label
     # Specify a unique id for a turn in a dialog.
     self.add_dialog_turn_id = add_dialog_turn_id
+    # Load mask indicating whether the example is originally from the training
+    # set.
+    self.load_train_sample_mask = load_train_sample_mask
 
     self.vocab_utter = load_json(os.path.join(data_dir, FILENAME_TOKENIZER))
     self.vocab_label = load_json(
@@ -331,7 +396,8 @@ class _DialogStateTrackingDataset(base.BaseDataset):
 
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
       """Parse features and labels from a serialized tf.train.Example."""
-      features_spec = _make_features_spec(self.load_domain_label)
+      features_spec = _make_features_spec(self.load_domain_label,
+                                          self.load_train_sample_mask)
       features = tf.io.parse_single_example(example['features'], features_spec)
 
       sys_utt = tf.io.parse_tensor(features[SYS_UTT_NAME], out_type=tf.int32)
@@ -371,6 +437,13 @@ class _DialogStateTrackingDataset(base.BaseDataset):
         domain_label = tf.ensure_shape(domain_label, (max_dialog_len,))
         parsed_example[DOMAIN_LABEL_NAME] = domain_label
 
+      if self.load_train_sample_mask:
+        train_sample_mask = tf.io.parse_tensor(
+            features[TRAIN_SAMPLE_MASK_NAME], out_type=tf.int32)
+        train_sample_mask = tf.ensure_shape(train_sample_mask,
+                                            (max_dialog_len,))
+        parsed_example[TRAIN_SAMPLE_MASK_NAME] = train_sample_mask
+
       if self.add_dialog_turn_id:
         example_id = example[self._fingerprint_key]
         dialog_turn_id = tf.range(
@@ -403,3 +476,17 @@ class SGDSynthDataset(_DialogStateTrackingDataset):
 
   def __init__(self, data_dir=None, **kwargs):
     super().__init__(name='sgd_synth', data_dir=data_dir, **kwargs)
+
+
+class SGDDataset(_DialogStateTrackingDataset):
+  """SGD dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='sgd', data_dir=data_dir, **kwargs)
+
+
+class SGDDADataset(_DialogStateTrackingDataset):
+  """SGD domain adapation dataset builder class."""
+
+  def __init__(self, data_dir=None, **kwargs):
+    super().__init__(name='sgd_domain_adapation', data_dir=data_dir, **kwargs)

@@ -237,6 +237,7 @@ class DropoutBertClassifier(tf.keras.Model):
       self,
       network: tf.keras.Model,
       num_classes: int,
+      num_heads: int,
       initializer: Union[str,
                          tf.keras.initializers.Initializer] = 'glorot_uniform',
       dropout_rate: float = 0.1,
@@ -249,6 +250,7 @@ class DropoutBertClassifier(tf.keras.Model):
         output and a classification output. Furthermore, it should expose its
         embedding table via a "get_embedding_table" method.
       num_classes: Number of classes to predict from the classification network.
+      num_heads: Number of additional output heads.
       initializer: The initializer (if any) to use in the classification
         networks. Defaults to a Glorot uniform initializer.
       dropout_rate: The dropout probability of the cls head.
@@ -284,9 +286,22 @@ class DropoutBertClassifier(tf.keras.Model):
         initializer=initializer,
         output='logits',
         name='sentence_prediction')
-    predictions = self.classifier(cls_output)
+    outputs = self.classifier(cls_output)
 
-    super().__init__(inputs=inputs, outputs=predictions, **kwargs)
+    # Build additional heads if num_heads > 1.
+    if num_heads > 1:
+      outputs = [outputs]
+      for head_id in range(1, num_heads):
+        additional_outputs = tf.keras.layers.Dense(
+            num_classes,
+            activation=None,
+            kernel_initializer=initializer,
+            name=f'predictions/transform/logits_{head_id}')(
+                cls_output)
+
+        outputs.append(additional_outputs)
+
+    super().__init__(inputs=inputs, outputs=outputs, **kwargs)
 
 
 def get_mc_dropout_transformer_encoder(bert_config,
@@ -354,6 +369,7 @@ def get_mc_dropout_transformer_encoder(bert_config,
 
 def bert_dropout_model(num_classes,
                        bert_config,
+                       num_heads=1,
                        use_mc_dropout_mha=False,
                        use_mc_dropout_att=False,
                        use_mc_dropout_ffn=False,
@@ -379,6 +395,7 @@ def bert_dropout_model(num_classes,
   mc_dropout_bert_model = DropoutBertClassifier(
       mc_dropout_bert_encoder,
       num_classes=num_classes,
+      num_heads=num_heads,
       dropout_rate=bert_config.hidden_dropout_prob,
       use_mc_dropout=use_mc_dropout_output,
       initializer=last_layer_initializer)

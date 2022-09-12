@@ -14,9 +14,7 @@
 # limitations under the License.
 
 """Deterministic ViT."""
-
 import functools
-import itertools
 import multiprocessing
 import os
 
@@ -41,6 +39,7 @@ import data_uncertainty_utils  # local file import from baselines.jft
 import input_utils  # local file import from baselines.jft
 import ood_utils  # local file import from baselines.jft
 import preprocess_utils  # local file import from baselines.jft
+import subpopl_utils  # local file import from baselines.jft
 import train_utils  # local file import from baselines.jft
 
 # TODO(dusenberrymw): Open-source remaining imports.
@@ -84,6 +83,7 @@ def main(config, output_dir):
   def write_note(note):
     if jax.process_index() == 0:
       logging.info('NOTE: %s', note)
+
   write_note('Initializing...')
 
   # Verify settings to make sure no checkpoints are accidentally missed.
@@ -122,10 +122,6 @@ def main(config, output_dir):
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=config.get('data_dir'))
-
-  # Start prefetching already.
-  train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
 
@@ -180,6 +176,20 @@ def main(config, output_dir):
                 data_dir=config.get('data_dir'))
     })
 
+  if config.get('subpopl_cifar_data_file'):
+    dataset_builder = input_utils.cifar_from_sql(
+        sql_database=config.subpopl_cifar_data_file,
+        num_classes=config.num_classes)
+
+    subpopl_val_ds_splits = {  # pylint: disable=g-complex-comprehension
+        client_id: _get_val_split(
+            dataset_builder,
+            split=client_id,
+            pp_eval=config.pp_eval_subpopl_cifar,
+            data_dir=config.subpopl_cifar_data_file)
+        for client_id in dataset_builder.client_ids
+    }
+
   if config.get('eval_on_cifar_10h'):
     cifar10_to_cifar10h_fn = data_uncertainty_utils.create_cifar10_to_cifar10h_fn(
         config.get('data_dir', None))
@@ -196,7 +206,7 @@ def main(config, output_dir):
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))  # pytype: disable=wrong-arg-types
     val_ds_splits['imagenet_real'] = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',
@@ -254,8 +264,8 @@ def main(config, output_dir):
                                            train=False))['params']
 
     # Set bias in the head to a low value, such that loss is small initially.
-    params['head']['bias'] = jnp.full_like(
-        params['head']['bias'], config.get('init_head_bias', 0))
+    params['head']['bias'] = jnp.full_like(params['head']['bias'],
+                                           config.get('init_head_bias', 0))
 
     # init head kernel to all zeros for fine-tuning
     if config.get('model_init'):
@@ -273,6 +283,7 @@ def main(config, output_dir):
 
   @functools.partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask):
+    """Copy to deterministic_utils.py whenever changes are made!"""
     # Ignore the entries with all zero labels for evaluation.
     mask *= labels.max(axis=1)
     logits, out = model.apply({'params': flax.core.freeze(params)},
@@ -352,14 +363,13 @@ def main(config, output_dir):
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
   weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  rescale_value = 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
   @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0,))
   def update_fn(opt, lr, images, labels, rng):
-    """Update step."""
-
+    """Update step. Copy to deterministic_utils.py whenever changes are made!"""
     measurements = {}
 
     # Split rng and return next_rng for the following step.
@@ -376,7 +386,6 @@ def main(config, output_dir):
       loss = getattr(train_utils, config.get('loss', 'sigmoid_xent'))(
           logits=logits, labels=labels)
       return loss, logits
-
     # Implementation considerations compared and summarized at
     # https://docs.google.com/document/d/1g3kMEvqu1DOawaflKNyUsIoQ4yIVEoyE5ZlIPkIl4Lc/edit?hl=en#
     (l, logits), g = train_utils.accumulate_gradient(
@@ -426,18 +435,15 @@ def main(config, output_dir):
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
-  opt_cpu = opt_cpu.replace(target=adapted_params)
-
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  logging.info('first_step = %s', first_step)
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
+
   chrono = train_utils.Chrono(
       first_step, total_steps, batch_size, accumulated_train_time)
+
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -445,14 +451,7 @@ def main(config, output_dir):
       # problems and assure we get similar performance in every run.
       logdir=output_dir, first_profile=first_step + 10)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
-  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
-  # necessary for TPUs.
-  lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
-
+  # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax.jax_utils.replicate(opt_cpu)
 
@@ -465,6 +464,23 @@ def main(config, output_dir):
 
   checkpoint_writer = None
 
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+
+  # Prefetch all iterators, starting at the current first step.
+  if first_step > 0:
+    write_note('Advancing the dataset after resuming from a checkpoint...')
+    # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+    train_ds = train_ds.skip(first_step)
+
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
+
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
@@ -472,20 +488,10 @@ def main(config, output_dir):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  logging.info('first_step = %s', first_step)
-  # Advance the iterators if we are restarting from an earlier checkpoint.
-  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
-  if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
-    lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
-
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-
-    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
       if not config.get('only_eval', False):
         opt_repl, train_loop_rngs, extra_measurements = update_fn(
             opt_repl,
@@ -497,7 +503,7 @@ def main(config, output_dir):
     if jax.process_index() == 0:
       profiler(step)
 
-    # Checkpoint saving
+    # Checkpoint saving.
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.get('checkpoint_steps'), total_steps, process=0):
       write_note('Checkpointing...')
@@ -529,7 +535,7 @@ def main(config, output_dir):
           (checkpoint_data, save_checkpoint_path, copy_step))
       chrono.resume()
 
-    # Report training progress
+    # Report training progress.
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
@@ -542,7 +548,7 @@ def main(config, output_dir):
       # Keep train_loss to return for reproducibility tests.
       train_loss = train_measurements['training_loss']
 
-    # Report validation performance
+    # Report validation performance.
     if config.get('only_eval', False) or train_utils.itstime(
         step, config.log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
@@ -607,8 +613,11 @@ def main(config, output_dir):
               oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
 
               if val_name == 'cifar_10h' or val_name == 'imagenet_real':
+                num_classes = config.num_classes
+                if config.get('label_indices'):
+                  num_classes = len(config.get('label_indices'))
                 batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
-                    label[m], p[m, :], config.num_classes)
+                    label[m], p[m, :], num_classes)
                 label_diversity.update_state(batch_label_diversity)
                 sample_diversity.update_state(batch_sample_diversity)
                 ged.update_state(batch_ged)
@@ -640,7 +649,7 @@ def main(config, output_dir):
           }
           writer.write_scalars(step, cifar_10h_measurements)
 
-      # OOD eval
+      # OOD evaluation.
       # Entries in the ood_ds dict include:
       # (ind_dataset, ood_dataset1, ood_dataset2, ...).
       # OOD metrics are computed using ind_dataset paired with each of the
@@ -656,6 +665,15 @@ def main(config, output_dir):
             n_prefetch=config.get('prefetch_to_device', 1))
         writer.write_scalars(step, ood_measurements)
       chrono.resume()
+
+      # Perform subpopulation shift evaluation only if flag is provided.
+      if config.get('subpopl_cifar_data_file'):
+        subpopl_measurements = subpopl_utils.eval_subpopl_metrics(
+            subpopl_val_ds_splits,
+            evaluation_fn,
+            opt_repl.target,
+            n_prefetch=config.get('prefetch_to_device', 1))
+        writer.write_scalars(step, scalars=subpopl_measurements)
 
     if 'fewshot' in config and fewshotter is not None:
       # Compute few-shot on-the-fly evaluation.

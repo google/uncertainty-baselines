@@ -29,6 +29,7 @@ _IMPORTS = [
     'schedules',
     'strategy_utils',
     'utils',
+    'test_utils',
 ]
 
 

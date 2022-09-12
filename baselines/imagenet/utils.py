@@ -18,40 +18,6 @@
 import numpy as np
 import pandas as pd
 import tensorflow.compat.v1 as tf
-import tensorflow_datasets as tfds
-import tensorflow_probability as tfp
-from uncertainty_baselines.datasets import resnet_preprocessing
-tfd = tfp.distributions
-
-
-def load_corrupted_test_dataset(corruption_name,
-                                corruption_intensity,
-                                batch_size,
-                                drop_remainder=False,
-                                use_bfloat16=False):
-  """Loads an ImageNet-C dataset."""
-  corruption = corruption_name + '_' + str(corruption_intensity)
-
-  dataset = tfds.load(
-      name='imagenet2012_corrupted/{}'.format(corruption),
-      split=tfds.Split.VALIDATION,
-      decoders={
-          'image': tfds.decode.SkipDecoding(),
-      },
-      with_info=False,
-      as_supervised=True)
-
-  def preprocess(image, label):
-    image = tf.reshape(image, shape=[])
-    image = resnet_preprocessing.preprocess_for_eval(image, use_bfloat16)
-    label = tf.cast(label, dtype=tf.float32)
-    return {'features': image, 'labels': label}
-
-  dataset = dataset.map(
-      preprocess, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-  dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
-  dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-  return dataset
 
 
 # TODO(ghassen,trandustin): Push this metadata upstream to TFDS.
@@ -74,14 +40,14 @@ def load_corrupted_test_info():
       'pixelate',
       'jpeg_compression',
   ]
-  max_intensity = 5
-  return corruption_types, max_intensity
+  max_severity = 5
+  return corruption_types, max_severity
 
 
 # TODO(baselines): Remove reliance on hard-coded metric names.
 def aggregate_corrupt_metrics(metrics,
                               corruption_types,
-                              max_intensity,
+                              max_severity,
                               alexnet_errors_path=None,
                               fine_metrics=False):
   """Aggregates metrics across intensities and corruption types."""
@@ -94,7 +60,7 @@ def aggregate_corrupt_metrics(metrics,
       'test/member_acc_mean_corrupted': 0.,
       'test/member_ece_mean_corrupted': 0.
   }
-  for intensity in range(1, max_intensity + 1):
+  for intensity in range(1, max_severity + 1):
     nll = np.zeros(len(corruption_types))
     kl = np.zeros(len(corruption_types))
     elbo = np.zeros(len(corruption_types))
@@ -161,13 +127,13 @@ def aggregate_corrupt_metrics(metrics,
     results['test/member_acc_mean_corrupted'] += avg_member_acc
     results['test/member_ece_mean_corrupted'] += avg_member_ece
 
-  results['test/nll_mean_corrupted'] /= max_intensity
-  results['test/kl_mean_corrupted'] /= max_intensity
-  results['test/elbo_mean_corrupted'] /= max_intensity
-  results['test/accuracy_mean_corrupted'] /= max_intensity
-  results['test/ece_mean_corrupted'] /= max_intensity
-  results['test/member_acc_mean_corrupted'] /= max_intensity
-  results['test/member_ece_mean_corrupted'] /= max_intensity
+  results['test/nll_mean_corrupted'] /= max_severity
+  results['test/kl_mean_corrupted'] /= max_severity
+  results['test/elbo_mean_corrupted'] /= max_severity
+  results['test/accuracy_mean_corrupted'] /= max_severity
+  results['test/ece_mean_corrupted'] /= max_severity
+  results['test/member_acc_mean_corrupted'] /= max_severity
+  results['test/member_ece_mean_corrupted'] /= max_severity
 
   if alexnet_errors_path:
     with tf.io.gfile.GFile(alexnet_errors_path, 'r') as f:
@@ -176,8 +142,8 @@ def aggregate_corrupt_metrics(metrics,
     corrupt_error = {}
     for corruption in corruption_types:
       alexnet_normalization = alexnet_errors[corruption]['average']
-      errors = np.zeros(max_intensity)
-      for index in range(max_intensity):
+      errors = np.zeros(max_severity)
+      for index in range(max_severity):
         dataset_name = '{0}_{1}'.format(corruption, index + 1)
         errors[index] = 1. - metrics['test/accuracy_{}'.format(
             dataset_name)].result()

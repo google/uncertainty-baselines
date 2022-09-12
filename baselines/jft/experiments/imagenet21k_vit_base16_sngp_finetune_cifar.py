@@ -22,8 +22,6 @@ r"""ViT-SNGP-B/16 finetuning on CIFAR.
 import ml_collections
 
 
-
-
 def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
@@ -120,10 +118,22 @@ def get_config():
   config.optim = ml_collections.ConfigDict()
   config.grad_clip_norm = 1.
   config.weight_decay = None  # No explicit weight decay
-  config.loss = 'softmax_xent'  # or 'sigmoid_xent'
+  config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 0.0005
   config.lr.warmup_steps = 500
   config.lr.decay_type = 'cosine'
   return config
+
+
+def get_sweep(hyper):
+  # Below shows an example for how to sweep hyperparameters.
+  # lr_grid = [1e-4, 5e-4, 1e-3, 2e-3,]
+  # clip_grid = [-1., 0.5, 1., 2.5, 5., 10.]
+  # mf_grid = [-1., 0.1, 0.5, 1., 2.5, 5., 7.5, 10., 12.5, 15., 20.]
+  return hyper.product([
+      # hyper.sweep('config.lr.base', lr_grid),
+      # hyper.sweep('config.grad_clip_norm', clip_grid),
+      # hyper.sweep('config.gp_layer.mean_field_factor', mf_grid),
+  ])

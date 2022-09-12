@@ -20,13 +20,18 @@ from typing import Dict, Iterable, Optional
 
 import tensorflow as tf
 
-HP_KEYS = ('bn_l2', 'input_conv_l2', 'group_1_conv_l2', 'group_2_conv_l2',
-           'group_3_conv_l2', 'dense_kernel_l2', 'dense_bias_l2')
+_HP_KEYS = ('bn_l2', 'input_conv_l2', 'group_1_conv_l2', 'group_2_conv_l2',
+            'group_3_conv_l2', 'dense_kernel_l2', 'dense_bias_l2')
 
 BatchNormalization = functools.partial(  # pylint: disable=invalid-name
     tf.keras.layers.BatchNormalization,
     epsilon=1e-5,  # using epsilon and momentum defaults from Torch
     momentum=0.9)
+
+
+def get_wide_resnet_hp_keys():
+  """Returns the hyperparameter keys used in the wide ResNet model."""
+  return _HP_KEYS
 
 
 def Conv2D(filters, seed=None, **kwargs):  # pylint: disable=invalid-name
@@ -134,11 +139,12 @@ def _parse_hyperparameters(l2: float, hps: Dict[str, float]):
   only_hps_is_specified = l2 is None and is_specified(hps)
   assert only_l2_is_specified or only_hps_is_specified, assert_msg
   if only_hps_is_specified:
-    assert_msg = 'hps must contain the keys {}!={}.'.format(HP_KEYS, hps.keys())
-    assert set(hps.keys()).issuperset(HP_KEYS), assert_msg
+    assert_msg = 'hps must contain the keys {}!={}.'.format(
+        _HP_KEYS, hps.keys())
+    assert set(hps.keys()).issuperset(_HP_KEYS), assert_msg
     return hps
   else:
-    return {k: l2 for k in HP_KEYS}
+    return {k: l2 for k in _HP_KEYS}
 
 
 def wide_resnet(

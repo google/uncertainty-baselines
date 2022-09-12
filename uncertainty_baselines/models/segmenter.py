@@ -23,7 +23,6 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import ml_collections
-
 from uncertainty_baselines.models import vit
 
 Array = Any
@@ -46,15 +45,16 @@ class ViTBackbone(nn.Module):
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
   classifier: str = 'gap'
-  stochastic_depth: float = 0.0
 
   @nn.compact
-  def __call__(self, inputs, *, train: bool):
+  def __call__(self, inputs: Array, *, train: bool):
+    """Applies the module."""
     out = {}
 
     x = inputs
     n, h, w, c = x.shape
 
+    # PatchEmbedding
     # We can merge s2d+emb into a single conv; it's the same.
     x = nn.Conv(
         features=self.hidden_size,
@@ -78,14 +78,15 @@ class ViTBackbone(nn.Module):
       cls = jnp.tile(cls, [n, 1, 1])
       x = jnp.concatenate([cls, x], axis=1)
 
-    x = vit.Encoder(name='Transformer',
-                mlp_dim=self.mlp_dim,
-                num_layers=self.num_layers,
-                num_heads=self.num_heads,
-                dropout_rate=self.dropout_rate,
-                attention_dropout_rate=self.attention_dropout_rate,
-                stochastic_depth=self.stochastic_depth,
-                )(x, train=train)
+    # Transformer blocks
+    x = vit.Encoder(
+        name='Transformer',
+        mlp_dim=self.mlp_dim,
+        num_layers=self.num_layers,
+        num_heads=self.num_heads,
+        dropout_rate=self.dropout_rate,
+        attention_dropout_rate=self.attention_dropout_rate,
+    )(x, train=train)
 
     out['transformed'] = x
 
@@ -101,7 +102,8 @@ class SegVit(nn.Module):
   decoder_configs: ml_collections.ConfigDict
 
   @nn.compact
-  def __call__(self, x: jnp.ndarray, *, train: bool, debug: bool = False):
+  def __call__(self, x: Array, *, train: bool, debug: bool = False):
+    """Applies the module."""
     input_shape = x.shape
     b, h, w, _ = input_shape
 
@@ -118,15 +120,19 @@ class SegVit(nn.Module):
           dropout_rate=self.backbone_configs.dropout_rate,
           attention_dropout_rate=self.backbone_configs.attention_dropout_rate,
           classifier=self.backbone_configs.classifier,
-          stochastic_depth=self.backbone_configs.get('stochastic_depth', 0),
           name='backbone')(
               x, train=train)
     else:
       raise ValueError(f'Unknown backbone: {self.backbone_configs.type}.')
 
+    # remove CLS tokens for decoding
+    if self.backbone_configs.classifier == 'token':
+      x = x[..., 1:, :]
+
     output_projection = nn.Dense(
         self.num_classes,
-        kernel_init=nn.initializers.zeros,
+        kernel_init=nn.initializers.variance_scaling(0.02, 'fan_in',
+                                                     'truncated_normal'),
         name='output_projection')
 
     if self.decoder_configs.type == 'linear':
@@ -135,7 +141,8 @@ class SegVit(nn.Module):
       x = jnp.reshape(x, [b, gh, gw, -1])
       x = output_projection(x)
       # Resize bilinearly:
-      x = jax.image.resize(x, [b, h, w, x.shape[-1]], 'linear')
+      x = jax.image.resize(x, [b, h, w, x.shape[-1]], 'bilinear')
+
       out['logits'] = x
     else:
       raise ValueError(
@@ -146,19 +153,3 @@ class SegVit(nn.Module):
         x.shape[:-1])
 
     return x, out
-
-
-def segmenter_transformer(num_classes: int,
-                          patches: Any,
-                          backbone_configs: Any,
-                          decoder_configs: Any
-                          ):
-  """Builds a Vision Transformer (ViT) model."""
-  # TODO(dusenberrymw): Add API docs once config dict in VisionTransformer is
-  # cleaned up.
-  return SegVit(
-      num_classes=num_classes,
-      patches=patches,
-      backbone_configs=backbone_configs,
-      decoder_configs=decoder_configs,
-    )

@@ -48,10 +48,9 @@ def get_config():
   #   of the Kaggle/EyePACS dataset to hold out clinical severity labels as OOD.
   config.distribution_shift = 'aptos'
 
-  # If provided, resume training and/or conduct evaluation using this
-  #   checkpoint. Will only be used if the output_dir does not already
-  #   contain a checkpointed model. See `checkpoint_utils.py`.
-  config.resume_checkpoint_path = None
+  # If checkpoint path is provided, resume training and/or conduct evaluation
+  #   with this checkpoint. See `checkpoint_utils.py`.
+  config.resume = None
 
   config.prefetch_to_device = 2
   config.trial = 0
@@ -101,7 +100,7 @@ def get_config():
       f'diabetic_retinopathy_preprocess({config.pp_input_res})' + pp_common)
 
   # Training Misc
-  config.batch_size = 512  # using TPUv3-64
+  config.batch_size = 128  # using TPUv3-8
   config.seed = 0  # Random seed.
   config.shuffle_buffer_size = 15_000  # Per host, so small-ish is ok.
 
@@ -113,7 +112,6 @@ def get_config():
   config.grad_clip_norm = 1.0  # Gradient clipping threshold.
   config.weight_decay = None  # No explicit weight decay.
   config.lr.base = 0.003
-  config.lr.warmup_steps = 500
   config.lr.decay_type = 'linear'
 
   # The dataset is imbalanced (e.g., in Country Shift, we have 19.6%, 18.8%,
@@ -130,7 +128,11 @@ def get_config():
   config.use_test = True  # Whether to use a test split
 
   # Step Counts
-  config.total_steps = 10_000
+
+  # Varied together for wandb sweep compatibility.
+  # TODO(nband): revert this to separate arguments.
+  config.total_and_warmup_steps = (10_000, 500)
+
   config.log_training_steps = 100
   config.log_eval_steps = 1000
   # NOTE: eval is very fast O(seconds) so it's fine to run it often.

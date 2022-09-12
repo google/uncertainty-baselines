@@ -17,13 +17,13 @@
 
 import os
 import pathlib
-import tempfile
 
 from absl import logging
 from absl.testing import parameterized
 import jax
 import tensorflow as tf
 import tensorflow_datasets as tfds
+import uncertainty_baselines as ub
 import input_utils  # local file import from baselines.jft
 
 
@@ -31,72 +31,62 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
 
   def setUp(self):
     super().setUp()
-    # Go two directories up to the root of the UB directory.
-    ub_root_dir = pathlib.Path(__file__).parents[2]
-    data_dir = str(ub_root_dir) + "/.tfds/metadata"
+    baseline_root_dir = pathlib.Path(__file__).parents[1]
+    data_dir = os.path.join(baseline_root_dir, "testing_data")
     logging.info("data_dir contents: %s", os.listdir(data_dir))
     self.data_dir = data_dir
 
-  def test_get_num_examples(self):
-    dataset_name = "imagenet21k"
-    split = "full[:10]+full[20:24]"
-
-    process_count = 3
-    process_batch_size = 1
+  @parameterized.parameters(
+      ("imagenet2012", "train[:10]+train[20:24]", 3, 1, 12, 14),
+      ("imagenet2012", "train[:10]+train[20:24]", 3, 3, 9, 14),
+  )
+  def test_get_num_examples(self, dataset, split, process_count,
+                            process_batch_size, correct_num_examples_drop,
+                            correct_num_examples_no_drop):
     num_examples_drop = input_utils.get_num_examples(
-        dataset_name,
+        dataset,
         split=split,
         process_batch_size=process_batch_size,
         drop_remainder=True,
         process_count=process_count,
         data_dir=self.data_dir)
-    self.assertEqual(num_examples_drop, 12)
+    self.assertEqual(num_examples_drop, correct_num_examples_drop)
 
     num_examples_no_drop = input_utils.get_num_examples(
-        dataset_name,
+        dataset,
         split=split,
         process_batch_size=process_batch_size,
         drop_remainder=False,
         process_count=process_count,
         data_dir=self.data_dir)
-    self.assertEqual(num_examples_no_drop, 14)
-
-    process_batch_size = 3
-    num_examples_drop = input_utils.get_num_examples(
-        dataset_name,
-        split=split,
-        process_batch_size=process_batch_size,
-        drop_remainder=True,
-        process_count=process_count,
-        data_dir=self.data_dir)
-    self.assertEqual(num_examples_drop, 9)
-
-    num_examples_no_drop = input_utils.get_num_examples(
-        dataset_name,
-        split=split,
-        process_batch_size=process_batch_size,
-        drop_remainder=False,
-        process_count=process_count,
-        data_dir=self.data_dir)
-    self.assertEqual(num_examples_no_drop, 14)
+    self.assertEqual(num_examples_no_drop, correct_num_examples_no_drop)
 
   # TODO(dusenberrymw): tfds.testing.mock_data ignores sub-splits. File a bug so
   # that sub-splits can be fully tested with mocked data.
   # NOTE: These numbers are simply being used to test for determinism.
   @parameterized.parameters(
-      (0, 1, 575047232.0, 804.0, 191682400.0, 268.0),
-      (0, 3, 191682400.0, 268.0, 191682416.0, 268.0),
-      (1, 3, 191682400.0, 268.0, 191682416.0, 268.0),
+      ("imagenet2012", "train[:10]", "validation[:10]", "label", 0, 1,
+       572538560.0, 30.0, 190846192.0, 10.0),
+      ("imagenet2012", "train[:10]", "validation[:10]", "label", 0, 3,
+       190846208.0, 10.0, 190846208.0, 10.0),
+      ("imagenet2012", "train[:10]", "validation[:10]", "label", 1, 3,
+       190846208.0, 10.0, 190846208.0, 10.0),
   )
-  def test_get_data(self, process_index, process_count, correct_train_image_sum,
+  def test_get_data(self, dataset, train_split, val_split, labels_key,
+                    process_index, process_count, correct_train_image_sum,
                     correct_train_labels_sum, correct_val_image_sum,
                     correct_val_labels_sum):
     rng = jax.random.PRNGKey(42)
 
-    dataset = "imagenet21k"
-    train_split = "full[:10]"
-    val_split = "full[:10]"
-    num_classes = 21843
+    builder = tfds.builder(dataset)
+    labels_feature = builder.info.features[labels_key]
+    if isinstance(labels_feature, tfds.features.Sequence):
+      multiple_class = True
+      num_classes = labels_feature.feature.num_classes
+    else:
+      multiple_class = False
+      num_classes = labels_feature.num_classes
+
     batch_size = 3
     shuffle_buffer_size = 20
 
@@ -116,8 +106,8 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
           example["image"], channels=3, expand_animations=False)
       image = tf.image.resize(image, [224, 224])
       labels = tf.reduce_max(
-          tf.one_hot(example["labels"], depth=num_classes), axis=0)
-      return {"image": image, "labels": labels}
+          tf.one_hot(example[labels_key], depth=num_classes), axis=0)
+      return {"image": image, labels_key: labels}
 
     rng, train_rng = jax.random.split(rng)
     process_batch_size = batch_size // process_count
@@ -170,7 +160,11 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
                   process_batch_size // jax.local_device_count())
     train_batch = next(iter(train_ds))
     self.assertEqual(train_batch["image"].shape, batch_dims + (224, 224, 3))
-    self.assertEqual(train_batch["labels"].shape, batch_dims + (num_classes,))
+    if multiple_class:
+      self.assertEqual(train_batch[labels_key].shape,
+                       batch_dims + (num_classes,))
+    else:
+      self.assertEqual(train_batch[labels_key].shape, batch_dims)
 
     # Check that examples are dropped or not.
     self.assertEqual(
@@ -193,7 +187,7 @@ class InputUtilsTest(parameterized.TestCase, tf.test.TestCase):
     def reduction_fn(state, batch):
       prev_image_sum, prev_labels_sum = state
       image_sum = tf.math.reduce_sum(batch["image"])
-      labels_sum = tf.math.reduce_sum(batch["labels"])
+      labels_sum = tf.math.reduce_sum(batch[labels_key])
       return (image_sum + prev_image_sum, labels_sum + prev_labels_sum)
 
     train_image_sum, train_labels_sum = train_ds.take(10).reduce((0., 0.),

@@ -24,6 +24,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import ood_utils  # local file import from baselines.cifar
 import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
@@ -32,6 +33,16 @@ flags.DEFINE_float('random_sign_init', -0.5,
                    'Use random sign init for fast weights.')
 flags.DEFINE_float('fast_weight_lr_multiplier', 0.5,
                    'fast weights lr multiplier.')
+
+# OOD flags.
+flags.DEFINE_bool('eval_on_ood', True,
+                  'Whether to run OOD evaluation on specified OOD datasets.')
+flags.DEFINE_list('ood_dataset', 'cifar100,svhn_cropped',
+                  'list of OOD datasets to evaluate on.')
+flags.DEFINE_string('saved_model_dir', None,
+                    'Directory containing the saved model checkpoints.')
+flags.DEFINE_bool('dempster_shafer_ood', False,
+                  'Wheter to use DempsterShafer Uncertainty score.')
 
 # Redefining default values
 flags.FLAGS.set_default('l2', 3e-4)
@@ -48,6 +59,7 @@ def main(argv):
 
   per_core_batch_size = FLAGS.per_core_batch_size // FLAGS.ensemble_size
   batch_size = per_core_batch_size * FLAGS.num_cores
+  model_batch_size = FLAGS.per_core_batch_size * FLAGS.num_cores
 
   data_dir = FLAGS.data_dir
   if FLAGS.use_gpu:
@@ -66,7 +78,10 @@ def main(argv):
       data_dir=data_dir,
       download_data=FLAGS.download_data,
       split=tfds.Split.TRAIN,
-      validation_percent=1. - FLAGS.train_proportion)
+      shuffle_buffer_size=FLAGS.shuffle_buffer_size,
+      validation_percent=1. - FLAGS.train_proportion,
+      drop_remainder=False,
+      mask_and_pad=True)
   train_dataset = train_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
 
@@ -77,7 +92,9 @@ def main(argv):
         FLAGS.dataset,
         data_dir=data_dir,
         split=tfds.Split.VALIDATION,
-        validation_percent=1. - FLAGS.train_proportion)
+        validation_percent=1. - FLAGS.train_proportion,
+        drop_remainder=FLAGS.drop_remainder_for_eval,
+        mask_and_pad=True)
     validation_dataset = validation_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
         validation_dataset)
@@ -86,7 +103,9 @@ def main(argv):
   clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
       data_dir=data_dir,
-      split=tfds.Split.TEST)
+      split=tfds.Split.TEST,
+      drop_remainder=FLAGS.drop_remainder_for_eval,
+      mask_and_pad=True)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   test_datasets = {
       'clean': strategy.experimental_distribute_dataset(clean_test_dataset),
@@ -94,6 +113,20 @@ def main(argv):
   steps_per_epoch = train_builder.num_examples // batch_size
   steps_per_eval = clean_test_builder.num_examples // batch_size
   num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
+
+  if FLAGS.eval_on_ood:
+    ood_dataset_names = FLAGS.ood_dataset
+    ood_ds, steps_per_ood = ood_utils.load_ood_datasets(
+        ood_dataset_names,
+        clean_test_builder,
+        1. - FLAGS.train_proportion,
+        batch_size,
+        drop_remainder=FLAGS.drop_remainder_for_eval)
+    ood_datasets = {
+        name: strategy.experimental_distribute_dataset(ds)
+        for name, ds in ood_ds.items()
+    }
+
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar100':
       data_dir = FLAGS.cifar100_c_path
@@ -105,7 +138,9 @@ def main(argv):
             corruption_type=corruption_type,
             data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST).load(batch_size=batch_size)
+            split=tfds.Split.TEST,
+            drop_remainder=False,
+            mask_and_pad=True).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -116,6 +151,7 @@ def main(argv):
     logging.info('Building Keras model')
     model = ub.models.wide_resnet_batchensemble(
         input_shape=(32, 32, 3),
+        batch_size=model_batch_size,
         depth=28,
         width_multiplier=10,
         num_classes=num_classes,
@@ -158,6 +194,11 @@ def main(argv):
               num_bins=FLAGS.num_bins),
       })
       eval_dataset_splits += ['validation']
+
+    if FLAGS.eval_on_ood:
+      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+      metrics.update(ood_metrics)
+
     for i in range(FLAGS.ensemble_size):
       for dataset_split in eval_dataset_splits:
         metrics[f'{dataset_split}/nll_member_{i}'] = tf.keras.metrics.Mean()
@@ -192,11 +233,15 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+      mask = inputs['mask']
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
       labels = tf.tile(labels, [FLAGS.ensemble_size])
+      mask = tf.tile(mask, [FLAGS.ensemble_size])
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
 
       with tf.GradientTape() as tape:
         logits = model(images, training=True)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
         negative_log_likelihood = tf.reduce_mean(
             tf.keras.losses.sparse_categorical_crossentropy(labels,
                                                             logits,
@@ -239,9 +284,14 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
+      mask = inputs['mask']
       labels = inputs['labels']
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
       images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
+      mask = tf.tile(mask, [FLAGS.ensemble_size])
+
       logits = model(images, training=False)
+      logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
       probs = tf.nn.softmax(logits)
       per_probs = tf.split(probs,
                            num_or_size_splits=FLAGS.ensemble_size,
@@ -262,6 +312,22 @@ def main(argv):
             negative_log_likelihood)
         metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
+      elif dataset_name.startswith('ood/'):
+        ood_labels = 1 - inputs['is_in_distribution']
+        if FLAGS.dempster_shafer_ood:
+          per_logits = tf.split(
+              logits, num_or_size_splits=FLAGS.ensemble_size, axis=0)
+          ood_scores = [
+              ood_utils.DempsterShaferUncertainty(logit) for logit in per_logits
+          ]
+          ood_scores = tf.reduce_mean(ood_scores, axis=0)
+        else:
+          ood_scores = 1 - tf.reduce_max(probs, axis=-1)
+
+        # Edgecase for if dataset_name contains underscores
+        for name, metric in metrics.items():
+          if dataset_name in name:
+            metric.update_state(ood_labels, ood_scores)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -314,6 +380,16 @@ def main(argv):
       metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
+
+    if FLAGS.eval_on_ood:
+      for ood_dataset_name, ood_dataset in ood_datasets.items():
+        ood_iterator = iter(ood_dataset)
+        logging.info('Calculating OOD on dataset %s', ood_dataset_name)
+        logging.info('Running OOD eval at epoch: %s', epoch)
+        test_step(ood_iterator, 'test', ood_dataset_name,
+                  steps_per_ood[ood_dataset_name])
+
+        logging.info('Done with OOD eval on %s', ood_dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and

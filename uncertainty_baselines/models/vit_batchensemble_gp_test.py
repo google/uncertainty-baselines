@@ -20,7 +20,7 @@ import jax
 import uncertainty_baselines as ub
 
 
-class PatchTransformerBEGPTest(parameterized.TestCase):
+class VisionTransformerBEGPTest(parameterized.TestCase):
 
   @parameterized.parameters(
       ((4, 4), None, 10, None, (32, 32), "token"),
@@ -40,7 +40,7 @@ class PatchTransformerBEGPTest(parameterized.TestCase):
     hidden_features = 1024
     gp_layer_kwargs = dict(hidden_features=hidden_features)
 
-    model = ub.models.PatchTransformerBEGP(
+    model = ub.models.vision_transformer_be_gp(
         train=False,
         patch_size=patch_size,
         patch_grid=patch_grid,

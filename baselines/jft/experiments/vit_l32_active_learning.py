@@ -22,7 +22,7 @@ Based on: vit_l32_finetune.py and sweep_utils.py
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 
 def get_config():
@@ -32,11 +32,14 @@ def get_config():
   config.seed = 0
 
   # Active learning section
+  config.model_type = 'deterministic'  # 'batchensemble'
   config.acquisition_method = ''  # set in sweep
-  config.max_training_set_size = 200
-  config.initial_training_set_size = 0
-  config.acquisition_batch_size = 10
-  config.early_stopping_patience = 64
+  config.max_training_set_size = 0  # set in sweep
+  config.initial_training_set_size = 0  # set in sweep
+  config.acquisition_batch_size = 0  # set in sweep
+  config.early_stopping_patience = 128
+  config.finetune_head_only = False
+  config.power_acquisition = False
 
   # Dataset section
   config.dataset = ''  # set in sweep
@@ -45,7 +48,7 @@ def get_config():
   config.train_split = ''  # set in sweep
   config.num_classes = None  # set in swee
 
-  config.batch_size = 256  # half of config's 512 - due to memory issues
+  config.batch_size = 512
   config.total_steps = None  # set in sweep
 
   config.pp_train = ''  # set in sweep
@@ -63,6 +66,7 @@ def get_config():
 
   # Model section
   config.model_init = ''  # set in sweep
+  config.model_type = 'deterministic'  # 'batchensemble'
   config.model = ml_collections.ConfigDict()
   config.model.patches = ml_collections.ConfigDict()
   config.model.patches.size = [32, 32]
@@ -106,33 +110,46 @@ def get_config():
 
 def get_sweep(hyper):
   """Sweeps over datasets."""
-  # Adapted the sweep over checkpoints from vit_l32_finetune.py.
-  checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-  use_jft = True  # whether to use JFT-300M or ImageNet-21K settings
-  sweep_lr = True  # whether to sweep over learning rates
-  acquisition_methods = ['uniform', 'entropy', 'margin', 'density']
-  if use_jft:
-    cifar10_sweep = sweep_utils.cifar10(hyper)
-    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
-    cifar10_sweep = hyper.product(cifar10_sweep)
-  else:
-    cifar10_sweep = sweep_utils.cifar10(hyper)
-    cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
-    cifar10_sweep = hyper.product(cifar10_sweep)
-  if sweep_lr:
-    # Apply a learning rate sweep following Table 4 of Vision Transformer paper.
-    checkpoints = [checkpoints[0]]
-    cifar10_sweep = hyper.chainit([
-        hyper.product(sweep_utils.cifar10(
-            hyper, steps=int(10_000 * s), warmup=int(500 * s)))
-        for s in [0.5, 1.0, 1.5, 2.0]
-    ])
-    cifar10_sweep = hyper.product([
-        cifar10_sweep,
-        hyper.sweep('config.lr.base', [0.03, 0.01, 0.003, 0.001])])
+  data_size_mode = 'num_classes/2'
+  acquisition_methods = ['uniform', 'margin']
+  hparam_sweep = sweep_utils.get_hparam_best('Det')
+  if data_size_mode == 'tuning':
+    hparam_sweep = sweep_utils.get_hparam_sweep('Det')
+    acquisition_methods = ['uniform']
 
-  return hyper.product([
-      cifar10_sweep,
-      hyper.sweep('config.model_init', checkpoints),
-      hyper.sweep('config.acquisition_method', acquisition_methods),
-  ])
+  def sweep_checkpoints(cp_option):
+    """whether to use JFT-300M or ImageNet-21K settings."""
+    checkpoints = ['/path/to/pretrained_model_ckpt.npz']
+
+    def set_data_sizes(a, b, c):
+      return [
+          hyper.fixed('config.initial_training_set_size', a, length=1),
+          hyper.fixed('config.max_training_set_size', b, length=1),
+          hyper.fixed('config.acquisition_batch_size', c, length=1),
+      ]
+    all_data_sizes = sweep_utils.get_data_sizes(data_size_mode)
+    all_sweeps = []
+    for dataset in ['cifar10', 'cifar100', 'imagenet', 'places365']:
+      sweep_func = sweep_utils.get_dataset_sweep()[dataset]
+      data_sizes = [
+          hyper.product(set_data_sizes(a, b, c))
+          for a, b, c in all_data_sizes[dataset]
+      ]
+      hparam = 'config.lr.base'
+      sweep_list = [
+          hyper.product(sweep_func(hyper, steps=2000)),
+          hyper.chainit(data_sizes),
+          hyper.sweep(hparam, hparam_sweep[dataset])
+      ]
+      dataset_sweep = hyper.product(sweep_list)
+      all_sweeps.append(dataset_sweep)
+
+    return hyper.product([
+        hyper.chainit(all_sweeps),
+        hyper.sweep('config.model_init', checkpoints),
+        hyper.sweep('config.acquisition_method', acquisition_methods),
+        hyper.sweep('config.seed', [189, 827, 905, 964, 952]),
+    ])
+
+  return hyper.chainit(
+      [sweep_checkpoints(use_jft) for use_jft in ['']])

@@ -20,8 +20,10 @@ and treat the original validation set as the test set. This is similar to what
 is also done in the NeurIPS uncertainty benchmark paper
 https://arxiv.org/abs/1906.02530 (which used (100 / 1024)% as a validation set).
 """
+import csv
 from typing import Any, Dict, Optional, Union
 
+from absl import logging
 import numpy as np
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
@@ -30,11 +32,11 @@ from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets import resnet_preprocessing
 
-
 # ImageNet statistics. Used to normalize the input to Efficientnet. Note that
 # these do NOT have `* 255.` after them.
 IMAGENET_MEAN = np.array([[[0.485, 0.456, 0.406]]], dtype=np.float32)
 IMAGENET_STDDEV = np.array([[[0.229, 0.224, 0.225]]], dtype=np.float32)
+
 
 
 def _tuple_dict_fn_converter(fn, *args):
@@ -46,15 +48,18 @@ def _tuple_dict_fn_converter(fn, *args):
   return dict_fn
 
 
-class ImageNetDataset(base.BaseDataset):
-  """ImageNet dataset builder class."""
+class _ImageNetDataset(base.BaseDataset):
+  """ImageNet dataset builder abstract class."""
 
   def __init__(self,
+               name: str,
                split: str,
                seed: Optional[Union[int, tf.Tensor]] = None,
                validation_percent: float = 0.0,
                shuffle_buffer_size: Optional[int] = 16384,
                num_parallel_parser_calls: int = 64,
+               drop_remainder: bool = False,
+               mask_and_pad: bool = False,
                try_gcs: bool = False,
                download_data: bool = False,
                data_dir: Optional[str] = None,
@@ -72,6 +77,7 @@ class ImageNetDataset(base.BaseDataset):
     """Create an ImageNet tf.data.Dataset builder.
 
     Args:
+      name: the name of this dataset.
       split: a dataset split, either a custom tfds.Split or one of the
         tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
         names.
@@ -82,11 +88,17 @@ class ImageNetDataset(base.BaseDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
+      drop_remainder: Whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size.
+      mask_and_pad: Whether or not to mask and pad batches such that when
+        drop_remainder == False, partial batches are padded to a full batch and
+        an additional `mask` feature is added to indicate which examples are
+        padding.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files.
       download_data: Whether or not to download data before loading.
-      data_dir: Directory to read/write data, that is passed to the
-        tfds dataset_builder as a data_dir parameter.
+      data_dir: Directory to read/write data, that is passed to the tfds
+        dataset_builder as a data_dir parameter.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -108,7 +120,6 @@ class ImageNetDataset(base.BaseDataset):
         each example. Since this field is a string, it is not compatible with
         TPUs.
     """
-    name = 'imagenet2012'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
       is_training = split in ['train', tfds.Split.TRAIN]
@@ -130,6 +141,8 @@ class ImageNetDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
+        drop_remainder=drop_remainder,
+        mask_and_pad=mask_and_pad,
         fingerprint_key='file_name',
         download_data=download_data,
         decoders=decoders)
@@ -198,16 +211,15 @@ class ImageNetDataset(base.BaseDataset):
 
     return _example_parser
 
-  def _create_process_batch_fn(
-      self,
-      batch_size: int) -> Optional[base.PreProcessFn]:
+  def _create_process_batch_fn(self,
+                               batch_size: int) -> Optional[base.PreProcessFn]:
     mixup_alpha = self._mixup_params.get('mixup_alpha', 0.0)
     if (self._is_training or self._run_mixup) and mixup_alpha > 0.0:
       same_mix_weight_per_batch = self._mixup_params.get(
           'same_mix_weight_per_batch', False)
       use_truncated_beta = self._mixup_params.get('use_truncated_beta', True)
-      use_random_shuffling = self._mixup_params.get(
-          'use_random_shuffling', False)
+      use_random_shuffling = self._mixup_params.get('use_random_shuffling',
+                                                    False)
       if self._mixup_params.get('adaptive_mixup', False):
         if 'mixup_coeff' not in self._mixup_params:
           # Hard target in the first epoch!
@@ -219,8 +231,8 @@ class ImageNetDataset(base.BaseDataset):
           self._mixup_params['mixup_coeff'] = tf.ones(
               (self._mixup_params['ensemble_size'],
                self._mixup_params['num_classes']))
-        return _tuple_dict_fn_converter(
-            augmix.adaptive_mixup, batch_size, self._mixup_params)
+        return _tuple_dict_fn_converter(augmix.adaptive_mixup, batch_size,
+                                        self._mixup_params)
       else:
         aug_params = {
             'mixup_alpha': mixup_alpha,
@@ -231,3 +243,46 @@ class ImageNetDataset(base.BaseDataset):
         return _tuple_dict_fn_converter(augmix.mixup, batch_size, aug_params)
 
     return None
+
+
+class ImageNetDataset(_ImageNetDataset):
+  """ImageNet dataset builder class."""
+
+  # NOTE: Existing code passes in a split string as a positional argument, so
+  # included here to preserve that behavior.
+  def __init__(self, split, **kwargs):
+    """Create an ImageNet tf.data.Dataset builder.
+
+    Args:
+      split: A dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDAITON, TEST] or their lowercase string
+        names.
+      **kwargs: Additional keyword arguments.
+    """
+    super().__init__(name='imagenet2012', split=split, **kwargs)
+
+
+
+
+# TODO(dusenberrymw): Create a helper function to load datasets for all
+# corruption types and severity levels.
+class ImageNetCorruptedDataset(_ImageNetDataset):
+  """ImageNet-C dataset builder class."""
+
+  def __init__(self, corruption_type: str, severity: int, **kwargs):
+    """Create an ImageNet-C tf.data.Dataset builder.
+
+    Args:
+      corruption_type: Corruption name.
+      severity: Corruption severity, an integer between 1 and 5.
+      **kwargs: Additional keyword arguments.
+    """
+    if 'split' in kwargs:
+      logging.warn("ImageNet-C only has a 'validation' split. Ignoring the"
+                   'supplied split.')
+      del kwargs['split']
+    super().__init__(
+        name=f'imagenet2012_corrupted/{corruption_type}_{severity}',
+        split=tfds.Split.VALIDATION,
+        preprocessing_type='resnet',
+        **kwargs)

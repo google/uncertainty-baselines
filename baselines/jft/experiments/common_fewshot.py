@@ -39,10 +39,16 @@ def get_fewshot(batch_size=None, target_resolution=224, resize_resolution=256,
   } if not runlocal else {
       'pets': ('oxford_iiit_pet', 'train', 'test'),
   }
+  config.ood_datasets = {
+      'cifar100': ('cifar10', 'train', 'test'),
+      'imagenet': ('places365_small', 'train', 'validation'),
+  }
   config.pp_train = f'decode|resize({resize_resolution})|central_crop({target_resolution})|value_range(-1,1)|keep("image", "label")'
   config.pp_eval = config.pp_train
   config.shots = [1, 5, 10, 25]
   config.l2_regs = [2.0 ** i for i in range(-10, 20)]
+  # choose either "all" or "leave-self-out' for l2_selection_scheme.
+  config.l2_selection_scheme = 'leave-self-out'
   config.walk_first = ('imagenet', 10) if not runlocal else ('pets', 10)
 
   return config

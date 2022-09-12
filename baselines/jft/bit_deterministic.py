@@ -16,7 +16,6 @@
 """Deterministic BiT ResNet on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
-import itertools
 import multiprocessing
 import numbers
 import os
@@ -61,6 +60,16 @@ flags.DEFINE_string('tpu', None,
                     'Unused. Name of the TPU. Only used if use_gpu is False.')
 
 FLAGS = flags.FLAGS
+
+
+def fetch_temperature(config, replicated_params):
+  if config.model.temperature > 0:
+    return config.model.temperature
+  lower = config.model.temperature_lower_bound
+  upper = config.model.temperature_upper_bound
+  t = jax.nn.sigmoid(
+      replicated_params['temp_layer']['temperature_pre_sigmoid'][0])
+  return float((upper - lower) * t + lower)
 
 
 def main(config, output_dir):
@@ -127,10 +136,6 @@ def main(config, output_dir):
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
       data_dir=config.get('data_dir'))
-
-  # Start prefetching already.
-  train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1))
 
   write_note('Initializing val dataset(s)...')
 
@@ -201,7 +206,7 @@ def main(config, output_dir):
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))  # pytype: disable=wrong-arg-types
     val_ds_splits['imagenet_real'] = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',
@@ -384,7 +389,7 @@ def main(config, output_dir):
     decay_rules = config.get('weight_decay', []) or []
     if isinstance(decay_rules, numbers.Number):
       decay_rules = [('.*kernel.*', decay_rules)]
-    sched_m = lr/config.lr.base if config.get('weight_decay_decouple') else lr
+    sched_m = lr
     def decay_fn(v, wd):
       return (1.0 - sched_m * wd) * v
 
@@ -440,10 +445,13 @@ def main(config, output_dir):
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  logging.info('first_step = %s', first_step)
   if first_step == 0 and jax.host_id() == 0:
     writer.write_hparams(dict(config))
+
   chrono = train_utils.Chrono(first_step, total_steps, batch_size,
                               checkpoint_extra['accum_train_time'])
+
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -451,14 +459,7 @@ def main(config, output_dir):
       # problems and assure we get similar performance in every run.
       logdir=output_dir, first_profile=first_step + 10)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
-  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
-  # necessary for TPUs.
-  lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
-
+  # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
 
@@ -471,6 +472,23 @@ def main(config, output_dir):
 
   checkpoint_writer = None
 
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+
+  # Prefetch all iterators, starting at the current first step.
+  if first_step > 0:
+    write_note('Advancing the dataset after resuming from a checkpoint...')
+    # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+    train_ds = train_ds.skip(first_step)
+
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
@@ -478,20 +496,10 @@ def main(config, output_dir):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  logging.info('first_step = %s', first_step)
-  # Advance the iterators if we are restarting from an earlier checkpoint.
-  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
-  if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
-    lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
-
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter):
-
-    with jax.profiler.TraceContext('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
       opt_repl, loss_value, rngs_loop, extra_measurements = update_fn(
           opt_repl,
           lr_repl,
@@ -545,6 +553,7 @@ def main(config, output_dir):
           'learning_rate': lr_repl[0],
           'training_loss': train_loss,
           'training_accuracy': train_accuracy,
+          'temperature': fetch_temperature(config, opt_repl.target)
       })
       train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
       train_measurements.update(timing_measurements)

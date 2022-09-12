@@ -22,28 +22,34 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 
 # common flags
-flags.DEFINE_float('base_learning_rate', 0.1,
-                   'Base learning rate when total batch size is 128. It is '
-                   'scaled by the ratio of the total batch size to 128.')
-flags.DEFINE_integer('checkpoint_interval', 25,
-                     'Number of epochs between saving checkpoints. Use -1 to '
-                     'never save checkpoints.')
+flags.DEFINE_float(
+    'base_learning_rate', 0.1,
+    'Base learning rate when total batch size is 128. It is '
+    'scaled by the ratio of the total batch size to 128.')
+flags.DEFINE_integer(
+    'checkpoint_interval', 25,
+    'Number of epochs between saving checkpoints. Use -1 to '
+    'never save checkpoints.')
 # TODO(ghassen): consider adding CIFAR-100-C to TFDS.
-flags.DEFINE_string('cifar100_c_path', None,
-                    'Path to the TFRecords files for CIFAR-100-C. Only valid '
-                    '(and required) if dataset is cifar100 and corruptions.')
-flags.DEFINE_integer('corruptions_interval', -1,
-                     'Number of epochs between evaluating on the corrupted '
-                     'test data. Use -1 to never evaluate.')
+flags.DEFINE_string(
+    'cifar100_c_path', None,
+    'Path to the TFRecords files for CIFAR-100-C. Only valid '
+    '(and required) if dataset is cifar100 and corruptions.')
+flags.DEFINE_integer(
+    'corruptions_interval', -1,
+    'Number of epochs between evaluating on the corrupted '
+    'test data. Use -1 to never evaluate.')
 flags.DEFINE_enum('dataset', 'cifar10',
                   enum_values=['cifar10', 'cifar100'],
                   help='Dataset.')
-flags.DEFINE_string('data_dir', None,
-                    'data_dir to be used for tfds dataset construction.'
-                    'It is required when training with cloud TPUs')
-flags.DEFINE_bool('download_data', False,
-                  'Whether to download data locally when initializing a '
-                  'dataset.')
+
+flags.DEFINE_string(
+    'data_dir', None, 'data_dir to be used for tfds dataset construction.'
+    'It is required when training with cloud TPUs')
+flags.DEFINE_bool(
+    'download_data', False,
+    'Whether to download data locally when initializing a '
+    'dataset.')
 flags.DEFINE_bool(
     'drop_remainder_for_eval', True,
     'Whether to drop the last batch in the case it has fewer than batch_size '
@@ -53,25 +59,29 @@ flags.DEFINE_float('l2', 2e-4, 'L2 regularization coefficient.')
 flags.DEFINE_float('lr_decay_ratio', 0.2, 'Amount to decay learning rate.')
 flags.DEFINE_list('lr_decay_epochs', ['60', '120', '160'],
                   'Epochs to decay learning rate by.')
-flags.DEFINE_integer('lr_warmup_epochs', 1,
-                     'Number of epochs for a linear warmup to the initial '
-                     'learning rate. Use 0 to do no warmup.')
+flags.DEFINE_integer(
+    'lr_warmup_epochs', 1,
+    'Number of epochs for a linear warmup to the initial '
+    'learning rate. Use 0 to do no warmup.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
 flags.DEFINE_float('one_minus_momentum', 0.1, 'Optimizer momentum.')
 flags.DEFINE_string('output_dir', '/tmp/cifar', 'Output directory.')
-flags.DEFINE_integer('per_core_batch_size', 64,
-                     'Batch size per TPU core/GPU. The number of new '
-                     'datapoints gathered per batch is this number divided by '
-                     'ensemble_size (we tile the batch by that # of times).')
+flags.DEFINE_integer(
+    'per_core_batch_size', 64, 'Batch size per TPU core/GPU. The number of new '
+    'datapoints gathered per batch is this number divided by '
+    'ensemble_size (we tile the batch by that # of times).')
 flags.DEFINE_integer('shuffle_buffer_size', None,
                      'Shuffle buffer size for training dataset.')
 flags.DEFINE_integer('seed', 42, 'Random seed.')
 flags.DEFINE_integer('train_epochs', 200, 'Number of training epochs.')
-flags.DEFINE_float('train_proportion', default=1.0,
-                   help='only use a proportion of training set.')
-flags.register_validator('train_proportion',
-                         lambda tp: tp > 0.0 and tp <= 1.0,
-                         message='--train_proportion must be in (0, 1].')
+flags.DEFINE_float(
+    'train_proportion',
+    default=1.0,
+    help='only use a proportion of training set.')
+flags.register_validator(
+    'train_proportion',
+    lambda tp: tp > 0.0 and tp <= 1.0,
+    message='--train_proportion must be in (0, 1].')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -96,6 +106,7 @@ def load_cifar100_c(corruption_name,
     dtype = tf.float32
   filename = path + '{0}-{1}.tfrecords'.format(corruption_name,
                                                corruption_intensity)
+
   def preprocess(serialized_example):
     """Preprocess a serialized example for CIFAR100-C."""
     features = tf.io.parse_single_example(
@@ -138,6 +149,7 @@ def load_cifar10_c(corruption_name,
   else:
     dtype = tf.float32
   corruption = corruption_name + '_' + str(corruption_intensity)
+
   def preprocess(image, label):
     image = tf.image.convert_image_dtype(image, dtype)
     if normalize:
@@ -153,9 +165,10 @@ def load_cifar10_c(corruption_name,
     label = tf.cast(label, dtype)
     return image, label
 
-  dataset = tfds.load(name='cifar10_corrupted/{}'.format(corruption),
-                      split=tfds.Split.TEST,
-                      as_supervised=True)
+  dataset = tfds.load(
+      name='cifar10_corrupted/{}'.format(corruption),
+      split=tfds.Split.TEST,
+      as_supervised=True)
   dataset = dataset.map(
       preprocess, num_parallel_calls=tf.data.experimental.AUTOTUNE)
   dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
@@ -301,8 +314,7 @@ def aggregate_corrupt_metrics(metrics,
       if log_fine_metrics or output_dir is not None:
         fine_metrics_results['{0}/nll_{1}'.format(prefix,
                                                   dataset_name)] = nll[i]
-        fine_metrics_results['{0}/kl_{1}'.format(prefix,
-                                                 dataset_name)] = kl[i]
+        fine_metrics_results['{0}/kl_{1}'.format(prefix, dataset_name)] = kl[i]
         fine_metrics_results['{0}/elbo_{1}'.format(prefix,
                                                    dataset_name)] = elbo[i]
         fine_metrics_results['{0}/accuracy_{1}'.format(prefix,
@@ -346,11 +358,13 @@ def aggregate_corrupt_metrics(metrics,
     results['{}/member_acc_mean_corrupted'.format(prefix)] += avg_member_acc
     results['{}/member_ece_mean_corrupted'.format(prefix)] += avg_member_ece
     if corrupt_diversity is not None:
-      avg_diversity_metrics = [np.mean(disagreement), np.mean(
-          cosine_similarity), np.mean(average_kl)]
+      avg_diversity_metrics = [
+          np.mean(disagreement),
+          np.mean(cosine_similarity),
+          np.mean(average_kl)
+      ]
       for key, avg in zip(diversity_keys, avg_diversity_metrics):
-        results['corrupt_diversity/{}_mean_{}'.format(
-            key, intensity)] = avg
+        results['corrupt_diversity/{}_mean_{}'.format(key, intensity)] = avg
         results['corrupt_diversity/{}_mean_corrupted'.format(key)] += avg
 
   results['{}/nll_mean_corrupted'.format(prefix)] /= max_intensity

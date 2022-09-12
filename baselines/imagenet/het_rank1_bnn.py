@@ -49,10 +49,11 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import metrics as metrics_lib  # local file import from baselines.imagenet
 import utils  # local file import from baselines.imagenet
 from tensorboard.plugins.hparams import api as hp
 
-flags.DEFINE_integer('kl_annealing_epochs', 90,
+flags.DEFINE_integer('kl_annealing_epochs', 120,
                      'Number of epochs over which to anneal the KL term to 1.')
 flags.DEFINE_string('alpha_initializer', 'trainable_normal',
                     'Initializer name for the alpha parameters.')
@@ -80,28 +81,24 @@ flags.DEFINE_float('dropout_rate', 1e-3,
 flags.DEFINE_float('prior_stddev', 0.05,
                    'Prior stddev. Sort of like a prior on dropout rate, where '
                    'it encourages defaulting/shrinking to this value.')
-flags.DEFINE_float('l2', 1e-4, 'L2 coefficient.')
+flags.DEFINE_float('l2', 0.00007, 'L2 coefficient.')
 flags.DEFINE_float('fast_weight_lr_multiplier', 1.0,
                    'fast weights lr multiplier.')
 flags.DEFINE_string('data_dir', None, 'Path to training and testing data.')
 flags.DEFINE_string('output_dir', '/tmp/imagenet',
                     'The directory where the model weights and '
                     'training/evaluation summaries are stored.')
-flags.DEFINE_integer('train_epochs', 135, 'Number of training epochs.')
-flags.DEFINE_integer('corruptions_interval', 135,
+flags.DEFINE_integer('train_epochs', 180, 'Number of training epochs.')
+flags.DEFINE_integer('corruptions_interval', -1,
                      'Number of epochs between evaluating on the corrupted '
                      'test data. Use -1 to never evaluate.')
-flags.DEFINE_integer('checkpoint_interval', 27,
+flags.DEFINE_integer('checkpoint_interval', 30,
                      'Number of epochs between saving checkpoints. Use -1 to '
                      'never save checkpoints.')
 flags.DEFINE_string('alexnet_errors_path', None,
                     'Path to AlexNet corruption errors file.')
 flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE computation.')
 flags.DEFINE_bool('use_ensemble_bn', False, 'Whether to use ensemble bn.')
-
-flags.DEFINE_integer('num_eval_samples', 1,
-                     'Number of model predictions to sample per example at '
-                     'eval time.')
 
 # Accelerator flags.
 flags.DEFINE_bool('use_gpu', False, 'Whether to run on GPU or otherwise TPU.')
@@ -128,6 +125,9 @@ NUM_CLASSES = 1000
 
 
 def main(argv):
+  dyadic_nll = metrics_lib.make_nll_polyadic_calculator(
+      num_classes=1000, tau=10, kappa=2)
+
   del argv  # unused arg
   tf.random.set_seed(FLAGS.seed)
 
@@ -150,30 +150,39 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,
-      data_dir=data_dir)
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
+      split=tfds.Split.TEST,
+      use_bfloat16=FLAGS.use_bfloat16,
+      data_dir=data_dir,
+      drop_remainder=False,
+      mask_and_pad=True)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
   test_datasets = {
       'clean': clean_test_dataset
   }
   if FLAGS.corruptions_interval > 0:
-    corruption_types, max_intensity = utils.load_corrupted_test_info()
-    for name in corruption_types:
-      for intensity in range(1, max_intensity + 1):
-        dataset_name = '{0}_{1}'.format(name, intensity)
-        dataset = utils.load_corrupted_test_dataset(
-            batch_size=batch_size,
-            corruption_name=name,
-            corruption_intensity=intensity,
-            use_bfloat16=FLAGS.use_bfloat16)
-        test_datasets[dataset_name] = (
-            strategy.experimental_distribute_dataset(dataset))
+    corruption_types, max_severity = utils.load_corrupted_test_info()
+    for corruption_type in corruption_types:
+      for severity in range(1, max_severity + 1):
+        dataset_name = '{0}_{1}'.format(corruption_type, severity)
+        corrupted_builder = ub.datasets.ImageNetCorruptedDataset(
+            corruption_type=corruption_type,
+            severity=severity,
+            use_bfloat16=FLAGS.use_bfloat16,
+            data_dir=data_dir,
+            drop_remainder=False,
+            mask_and_pad=True)
+        test_datasets[dataset_name] = corrupted_builder.load(
+            batch_size=batch_size, strategy=strategy)
 
   if FLAGS.use_bfloat16:
     tf.keras.mixed_precision.set_global_policy('mixed_bfloat16')
@@ -199,7 +208,8 @@ def main(argv):
         use_ensemble_bn=FLAGS.use_ensemble_bn,
         num_factors=FLAGS.num_factors,
         temperature=FLAGS.temperature,
-        num_mc_samples=FLAGS.num_mc_samples)
+        num_mc_samples=FLAGS.num_mc_samples,
+        return_unaveraged_logits=True)
     logging.info('Model input shape: %s', model.input_shape)
     logging.info('Model output shape: %s', model.output_shape)
     logging.info('Model number of weights: %s', model.count_params())
@@ -230,6 +240,7 @@ def main(argv):
             num_bins=FLAGS.num_bins),
         'train/diversity': rm.metrics.AveragePairwiseDiversity(),
         'test/negative_log_likelihood': tf.keras.metrics.Mean(),
+        'test/joint_nll': tf.keras.metrics.Mean(),
         'test/kl': tf.keras.metrics.Mean(),
         'test/elbo': tf.keras.metrics.Mean(),
         'test/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
@@ -243,7 +254,7 @@ def main(argv):
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
-      for intensity in range(1, max_intensity + 1):
+      for intensity in range(1, max_severity + 1):
         for corruption in corruption_types:
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
@@ -296,12 +307,16 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
+      mask = inputs['mask']
       if FLAGS.ensemble_size > 1:
         images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
         labels = tf.tile(labels, [FLAGS.ensemble_size])
+        mask = tf.tile(mask, [FLAGS.ensemble_size])
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
 
       with tf.GradientTape() as tape:
-        logits = model(images, training=True)
+        logits, _ = model(images, training=True)
+        logits = tf.boolean_mask(logits, mask)  # Select non-padded examples.
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
 
@@ -362,27 +377,35 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
+      mask = inputs['mask']
       labels = inputs['labels']
+      labels = tf.boolean_mask(labels, mask)  # Select non-padded examples.
       if FLAGS.ensemble_size > 1:
         images = tf.tile(images, [FLAGS.ensemble_size, 1, 1, 1])
-      logits = tf.reshape(
-          [model(images, training=False)
-           for _ in range(FLAGS.num_eval_samples)],
-          [FLAGS.num_eval_samples, FLAGS.ensemble_size, -1, NUM_CLASSES])
+
+      logits, unaveraged_logits = model(images, training=False)
+      logits = tf.reshape(logits, [FLAGS.ensemble_size, -1, NUM_CLASSES])
+      unaveraged_logits = tf.reshape(
+          unaveraged_logits,
+          [FLAGS.ensemble_size, -1, FLAGS.num_mc_samples, NUM_CLASSES])
+
+      logits = tf.boolean_mask(logits, mask, axis=1)  # Non-padded examples.
+      unaveraged_logits = tf.boolean_mask(unaveraged_logits, mask, axis=1)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
+        unaveraged_logits = tf.cast(unaveraged_logits, tf.float32)
+
       all_probs = tf.nn.softmax(logits)
-      probs = tf.math.reduce_mean(all_probs, axis=[0, 1])  # marginalize
+      probs = tf.math.reduce_mean(all_probs, axis=0)  # marginalize
 
       # Negative log marginal likelihood computed in a numerically-stable way.
       labels_broadcasted = tf.broadcast_to(
-          labels,
-          [FLAGS.num_eval_samples, FLAGS.ensemble_size, tf.shape(labels)[0]])
+          labels, [FLAGS.ensemble_size, tf.shape(labels)[0]])
       log_likelihoods = -tf.keras.losses.sparse_categorical_crossentropy(
           labels_broadcasted, logits, from_logits=True)
       negative_log_likelihood = tf.reduce_mean(
-          -tf.reduce_logsumexp(log_likelihoods, axis=[0, 1]) +
-          tf.math.log(float(FLAGS.num_eval_samples * FLAGS.ensemble_size)))
+          -tf.reduce_logsumexp(log_likelihoods, axis=0) +
+          tf.math.log(float(FLAGS.ensemble_size)))
 
       l2_loss = compute_l2_loss(model)
       kl = sum(model.losses) / IMAGENET_VALIDATION_IMAGES
@@ -390,10 +413,9 @@ def main(argv):
 
       if dataset_name == 'clean':
         if FLAGS.ensemble_size > 1:
-          per_probs = tf.reduce_mean(all_probs, axis=0)  # marginalize samples
-          metrics['test/diversity'].add_batch(per_probs)
+          metrics['test/diversity'].add_batch(all_probs)
           for i in range(FLAGS.ensemble_size):
-            member_probs = per_probs[i]
+            member_probs = all_probs[i]
             member_loss = tf.keras.losses.sparse_categorical_crossentropy(
                 labels, member_probs)
             metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
@@ -410,6 +432,16 @@ def main(argv):
         metrics['test/elbo'].update_state(elbo)
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
+
+        # unaveraged_logits original shape:
+        # (ensemble_size, batch_size, num_samples, num_classes)
+        # logits_list final shape:
+        # (ensemble_size * num_samples, batch_size, num_classes)
+        logits_list = tf.concat(
+            [tf.transpose(unaveraged_logits, [0, 2, 1, 3])[i]
+             for i in range(FLAGS.ensemble_size)], axis=0)
+        joint_nll = dyadic_nll(logits_list, tf.expand_dims(labels, axis=1))
+        metrics['test/joint_nll'].update_state(joint_nll)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -460,7 +492,7 @@ def main(argv):
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       corrupt_results = utils.aggregate_corrupt_metrics(
-          corrupt_metrics, corruption_types, max_intensity,
+          corrupt_metrics, corruption_types, max_severity,
           FLAGS.alexnet_errors_path)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
@@ -501,7 +533,6 @@ def main(argv):
         'one_minus_momentum': FLAGS.one_minus_momentum,
         'l2': FLAGS.l2,
         'fast_weight_lr_multiplier': FLAGS.fast_weight_lr_multiplier,
-        'num_eval_samples': FLAGS.num_eval_samples,
     })
 
 

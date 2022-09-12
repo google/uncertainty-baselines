@@ -95,6 +95,7 @@ def main(argv):
 
   width_coefficient, depth_coefficient, input_image_size, dropout_rate = (
       ub.models.efficientnet_utils.efficientnet_params(FLAGS.model_name))
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,

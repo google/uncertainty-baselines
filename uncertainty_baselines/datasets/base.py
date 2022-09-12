@@ -31,6 +31,7 @@ import tensorflow_datasets as tfds
 PreProcessFn = Callable[
     [Union[int, tf.Tensor, Sequence[tf.Tensor], types.Features]],
     types.Features]
+FilterFn = Callable[[types.Features], bool]
 
 # Same as PreProcessFn except also takes an integer first argument.
 _EnumeratedPreProcessFn = Callable[
@@ -93,20 +94,22 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
   Requires subclasses to override _read_examples, _create_process_example_fn.
   """
 
-  def __init__(
-      self,
-      name: str,
-      dataset_builder: tfds.core.DatasetBuilder,
-      split: Union[float, str, tfds.Split],
-      seed: Optional[Union[int, tf.Tensor]] = None,
-      is_training: Optional[bool] = None,
-      shuffle_buffer_size: Optional[int] = None,
-      num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
-      drop_remainder: bool = False,
-      fingerprint_key: Optional[str] = None,
-      download_data: bool = False,
-      decoders: Optional[Dict[str, tfds.decode.Decoder]] = None,
-      cache: bool = False):
+  def __init__(self,
+               name: str,
+               dataset_builder: tfds.core.DatasetBuilder,
+               split: Union[float, str, tfds.Split],
+               seed: Optional[Union[int, tf.Tensor]] = None,
+               is_training: Optional[bool] = None,
+               shuffle_buffer_size: Optional[int] = None,
+               num_parallel_parser_calls: int = tf.data.experimental.AUTOTUNE,
+               drop_remainder: bool = False,
+               mask_and_pad: bool = False,
+               fingerprint_key: Optional[str] = None,
+               download_data: bool = False,
+               decoders: Optional[Dict[str, tfds.decode.Decoder]] = None,
+               cache: bool = False,
+               label_key: str = 'label',
+               filter_fn: Optional[FilterFn] = None):
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -130,8 +133,12 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         for tf.data.Dataset.shuffle().
       num_parallel_parser_calls: the number of parallel threads to use while
         preprocessing in tf.data.Dataset.map().
-      drop_remainder: whether or not to drop the last batch of data if the
+      drop_remainder: Whether or not to drop the last batch of data if the
         number of points is not exactly equal to the batch size.
+      mask_and_pad: Whether or not to mask and pad batches such that when
+        drop_remainder == False, partial batches are padded to a full batch and
+        an additional `mask` feature is added to indicate which examples are
+        padding.
       fingerprint_key: The name of the feature holding a string that will be
         used to create an element id using a fingerprinting function. If None,
         then `ds.enumerate()` is added before the `ds.map(preprocessing_fn)` is
@@ -141,6 +148,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         `dataset_builder.as_dataset`, the same as passed to `tfds.load`.
       cache: Whether or not to cache the dataset after it is returned from
         dataset_builder.as_dataset(...) (before preprocessing is applied).
+      label_key: The name of the field holding the label.
+      filter_fn: The filter function for tf.data.Dataset.filter().
     """
     self.name = name
     self._split = split
@@ -157,6 +166,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
     self._num_parallel_parser_calls = num_parallel_parser_calls
     self._drop_remainder = drop_remainder
+    self._mask_and_pad = mask_and_pad
     self._download_data = download_data
     self._decoders = decoders
     self._cache = cache
@@ -186,7 +196,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         dataset_builder=dataset_builder,
         fingerprint_key=fingerprint_key,
         split=self._split,
-        label_key='label')
+        label_key=label_key)
 
     self._enumerate_id_key = '_enumerate_added_per_step_id'
 
@@ -194,6 +204,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     if self._fingerprint_key is None:
       self._fingerprint_key = '_enumerate_added_example_id'
       self._add_fingerprint_key = True
+
+    self._filter_fn = filter_fn
 
   # This method can be overridden to add custom info via info.metadata.
   @property
@@ -246,7 +258,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
   def _add_enumerate_id(self, enumerate_key: str) -> _EnumeratedPreProcessFn:
     def _add_example_id(enumerate_id, example):
       """Turn an id added by ds.enumerate() as a field in the example dict."""
-      if isinstance(example, tf.Tensor):
+      if isinstance(example, (tf.Tensor, tuple)):
         example = {'features': example}
       example[enumerate_key] = enumerate_id
       return example
@@ -335,15 +347,30 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # (many preprocess_fn's may not return it).
     preprocess_fn = ops.compose(
         add_per_step_id_key_fn, self._create_element_id, preprocess_fn)
+    if self._mask_and_pad:
+      mask_fn = lambda ex: dict(mask=1., **ex)
+      preprocess_fn = ops.compose(preprocess_fn, mask_fn)
     dataset = dataset.map(
         preprocess_fn,
         num_parallel_calls=self._num_parallel_parser_calls)
 
-    # Note that unless the default value of `drop_remainder=True` is overriden
-    # in `__init__`, we always drop the last batch when the batch size does not
-    # evenly divide the number of examples.
-    # TODO(znado): add padding to last partial eval batch.
-    dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
+    if self._filter_fn:
+      dataset = dataset.filter(self._filter_fn)
+
+    if self._mask_and_pad and not self._drop_remainder:
+      # If we're not dropping the remainder, but we are adding masking +
+      # padding, then we append additional zero-valued examples with zero-valued
+      # masks to the dataset such that batching with drop_remainder=True will
+      # yield a dataset whose final batch is padded as needed.
+      padding_example = tf.nest.map_structure(
+          lambda spec: tf.zeros(spec.shape, spec.dtype)[None],
+          dataset.element_spec)
+      padding_example['mask'] = [0.]
+      padding_dataset = tf.data.Dataset.from_tensor_slices(padding_example)
+      dataset = dataset.concatenate(padding_dataset.repeat(batch_size - 1))
+      dataset = dataset.batch(batch_size, drop_remainder=True)
+    else:
+      dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
 
     process_batch_fn = self._create_process_batch_fn(batch_size)  # pylint: disable=assignment-from-none
     if process_batch_fn:

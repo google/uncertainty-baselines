@@ -27,9 +27,9 @@ from typing import Any, Callable, List, Tuple
 import haiku as hk
 from jax import numpy as jnp
 import optax
-import CNN  # local file import from baselines.diabetic_retinopathy_detection.fsvi_utils.networks
-import Model  # local file import from baselines.diabetic_retinopathy_detection.fsvi_utils.networks
-import Loss  # local file import from baselines.diabetic_retinopathy_detection.fsvi_utils.objectives
+from fsvi_utils.networks import CNN  # local file import from baselines.diabetic_retinopathy_detection
+from fsvi_utils.networks import Model  # local file import from baselines.diabetic_retinopathy_detection
+from fsvi_utils.objectives import Loss  # local file import from baselines.diabetic_retinopathy_detection
 
 DEFAULT_NUM_EPOCHS = 90
 

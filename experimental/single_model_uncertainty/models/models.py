@@ -20,8 +20,8 @@ import logging
 from typing import List
 
 import tensorflow as tf
-import genomics_cnn  # local file import from experimental.single_model_uncertainty.models
-import wide_resnet  # local file import from experimental.single_model_uncertainty.models
+from models import genomics_cnn  # local file import from experimental.single_model_uncertainty
+from models import wide_resnet  # local file import from experimental.single_model_uncertainty
 from uncertainty_baselines.models import bert
 from uncertainty_baselines.models import criteo_mlp
 from uncertainty_baselines.models import resnet20

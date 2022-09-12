@@ -18,8 +18,9 @@
 from typing import Any, Dict, List
 from absl import flags
 
-from uncertainty_baselines.datasets import datasets
-from uncertainty_baselines.models import models
+# from uncertainty_baselines.datasets import datasets
+import uncertainty_baselines as ub
+import models.models as ub_smu_models  # local file import from experimental.single_model_uncertainty
 
 
 FLAGS = flags.FLAGS
@@ -55,27 +56,20 @@ def define_flags() -> List[str]:
   # Train/eval loop flags.
   flags.DEFINE_integer(
       'checkpoint_step', -1, 'Step of the checkpoint to restore from.')
-  flags.DEFINE_enum(
-      'dataset_name',
-      None,
-      datasets.get_dataset_names(),
-      'Name of the dataset to use.')
-  flags.DEFINE_enum(
-      'ood_dataset_name',
-      None,
-      datasets.get_dataset_names(),
-      'Name of the OOD dataset to use for evaluation.')
+  flags.DEFINE_enum('dataset_name', None,
+                    ub.datasets.datasets.get_dataset_names(),
+                    'Name of the dataset to use.')
+  flags.DEFINE_enum('ood_dataset_name', None,
+                    ub.datasets.datasets.get_dataset_names(),
+                    'Name of the OOD dataset to use for evaluation.')
   flags.DEFINE_integer(
       'eval_frequency',
       None,
       'How many steps between evaluating on the (validation and) test set.')
   flags.DEFINE_integer('num_bins', 15, 'Number of bins for ECE.')
   flags.DEFINE_string('output_dir', None, 'Base output directory.')
-  flags.DEFINE_enum(
-      'model_name',
-      None,
-      models.get_model_names(),
-      'Name of the model to use.')
+  flags.DEFINE_enum('model_name', None, ub_smu_models.get_model_names(),
+                    'Name of the model to use.')
   flags.DEFINE_integer(
       'log_frequency',
       100,
@@ -209,6 +203,8 @@ def define_flags() -> List[str]:
       'List of recalls at which to calculate precision.'
       ' The list should contains '
       '[lower bound, upper bound, num_elements]')
+  flags.DEFINE_bool('dempster_shafer_ood', False,
+                    'Whether to use Dempster Shafer Uncertainty as OOD score.')
 
   all_flags = set(FLAGS)
   program_flag_names = sorted(list(all_flags - predefined_flags))

@@ -107,7 +107,8 @@ def wide_resnet_batchensemble(input_shape,
                               num_classes,
                               ensemble_size,
                               random_sign_init,
-                              l2):
+                              l2,
+                              batch_size=None):
   """Builds Wide ResNet.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the
@@ -125,6 +126,7 @@ def wide_resnet_batchensemble(input_shape,
     ensemble_size: Number of ensemble members.
     random_sign_init: Probability of 1 in random sign init.
     l2: L2 regularization coefficient.
+    batch_size: optional static batch size (integer).
 
   Returns:
     tf.keras.Model.
@@ -132,7 +134,7 @@ def wide_resnet_batchensemble(input_shape,
   if (depth - 4) % 6 != 0:
     raise ValueError('depth should be 6n+4 (e.g., 16, 22, 28, 40).')
   num_blocks = (depth - 4) // 6
-  inputs = tf.keras.layers.Input(shape=input_shape)
+  inputs = tf.keras.layers.Input(shape=input_shape, batch_size=batch_size)
   x = Conv2DBatchEnsemble(
       16,
       strides=1,

@@ -21,12 +21,14 @@ r"""Heteroscedastic ViT-L/32.
 
 import ml_collections
 # TODO(dusenberrymw): Open-source remaining imports.
-import common_fewshot  # local file import from baselines.jft.experiments
+from experiments import common_fewshot  # local file import from baselines.jft
 
 
 def get_config():
   """Config for training a patch-transformer on JFT."""
   config = ml_collections.ConfigDict()
+
+  config.seed = 0
 
   # Directory for the version de-dup'd from BiT downstream test-sets.
   config.dataset = 'jft/entity:1.0.0'
@@ -41,17 +43,18 @@ def get_config():
 
   pp_common = '|value_range(-1, 1)'
   pp_common += f'|onehot({config.num_classes})'
-  # To use ancestor "smearing", use this line instead:
-  # pp_common += f'|onehot({config.num_classes}, key="labels_extended", key_result="labels")  # pylint: disable=line-too-long
+  # To use ancestor 'smearing', use this line instead:
+  # pp_common += f'|onehot({config.num_classes}, key='labels_extended', key_result='labels')  # pylint: disable=line-too-long
   pp_common += '|keep(["image", "labels"])'
   config.pp_train = 'decode_jpeg_and_inception_crop(224)|flip_lr' + pp_common
   config.pp_eval = 'decode|resize_small(256)|central_crop(224)' + pp_common
   config.shuffle_buffer_size = 250_000  # Per host, so small-ish is ok.
 
-  config.log_training_steps = 50
-  config.log_eval_steps = 1000
-  # NOTE: eval is very fast O(seconds) so it's fine to run it often.
-  config.checkpoint_steps = 1000
+  config.log_training_steps = 10000
+  config.log_eval_steps = 50000
+  # NOTE: Save infrequently to prevent crowding the disk space.
+  config.checkpoint_steps = 17250
+  config.checkpoint_timeout = 10
 
   # Model section
   config.model = ml_collections.ConfigDict()
@@ -81,7 +84,7 @@ def get_config():
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
   config.weight_decay = None  # No explicit weight decay
-  config.grad_clip_norm = 2.5
+  config.grad_clip_norm = 1.0
 
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()
@@ -92,9 +95,12 @@ def get_config():
 
   # Few-shot eval section
   config.fewshot = common_fewshot.get_fewshot()
-  config.fewshot.log_steps = 25_000
+  config.fewshot.log_steps = 50_000
   return config
 
 
-def get_hyper(hyper):
-  return hyper.product([])
+def get_sweep(hyper):
+  return hyper.product([
+      hyper.sweep('config.seed', [0]),
+      hyper.sweep('config.model.temperature', [0.6, 0.7, 0.8, 0.9])
+  ])

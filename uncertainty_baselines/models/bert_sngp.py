@@ -58,8 +58,8 @@ def make_spec_norm_dense_layer(**spec_norm_kwargs: Mapping[str, Any]):
   """Defines a spectral-normalized EinsumDense layer.
 
   Args:
-    **spec_norm_kwargs: Keyword arguments to the SpectralNormalization
-    layer wrapper.
+    **spec_norm_kwargs: Keyword arguments to the SpectralNormalization layer
+      wrapper.
 
   Returns:
     (callable) A function that defines a dense layer and wraps it with
@@ -92,8 +92,8 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
         'kernel_initializer': 'glorot_uniform'
       }
   >>> feedforward_cfg = {
-        'intermediate_size': 1024,
-        'intermediate_activation': 'gelu',
+        'inner_dim': 1024,
+        'inner_activation': 'gelu',
         'dropout': 0.1,
         'name': 'feedforward',
       }
@@ -102,6 +102,10 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
   """
 
   def __init__(self,
+               inner_dim: int,
+               inner_activation: str,
+               # TODO(yquan): Remove the following 2 unused fields after they
+               # are removed from TransformerScaffold.py
                intermediate_size: int,
                intermediate_activation: str,
                dropout: float,
@@ -116,9 +120,11 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
     in the TransformerScaffold class.
 
     Args:
-      intermediate_size: Size of the intermediate layer.
-      intermediate_activation: Activation function to be used for the
-        intermediate layer.
+      inner_dim: Size of the intermediate layer.
+      inner_activation: Activation function to be used for the intermediate
+        layer.
+      intermediate_size (to-be-removed): Same as inner_dim.
+      intermediate_activation (to-be-removed): Same as inner_activation.
       dropout: Dropout rate.
       use_layer_norm: Whether to use layer normalization.
       use_spec_norm: Whether to use spectral normalization.
@@ -128,8 +134,8 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
         layers.
     """
     super().__init__(name=name)
-    self._intermediate_size = intermediate_size
-    self._intermediate_activation = intermediate_activation
+    self._inner_dim = inner_dim
+    self._inner_activation = inner_activation
     self._dropout = dropout
     self._use_layer_norm = use_layer_norm
     self._use_spec_norm = use_spec_norm
@@ -147,7 +153,7 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
 
     self._intermediate_dense = self.einsum_dense_layer(
         'abc,cd->abd',
-        output_shape=(None, self._intermediate_size),
+        output_shape=(None, self._inner_dim),
         bias_axes='d',
         name='intermediate',
         **self._common_kwargs)
@@ -157,7 +163,7 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
       # as well, so we use float32.
       policy = tf.float32
     self._intermediate_activation_layer = tf.keras.layers.Activation(
-        self._intermediate_activation, dtype=policy)
+        self._inner_activation, dtype=policy)
     self._output_dense = self.einsum_dense_layer(
         'abc,cd->abd',
         output_shape=(None, hidden_size),
@@ -192,8 +198,10 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
   def get_config(self) -> Dict[str, Any]:
     config = super().get_config()
     config.update({
-        'intermediate_size': self._intermediate_size,
-        'intermediate_activation': self._intermediate_activation,
+        'inner_dim': self._inner_dim,
+        'inner_activation': self._inner_activation,
+        'intermediate_size': self._inner_dim,
+        'intermediate_activation': self._inner_activation,
         'dropout': self._dropout,
         'use_layer_norm': self._use_layer_norm,
         'use_spec_norm': self._use_spec_norm,
@@ -472,8 +480,8 @@ def get_spectral_normalized_transformer_encoder(
   )
   hidden_cfg = dict(
       num_attention_heads=bert_config.num_attention_heads,
-      intermediate_size=bert_config.intermediate_size,
-      intermediate_activation=tf_utils.get_activation(bert_config.hidden_act),
+      inner_dim=bert_config.intermediate_size,
+      inner_activation=tf_utils.get_activation(bert_config.hidden_act),
       dropout_rate=bert_config.hidden_dropout_prob,
       attention_dropout_rate=bert_config.attention_probs_dropout_prob,
       kernel_initializer=tf.keras.initializers.TruncatedNormal(
@@ -503,6 +511,7 @@ class BertGaussianProcessClassifier(tf.keras.Model):
   def __init__(self,
                network: tf.keras.Model,
                num_classes: int,
+               num_heads: int,
                gp_layer_kwargs: Dict[str, Any],
                initializer: Optional[tf.keras.initializers.Initializer] = None,
                dropout_rate: float = 0.1,
@@ -515,6 +524,7 @@ class BertGaussianProcessClassifier(tf.keras.Model):
         output and a classification output. Furthermore, it should expose its
         embedding table via a "get_embedding_table" method.
       num_classes: Number of classes to predict from the classification network.
+      num_heads: Number of additional output heads.
       gp_layer_kwargs: Keyword arguments to Gaussian process layer.
       initializer: The initializer (if any) to use in the classification
         networks. Defaults to a Glorot uniform initializer.
@@ -564,22 +574,36 @@ class BertGaussianProcessClassifier(tf.keras.Model):
           initializer=initializer,
           output='logits',
           name='sentence_prediction')
-    predictions = self.classifier(cls_output)
+    outputs = self.classifier(cls_output)
 
-    super().__init__(inputs=inputs, outputs=predictions, **kwargs)
+    # Build additional heads if num_heads > 1.
+    if num_heads > 1:
+      outputs = [outputs]
+      for head_id in range(1, num_heads):
+        additional_outputs = tf.keras.layers.Dense(
+            num_classes,
+            activation=None,
+            kernel_initializer=initializer,
+            name=f'predictions/transform/logits_{head_id}')(
+                cls_output)
+
+        outputs.append(additional_outputs)
+
+    super().__init__(inputs=inputs, outputs=outputs, **kwargs)
 
 
 def bert_sngp_model(num_classes,
                     bert_config,
                     gp_layer_kwargs,
                     spec_norm_kwargs,
+                    num_heads=1,
                     use_gp_layer=True,
                     use_spec_norm_att=True,
                     use_spec_norm_ffn=True,
                     use_layer_norm_att=False,
                     use_layer_norm_ffn=False,
                     use_spec_norm_plr=False):
-  """Creates a BERT classifier model with MC dropout."""
+  """Creates a BERT SNGP classifier model."""
   last_layer_initializer = tf.keras.initializers.TruncatedNormal(
       stddev=bert_config.initializer_range)
 
@@ -597,6 +621,7 @@ def bert_sngp_model(num_classes,
   sngp_bert_model = BertGaussianProcessClassifier(
       sngp_bert_encoder,
       num_classes=num_classes,
+      num_heads=num_heads,
       initializer=last_layer_initializer,
       dropout_rate=bert_config.hidden_dropout_prob,
       use_gp_layer=use_gp_layer,

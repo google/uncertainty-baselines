@@ -1,0 +1,43 @@
+# Copyright 2022 The Uncertainty Baselines Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Model configuration of `EncoderDecoderBeamScore` model that uses a
+# custom beam_decode function to output a token-level score.
+from __gin__ import dynamic_registration
+
+# copybara:strip_begin(internal-only)
+include 'third_party/py/uncertainty_baselines/baselines/t5/configs/models/encoder_decoder_beam_score.gin'
+# copybara:strip_end_and_replace_begin
+# include 'uncertainty_baselines/baselines/t5/configs/models/encoder_decoder_beam_score.gin'
+# copybara:replace_end
+
+import decoding  # local file import from baselines.t5
+from models import models  # local file import from baselines.t5
+
+# Decoding override. We by default, generate prediction by looking at top-5 beams.
+NUM_DECODES = 5
+
+# Whether to output only the top beam result.
+# If True, all beam candidates (with the number of beams specified
+# by `num_decodes` above) will be returned, which is useful for understanding
+# the model's posterior distribution by writing all beam candidates to disk
+# using the t5x inference pipeline.
+RETURN_ALL_DECODES = False
+
+# Sets beam search parameters.
+# Uses custom decoding function that also returns token-level scores.
+RETURN_TOKEN_SCORES = True
+models.EncoderDecoderBeamScoreModel.decode_fn = @decoding.beam_search
+decoding.beam_search.alpha = 0.6
+decoding.beam_search.return_token_scores = %RETURN_TOKEN_SCORES

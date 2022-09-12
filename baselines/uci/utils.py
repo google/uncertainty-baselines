@@ -106,10 +106,10 @@ def get_uci_data(name):
         name, '\n'.join(DATA_SPECS.keys())))
   with tf.io.gfile.GFile(spec.path) as f:
     df = pd.read_csv(f)
-  labels = df.pop(spec.label).as_matrix().astype(np.float32)
+  labels = df.pop(spec.label).values.astype(np.float32)
   for ex in spec.excluded:
     _ = df.pop(ex)
-  features = df.as_matrix().astype(np.float32)
+  features = df.values.astype(np.float32)
   return features, labels
 
 

@@ -1,0 +1,44 @@
+# Copyright 2022 The Uncertainty Baselines Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Task-specific configurations for XSum training and evaluation.
+from __gin__ import dynamic_registration
+
+from t5x import checkpoints
+from t5x import utils
+
+# Register necessary SeqIO Tasks/Mixtures.
+import data.mixtures  # local file import from baselines.t5
+
+MIXTURE_OR_TASK_NAME = 'xsum'
+
+# Configure a binary classification model.
+# Note on targets: for classification, only one target token (class ID) is needed.
+TASK_FEATURE_LENGTHS =  {'inputs': 512, 'targets': 128}
+
+# Disable caching since ub tasks are not cached in the official directory.
+USE_CACHED_TASKS = False
+
+# Adjust checkpoint saving.
+utils.SaveCheckpointConfig:
+  period = 10000
+  dtype = 'float32'
+  keep = 1  # keep the best checkpoint.
+  save_dataset = False  # don't checkpoint dataset state
+  checkpointer_cls = @checkpoints.SaveBestCheckpointer
+
+checkpoints.SaveBestCheckpointer:
+  metric_name_to_monitor = 'inference_eval/xsum/eval/rouge1'
+  metric_mode = 'max'
+  keep_checkpoints_without_metrics = False

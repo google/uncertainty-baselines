@@ -97,6 +97,7 @@ def main(argv):
     tf.tpu.experimental.initialize_tpu_system(resolver)
     strategy = tf.distribute.TPUStrategy(resolver)
 
+  # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
       split=tfds.Split.TRAIN,
       use_bfloat16=FLAGS.use_bfloat16,

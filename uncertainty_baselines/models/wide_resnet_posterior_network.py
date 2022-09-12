@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Lint as: python3
 """Wide Residual Posterior Network (see https://arxiv.org/abs/2006.09239)."""
 
 import functools

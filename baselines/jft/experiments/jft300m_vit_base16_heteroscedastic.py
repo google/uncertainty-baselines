@@ -80,7 +80,7 @@ def get_config():
   config.optim.beta1 = 0.9
   config.optim.beta2 = 0.999
   config.weight_decay = None  # No explicit weight decay
-  config.grad_clip_norm = 2.5
+  config.grad_clip_norm = 1.0
 
   # TODO(lbeyer): make a mini-language like preprocessings.
   config.lr = ml_collections.ConfigDict()

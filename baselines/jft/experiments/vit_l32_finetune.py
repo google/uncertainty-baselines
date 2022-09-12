@@ -22,7 +22,7 @@ This config is used for models pretrained on either JFT-300M or ImageNet-21K.
 # pylint: enable=line-too-long
 
 import ml_collections
-import sweep_utils  # local file import from baselines.jft.experiments
+from experiments import sweep_utils  # local file import from baselines.jft
 
 
 def get_config():
@@ -31,6 +31,7 @@ def get_config():
 
   config.model_init = ''  # set in sweep
   config.dataset = ''  # set in sweep
+  config.data_dir = None
   config.test_split = ''  # set in sweep
   config.val_split = ''  # set in sweep
   config.train_split = ''  # set in sweep
@@ -50,6 +51,11 @@ def get_config():
 
   config.prefetch_to_device = 2
   config.trial = 0
+
+  # Subpopulation shift evaluation. Parameters set in the sweep. If
+  # `config.subpopl_cifar_data_file` is None, this evaluation is skipped.
+  config.subpopl_cifar_data_file = None
+  config.pp_eval_subpopl_cifar = None
 
   # OOD evaluation. They're all set in the sweep.
   config.ood_datasets = []
@@ -94,9 +100,8 @@ def get_config():
 def get_sweep(hyper):
   """Sweeps over datasets."""
   checkpoints = ['/path/to/pretrained_model_ckpt.npz']
-  use_jft = False  # whether to use JFT-300M or ImageNet-21K settings
+  use_jft = True  # whether to use JFT-300M or ImageNet-21K settings
   sweep_lr = False  # whether to sweep over learning rates
-
   if use_jft:
     cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
@@ -109,6 +114,21 @@ def get_sweep(hyper):
     imagenet_sweep = sweep_utils.imagenet(hyper)
     imagenet_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
     imagenet_sweep = hyper.product(imagenet_sweep)
+
+    imagenet_1shot_sweep = sweep_utils.imagenet_fewshot(
+        hyper, fewshot='1shot', steps=200, warmup=40, log_eval_steps=20)
+    imagenet_1shot_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+    imagenet_1shot_sweep = hyper.product(imagenet_1shot_sweep)
+
+    imagenet_5shot_sweep = sweep_utils.imagenet_fewshot(
+        hyper, fewshot='5shot', steps=1000, warmup=40, log_eval_steps=100)
+    imagenet_5shot_sweep.append(hyper.fixed('config.lr.base', 0.02, length=1))
+    imagenet_5shot_sweep = hyper.product(imagenet_5shot_sweep)
+
+    imagenet_10shot_sweep = sweep_utils.imagenet_fewshot(
+        hyper, fewshot='10shot', steps=2000, warmup=50, log_eval_steps=200)
+    imagenet_10shot_sweep.append(hyper.fixed('config.lr.base', 0.02, length=1))
+    imagenet_10shot_sweep = hyper.product(imagenet_10shot_sweep)
   else:
     cifar10_sweep = sweep_utils.cifar10(hyper)
     cifar10_sweep.append(hyper.fixed('config.lr.base', 0.003, length=1))
@@ -122,6 +142,20 @@ def get_sweep(hyper):
     imagenet_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
     imagenet_sweep = hyper.product(imagenet_sweep)
 
+    imagenet_1shot_sweep = sweep_utils.imagenet_fewshot(
+        hyper, fewshot='1shot', steps=200, warmup=10, log_eval_steps=20)
+    imagenet_1shot_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+    imagenet_1shot_sweep = hyper.product(imagenet_1shot_sweep)
+
+    imagenet_5shot_sweep = sweep_utils.imagenet_fewshot(
+        hyper, fewshot='5shot', steps=1000, warmup=30, log_eval_steps=100)
+    imagenet_5shot_sweep.append(hyper.fixed('config.lr.base', 0.03, length=1))
+    imagenet_5shot_sweep = hyper.product(imagenet_5shot_sweep)
+
+    imagenet_10shot_sweep = sweep_utils.imagenet_fewshot(
+        hyper, fewshot='10shot', steps=2000, warmup=10, log_eval_steps=200)
+    imagenet_10shot_sweep.append(hyper.fixed('config.lr.base', 0.01, length=1))
+    imagenet_10shot_sweep = hyper.product(imagenet_10shot_sweep)
   if sweep_lr:
     # Sweep over learning rates following Table 4 of Vision Transformer paper
     # and training steps following E^3 paper.
@@ -154,11 +188,41 @@ def get_sweep(hyper):
         hyper.sweep('config.lr.base', [0.06, 0.03, 0.01, 0.003]),
     ])
 
+    imagenet_1shot_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.imagenet_fewshot(
+                hyper, fewshot='1shot', steps=200, warmup=s))
+            for s in [1, 5, 10, 20, 30, 40, 50]]),
+        hyper.sweep('config.lr.base',
+                    [0.06, 0.05, 0.04, 0.03, 0.02, 0.01])
+    ])
+
+    imagenet_5shot_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.imagenet_fewshot(
+                hyper, fewshot='5shot', steps=1000, warmup=s))
+            for s in [1, 5, 10, 20, 30, 40, 50]]),
+        hyper.sweep('config.lr.base',
+                    [0.06, 0.05, 0.04, 0.03, 0.02, 0.01]),
+    ])
+
+    imagenet_10shot_sweep = hyper.product([
+        hyper.chainit([
+            hyper.product(sweep_utils.imagenet_fewshot(
+                hyper, fewshot='10shot', steps=2000, warmup=s))
+            for s in [1, 5, 10, 20, 30, 40, 50]]),
+        hyper.sweep('config.lr.base',
+                    [0.06, 0.05, 0.04, 0.03, 0.02, 0.01])
+    ])
+
   return hyper.product([
       hyper.chainit([
           cifar10_sweep,
           cifar100_sweep,
           imagenet_sweep,
+          imagenet_1shot_sweep,
+          imagenet_5shot_sweep,
+          imagenet_10shot_sweep
       ]),
       hyper.sweep('config.model_init', checkpoints),
   ])

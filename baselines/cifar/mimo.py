@@ -23,6 +23,7 @@ import robustness_metrics as rm
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import uncertainty_baselines as ub
+import ood_utils  # local file import from baselines.cifar
 import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
@@ -35,6 +36,17 @@ flags.DEFINE_integer('width_multiplier', 10, 'Integer to multiply the number of'
 flags.DEFINE_integer('batch_repetitions', 4, 'Number of times an example is'
                      'repeated in a training batch. More repetitions lead to'
                      'lower variance gradients and increased training time.')
+
+# OOD flags.
+flags.DEFINE_bool('eval_on_ood', True,
+                  'Whether to run OOD evaluation on specified OOD datasets.')
+flags.DEFINE_list('ood_dataset', 'cifar100,svhn_cropped',
+                  'list of OOD datasets to evaluate on.')
+flags.DEFINE_string('saved_model_dir', None,
+                    'Directory containing the saved model checkpoints.')
+flags.DEFINE_bool('dempster_shafer_ood', False,
+                  'Wheter to use DempsterShafer Uncertainty score.')
+
 # Redefining default values
 flags.FLAGS.set_default('corruptions_interval', 250)
 flags.FLAGS.set_default('train_epochs', 250)
@@ -102,6 +114,20 @@ def main(argv):
   steps_per_epoch = train_builder.num_examples // train_batch_size
   steps_per_eval = clean_test_builder.num_examples // test_batch_size
   num_classes = 100 if FLAGS.dataset == 'cifar100' else 10
+
+  if FLAGS.eval_on_ood:
+    ood_dataset_names = FLAGS.ood_dataset
+    ood_ds, steps_per_ood = ood_utils.load_ood_datasets(
+        ood_dataset_names,
+        clean_test_builder,
+        1. - FLAGS.train_proportion,
+        test_batch_size,
+        drop_remainder=FLAGS.drop_remainder_for_eval)
+    ood_datasets = {
+        name: strategy.experimental_distribute_dataset(ds)
+        for name, ds in ood_ds.items()
+    }
+
   if FLAGS.corruptions_interval > 0:
     if FLAGS.dataset == 'cifar100':
       data_dir = FLAGS.cifar100_c_path
@@ -165,6 +191,11 @@ def main(argv):
               num_bins=FLAGS.num_bins),
       })
       eval_dataset_splits += ['validation']
+
+    if FLAGS.eval_on_ood:
+      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+      metrics.update(ood_metrics)
+
     for i in range(FLAGS.ensemble_size):
       for dataset_split in eval_dataset_splits:
         metrics[f'{dataset_split}/nll_member_{i}'] = tf.keras.metrics.Mean()
@@ -196,6 +227,12 @@ def main(argv):
       checkpoint.restore(latest_checkpoint)
       logging.info('Loaded checkpoint %s', latest_checkpoint)
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
+
+    if FLAGS.saved_model_dir:
+      logging.info('Saved model dir : %s', FLAGS.saved_model_dir)
+      latest_checkpoint = tf.train.latest_checkpoint(FLAGS.saved_model_dir)
+      checkpoint.restore(latest_checkpoint)
+      logging.info('Loaded checkpoint %s', latest_checkpoint)
 
   @tf.function
   def train_step(iterator):
@@ -294,6 +331,22 @@ def main(argv):
             negative_log_likelihood)
         metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
+      elif dataset_name.startswith('ood/'):
+        ood_labels = 1 - inputs['is_in_distribution']
+        if FLAGS.dempster_shafer_ood:
+          per_logits = tf.split(
+              logits, num_or_size_splits=FLAGS.ensemble_size, axis=1)
+          ood_scores = [
+              ood_utils.DempsterShaferUncertainty(logit) for logit in per_logits
+          ]
+          ood_scores = tf.reduce_mean(ood_scores, axis=0)
+        else:
+          ood_scores = 1 - tf.reduce_max(probs, axis=-1)
+
+        # Edgecase for if dataset_name contains underscores
+        for name, metric in metrics.items():
+          if dataset_name in name:
+            metric.update_state(ood_labels, ood_scores)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -341,6 +394,16 @@ def main(argv):
       ms_per_example = (time.time() - test_start_time) * 1e6 / test_batch_size
       metrics['test/ms_per_example'].update_state(ms_per_example)
       logging.info('Done with testing on %s', dataset_name)
+
+    if FLAGS.eval_on_ood:
+      for ood_dataset_name, ood_dataset in ood_datasets.items():
+        ood_iterator = iter(ood_dataset)
+        logging.info('Calculating OOD on dataset %s', ood_dataset_name)
+        logging.info('Running OOD eval at epoch: %s', epoch)
+        test_step(ood_iterator, 'test', ood_dataset_name,
+                  steps_per_ood[ood_dataset_name])
+
+        logging.info('Done with OOD eval on %s', ood_dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and

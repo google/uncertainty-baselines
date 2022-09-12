@@ -16,7 +16,6 @@
 """ViT-HetSNGP on JFT-300M."""
 
 from functools import partial  # pylint: disable=g-importing-member so standard
-import itertools
 import multiprocessing
 import os
 
@@ -148,10 +147,6 @@ def main(argv):
       data_dir=fillin(config.get('data_dir')))
   logging.info('image_size = %s', train_ds.element_spec['image'].shape[1:])
 
-  # Start prefetching already.
-  train_iter = input_utils.start_input_pipeline(
-      train_ds, config.get('prefetch_to_device', 1))
-
   write_note('Initializing val dataset(s)...')
 
   def _get_val_split(dataset, split, pp_eval, data_dir=None):
@@ -217,7 +212,7 @@ def main(argv):
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))  # pytype: disable=wrong-arg-types
     val_ds_splits['imagenet_real'] = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',
@@ -408,7 +403,7 @@ def main(argv):
   opt_cpu = jax.jit(opt_def.create)(params_cpu)
 
   weight_decay_rules = config.get('weight_decay', []) or []
-  rescale_value = config.lr.base if config.get('weight_decay_decouple') else 1.
+  rescale_value = 1.
   weight_decay_fn = train_utils.get_weight_decay_fn(
       weight_decay_rules=weight_decay_rules, rescale_value=rescale_value)
 
@@ -501,18 +496,15 @@ def main(argv):
   states_cpu = checkpoint_data.fixed_model_states
   accumulated_train_time = checkpoint_data.accumulated_train_time
 
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
-  opt_cpu = opt_cpu.replace(target=adapted_params)
-
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
+  logging.info('first_step = %s', first_step)
   if first_step == 0 and jax.process_index() == 0:
     writer.write_hparams(dict(config))
+
   chrono = train_utils.Chrono(first_step, total_steps, batch_size,
                               accumulated_train_time)
+
   # Note: switch to ProfileAllHosts() if you need to profile all hosts.
   # (Xprof data become much larger and take longer to load for analysis)
   profiler = periodic_actions.Profile(
@@ -520,20 +512,7 @@ def main(argv):
       # problems and assure we get similar performance in every run.
       logdir=output_dir, first_profile=first_step + 10)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
-                                                    **config.get('lr', {}))
-  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
-  # necessary for TPUs.
-  lr_iter = train_utils.prefetch_scalar(
-      map(lr_fn, range(total_steps)), config.get('prefetch_to_device', 1))
-
-  # Prepare the precision matrix resetting schedule, and pre-fetch it to device.
-  reset_covmat_fn = lambda step: float(step % steps_per_epoch == 0)
-  reset_covmat_iter = train_utils.prefetch_scalar(
-      map(reset_covmat_fn, range(first_step, total_steps)),
-      nprefetch=config.get('prefetch_to_device', 1))
-
+  # TODO(dusenberrymw): Remove manual replication by updating pmap axes.
   write_note(f'Replicating...\n{chrono.note}')
   opt_repl = flax_utils.replicate(opt_cpu)
   states_repl = flax_utils.replicate(states_cpu)
@@ -546,6 +525,35 @@ def main(argv):
 
   checkpoint_writer = None
 
+  # Makes sure log_eval_steps is same as steps_per_epoch. This is because
+  # the precision matrix needs to be updated fully (at the end of each epoch)
+  # when eval takes place.
+  log_eval_steps = max(steps_per_epoch, 2)
+
+  lr_fn = train_utils.create_learning_rate_schedule(total_steps,
+                                                    **config.get('lr', {}))
+
+  # Prepare the precision matrix resetting schedule.
+  reset_steps = steps_per_epoch * 1
+  reset_covmat_fn = lambda step: float(step % reset_steps == 0)
+
+  # Prefetch all iterators, starting at the current first step.
+  if first_step > 0:
+    write_note('Advancing the dataset after resuming from a checkpoint...')
+    # TODO(dusenberrymw): Look into checkpointing dataset state instead.
+    train_ds = train_ds.skip(first_step)
+
+  # TODO(dusenberrymw): According to flax docs, prefetching shouldn't be
+  # necessary for TPUs.
+  train_iter = input_utils.start_input_pipeline(
+      train_ds, config.get('prefetch_to_device', 1))
+  lr_iter = train_utils.prefetch_scalar(
+      map(lr_fn, range(first_step, total_steps)),
+      config.get('prefetch_to_device', 1))
+  reset_covmat_iter = train_utils.prefetch_scalar(
+      map(reset_covmat_fn, range(first_step, total_steps)),
+      nprefetch=config.get('prefetch_to_device', 1))
+
   # Note: we return the train loss, val loss, and fewshot best l2s for use in
   # reproducibility unit tests.
   train_loss = -jnp.inf
@@ -553,21 +561,11 @@ def main(argv):
   fewshot_results = {'dummy': {(0, 1): -jnp.inf}}
 
   write_note(f'First step compilations...\n{chrono.note}')
-  logging.info('first_step = %s', first_step)
-  # Advance the iterators if we are restarting from an earlier checkpoint.
-  # TODO(dusenberrymw): Look into checkpointing dataset state instead.
-  if first_step > 0:
-    write_note('Advancing iterators after resuming from a checkpoint...')
-    lr_iter = itertools.islice(lr_iter, first_step, None)
-    train_iter = itertools.islice(train_iter, first_step, None)
-
-  # Using a python integer for step here, because opt.state.step is allocated
-  # on TPU during replication.
-  for step, train_batch, lr_repl, reset_covmat_repl in zip(
-      range(first_step + 1, total_steps + 1), train_iter, lr_iter,
-      reset_covmat_iter):
-
-    with jax.profiler.TraceAnnotation('train_step', step_num=step, _r=1):
+  for step in range(first_step + 1, total_steps + 1):
+    with jax.profiler.StepTraceAnnotation('train_step', step_num=step):
+      train_batch = next(train_iter)
+      lr_repl = next(lr_iter)
+      reset_covmat_repl = next(reset_covmat_iter)
       # TODO(jereliu): Expand to allow precision matrix resetting.
       (opt_repl, states_repl, loss_value, train_loop_rngs,
        extra_measurements) = update_fn(
@@ -636,7 +634,7 @@ def main(argv):
       writer.write_scalars(step, train_measurements)
 
     # Report validation performance
-    if train_utils.itstime(step, config.log_eval_steps, total_steps):
+    if train_utils.itstime(step, log_eval_steps, total_steps):
       write_note('Evaluating on the validation set...')
       chrono.pause()
       for val_name, val_ds in val_ds_splits.items():

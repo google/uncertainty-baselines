@@ -36,8 +36,9 @@ def get(
     learning_rate_schedule: Union[None, str, LearningRateSchedule] = None,
     steps_per_epoch: Optional[int] = None,
     model: tf.keras.Model = None,
-    **passed_optimizer_kwargs: Dict[str, Any]) -> tf.keras.optimizers.Optimizer:
-  """Builds a tf.keras.optimizers.Optimizer.
+    **passed_optimizer_kwargs: Dict[str, Any]
+) -> tf.keras.optimizers.legacy.Optimizer:
+  """Builds a tf.keras.optimizers.legacy.Optimizer.
 
   Args:
     optimizer_name: the name of the optimizer to use.
@@ -67,19 +68,19 @@ def get(
 
   optimizer_name = optimizer_name.lower()
   if optimizer_name == 'adam':
-    optimizer_class = tf.keras.optimizers.Adam
+    optimizer_class = tf.keras.optimizers.legacy.Adam
     optimizer_kwargs.update(
         _maybe_get_items(
             passed_optimizer_kwargs,
             ['learning_rate', 'beta_1', 'beta_2', 'epsilon', 'amsgrad']))
   elif optimizer_name == 'nadam':
-    optimizer_class = tf.keras.optimizers.Nadam
+    optimizer_class = tf.keras.optimizers.legacy.Nadam
     optimizer_kwargs.update(
         _maybe_get_items(
             passed_optimizer_kwargs,
             ['learning_rate', 'beta_1', 'beta_2', 'epsilon']))
   elif optimizer_name == 'rmsprop':
-    optimizer_class = tf.keras.optimizers.RMSprop
+    optimizer_class = tf.keras.optimizers.legacy.RMSprop
     optimizer_kwargs.update(
         _maybe_get_items(
             passed_optimizer_kwargs,
@@ -90,7 +91,7 @@ def get(
             passed_optimizer_kwargs, ['learning_rate', 'momentum', 'nesterov']))
     if optimizer_name == 'nesterov':
       optimizer_kwargs['nesterov'] = True
-    optimizer_class = tf.keras.optimizers.SGD
+    optimizer_class = tf.keras.optimizers.legacy.SGD
   else:
     raise ValueError('Unrecognized optimizer name: {}'.format(optimizer_name))
 
@@ -201,7 +202,7 @@ def get_learning_rate_schedule(
     raise ValueError('Unrecognized schedule name: {}'.format(schedule_name))
 
 
-class MovingAverage(tf.keras.optimizers.Optimizer):
+class MovingAverage(tf.keras.optimizers.legacy.Optimizer):
   """Optimizer that computes a moving average of the variables.
 
   Empirically it has been found that using the moving average of the trained
@@ -212,7 +213,7 @@ class MovingAverage(tf.keras.optimizers.Optimizer):
 
   Example of usage for training:
   ```python
-  opt = tf.keras.optimizers.SGD(learning_rate)
+  opt = tf.keras.optimizers.legacy.SGD(learning_rate)
   opt = MovingAverage(opt)
 
   opt.shadow_copy(model)
@@ -236,7 +237,7 @@ class MovingAverage(tf.keras.optimizers.Optimizer):
     """Construct a new MovingAverage optimizer.
 
     Args:
-      optimizer: `tf.keras.optimizers.Optimizer` that will be
+      optimizer: `tf.keras.optimizers.legacy.Optimizer` that will be
         used to compute and apply gradients.
       average_decay: float. Decay to use to maintain the moving averages
         of trained variables.
@@ -413,5 +414,6 @@ class MovingAverage(tf.keras.optimizers.Optimizer):
     optimizer = tf.keras.optimizers.deserialize(
         config.pop('optimizer'),
         custom_objects=custom_objects,
+        use_legacy_optimizer=True,
     )
     return cls(optimizer, **config)

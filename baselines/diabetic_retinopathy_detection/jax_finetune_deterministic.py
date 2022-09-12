@@ -52,8 +52,10 @@ from utils import vit_utils
 import wandb
 # pylint: enable=g-import-not-at-top,line-too-long
 
+# TODO(nband): lock config after separating total and warmup steps arguments.
 ml_collections.config_flags.DEFINE_config_file(
-    'config', None, 'Training configuration.', lock_config=True)
+    'config', None, 'Training configuration.', lock_config=False)
+# Set up extraneous flags for use in Googler job launching.
 flags.DEFINE_string('output_dir', default=None, help='Work unit directory.')
 flags.DEFINE_integer(
     'num_cores', default=None, help='Unused. How many devices being used.')
@@ -68,6 +70,14 @@ def main(argv):
   del argv  # unused arg
 
   config = FLAGS.config
+
+  # Unpack total and warmup steps
+  # TODO(nband): revert this to separate arguments.
+  total_steps = config.total_and_warmup_steps[0]
+  warmup_steps = config.total_and_warmup_steps[1]
+  del config.total_and_warmup_steps
+  config.total_steps = total_steps
+  config.lr.warmup_steps = warmup_steps
 
   # Wandb and Checkpointing Setup
   output_dir = FLAGS.output_dir
@@ -332,10 +342,6 @@ def main(argv):
 
     return opt, l, rng, measurements
 
-  # Set config checkpoint resume path, if provided in args.
-  if config.resume_checkpoint_path is not None:
-    config.resume = config.resume_checkpoint_path
-
   rng, train_loop_rngs = jax.random.split(rng)
   reint_params = ('head/kernel', 'head/bias')
   if config.get('only_eval', False) or not config.get('reint_head', True):
@@ -352,12 +358,6 @@ def main(argv):
   train_loop_rngs = checkpoint_data.train_loop_rngs
   opt_cpu = checkpoint_data.optimizer
   accumulated_train_time = checkpoint_data.accumulated_train_time
-
-  write_note('Adapting the checkpoint model...')
-  adapted_params = checkpoint_utils.adapt_upstream_architecture(
-      init_params=params_cpu,
-      loaded_params=opt_cpu.target)
-  opt_cpu = opt_cpu.replace(target=adapted_params)
 
   write_note('Kicking off misc stuff...')
   first_step = int(opt_cpu.state.step)  # Might be a DeviceArray type.
@@ -545,7 +545,7 @@ def main(argv):
       if config.use_wandb:
         wandb.log(metrics_results, step=step)
 
-      Save per-prediction metrics
+      # Save per-prediction metrics
       results_storage_utils.save_per_prediction_results(
           output_dir, step, per_pred_results, verbose=False)
       chrono.resume()

@@ -259,7 +259,7 @@ def run_train(
   return two_head_model
 
 
-def run_ensemble(
+def train_ensemble(
     dataloader: data.Dataloader,
     model_params: models.ModelTrainingParameters,
     num_splits: int,
@@ -269,7 +269,7 @@ def run_ensemble(
     early_stopping: bool = True,
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
 ) -> List[tf.keras.Model]:
-  """Trains an ensemble of models and optionally gets their average predictions.
+  """Trains an ensemble of models, locally. See xm_launch.py for parallelized.
 
   Args:
     dataloader: Dataclass object containing training and validation data.
@@ -307,48 +307,119 @@ def run_ensemble(
         callbacks=combo_callbacks,
         example_id_to_bias_table=example_id_to_bias_table)
     ensemble.append(combo_model)
+  return ensemble
 
+
+def load_trained_models(combos_dir: str,
+                        model_params: models.ModelTrainingParameters):
+  """Loads models trained on different combinations of data splits."""
+  trained_models = []
+  for combo_name in tf.io.gfile.listdir(combos_dir):
+    combo_model = init_model(
+        model_params=model_params,
+        experiment_name=combo_name)
+    ckpt_dir = os.path.join(combos_dir, combo_name, 'checkpoints')
+    best_latest_checkpoint = tf.train.latest_checkpoint(ckpt_dir)
+    load_status = combo_model.load_weights(best_latest_checkpoint)
+    # Optimizer will not be loaded (https://b.corp.google.com/issues/124099628),
+    # so expect only partial load. This is not currently an issue because
+    # model is only used for inference.
+    load_status.expect_partial()
+    load_status.assert_existing_objects_matched()
+    trained_models.append(combo_model)
+  return trained_models
+
+
+def eval_ensemble(
+    dataloader: data.Dataloader,
+    ensemble: List[tf.keras.Model],
+    example_id_to_bias_table: tf.lookup.StaticHashTable):
+  """Calculates the average predictions of the ensemble for evaluation.
+
+  Args:
+    dataloader: Dataclass object containing training and validation data.
+    ensemble: List of trained models.
+    example_id_to_bias_table: Hash table mapping example ID to bias label.
+  """
+  for ds_name in dataloader.eval_ds.keys():
+    test_examples = dataloader.eval_ds[ds_name]
+    y_pred_main = []
+    y_pred_bias = []
+    for model in ensemble:
+      ensemble_prob_samples = model.predict(test_examples)
+      y_pred_main.append(ensemble_prob_samples['main'])
+      y_pred_bias.append(ensemble_prob_samples['bias'])
+    y_pred_main = tf.reduce_mean(y_pred_main, axis=0)
+    y_pred_bias = tf.reduce_mean(y_pred_bias, axis=0)
+    y_true_main = list(test_examples.map(
+        lambda feats, label, example_id: label).as_numpy_iterator())
+    y_true_main = tf.concat(y_true_main, axis=0)
+    y_true_main = tf.convert_to_tensor(y_true_main, dtype=tf.int64)
+    y_true_main = tf.one_hot(y_true_main, depth=2)
+    example_ids = list(test_examples.map(
+        lambda feats, label, example_id: example_id).as_numpy_iterator())
+    example_ids = tf.concat(example_ids, axis=0)
+    example_ids = tf.convert_to_tensor(example_ids, dtype=tf.string)
+    y_true_bias = example_id_to_bias_table.lookup(example_ids)
+    y_true_bias = tf.one_hot(y_true_bias, depth=2)
+    for m in ensemble[0].metrics:
+      m.reset_state()
+    ensemble[0].compiled_metrics.update_state({
+        'main': y_true_main,
+        'bias': y_true_bias
+    }, {
+        'main': y_pred_main,
+        'bias': y_pred_bias
+    })
+    result = {m.name: m.result() for m in ensemble[0].metrics}
+    logging.info('Evaluation Dataset Name: %s', ds_name)
+    logging.info('Main Acc: %f', result['main_acc'])
+    logging.info('Main AUC: %f', result['main_auc'])
+    # TODO(jihyeonlee): Bias labels are not calculated for other evaluation
+    # datasets beyond validation, e.g. 'test' or 'test2' for Cardiotox.
+    # Provide way to save the predictions themselves.
+    logging.info('Bias Acc: %f', result['bias_acc'])
+    logging.info('Bias AUC: %f', result['bias_auc'])
+
+
+def run_ensemble(
+    dataloader: data.Dataloader,
+    model_params: models.ModelTrainingParameters,
+    num_splits: int,
+    ood_ratio: float,
+    output_dir: str,
+    save_model_checkpoints: bool = True,
+    early_stopping: bool = True,
+    ensemble_dir: Optional[str] = '',
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
+) -> List[tf.keras.Model]:
+  """Trains an ensemble of models and optionally gets their average predictions.
+
+  Args:
+    dataloader: Dataclass object containing training and validation data.
+    model_params: Dataclass object containing model and training parameters.
+    num_splits: Integer number for total slices of dataset.
+    ood_ratio: Float for the ratio of slices that will be considered
+      out-of-distribution.
+    output_dir: String for directory path where checkpoints will be saved.
+    save_model_checkpoints: Boolean for saving checkpoints during training.
+    early_stopping: Boolean for early stopping during training.
+    ensemble_dir: Optional string for a directory that stores trained model
+      checkpoints. If specified, will load the models from directory.
+    example_id_to_bias_table: Hash table mapping example ID to bias label.
+
+  Returns:
+    List of trained models and, optionally, predictions.
+  """
+
+  if ensemble_dir:
+    ensemble = load_trained_models(ensemble_dir, model_params)
+  else:
+    ensemble = train_ensemble(dataloader, model_params, num_splits, ood_ratio,
+                              output_dir, save_model_checkpoints,
+                              early_stopping, example_id_to_bias_table)
   if dataloader.eval_ds and example_id_to_bias_table:
-    # Calculates average predictions using ensemble and uses them in evaluation.
-    for ds_name in dataloader.eval_ds.keys():
-      test_examples = dataloader.eval_ds[ds_name]
-      y_pred_main = []
-      y_pred_bias = []
-      for model in ensemble:
-        ensemble_prob_samples = model.predict(test_examples)
-        y_pred_main.append(ensemble_prob_samples['main'])
-        y_pred_bias.append(ensemble_prob_samples['bias'])
-      y_pred_main = tf.reduce_mean(y_pred_main, axis=0)
-      y_pred_bias = tf.reduce_mean(y_pred_bias, axis=0)
-      y_true_main = list(test_examples.map(
-          lambda feats, label, example_id: label).as_numpy_iterator())
-      y_true_main = tf.concat(y_true_main, axis=0)
-      y_true_main = tf.convert_to_tensor(y_true_main, dtype=tf.int64)
-      y_true_main = tf.one_hot(y_true_main, depth=2)
-      example_ids = list(test_examples.map(
-          lambda feats, label, example_id: example_id).as_numpy_iterator())
-      example_ids = tf.concat(example_ids, axis=0)
-      example_ids = tf.convert_to_tensor(example_ids, dtype=tf.string)
-      y_true_bias = example_id_to_bias_table.lookup(example_ids)
-      y_true_bias = tf.one_hot(y_true_bias, depth=2)
-      for m in ensemble[0].metrics:
-        m.reset_state()
-      ensemble[0].compiled_metrics.update_state({
-          'main': y_true_main,
-          'bias': y_true_bias
-      }, {
-          'main': y_pred_main,
-          'bias': y_pred_bias
-      })
-      result = {m.name: m.result() for m in ensemble[0].metrics}
-      logging.info('Evaluation Dataset Name: %s', ds_name)
-      logging.info('Main Acc: %f', result['main_acc'])
-      logging.info('Main AUC: %f', result['main_auc'])
-      # TODO(jihyeonlee): Bias labels are not calculated for other evaluation
-      # datasets beyond validation, e.g. 'test' or 'test2' for Cardiotox.
-      # Provide way to save the predictions themselves.
-      logging.info('Bias Acc: %f', result['bias_acc'])
-      logging.info('Bias AUC: %f', result['bias_auc'])
+    eval_ensemble(dataloader, ensemble, example_id_to_bias_table)
 
   return ensemble
 
@@ -363,6 +434,7 @@ def train_and_evaluate(
     experiment_name: str,
     save_model_checkpoints: bool,
     early_stopping: bool,
+    ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
   """Performs the operations of training, optionally ensembling, and evaluation.
 
@@ -373,10 +445,12 @@ def train_and_evaluate(
     model_params: Dataclass object containing model parameters.
     num_splits: Integer for number of data splits.
     ood_ratio: Float for ratio of splits to consider as out-of-distribution.
-    checkpoint_dir: Path to checkpoint directory.
+    checkpoint_dir: Path to directory where checkpoints will be written.
     experiment_name: String describing experiment.
     save_model_checkpoints: Boolean for saving checkpoints during training.
     early_stopping: Boolean for early stopping during training.
+    ensemble_dir: Optional string for a directory that stores trained model
+      checkpoints. If specified, will load the models from directory.
     example_id_to_bias_table: Lookup table mapping example ID to bias label.
   """
   if train_as_ensemble:
@@ -388,6 +462,7 @@ def train_and_evaluate(
         output_dir=checkpoint_dir,
         save_model_checkpoints=save_model_checkpoints,
         early_stopping=early_stopping,
+        ensemble_dir=ensemble_dir,
         example_id_to_bias_table=example_id_to_bias_table)
   else:
     callbacks = create_callbacks(checkpoint_dir, save_model_checkpoints,

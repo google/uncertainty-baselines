@@ -29,34 +29,12 @@ import pandas as pd
 import tensorflow as tf
 
 import data  # local file import from experimental.shoshin
-import models  # local file import from experimental.shoshin
-import train_tf_lib  # local file import from experimental.shoshin
 
 
 EXAMPLE_ID_KEY = 'example_id'
 BIAS_LABEL_KEY = 'bias_label'
 # Subdirectory for models trained on splits in FLAGS.output_dir.
 COMBOS_SUBDIR = 'combos'
-
-
-def load_trained_models(combos_dir: str,
-                        model_params: models.ModelTrainingParameters):
-  """Loads models trained on different combinations of data splits."""
-  trained_models = []
-  for combo_name in tf.io.gfile.listdir(combos_dir):
-    combo_model = train_tf_lib.init_model(
-        model_params=model_params,
-        experiment_name=combo_name)
-    ckpt_dir = os.path.join(combos_dir, combo_name, 'checkpoints')
-    best_latest_checkpoint = tf.train.latest_checkpoint(ckpt_dir)
-    load_status = combo_model.load_weights(best_latest_checkpoint)
-    # Optimizer will not be loaded (https://b.corp.google.com/issues/124099628),
-    # so expect only partial load. This is not currently an issue because
-    # model is only used for inference.
-    load_status.expect_partial()
-    load_status.assert_existing_objects_matched()
-    trained_models.append(combo_model)
-  return trained_models
 
 
 def load_existing_bias_table(path_to_table: str):

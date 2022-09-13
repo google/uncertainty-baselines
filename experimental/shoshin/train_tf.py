@@ -72,6 +72,8 @@ FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
+flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
+                    'this directory to consider the ensemble.')
 
 
 def main(_) -> None:
@@ -130,7 +132,7 @@ def main(_) -> None:
             output_dir=combos_dir,
             save_model_checkpoints=config.training.save_model_checkpoints,
             early_stopping=config.training.early_stopping)
-        trained_models = generate_bias_table_lib.load_trained_models(
+        trained_models = train_tf_lib.load_trained_models(
             combos_dir, model_params)
         example_id_to_bias_table = generate_bias_table_lib.get_example_id_to_bias_label_table(
             dataloader=dataloader,
@@ -163,6 +165,7 @@ def main(_) -> None:
         experiment_name='stage_2',
         save_model_checkpoints=config.training.save_model_checkpoints,
         early_stopping=config.training.early_stopping,
+        ensemble_dir=FLAGS.ensemble_dir,
         example_id_to_bias_table=example_id_to_bias_table)
 
   # TODO(jihyeonlee): Will add Waterbirds dataloader and ResNet model to support

@@ -45,6 +45,7 @@ from ml_collections import config_flags
 import data  # local file import from experimental.shoshin
 import generate_bias_table_lib  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
+import train_tf_lib  # local file import from experimental.shoshin
 from configs import base_config  # local file import from experimental.shoshin
 
 
@@ -70,7 +71,7 @@ def main(_) -> None:
   dataloader = dataset_builder(config.data.num_splits, config.data.batch_size)
   combos_dir = os.path.join(config.output_dir,
                             generate_bias_table_lib.COMBOS_SUBDIR)
-  trained_models = generate_bias_table_lib.load_trained_models(
+  trained_models = train_tf_lib.load_trained_models(
       combos_dir, model_params)
   _ = generate_bias_table_lib.get_example_id_to_bias_label_table(
       dataloader=dataloader,

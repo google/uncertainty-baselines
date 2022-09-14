@@ -50,6 +50,22 @@ def get_config() -> ml_collections.ConfigDict:
 
   # Number of rounds of active sampling to conduct.
   config.num_rounds = 3
+  # Proportion of training set to sample initially. Rest is considered the pool
+  # for active sampling.
+  config.initial_sample_proportion = 0.5
+  # Subgroup IDs. Specify them in an experiment config. For example, for
+  # Waterbirds, the subgroup IDs might be ('0_1', '1_0') for landbirds on water
+  # and waterbirds on land, respectively.
+  config.subgroup_ids = ()
+  # Subgroup proportions. Specify them in an experiment config. For example, for
+  # Waterbirds, the subgroup proportions might be (0.05, 0.05), meaning each
+  # subgroup will represent 5% of the dataset.
+  config.subgroup_proportions = ()
+  # IDs of the examples that should be included.
+  config.example_ids = ()
+  # Size of sample that will be added (based on sampling signal).
+  config.sample_size = 50
+  config.sampling_signal = 'bias'
 
   # Threshold to generate bias labels. Can be specified as percentile or value.
   config.bias_percentile_threshold = 0.2

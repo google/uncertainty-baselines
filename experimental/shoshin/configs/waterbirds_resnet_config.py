@@ -23,6 +23,10 @@ def get_config() -> ml_collections.ConfigDict:
   """Get mlp config."""
   config = base_config.get_config()
 
+  # Consider landbirds on water and waterbirds on land as subgroups.
+  config.subgroup_ids = ('0_1', '1_0')
+  config.subgroup_proportions = (0.04, 0.012)
+
   data = config.data
   data.name = 'waterbirds'
   data.num_classes = 2

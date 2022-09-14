@@ -107,7 +107,10 @@ def main(_) -> None:
 
   for round_idx in range(num_rounds):
     logging.info('Running Round %d of Training.', round_idx)
-    dataloader = dataset_builder(config.data.num_splits, config.data.batch_size)
+    dataloader = dataset_builder(config.data.num_splits, config.data.batch_size,
+                                 config.initial_sample_proportion,
+                                 config.subgroup_ids,
+                                 config.subgroup_proportions)
     if not config.train_single_model:
       output_dir = os.path.join(config.output_dir, f'round_{round_idx}')
     tf.io.gfile.makedirs(output_dir)

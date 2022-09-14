@@ -69,6 +69,7 @@ _SIGNAL_NAMES = [
     'variance',
     'error',
     'error_rank',
+    'margin',
 ]
 
 

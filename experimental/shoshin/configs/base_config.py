@@ -61,8 +61,6 @@ def get_config() -> ml_collections.ConfigDict:
   # Waterbirds, the subgroup proportions might be (0.05, 0.05), meaning each
   # subgroup will represent 5% of the dataset.
   config.subgroup_proportions = ()
-  # IDs of the examples that should be included.
-  config.example_ids = ()
   # Size of sample that will be added (based on sampling signal).
   config.sample_size = 50
   config.sampling_signal = 'bias'

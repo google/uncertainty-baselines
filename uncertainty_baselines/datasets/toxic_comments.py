@@ -70,6 +70,7 @@ _SIGNAL_NAMES = [
     'error',
     'error_rank',
     'margin',
+    'binary_error',
 ]
 
 

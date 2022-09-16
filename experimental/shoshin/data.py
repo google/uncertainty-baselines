@@ -25,7 +25,7 @@ and the label is specific to the main task.
 import dataclasses
 import json
 import os
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple, List, Union
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -80,13 +80,44 @@ class Dataloader:
       tf.data.Dataset]] = None  # Validation and any additional test datasets.
 
 
-def gather_data_splits(slice_idx: List[int],
-                       dataset: tf.data.Dataset) -> tf.data.Dataset:
+def apply_batch(dataloader, batch_size):
+  """Apply batching to dataloader."""
+  dataloader.train_splits = [
+      data.batch(batch_size) for data in dataloader.train_splits]
+  dataloader.val_splits = [
+      data.batch(batch_size) for data in dataloader.val_splits]
+  num_splits = len(dataloader.train_splits)
+  train_ds = gather_data_splits(list(range(num_splits)),
+                                dataloader.train_splits)
+  val_ds = gather_data_splits(list(range(num_splits)),
+                              dataloader.val_splits)
+  dataloader.train_ds = train_ds
+  dataloader.eval_ds['val'] = val_ds
+  for (k, v) in dataloader.eval_ds.items():
+    if k != 'val':
+      dataloader.eval_ds[k] = v.batch(batch_size)
+  return dataloader
+
+
+def gather_data_splits(
+    slice_idx: List[int],
+    dataset: Union[tf.data.Dataset, List[tf.data.Dataset]]) -> tf.data.Dataset:
   """Gathers slices of a split dataset based on passed indices."""
   data_slice = dataset[slice_idx[0]]
   for idx in slice_idx[1:]:
     data_slice = data_slice.concatenate(dataset[idx])
   return data_slice
+
+
+def get_train_ids(dataloader: Dataloader):
+  # Get example ids used for training
+  ids_train_list = list(
+      dataloader.train_ds.map(
+          lambda feats, label, example_id: example_id).as_numpy_iterator())
+  ids_train = []
+  for ids in ids_train_list:
+    ids_train += ids.tolist()
+  return ids_train
 
 
 class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
@@ -145,28 +176,40 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
 
 @register_dataset('cardiotoxicity')
 def get_cardiotoxicity_dataset(
-    num_splits: int, batch_size: int
+    num_splits: int,
+    initial_sample_proportion: float,
+    subgroup_ids: List[str], subgroup_proportions: List[float]
+
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
     num_splits: Integer for number of slices of the dataset.
-    batch_size: Integer for number of examples per batch.
+    initial_sample_proportion: Float for proportion of entire training
+      dataset to sample initially before active sampling begins.
+    subgroup_ids: List of strings of IDs indicating subgroups.
+    subgroup_proportions: List of floats indicating proportion that each
+      subgroup should take in initial training dataset.
 
-  Returns:
+  Returns:if subgroup_proportions:
+      self.subgroup_proportions = subgroup_proportions
+    else:
+      self.subgroup_proportions = [1.] * len(subgroup_ids)
     A tuple containing the split training data, split validation data, the
     combined training dataset, and a dictionary mapping evaluation dataset names
     to their respective combined datasets.
   """
-  split_size_in_pct = int(100 / num_splits)
+  # No subgroups in this datset so ignored
+  del subgroup_ids, subgroup_proportions
+  split_size_in_pct = int(100 * initial_sample_proportion/ num_splits)
   val_splits = tfds.load(
       'cardiotox_fingerprint_dataset',
       split=[
           f'validation[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, 100, split_size_in_pct)
+          for k in range(0, int(100 *
+                                initial_sample_proportion), split_size_in_pct)
       ],
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True)
 
@@ -174,10 +217,10 @@ def get_cardiotoxicity_dataset(
       'cardiotox_fingerprint_dataset',
       split=[
           f'train[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, 100, split_size_in_pct)
+          for k in range(0, int(100 *
+                                initial_sample_proportion), split_size_in_pct)
       ],
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True)
 
@@ -185,7 +228,6 @@ def get_cardiotoxicity_dataset(
       'cardiotox_fingerprint_dataset',
       split='test',
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True,
       with_info=False)
@@ -194,7 +236,6 @@ def get_cardiotoxicity_dataset(
       'cardiotox_fingerprint_dataset',
       split='test2',
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True,
       with_info=False)
@@ -480,6 +521,80 @@ def get_waterbirds_dataset(
       data_dir=DATA_DIR,
       batch_size=batch_size,
       builder_kwargs=builder_kwargs,
+      try_gcs=False,
+      as_supervised=True,
+      with_info=False)
+
+  train_ds = gather_data_splits(list(range(num_splits)), train_splits)
+  val_ds = gather_data_splits(list(range(num_splits)), val_splits)
+  eval_datasets = {
+      'val': val_ds,
+      'test': test_ds,
+  }
+  return Dataloader(
+      train_splits,
+      val_splits,
+      train_ds,
+      train_sample_ds=train_sample,
+      eval_ds=eval_datasets)
+
+
+@register_dataset('celeb_a')
+def get_celeba_dataset(
+    num_splits: int, batch_size: int
+) -> Dataloader:
+  """Returns datasets for training, validation, and possibly test sets.
+
+  Args:
+    num_splits: Integer for number of slices of the dataset.
+    batch_size: Integer for number of examples per batch.
+
+  Returns:
+    A tuple containing the split training data, split validation data, the
+    combined training dataset, and a dictionary mapping evaluation dataset names
+    to their respective combined datasets.
+  """
+  read_config = tfds.ReadConfig()
+  read_config.add_tfds_id = True  # Set `True` to return the 'tfds_id' key
+  split_size_in_pct = int(100 / num_splits)
+  train_splits = tfds.load(
+      'celeb_a',
+      read_config=read_config,
+      split=[
+          f'train[:{k}%]+train[{k+split_size_in_pct}%:]'
+          for k in range(0, 100, split_size_in_pct)
+      ],
+      data_dir=DATA_DIR,
+      batch_size=batch_size,
+      try_gcs=False,
+      as_supervised=True
+      )
+  val_splits = tfds.load(
+      'celeb_a',
+      read_config=read_config,
+      split=[
+          f'validation[{k}%:{k+split_size_in_pct}%]'
+          for k in range(0, 100, split_size_in_pct)
+      ],
+      data_dir=DATA_DIR,
+      batch_size=batch_size,
+      try_gcs=False,
+      as_supervised=True
+      )
+  train_sample = tfds.load(
+      'celeb_a',
+      split='train_sample',
+      data_dir=DATA_DIR,
+      batch_size=batch_size,
+      try_gcs=False,
+      as_supervised=True,
+      with_info=False)
+
+  test_ds = tfds.load(
+      'celeb_a',
+      split='test',
+      data_dir=DATA_DIR,
+      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True,
       with_info=False)

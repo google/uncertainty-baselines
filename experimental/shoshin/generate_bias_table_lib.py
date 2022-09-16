@@ -56,7 +56,8 @@ def get_example_id_to_bias_label_table(
     bias_percentile_threshold: float,
     bias_value_threshold: Optional[float] = None,
     save_dir: Optional[str] = None,
-    save_table: Optional[bool] = True) -> tf.lookup.StaticHashTable:
+    save_table: Optional[bool] = True
+) -> tf.lookup.StaticHashTable:
   """Generates a lookup table mapping example ID to bias label.
 
   Args:
@@ -157,3 +158,64 @@ def get_example_id_to_bias_label_table(
       key_dtype=tf.string,
       value_dtype=tf.int64)
   return tf.lookup.StaticHashTable(init, default_value=0)
+
+
+def get_example_id_to_predictions_table(
+    dataloader: data.Dataloader,
+    trained_models: List[tf.keras.Model],
+    save_dir: Optional[str] = None,
+    save_table: Optional[bool] = True) -> pd.DataFrame:
+  """Generates a lookup table mapping example ID to bias label.
+
+  Args:
+    dataloader: Dataclass object containing training and validation data.
+    trained_models: List of trained models.
+    save_dir: Directory in which predictions table will be saved as CSV.
+    save_table: Boolean for whether or not to save table.
+
+  Returns:
+    A pandas dataframe mapping example ID to all label and bias predictions.
+  """
+  labels = list(
+      dataloader.train_ds.map(
+          lambda feats, label, example_id: label).as_numpy_iterator())
+  labels = np.concatenate(labels)
+  predictions_all = []
+  bias_predictions_all = []
+  for idx, model in enumerate(trained_models):
+    model = trained_models[idx]
+    predictions = model.predict(dataloader.train_ds)
+    predictions_all.append(predictions['main'][..., 1])
+    bias_predictions_all.append(predictions['bias'][..., 1])
+  example_ids = list(dataloader.train_ds.map(
+      lambda feats, label, example_id: example_id).as_numpy_iterator())
+  example_ids = np.concatenate(example_ids)
+  predictions_all = np.stack(predictions_all)
+  bias_predictions_all = np.stack(bias_predictions_all)
+
+  logging.info('# of examples in prediction table is: %s', example_ids.shape[0])
+
+  dict_values = {'example_id': example_ids}
+  for i in range(predictions_all.shape[0]):
+    dict_values[f'predictions_label_{i}'] = predictions_all[i]
+    dict_values[f'predictions_bias_{i}'] = bias_predictions_all[i]
+  df = pd.DataFrame(dict_values)
+  if save_table:
+    df.to_csv(
+        os.path.join(save_dir, 'predictions_stagetwo_table.csv'),
+        index=False)
+
+  return df
+
+
+# Helper functions to process hash tables
+
+
+def filter_ids_fn(hash_table, value=1):
+  """Filter dataset based on whether ids take a certain value in hash table."""
+  def filter_fn(feats, label, example_ids):
+    del feats, label
+    return hash_table.lookup(example_ids) == value
+  return filter_fn
+
+

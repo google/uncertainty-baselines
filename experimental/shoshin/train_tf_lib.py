@@ -452,9 +452,12 @@ def train_and_evaluate(
     ensemble_dir: Optional string for a directory that stores trained model
       checkpoints. If specified, will load the models from directory.
     example_id_to_bias_table: Lookup table mapping example ID to bias label.
+
+  Returns:
+    Trained Model(s)
   """
   if train_as_ensemble:
-    _ = run_ensemble(
+    return run_ensemble(
         dataloader=dataloader,
         model_params=model_params,
         num_splits=num_splits,
@@ -475,3 +478,4 @@ def train_and_evaluate(
         callbacks=callbacks,
         example_id_to_bias_table=example_id_to_bias_table)
     evaluate_model(two_head_model, checkpoint_dir, dataloader.eval_ds)
+    return two_head_model

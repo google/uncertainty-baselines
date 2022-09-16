@@ -61,8 +61,6 @@ def get_config() -> ml_collections.ConfigDict:
   # Waterbirds, the subgroup proportions might be (0.05, 0.05), meaning each
   # subgroup will represent 5% of the dataset.
   config.subgroup_proportions = ()
-  # Size of sample that will be added (based on sampling signal).
-  config.sample_size = 50
   config.sampling_signal = 'bias'
 
   # Threshold to generate bias labels. Can be specified as percentile or value.
@@ -109,5 +107,10 @@ def get_config() -> ml_collections.ConfigDict:
   config.model = ml_collections.ConfigDict()
   config.model.name = ''
   config.model.hidden_sizes = None
+  config.combo_index = 0
+  config.round_idx = 0
+
+  config.sampling = ml_collections.ConfigDict()
+  config.sampling.sampling_score = 'ensemble_uncertainty'
 
   return config

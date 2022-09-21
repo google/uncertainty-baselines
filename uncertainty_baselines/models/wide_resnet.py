@@ -156,7 +156,7 @@ def _parse_hyperparameters(l2: float, hps: Dict[str, float]):
 def wide_resnet(
     input_shape: Iterable[int],
     depth: int,
-    width_multiplier: int,
+    width_multiplier: float,
     num_classes: int,
     l2: float,
     version: int = 2,
@@ -207,7 +207,7 @@ def wide_resnet(
     x = tf.keras.layers.Activation('relu')(x)
   x = group(
       x,
-      filters=16 * width_multiplier,
+      filters=round(16 * width_multiplier),
       strides=1,
       num_blocks=num_blocks,
       conv_l2=hps['group_1_conv_l2'],
@@ -216,7 +216,7 @@ def wide_resnet(
       seed=seeds[1])
   x = group(
       x,
-      filters=32 * width_multiplier,
+      filters=round(32 * width_multiplier),
       strides=2,
       num_blocks=num_blocks,
       conv_l2=hps['group_2_conv_l2'],
@@ -225,7 +225,7 @@ def wide_resnet(
       seed=seeds[2])
   x = group(
       x,
-      filters=64 * width_multiplier,
+      filters=round(64 * width_multiplier),
       strides=2,
       num_blocks=num_blocks,
       conv_l2=hps['group_3_conv_l2'],

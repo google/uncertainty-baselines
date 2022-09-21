@@ -76,9 +76,13 @@ def main(_) -> None:
   if config.generate_bias_table:
     if config.round_idx == 0:
       dataloader = dataset_builder(config.data.num_splits,
-                                   config.data.initial_sample_proportion)
+                                   config.data.initial_sample_proportion,
+                                   config.data.subgroup_ids,
+                                   config.data.subgroup_proportions,)
     else:
-      dataloader = dataset_builder(config.data.num_splits, 1)
+      dataloader = dataset_builder(config.data.num_splits, 1,
+                                   config.data.subgroup_ids,
+                                   config.data.subgroup_proportions,)
        # Filter each split to only have examples from example_ids_table
       dataloader.train_splits = [
           dataloader.train_ds.filter(
@@ -95,7 +99,9 @@ def main(_) -> None:
         save_dir=config.output_dir,
         save_table=True)
   else:
-    dataloader = dataset_builder(config.data.num_splits, 1)
+    dataloader = dataset_builder(
+        config.data.num_splits, 1, config.data.subgroup_ids,
+        config.data.subgroup_proportions)
     dataloader = data.apply_batch(dataloader, config.data.batch_size)
     _ = generate_bias_table_lib.get_example_id_to_predictions_table(
         dataloader=dataloader,

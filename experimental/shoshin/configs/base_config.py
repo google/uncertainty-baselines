@@ -42,17 +42,20 @@ def check_flags(config: ml_collections.ConfigDict):
     raise ValueError('config.bias_value_threshold must be between 0. and 1.')
 
 
-def get_config() -> ml_collections.ConfigDict:
-  """Get config."""
+def get_data_config():
+  """Get dataset config."""
   config = ml_collections.ConfigDict()
-
-  config.output_dir = ''
-
-  # Number of rounds of active sampling to conduct.
-  config.num_rounds = 3
-  # Proportion of training set to sample initially. Rest is considered the pool
-  # for active sampling.
-  config.initial_sample_proportion = 0.5
+  config.name = ''
+  config.num_classes = 2
+  config.batch_size = 64
+  # Number of slices into which train and val will be split.
+  config.num_splits = 5
+  # Ratio of splits that will be considered out-of-distribution from each
+  # combination, e.g. when num_splits == 5 and ood_ratio == 0.4, 2 out 5
+  # slices will be excluded for every combination of training data.
+  config.ood_ratio = 0.4
+  # Indices of data splits to include in training. All by default.
+  config.included_splits_idx = (0, 1, 2, 3, 4)
   # Subgroup IDs. Specify them in an experiment config. For example, for
   # Waterbirds, the subgroup IDs might be ('0_1', '1_0') for landbirds on water
   # and waterbirds on land, respectively.
@@ -61,7 +64,59 @@ def get_config() -> ml_collections.ConfigDict:
   # Waterbirds, the subgroup proportions might be (0.05, 0.05), meaning each
   # subgroup will represent 5% of the dataset.
   config.subgroup_proportions = ()
-  config.sampling_signal = 'bias'
+
+  # Proportion of training set to sample initially. Rest is considered the pool
+  # for active sampling.
+  config.initial_sample_proportion = 0.5
+
+  return config
+
+
+def get_training_config():
+  """Get training config."""
+  config = ml_collections.ConfigDict()
+  config.num_epochs = 10
+  config.save_model_checkpoints = True
+  # TODO(jihyeonlee): Allow user to specify early stopping patience.
+  # When True, stops training when val AUC does not improve after 3 epochs.
+  config.early_stopping = True
+  return config
+
+
+def get_optimizer_config():
+  """Get optimizer config."""
+  config = ml_collections.ConfigDict()
+  config.learning_rate = 1e-4
+  config.type = 'adam'
+  return config
+
+
+def get_model_config():
+  """Get model config."""
+  config = ml_collections.ConfigDict()
+  config.name = ''
+  config.hidden_sizes = None
+  return config
+
+
+def get_active_sampling_config():
+  """Get model config."""
+  config = ml_collections.ConfigDict()
+  config.sampling_score = 'ensemble_uncertainty'
+  config.num_samples_per_round = 50
+  return config
+
+
+def get_config() -> ml_collections.ConfigDict:
+  """Get config."""
+  config = ml_collections.ConfigDict()
+
+  config.output_dir = ''
+  config.save_dir = ''
+  config.ids_dir = ''
+
+  # Number of rounds of active sampling to conduct.
+  config.num_rounds = 3
 
   # Threshold to generate bias labels. Can be specified as percentile or value.
   config.bias_percentile_threshold = 0.2
@@ -72,45 +127,24 @@ def get_config() -> ml_collections.ConfigDict:
   config.path_to_existing_bias_table = ''
 
   config.train_bias = True
-  # When True, does not conduct multiple rounds of active sampling and simply
-  # trains a single model.
-  config.train_single_model = False
   # When True, trains the stage 2 model (stage 1 is calculating bias table)
   # as an ensemble of models. When True and only a single model is being
   # trained, trains that model as an ensemble.
   config.train_stage_2_as_ensemble = False
 
-  config.data = ml_collections.ConfigDict()
-  config.data.name = ''
-  config.data.num_classes = 2
-  config.data.batch_size = 64
-  # Number of slices into which train and val will be split.
-  config.data.num_splits = 5
-  # Ratio of splits that will be considered out-of-distribution from each
-  # combination, e.g. when num_splits == 5 and ood_ratio == 0.4, 2 out 5
-  # slices will be excluded for every combination of training data.
-  config.data.ood_ratio = 0.4
-  # Indices of data splits to include in training. All by default.
-  config.data.included_splits_idx = (0, 1, 2, 3, 4)
-
-  config.training = ml_collections.ConfigDict()
-  config.training.num_epochs = 10
-  config.training.save_model_checkpoints = True
-  # TODO(jihyeonlee): Allow user to specify early stopping patience.
-  # When True, stops training when val AUC does not improve after 3 epochs.
-  config.training.early_stopping = True
-
-  config.optimizer = ml_collections.ConfigDict()
-  config.optimizer.learning_rate = 1e-4
-  config.optimizer.type = 'adam'
-
-  config.model = ml_collections.ConfigDict()
-  config.model.name = ''
-  config.model.hidden_sizes = None
+  # Combo index to train
   config.combo_index = 0
-  config.round_idx = 0
 
-  config.sampling = ml_collections.ConfigDict()
-  config.sampling.sampling_score = 'ensemble_uncertainty'
+  # Round of acitve sampling being performed
+  config.round_idx = -1
 
+  # Whether to generate bias table (from stage one models) or prediction table
+  #    (from stage two models)
+  config.generate_bias_table = True
+
+  config.data = get_data_config()
+  config.training = get_training_config()
+  config.optimizer = get_optimizer_config()
+  config.model = get_model_config()
+  config.active_sampling = get_active_sampling_config()
   return config

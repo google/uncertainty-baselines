@@ -20,10 +20,12 @@ function to generate a table mapping example ID to bias label, which can be
 used to train the bias output head.
 """
 
+import os
 from typing import List
 
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 
 
 def compute_ids_to_sample(
@@ -53,4 +55,75 @@ def compute_ids_to_sample(
     predictions_df['sampling_score'] = sample_avg
   predictions_df = predictions_df.sort_values(
       by='sampling_score', ascending=False)
-  return predictions_df.head(num_samples)['example_id'].to_list()
+  return predictions_df.head(num_samples)['example_id'].to_numpy()
+
+
+def sample_and_split_ids(
+    ids_train: List[str],
+    predictions_df: pd.DataFrame,
+    sampling_score: str,
+    num_samples_per_round: int,
+    num_splits: int,
+    save_dir: str,
+    save_ids: bool,
+    ) -> List[pd.DataFrame]:
+  """Computes ids to sample for next round and generates new training splits.
+
+  Args:
+    ids_train: ids of examples used for training so far
+    predictions_df: A dataframe containing the predictions of the two-head
+      models for all the training samples.
+    sampling_score: The score used to rank candidates for active learning.
+    num_samples_per_round: Number of new samples to add in each round of
+      active learning.
+    num_splits: Number of splits to generate after active sampling.
+    save_dir: The director where the splits are to be saved
+    save_ids: A boolean indicating whether to save the ids
+  Returns:
+    A list of pandas dataframes, each containing a list of example ids to be
+    included in a split for the next round of training.
+  """
+  predictions_df = predictions_df[~predictions_df['example_id'].isin(ids_train)]
+  ids_to_sample = compute_ids_to_sample(
+      sampling_score, predictions_df,
+      num_samples_per_round)
+  ids_to_sample = np.concatenate([ids_to_sample, ids_train], axis=0)
+  tf.io.gfile.makedirs(save_dir)
+
+  # Randomly permute and split set of ids to sample
+  n_sample = ids_to_sample.size
+  order = np.random.permutation(n_sample)
+  split_idx = 0
+  num_data_per_split = int(n_sample / num_splits)
+  split_dfs = []
+  for i in range(num_splits):
+    ids_i = ids_to_sample[order[split_idx:min(split_idx + num_data_per_split,
+                                              n_sample - 1)]]
+    split_idx += ids_i.size
+    df = pd.DataFrame({'example_id': ids_i})
+    split_dfs.append(df)
+    if save_ids:
+      df.to_csv(
+          os.path.join(save_dir, f'ids_{i}.csv'),
+          index=False)
+  return split_dfs
+
+
+def convert_ids_to_table(
+    ids_dir: str,) -> List[tf.lookup.StaticHashTable]:
+  """Gets static hash table representing ids in each file in ids_dir."""
+  ids_tables = []
+
+  # ids_dir is populated by the sample_and_split_ids function above
+  for ids_file in tf.io.gfile.listdir(ids_dir):
+    ids_i = pd.read_csv(os.path.join(ids_dir, ids_file))['example_id']
+    ids_i = np.array([eval(x).decode('UTF-8') for x in ids_i.to_list()])  #  pylint:disable=eval-used
+    keys = tf.convert_to_tensor(ids_i, dtype=tf.string)
+    values = tf.ones(shape=keys.shape, dtype=tf.int64)
+    init = tf.lookup.KeyValueTensorInitializer(
+        keys=keys,
+        values=values,
+        key_dtype=tf.string,
+        value_dtype=tf.int64)
+    ids_tables.append(tf.lookup.StaticHashTable(init, default_value=0))
+  return ids_tables

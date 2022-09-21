@@ -178,8 +178,8 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
 def get_cardiotoxicity_dataset(
     num_splits: int,
     initial_sample_proportion: float,
-    subgroup_ids: List[str], subgroup_proportions: List[float]
-
+    subgroup_ids: Optional[List[str]] = None,
+    subgroup_proportions: Optional[List[float]] = None,
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 

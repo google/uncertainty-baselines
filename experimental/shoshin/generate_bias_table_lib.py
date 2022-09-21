@@ -38,10 +38,13 @@ COMBOS_SUBDIR = 'combos'
 
 
 def load_existing_bias_table(path_to_table: str):
+  """Loads bias table from file."""
   df = pd.read_csv(path_to_table)
+  key_tensor = np.array([eval(x).decode('UTF-8') for    #  pylint:disable=eval-used
+                         x in df[EXAMPLE_ID_KEY].to_list()])
   init = tf.lookup.KeyValueTensorInitializer(
       keys=tf.convert_to_tensor(
-          df[EXAMPLE_ID_KEY].to_numpy(), dtype=tf.string),
+          key_tensor, dtype=tf.string),
       values=tf.convert_to_tensor(
           df[BIAS_LABEL_KEY].to_numpy(), dtype=tf.int64),
       key_dtype=tf.string,
@@ -202,7 +205,7 @@ def get_example_id_to_predictions_table(
   df = pd.DataFrame(dict_values)
   if save_table:
     df.to_csv(
-        os.path.join(save_dir, 'predictions_stagetwo_table.csv'),
+        os.path.join(save_dir, 'predictions_table.csv'),
         index=False)
 
   return df

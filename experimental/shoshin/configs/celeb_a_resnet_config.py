@@ -23,6 +23,9 @@ def get_config() -> ml_collections.ConfigDict:
   """Get mlp config."""
   config = base_config.get_config()
 
+  config.data.subgroup_ids = ('Blond_Hair',)  # ('Blond_Hair')
+  config.data.subgroup_proportions = (0.01,)  # (0.04, 0.012)
+
   data = config.data
   data.name = 'celeb_a'
   data.num_classes = 2

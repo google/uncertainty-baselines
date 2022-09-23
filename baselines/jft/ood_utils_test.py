@@ -17,6 +17,7 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import jax.numpy as jnp
 import numpy as np
 import ood_utils  # local file import from baselines.jft
 
@@ -25,7 +26,7 @@ class OodUtilsTest(parameterized.TestCase):
 
   def setUp(self):
     super(OodUtilsTest, self).setUp()
-    self.mean_list = [np.array([-1, 0]), np.array([1, 0])]
+    self.means = np.array([[-1, 0], [1, 0]])
     self.cov = np.identity(2)
 
   def test_ood_metric(self):
@@ -53,20 +54,20 @@ class OodUtilsTest(parameterized.TestCase):
     embeds_list, labels_list = [], []
     for class_id in range(2):
       embeds_list.append(
-          np.random.multivariate_normal(self.mean_list[class_id], self.cov,
+          np.random.multivariate_normal(self.means[class_id], self.cov,
                                         n_sample))
       labels_list += [class_id] * n_sample
     embeds = np.vstack(embeds_list)
     labels = np.array(labels_list)
-    mean_list, cov = ood_utils.compute_mean_and_cov(embeds, labels)
-    for a, b in zip(mean_list, self.mean_list):
+    class_ids = jnp.unique(labels)
+    means, cov = ood_utils.compute_mean_and_cov(embeds, labels, class_ids)
+    for a, b in zip(means, self.means):
       np.testing.assert_allclose(a, b, atol=0.1)
     np.testing.assert_allclose(cov, self.cov, atol=0.1)
 
   def test_compute_mahalanobis_distance(self):
     embeds = np.array([[-1, 0], [1, 0], [10, 0]])
-    dists = ood_utils.compute_mahalanobis_distance(embeds, self.mean_list,
-                                                   self.cov)
+    dists = ood_utils.compute_mahalanobis_distance(embeds, self.means, self.cov)
     np.testing.assert_array_equal(np.array([0, 0, 81]), np.min(dists, axis=-1))
 
 

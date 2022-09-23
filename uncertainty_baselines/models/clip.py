@@ -417,7 +417,10 @@ class CLIP(nn.Module):
                    scale_logits: bool = True) -> jnp.ndarray:
     x = self.visual(image)
     if normalize:
-      x /= jnp.linalg.norm(x, axis=-1, keepdims=True)
+      # Note: multimplying with jax.lax.rsqrt(jnp.sum(x**2)) is equivalent to
+      # dividing by jnp.linalg.norm(x), but slightly faster and with potentially
+      # better numerics.
+      x *= jax.lax.rsqrt(jnp.sum(x**2, axis=-1, keepdims=True))
     if scale_logits:
       # Note: we use sqrt(t) rather than t, because we apply the scaling to zimg
       # and ztxt individually, rather than to logits = jnp.dot(zimg, ztxt.T) as
@@ -432,7 +435,7 @@ class CLIP(nn.Module):
                   scale_logits: bool = True) -> jnp.ndarray:
     x = self.text(text)
     if normalize:
-      x /= jnp.linalg.norm(x, axis=-1, keepdims=True)
+      x *= jax.lax.rsqrt(jnp.sum(x**2, axis=-1, keepdims=True))
     if scale_logits:
       x *= jnp.sqrt(jnp.exp(self.logit_scale))
     return x

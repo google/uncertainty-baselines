@@ -78,6 +78,8 @@ class GaussianProcessDecoder(nn.Module):
     else:
       gp_params = self.scope.get_variable('params', self.gp_layer.name)
       gp_state = self.scope.get_variable('params', 'gp_head_state')
+      gp_state = jax.tree_util.tree_map(
+          lambda x: x.astype(jnp.float32), gp_state)
       gp_state = flax.core.unfreeze(gp_state)
       step = gp_state.pop('step')
       if self.covmat_momentum < 0 and (self.steps_per_epoch is not None):

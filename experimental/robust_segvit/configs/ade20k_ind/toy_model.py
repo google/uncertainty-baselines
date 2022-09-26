@@ -148,7 +148,7 @@ def get_config(runlocal=''):
   config.use_wandb = False
   config.wandb_dir = 'wandb'
   config.wandb_project = 'rdl-debug'
-  config.wandb_entity = 'me'
+  config.wandb_entity = 'ekellbuch'
   config.wandb_exp_name = None  # Give experiment a name.
   config.wandb_exp_name = (
           os.path.splitext(os.path.basename(__file__))[0] + '_' +

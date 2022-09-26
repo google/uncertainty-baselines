@@ -4,8 +4,8 @@
 #wandb sweep run_toy_mac.yaml
 # before make sure we can run code vanilla version:
 
-DATASET='cityscapes'
 DATASET='ade20k_ind'  # or cityscapes
+DATASET='cityscapes'
 
 base_output_dir="gs://ub-ekb/segmenter/${DATASET}/toy_model"
 

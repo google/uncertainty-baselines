@@ -6,6 +6,7 @@
 
 DATASET='ade20k_ind'  # or cityscapes
 DATASET='cityscapes'
+DATASET='street_hazards'
 
 base_output_dir="gs://ub-ekb/segmenter/${DATASET}/toy_model"
 

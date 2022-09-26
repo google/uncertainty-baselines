@@ -1191,20 +1191,22 @@ def evaluate_ood_step(
       ood_dataset = 'ade20k_ind_c'
     else:
       logging.info('OOD Covariate shift dataset is not implemented')
+      ood_dataset = None
 
-    eval_summary = eval_ood_covariate[ood_dataset](
-        train_state=train_state,
-        config=config,
-        rng=rng,
-        eval_step_pmapped=eval_step_pmapped,
-        writer=writer,
-        lead_host=lead_host,
-        global_metrics_fn=global_metrics_fn,
-        global_unc_metrics_fn=global_unc_metrics_fn,
-    )
+    if ood_dataset:
+      eval_summary = eval_ood_covariate[ood_dataset](
+          train_state=train_state,
+          config=config,
+          rng=rng,
+          eval_step_pmapped=eval_step_pmapped,
+          writer=writer,
+          lead_host=lead_host,
+          global_metrics_fn=global_metrics_fn,
+          global_unc_metrics_fn=global_unc_metrics_fn,
+      )
 
-    # Wait until computations are done before exiting.
-    jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
+      # Wait until computations are done before exiting.
+      jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
 
   # ----------------------------------------------------------------------------
   if config.get('eval_label_shift', False):
@@ -1221,7 +1223,8 @@ def evaluate_ood_step(
 
     eval_label_shift = {
         'fishyscapes': evaluate_fishyscapes,
-        'ade20k_ood_open': evaluate_ade20k_ood_open
+        'ade20k_ood_open': evaluate_ade20k_ood_open,
+        'street_hazards_ood_open': evaluate_street_hazards_ood_open,
     }
 
     # The form of the ind dataset name depends on the source of the data.
@@ -1234,25 +1237,28 @@ def evaluate_ood_step(
     if any('cityscapes' in ind_name for ind_name in ind_names):
       logging.info('Loading Fishyscapes...')
       ood_dataset = 'fishyscapes'
-
-    if any('ade20k' in ind_name for ind_name in ind_names):
+    elif any('ade20k' in ind_name for ind_name in ind_names):
       logging.info('Loading ADE20k OOD OPEN...')
       ood_dataset = 'ade20k_ood_open'
-
+    elif any('street_hazards' in ind_name for ind_name in ind_names):
+      logging.info('Loading StreetHazards OPEN...')
+      ood_dataset = 'street_hazards_ood_open'
     else:
       logging.info('OOD Label shift dataset is not implemented')
+      ood_dataset = None
 
-    eval_summary = eval_label_shift[ood_dataset](
-        train_state=train_state,
-        config=config,
-        rng=rng,
-        eval_step_pmapped=eval_step_ood_pmapped,
-        writer=writer,
-        lead_host=lead_host,
-    )
+    if ood_dataset:
+      eval_summary = eval_label_shift[ood_dataset](
+          train_state=train_state,
+          config=config,
+          rng=rng,
+          eval_step_pmapped=eval_step_ood_pmapped,
+          writer=writer,
+          lead_host=lead_host,
+      )
 
-    # Wait until computations are done before exiting.
-    jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
+      # Wait until computations are done before exiting.
+      jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
   return eval_summary
 
 
@@ -1571,3 +1577,74 @@ def evaluate_ade20k_corrupted(
   writer.write_scalars(0, avg_corrupted_metrics)
   writer.flush()
   return eval_summary
+
+
+def evaluate_street_hazards_ood_open(
+    train_state: train_utils.TrainState,
+    config: ml_collections.ConfigDict,
+    rng: Any,
+    eval_step_pmapped: Any,
+    writer: metric_writers.MetricWriter,
+    lead_host: Any,
+) -> Dict[str, Any]:
+  """Evaluate StreetHazards OOD dataset.
+
+  Args:
+    train_state: train state.
+    config: experiment configuration.
+    rng: jax rng.
+    eval_step_pmapped: eval state
+    writer: CLU metrics writer instance.
+    lead_host: Evaluate global metrics on one of the hosts (lead_host) given
+      intermediate values collected from all hosts.
+
+  Returns:
+    eval_summary: summary evaluation
+  """
+  # set resource limit to debug in mac osx
+  # (see https://github.com/tensorflow/datasets/issues/1441)
+  if jax.process_index() == 0 and sys.platform == 'darwin':
+   low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
+   resource.setrlimit(resource.RLIMIT_NOFILE, (low, high))
+
+  # update config:
+  ood_config = ml_collections.ConfigDict()
+  ood_config.update(**config)
+  ood_config.update({'dataset_name': 'robust_segvit_segmentation'})
+
+  device_count = jax.device_count()
+  prefix = 'street_hazards_open'
+
+  with ood_config.unlocked():
+    ood_config.dataset_configs.name = 'street_hazards_open'
+    ood_config.batch_size = device_count
+
+  data_rng, rng = jax.random.split(rng)
+  dataset = train_utils.get_dataset(ood_config, data_rng)
+  dataset.meta_data['prefix'] = prefix
+
+  eval_summary = evaluate_ood(
+      train_state=train_state,
+      dataset=dataset,
+      config=ood_config,
+      step=0,
+      eval_step_pmapped=eval_step_pmapped,
+      writer=writer,
+      lead_host=lead_host,
+      prefix=dataset.meta_data['prefix'],
+      **config.get('eval_robustness_configs', {}),
+  )
+
+  # append name to metrics
+  key_separator = '_'
+  avg_open_set_metrics = {
+      key_separator.join((prefix, key)): val
+      for key, val in eval_summary.items()
+  }
+  # update metrics
+  eval_summary.update(avg_open_set_metrics)
+  writer.write_scalars(0, avg_open_set_metrics)
+  writer.flush()
+
+  return eval_summary
+

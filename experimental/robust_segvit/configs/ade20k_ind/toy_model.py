@@ -137,8 +137,8 @@ def get_config(runlocal=''):
   config.eval_mode = False
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
-  config.eval_covariate_shift = False
-  config.eval_label_shift = False
+  config.eval_covariate_shift = True
+  config.eval_label_shift = True
 
   # wandb.ai configurations.
   config.use_wandb = False

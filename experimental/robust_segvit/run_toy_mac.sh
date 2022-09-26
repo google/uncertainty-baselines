@@ -5,8 +5,9 @@
 # before make sure we can run code vanilla version:
 
 DATASET='cityscapes'
-DATASET='ade20k_ind'
-base_output_dir='gs://ub-ekb/segmenter/ade20k_ind/toy_model'
+DATASET='ade20k_ind'  # or cityscapes
+
+base_output_dir="gs://ub-ekb/segmenter/${DATASET}/toy_model"
 
 # Debug on Mac OS X platform
 use_gpu=False
@@ -20,7 +21,7 @@ num_cores=8
 batch_size=8
 fi
 
-config_file="configs/ade20k_ind/toy_model.py:runlocal"
+config_file="configs/${DATASET}/toy_model.py:runlocal"
 run_name="toy_model"
 output_dir="${base_output_dir}/${run_name}"
 python deterministic.py \

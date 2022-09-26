@@ -140,6 +140,10 @@ def get_config(runlocal=''):
   config.eval_covariate_shift = True
   config.eval_label_shift = True
 
+  config.eval_robustness_configs = ml_collections.ConfigDict()
+  config.eval_robustness_configs.auc_online = True
+  config.eval_robustness_configs.method_name = 'mlogit'
+
   # wandb.ai configurations.
   config.use_wandb = False
   config.wandb_dir = 'wandb'

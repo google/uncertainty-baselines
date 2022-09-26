@@ -143,8 +143,6 @@ def get_config(runlocal=''):
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'segmm'
   config.eval_configs.window_stride = 512
-  config.eval_covariate_shift = True
-  config.eval_label_shift = True
   config.model.input_shape = target_size
 
   # Eval parameters for robustness

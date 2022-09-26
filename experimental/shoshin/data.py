@@ -451,8 +451,11 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
 
 @register_dataset('waterbirds')
 def get_waterbirds_dataset(
-    num_splits: int, initial_sample_proportion: float,
-    subgroup_ids: List[str], subgroup_proportions: List[float]
+    num_splits: int,
+    initial_sample_proportion: float,
+    subgroup_ids: List[str],
+    subgroup_proportions: List[float],
+    is_training: Optional[bool] = True,
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -463,6 +466,8 @@ def get_waterbirds_dataset(
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
+    is_training: Dataset used for evaluation (in this case as_supervised is
+      set to True in the val/test)
 
   Returns:
     A tuple containing the split training data, split validation data, the
@@ -484,7 +489,7 @@ def get_waterbirds_dataset(
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=True)
+      as_supervised=is_training)
 
   train_splits = tfds.load(
       'waterbirds_dataset',
@@ -495,7 +500,7 @@ def get_waterbirds_dataset(
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=True)
+      as_supervised=is_training)
 
   train_sample = tfds.load(
       'waterbirds_dataset',
@@ -512,7 +517,7 @@ def get_waterbirds_dataset(
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=True,
+      as_supervised=is_training,
       with_info=False)
 
   train_ds = gather_data_splits(list(range(num_splits)), train_splits)

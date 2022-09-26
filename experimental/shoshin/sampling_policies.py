@@ -48,13 +48,16 @@ def compute_ids_to_sample(
   prediction_bias_cols = filter(lambda x: 'bias' in x, predictions_df.columns)
   if sampling_score == 'ensemble_uncertainty':
     sample_avg = predictions_df[prediction_label_cols].mean(axis=1).to_numpy()
-    uncertainty = np.minimum(sample_avg, 1-sample_avg)
+    uncertainty = np.abs(sample_avg - .5)
     predictions_df['sampling_score'] = uncertainty
+  elif sampling_score == 'ensemble_variance':
+    sample_std = predictions_df[prediction_label_cols].std(axis=1).to_numpy()
+    predictions_df['sampling_score'] = 1 - sample_std
   elif sampling_score == 'bias':
     sample_avg = predictions_df[prediction_bias_cols].mean(axis=1).to_numpy()
-    predictions_df['sampling_score'] = sample_avg
+    predictions_df['sampling_score'] = 1 - sample_avg
   predictions_df = predictions_df.sort_values(
-      by='sampling_score', ascending=False)
+      by='sampling_score', ascending=True)
   return predictions_df.head(num_samples)['example_id'].to_numpy()
 
 

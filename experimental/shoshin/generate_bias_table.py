@@ -106,8 +106,16 @@ def main(_) -> None:
     _ = generate_bias_table_lib.get_example_id_to_predictions_table(
         dataloader=dataloader,
         trained_models=trained_models,
+        split='train',
         save_dir=config.save_dir,
         save_table=True)
+    for split_name in config.eval_splits:
+      _ = generate_bias_table_lib.get_example_id_to_predictions_table(
+          dataloader=dataloader,
+          trained_models=trained_models,
+          split=split_name,
+          save_dir=config.save_dir,
+          save_table=True)
 
 if __name__ == '__main__':
   app.run(main)

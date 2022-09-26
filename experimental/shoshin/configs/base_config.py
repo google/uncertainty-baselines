@@ -115,8 +115,10 @@ def get_config() -> ml_collections.ConfigDict:
   config.save_dir = ''
   config.ids_dir = ''
 
+  config.eval_splits = ('val', 'test')
+
   # Number of rounds of active sampling to conduct.
-  config.num_rounds = 3
+  config.num_rounds = 4
 
   # Threshold to generate bias labels. Can be specified as percentile or value.
   config.bias_percentile_threshold = 0.2

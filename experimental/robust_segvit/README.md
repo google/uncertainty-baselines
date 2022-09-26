@@ -14,3 +14,14 @@ We investigate the performance of different reliability methods on image segment
 
 [x] configs/cityscapes: contains experiment configurations for the cityscapes dataset. <br>
 
+
+## Debugging:
+
+To run the code on cpu, install the dependencies as in:
+[x] Copy ananconda environment
+[x] Install jaxlib, jax, flax from source
+[x] Install scenic from source
+[x] Install uncertainty_baselines from source
+
+## Issues
+[] Fails to read segmenter_be model.

@@ -816,7 +816,7 @@ def train(
   checkpoint_steps = config.get('checkpoint_steps') or log_eval_steps
 
   train_metrics, extra_training_logs = [], []
-  train_summary, eval_summary = None, None
+  train_summary, eval_summary = {}, {}
   global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
   global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
 
@@ -1154,6 +1154,7 @@ def evaluate_ood_step(
     eval_summary: summary evaluation
   """
   del workdir
+  eval_summary = {}
 
   if config.get('eval_covariate_shift', False):
 
@@ -1168,7 +1169,6 @@ def evaluate_ood_step(
         # We can donate the eval_batch's buffer.
     )
 
-    eval_summary = None
     global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
     global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
 

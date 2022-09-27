@@ -184,7 +184,7 @@ def get_config(runlocal=''):
   config.eval_robustness_configs.method_name = 'mlogit'
 
   # wandb.ai configurations.
-  config.use_wandb = True
+  config.use_wandb = False
   config.wandb_dir = 'wandb'
   config.wandb_project = 'rdl-debug'
   config.wandb_entity = 'ekellbuch'

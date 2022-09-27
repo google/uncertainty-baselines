@@ -45,21 +45,22 @@ TRAIN_SIZES = {
 
 # Model specs.
 LOAD_PRETRAINED_BACKBONE = True
-BACKBONE_ORIGIN = 'big_vision'
+BACKBONE_ORIGIN = 'vision_transformer'
 VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
 target_size = (1280, 720)
-UPSTREAM_TASK = 'i21k+imagenet2012'
+UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
 
 
 # Upstream
 MODEL_PATHS = {
-
-    # Imagenet 21k + finetune in imagenet2012 with perf 0.85 adap_res 384
+    # Imagenet 21k + finetune in imagenet2012 with perf 0.85 adap_res 384 with augreg
     ('big_vision', 'L', 16, None, 'token', 'i21k+imagenet2012'):
         'gs://vit_models/imagenet21k+imagenet2012/ViT-L_16.npz',
+    ('vision_transformer', 'L', 16, None, 'token', 'augreg+i21k+imagenet2012'):
+        'gs://vit_models/augreg/L_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.1-sd_0.1--imagenet2012-steps_20k-lr_0.01-res_384.npz',
 }
 
 

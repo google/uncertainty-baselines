@@ -22,6 +22,7 @@ import ml_collections
 import numpy as np
 from scenic.train_lib_deprecated import train_utils
 from tensorflow.io import gfile
+from flax.training import checkpoints
 
 
 def load_bb_config(
@@ -190,6 +191,61 @@ def convert_torch_to_jax_checkpoint(
   # Construct tree
   restored_params = flax.traverse_util.unflatten_dict(
       {tuple(k.split("/")[:]): v for k, v in restored_params.items()})
+
+  train_state = train_utils.TrainState()
+  # pytype: disable=wrong-arg-types
+  restored_train_state = train_state.replace(  # pytype: disable=attribute-error
+      optimizer={"target": restored_params},)
+  # pytype: enable=wrong-arg-types
+
+  # free memory
+  del restored_params
+  return restored_train_state
+
+
+def convert_vision_transformer_to_scenic(
+    checkpoint_path: str,
+    convert_to_linen: bool = True) -> train_utils.TrainState:
+  """Converts a vision_transformer checkpoint to an scenic train state.
+
+  The model weights come from https://github.com/google-research/vision_transformer.
+
+  Original code: convert_big_vision_to_scenic_checkpoint
+  from https://github.com/google-research/scenic/
+
+  Args:
+    checkpoint_path: Path to  checkpoint.
+    convert_to_linen: Whether to convert to Linen format.
+
+  Returns:
+    restored_train_state: Scenic train state with model weights, global step
+      and accumulated training time.
+  """
+
+  def unflatten_dict(flattened: Dict[str, Any],
+                     separator: str = '/',
+                     leaf_idx: int = -1) -> Dict[str, Any]:
+    unflattened = {}
+    for k, v in flattened.items():
+      subtree = unflattened
+      if leaf_idx != 0:
+        path = k.split(separator)[:leaf_idx]
+      else:
+        path = k.split(separator)
+      for k2 in path[:-1]:
+        if k2 not in subtree:
+          subtree[k2] = {}
+        subtree = subtree[k2]
+      subtree[path[-1]] = v
+    return unflattened
+
+  logging.info('Loading vision_transformer checkpoint from %s', checkpoint_path)
+  checkpoint_data = np.load(gfile.GFile(checkpoint_path, 'rb'))
+  restored_params = unflatten_dict(checkpoint_data, separator='/', leaf_idx=0)
+
+  if convert_to_linen:
+    restored_params = checkpoints.convert_pre_linen(restored_params)
+  restored_params = dict(restored_params)
 
   train_state = train_utils.TrainState()
   # pytype: disable=wrong-arg-types

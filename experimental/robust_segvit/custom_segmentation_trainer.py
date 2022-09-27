@@ -46,6 +46,7 @@ from inference import process_batch  # local file import from experimental.robus
 from ood_metrics import get_ood_metrics  # local file import from experimental.robust_segvit
 from ood_metrics import get_ood_score  # local file import from experimental.robust_segvit
 from pretrainer_utils import convert_torch_to_jax_checkpoint  # local file import from experimental.robust_segvit
+from pretrainer_utils import convert_vision_transformer_to_scenic  # local file import from experimental.robust_segvit
 from uncertainty_metrics import get_uncertainty_confusion_matrix  # local file import from experimental.robust_segvit
 
 import resource
@@ -746,6 +747,7 @@ def train(
     restored_model_cfg = config.get('pretrained_backbone_configs')
 
     # Loader from scenic
+    import pdb; pdb.set_trace()
     if restored_model_cfg.checkpoint_format in ('ub', 'big_vision', 'scenic'):
       # load params from checkpoint
       bb_train_state = pretrain_utils.convert_big_vision_to_scenic_checkpoint(
@@ -760,9 +762,24 @@ def train(
           model_prefix_path=['backbone'])
       # Free unnecessary memory.
       del bb_train_state
+      # Loader from scenic
+    elif restored_model_cfg.checkpoint_format in ('vision_transformer'):
+        # load params from checkpoint
+        import pdb; pdb.set_trace()
+        bb_train_state = convert_vision_transformer_to_scenic(checkpoint_path=restored_model_cfg.checkpoint_path, convert_to_linen=False)
+
+        train_state = model.init_backbone_from_train_state(
+          train_state,
+          bb_train_state,
+          config,
+          restored_model_cfg,
+          model_prefix_path=['backbone'])
+        import pdb; pdb.set_trace()
+
+        # Free unnecessary memory.
+        del bb_train_state
     else:
       raise NotImplementedError('')
-
   elif start_step == 0:
     logging.info('Not restoring from any pretrained_backbone.')
 

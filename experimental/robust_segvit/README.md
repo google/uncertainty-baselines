@@ -25,3 +25,7 @@ To run the code on cpu, install the dependencies as in:
 
 ## Issues
 [] Fails to read segmenter_be model.
+
+## Comments
+[x] Update default checkpoint:  vit_large_patch16_384  (segmenter model uses this checkpoint)
+  from https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py

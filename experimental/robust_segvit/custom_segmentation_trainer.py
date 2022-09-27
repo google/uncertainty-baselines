@@ -747,7 +747,6 @@ def train(
     restored_model_cfg = config.get('pretrained_backbone_configs')
 
     # Loader from scenic
-    import pdb; pdb.set_trace()
     if restored_model_cfg.checkpoint_format in ('ub', 'big_vision', 'scenic'):
       # load params from checkpoint
       bb_train_state = pretrain_utils.convert_big_vision_to_scenic_checkpoint(
@@ -765,7 +764,6 @@ def train(
       # Loader from scenic
     elif restored_model_cfg.checkpoint_format in ('vision_transformer'):
         # load params from checkpoint
-        import pdb; pdb.set_trace()
         bb_train_state = convert_vision_transformer_to_scenic(checkpoint_path=restored_model_cfg.checkpoint_path, convert_to_linen=False)
 
         train_state = model.init_backbone_from_train_state(
@@ -774,7 +772,6 @@ def train(
           config,
           restored_model_cfg,
           model_prefix_path=['backbone'])
-        import pdb; pdb.set_trace()
 
         # Free unnecessary memory.
         del bb_train_state

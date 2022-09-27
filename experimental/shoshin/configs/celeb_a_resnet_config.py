@@ -23,8 +23,13 @@ def get_config() -> ml_collections.ConfigDict:
   """Get mlp config."""
   config = base_config.get_config()
 
+  config.data.subgroup_ids = (
+      'Blond_Hair',
+  )  # ('Blond_Hair') Currently only the use ofa single attribute supported
+  config.data.subgroup_proportions = (0.01,)
+
   data = config.data
-  data.name = 'celeb_a'
+  data.name = 'local_celeb_a'
   data.num_classes = 2
 
   model = config.model

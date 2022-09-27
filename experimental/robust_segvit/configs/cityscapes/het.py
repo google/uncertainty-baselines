@@ -22,6 +22,8 @@ Compare performance from deterministic upstream checkpoints.
 # pylint: enable=line-too-long
 
 import ml_collections
+import os
+import datetime
 
 _CITYSCAPES_TRAIN_SIZE = 2975
 _CITYSCAPES_TRAIN_SIZE_SPLIT = 146
@@ -167,6 +169,22 @@ def get_config(runlocal=''):
   config.eval_configs.mode = 'standard'
   config.eval_covariate_shift = True
   config.eval_label_shift = True
+  config.model.input_shape = target_size
+
+  config.eval_robustness_configs = ml_collections.ConfigDict()
+  config.eval_robustness_configs.auc_online = True
+  config.eval_robustness_configs.method_name = 'mlogit'
+
+  # wandb.ai configurations.
+  config.use_wandb = False
+  config.wandb_dir = 'wandb'
+  config.wandb_project = 'rdl-debug'
+  config.wandb_entity = 'ekellbuch'
+  config.wandb_exp_name = None  # Give experiment a name.
+  config.wandb_exp_name = (
+          os.path.splitext(os.path.basename(__file__))[0] + '_' +
+          datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
+  config.wandb_exp_group = None  # Give experiment a group name.
 
   if runlocal:
     config.count_flops = False

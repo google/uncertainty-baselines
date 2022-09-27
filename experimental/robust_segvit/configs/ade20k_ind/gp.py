@@ -54,7 +54,7 @@ MODEL_PATHS = {
 
     # Imagenet 21k + finetune in imagenet2012 with perf 0.85 adap_res 384
     ('big_vision', 'L', 16, None, 'token', 'i21k+imagenet2012'):
-        'gs://vit_models/imagenet21k%2Bimagenet2012/ViT-L_16.npz',
+        'gs://vit_models/imagenet21k+imagenet2012/ViT-L_16.npz',
 }
 
 

@@ -49,6 +49,8 @@ from pretrainer_utils import convert_torch_to_jax_checkpoint  # local file impor
 from pretrainer_utils import convert_vision_transformer_to_scenic  # local file import from experimental.robust_segvit
 from uncertainty_metrics import get_uncertainty_confusion_matrix  # local file import from experimental.robust_segvit
 
+import h5py
+import os
 import resource
 import sys
 
@@ -127,6 +129,7 @@ def evaluate(train_state: train_utils.TrainState,
              global_metrics_fn: Any,
              global_unc_metrics_fn: Optional[Any],
              prefix: str = 'valid',
+             workdir: str = '',
              ) -> Dict[str, Any]:
   """Model evaluator.
 
@@ -922,6 +925,7 @@ def train(
                                 lead_host=lead_host,
                                 global_metrics_fn=global_metrics_fn,
                                 global_unc_metrics_fn=global_unc_metrics_fn,
+                                workdir=workdir,
                                 )
 
         # check accuracy for early stopping.
@@ -1117,6 +1121,7 @@ def eval_ckpt(
                           global_metrics_fn=global_metrics_fn,
                           global_unc_metrics_fn=global_unc_metrics_fn,
                           prefix=prefix,
+                          workdir=workdir,
                           )
 
   # Wait until computations are done before running robustness evaluator.

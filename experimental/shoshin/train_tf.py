@@ -33,7 +33,7 @@ ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/train_tf.py
     --config=third_party/py/uncertainty_baselines/experimental/shoshin/configs/cardiotoxicity_mlp_config.py \
     --config.output_dir=/tmp/cardiotox/ \
     --config.train_bias=True/False
-    --config.path_to_bias_table=...
+    --config.path_to_existing_bias_table=...
     --config.round_idx=(which round of active sampling (0 is treated specially)
     --config.ids_dir=(directory containing the example ids for the various splits)
 
@@ -79,14 +79,17 @@ def main(_) -> None:
     stream_handler = native_logging.StreamHandler(stream)
     logging.get_absl_logger().addHandler(stream_handler)
 
-  logging.info(config)
   model_params = models.ModelTrainingParameters(
       model_name=config.model.name,
       train_bias=config.train_bias,
       num_classes=config.data.num_classes,
       num_epochs=config.training.num_epochs,
+      optimizer=config.optimizer.type,
       learning_rate=config.optimizer.learning_rate,
       hidden_sizes=config.model.hidden_sizes,
+      do_reweighting=config.reweighting.do_reweighting,
+      reweighting_lambda=config.reweighting.lambda_value,
+      reweighting_signal=config.reweighting.signal
   )
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir
@@ -115,7 +118,7 @@ def main(_) -> None:
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 
-  if config.train_bias:
+  if config.train_bias or config.reweighting.do_reweighting:
     # Bias head will be trained as well, so gets bias labels.
     if config.path_to_existing_bias_table:
       example_id_to_bias_table = generate_bias_table_lib.load_existing_bias_table(

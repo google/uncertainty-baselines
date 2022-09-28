@@ -34,11 +34,22 @@ import models  # local file import from experimental.shoshin
 class TwoHeadedOutputModel(tf.keras.Model):
   """Defines a two-headed output model."""
 
-  def __init__(self, model: tf.keras.Model, train_bias: bool, name: str):
+  def __init__(self,
+               model: tf.keras.Model,
+               train_bias: bool,
+               name: str,
+               do_reweighting: Optional[bool] = False,
+               reweighting_signal: Optional[str] = 'bias',
+               reweighting_lambda: Optional[float] = 0.5):
     super(TwoHeadedOutputModel, self).__init__(name=name)
     self.train_bias = train_bias
-    if self.train_bias:
+    if self.train_bias or do_reweighting:
       self.id_to_bias_table = None
+
+    if do_reweighting:
+      self.do_reweighting = do_reweighting
+      self.reweighting_signal = 'bias'
+      self.reweighting_lambda = reweighting_lambda
 
     self.model = model
 
@@ -56,7 +67,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
       y_pred = self(features, training=True)
 
       y_true_bias = None
-      if self.train_bias:
+      if self.train_bias or self.do_reweighting:
         if self.id_to_bias_table is None:
           raise ValueError('id_to_bias_table must not be None.')
         y_true_bias = self.id_to_bias_table.lookup(example_ids)
@@ -65,7 +76,25 @@ class TwoHeadedOutputModel(tf.keras.Model):
           'main': y_true_main,
           'bias': y_true_bias
       }
-      total_loss = self.compiled_loss(y_true, y_pred)
+      if self.do_reweighting:
+        if self.reweighting_signal == 'bias':
+          bias_example_multiplex = tf.math.multiply(
+              self.reweighting_lambda,
+              tf.ones_like(y_true_bias, dtype=tf.float32))
+          not_bias_example_multiplex = tf.math.multiply(
+              1. - self.reweighting_lambda,
+              tf.ones_like(y_true_bias, dtype=tf.float32))
+          sample_weight = tf.where(
+              tf.math.equal(y_true_bias, 1),
+              bias_example_multiplex,
+              not_bias_example_multiplex)
+        else:
+          # TODO(jihyeonlee): Use prediction error instead. @dvij, can we save
+          # predictions in the last round for this?
+          sample_weight = None
+
+      total_loss = self.compiled_loss(
+          y_true, y_pred, sample_weight=sample_weight)
       total_loss += sum(self.losses)  # Regularization loss
 
     gradients = tape.gradient(total_loss, self.model.trainable_variables)
@@ -110,10 +139,17 @@ def compute_loss_bias(y_true_bias: tf.Tensor, y_pred_bias: tf.Tensor):
   return loss_func(y_true_bias, y_pred_bias)
 
 
-def compile_model(model: tf.keras.Model, learning_rate: float):
+def compile_model(model: tf.keras.Model,
+                  model_params: models.ModelTrainingParameters):
   """Compiles model with optimizer, custom loss functions, and metrics."""
+  if model_params.optimizer == 'adam':
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=model_params.learning_rate)
+  else:  # sgd
+    optimizer = tf.keras.optimizers.SGD(
+        learning_rate=model_params.learning_rate, momentum=0.9)
   model.compile(
-      optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+      optimizer=optimizer,
       loss={
           'main': compute_loss_main,
           'bias': compute_loss_bias
@@ -180,12 +216,16 @@ def init_model(
   two_head_model = TwoHeadedOutputModel(
       model=base_model,
       train_bias=model_params.train_bias,
-      name=experiment_name)
+      name=experiment_name,
+      do_reweighting=model_params.do_reweighting,
+      reweighting_signal=model_params.reweighting_signal,
+      reweighting_lambda=model_params.reweighting_lambda)
 
-  if model_params.train_bias and example_id_to_bias_table:
-    two_head_model.update_id_to_bias_table(example_id_to_bias_table)
+  if model_params.train_bias or model_params.do_reweighting:
+    if example_id_to_bias_table:
+      two_head_model.update_id_to_bias_table(example_id_to_bias_table)
 
-  two_head_model = compile_model(two_head_model, model_params.learning_rate)
+  two_head_model = compile_model(two_head_model, model_params)
   return two_head_model
 
 
@@ -204,6 +244,7 @@ def create_callbacks(
   Returns:
     List of callbacks.
   """
+  callbacks = []
   if save_model_checkpoints:
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
@@ -213,6 +254,7 @@ def create_callbacks(
         mode='max',
         save_weights_only=True,
         save_best_only=True)
+    callbacks.append(checkpoint_callback)
   if early_stopping:
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(
         monitor='val_main_auc',
@@ -223,7 +265,8 @@ def create_callbacks(
         baseline=None,
         restore_best_weights=True
     )
-  return [checkpoint_callback, early_stopping_callback]
+    callbacks.append(early_stopping_callback)
+  return callbacks
 
 
 def run_train(
@@ -232,7 +275,8 @@ def run_train(
     model_params: models.ModelTrainingParameters,
     experiment_name: str,
     callbacks: Optional[List[tf.keras.callbacks.Callback]] = None,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
+) -> tf.keras.Model:
   """Initializes and trains model on given training and validation data.
 
   Args:
@@ -251,6 +295,7 @@ def run_train(
       experiment_name=experiment_name,
       example_id_to_bias_table=example_id_to_bias_table
   )
+
   two_head_model.fit(
       train_ds,
       validation_data=val_ds,

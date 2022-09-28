@@ -107,6 +107,16 @@ def get_active_sampling_config():
   return config
 
 
+def get_reweighting_config():
+  """Get config for performing reweighting during training."""
+  config = ml_collections.ConfigDict()
+  config.do_reweighting = False
+  config.signal = 'bias'  # Options are bias, error.
+  # Weight that underrepresented group examples will receive. Between 0 and 1.
+  config.lambda_value = 0.
+  return config
+
+
 def get_config() -> ml_collections.ConfigDict:
   """Get config."""
   config = ml_collections.ConfigDict()
@@ -152,4 +162,5 @@ def get_config() -> ml_collections.ConfigDict:
   config.optimizer = get_optimizer_config()
   config.model = get_model_config()
   config.active_sampling = get_active_sampling_config()
+  config.reweighting = get_reweighting_config()
   return config

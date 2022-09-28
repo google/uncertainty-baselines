@@ -195,6 +195,7 @@ def main(_) -> None:
     predictions_df = generate_bias_table_lib.get_example_id_to_predictions_table(
         dataloader,
         trained_stagetwo_models,
+        config.train_bias,
         save_dir=output_dir,
         save_table=config.save_bias_table
         )

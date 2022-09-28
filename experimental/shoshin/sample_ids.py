@@ -55,7 +55,6 @@ def main(_) -> None:
 
   config = FLAGS.config
   base_config.check_flags(config)
-
   bias_table = pd.read_csv(os.path.join(config.output_dir, 'bias_table.csv'))
   predictions_table = pd.read_csv(os.path.join(config.output_dir,
                                                'predictions_table.csv'))

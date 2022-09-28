@@ -106,6 +106,7 @@ def main(_) -> None:
     _ = generate_bias_table_lib.get_example_id_to_predictions_table(
         dataloader=dataloader,
         trained_models=trained_models,
+        has_bias=config.train_bias,
         split='train',
         save_dir=config.save_dir,
         save_table=True)
@@ -113,6 +114,7 @@ def main(_) -> None:
       _ = generate_bias_table_lib.get_example_id_to_predictions_table(
           dataloader=dataloader,
           trained_models=trained_models,
+          has_bias=config.train_bias,
           split=split_name,
           save_dir=config.save_dir,
           save_table=True)

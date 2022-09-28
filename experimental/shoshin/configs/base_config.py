@@ -144,6 +144,9 @@ def get_config() -> ml_collections.ConfigDict:
   #    (from stage two models)
   config.generate_bias_table = True
 
+  # Whether or not to do introspective training
+  config.introspective_training = True
+
   config.data = get_data_config()
   config.training = get_training_config()
   config.optimizer = get_optimizer_config()

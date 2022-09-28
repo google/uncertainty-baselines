@@ -166,6 +166,7 @@ def get_example_id_to_bias_label_table(
 def get_example_id_to_predictions_table(
     dataloader: data.Dataloader,
     trained_models: List[tf.keras.Model],
+    has_bias: bool,
     split: Optional[str] = 'train',
     save_dir: Optional[str] = None,
     save_table: Optional[bool] = True) -> pd.DataFrame:
@@ -174,6 +175,7 @@ def get_example_id_to_predictions_table(
   Args:
     dataloader: Dataclass object containing training and validation data.
     trained_models: List of trained models.
+    has_bias: Do the trained models have a bias prediction head
     split: Which split of the dataset to use ('train'/'val'/'test')
     save_dir: Directory in which predictions table will be saved as CSV.
     save_table: Boolean for whether or not to save table.
@@ -191,24 +193,28 @@ def get_example_id_to_predictions_table(
           lambda feats, label, example_id: label).as_numpy_iterator())
   labels = np.concatenate(labels)
   predictions_all = []
-  bias_predictions_all = []
+  if has_bias:
+    bias_predictions_all = []
   for idx, model in enumerate(trained_models):
     model = trained_models[idx]
     predictions = model.predict(ds)
     predictions_all.append(predictions['main'][..., 1])
-    bias_predictions_all.append(predictions['bias'][..., 1])
+    if has_bias:
+      bias_predictions_all.append(predictions['bias'][..., 1])
   example_ids = list(ds.map(
       lambda feats, label, example_id: example_id).as_numpy_iterator())
   example_ids = np.concatenate(example_ids)
   predictions_all = np.stack(predictions_all)
-  bias_predictions_all = np.stack(bias_predictions_all)
+  if has_bias:
+    bias_predictions_all = np.stack(bias_predictions_all)
 
   logging.info('# of examples in prediction table is: %s', example_ids.shape[0])
 
   dict_values = {'example_id': example_ids}
   for i in range(predictions_all.shape[0]):
     dict_values[f'predictions_label_{i}'] = predictions_all[i]
-    dict_values[f'predictions_bias_{i}'] = bias_predictions_all[i]
+    if has_bias:
+      dict_values[f'predictions_bias_{i}'] = bias_predictions_all[i]
   df = pd.DataFrame(dict_values)
   if save_table:
     df.to_csv(os.path.join(save_dir, table_name + '.csv'), index=False)

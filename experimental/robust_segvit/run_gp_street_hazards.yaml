@@ -25,7 +25,7 @@ command:
   - python
   - ${program}
   - "--config"
-  - "configs/street_hazards/deterministic.py"
+  - "configs/street_hazards/gp.py"
   - "--output_dir"
   - "gs://ub-ekb/segmenter/street_hazards/gp"
   - "--num_cores"

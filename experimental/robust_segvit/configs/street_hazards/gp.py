@@ -49,7 +49,7 @@ VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
-target_size = (1280, 720)
+target_size = (720, 720)
 UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
 
 

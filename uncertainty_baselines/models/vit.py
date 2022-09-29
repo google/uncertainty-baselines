@@ -112,9 +112,6 @@ class Encoder1DBlock(nn.Module):
     attention_dropout_rate: dropout for attention heads.
     deterministic: bool, deterministic or not (to apply dropout).
     num_heads: Number of heads in nn.MultiHeadDotProductAttention
-    stochastic_depth: probability of dropping a layer linearly grows from 0 to
-      the provided value.
-
   """
 
   mlp_dim: int
@@ -122,26 +119,6 @@ class Encoder1DBlock(nn.Module):
   dtype: Dtype = jnp.float32
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
-  stochastic_depth: float = 0.0
-
-  def get_stochastic_depth_mask(self, x: jnp.ndarray,
-                                deterministic: bool) -> jnp.ndarray:
-    """Generate the stochastic depth mask in order to apply layer-drop.
-
-    Args:
-      x: Input tensor.
-      deterministic: Weather we are in the deterministic mode (e.g inference
-        time) or not.
-
-    Returns:
-      Stochastic depth mask.
-    """
-    if not deterministic and self.stochastic_depth:
-      shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-      return jax.random.bernoulli(
-          self.make_rng('dropout'), self.stochastic_depth, shape)
-    else:
-      return 0.0
 
   @nn.compact
   def __call__(self, inputs, *, deterministic):
@@ -167,7 +144,7 @@ class Encoder1DBlock(nn.Module):
         num_heads=self.num_heads,
         name='MultiHeadDotProductAttention_1')(x, x)
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
-    x = x * (1.0 - self.get_stochastic_depth_mask(x, deterministic)) + inputs
+    x = x + inputs
 
     # MLP block.
     y = nn.LayerNorm(dtype=self.dtype, name='LayerNorm_2')(x)
@@ -178,7 +155,7 @@ class Encoder1DBlock(nn.Module):
         dropout_rate=self.dropout_rate)(
             y, deterministic=deterministic)
 
-    return y * (1.0 - self.get_stochastic_depth_mask(x, deterministic)) + x
+    return x + y
 
 
 class Encoder(nn.Module):
@@ -190,12 +167,6 @@ class Encoder(nn.Module):
     num_heads: Number of heads in nn.MultiHeadDotProductAttention
     dropout_rate: dropout rate.
     attention_dropout_rate: dropout rate in self attention.
-    stochastic_depth: probability of dropping a layer linearly grows from 0 to
-    the provided value. Our implementation of stochastic depth follows timm
-    library, which does per-example layer dropping and uses independent
-    dropping patterns for each skip-connection.
-    dtype: Dtype of activations.
-
   """
 
   num_layers: int
@@ -203,7 +174,6 @@ class Encoder(nn.Module):
   num_heads: int
   dropout_rate: float = 0.1
   attention_dropout_rate: float = 0.1
-  stochastic_depth: float = 0.0
 
   @nn.compact
   def __call__(self, inputs, *, train):
@@ -230,8 +200,6 @@ class Encoder(nn.Module):
           mlp_dim=self.mlp_dim,
           dropout_rate=self.dropout_rate,
           attention_dropout_rate=self.attention_dropout_rate,
-          stochastic_depth=(lyr / max(self.num_layers - 1, 1)) *
-                           self.stochastic_depth,
           name=f'encoderblock_{lyr}',
           num_heads=self.num_heads)(
               x, deterministic=not train)

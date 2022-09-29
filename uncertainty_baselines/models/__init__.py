@@ -24,6 +24,7 @@ import tensorflow as tf
 # break the external build.
 # ==============================================================================
 from uncertainty_baselines.models import efficientnet_utils
+from uncertainty_baselines.models.clip import clip
 from uncertainty_baselines.models.criteo_mlp import criteo_mlp
 from uncertainty_baselines.models.efficientnet import efficientnet
 from uncertainty_baselines.models.efficientnet_batch_ensemble import efficientnet_batch_ensemble

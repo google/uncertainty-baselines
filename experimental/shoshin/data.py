@@ -25,7 +25,7 @@ and the label is specific to the main task.
 import dataclasses
 import json
 import os
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple, List, Union
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -80,13 +80,44 @@ class Dataloader:
       tf.data.Dataset]] = None  # Validation and any additional test datasets.
 
 
-def gather_data_splits(slice_idx: List[int],
-                       dataset: tf.data.Dataset) -> tf.data.Dataset:
+def apply_batch(dataloader, batch_size):
+  """Apply batching to dataloader."""
+  dataloader.train_splits = [
+      data.batch(batch_size) for data in dataloader.train_splits]
+  dataloader.val_splits = [
+      data.batch(batch_size) for data in dataloader.val_splits]
+  num_splits = len(dataloader.train_splits)
+  train_ds = gather_data_splits(list(range(num_splits)),
+                                dataloader.train_splits)
+  val_ds = gather_data_splits(list(range(num_splits)),
+                              dataloader.val_splits)
+  dataloader.train_ds = train_ds
+  dataloader.eval_ds['val'] = val_ds
+  for (k, v) in dataloader.eval_ds.items():
+    if k != 'val':
+      dataloader.eval_ds[k] = v.batch(batch_size)
+  return dataloader
+
+
+def gather_data_splits(
+    slice_idx: List[int],
+    dataset: Union[tf.data.Dataset, List[tf.data.Dataset]]) -> tf.data.Dataset:
   """Gathers slices of a split dataset based on passed indices."""
   data_slice = dataset[slice_idx[0]]
   for idx in slice_idx[1:]:
     data_slice = data_slice.concatenate(dataset[idx])
   return data_slice
+
+
+def get_train_ids(dataloader: Dataloader):
+  # Get example ids used for training
+  ids_train_list = list(
+      dataloader.train_ds.map(
+          lambda feats, label, example_id: example_id).as_numpy_iterator())
+  ids_train = []
+  for ids in ids_train_list:
+    ids_train += ids.tolist()
+  return ids_train
 
 
 class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
@@ -145,28 +176,40 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
 
 @register_dataset('cardiotoxicity')
 def get_cardiotoxicity_dataset(
-    num_splits: int, batch_size: int
+    num_splits: int,
+    initial_sample_proportion: float,
+    subgroup_ids: Optional[List[str]] = None,
+    subgroup_proportions: Optional[List[float]] = None,
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
     num_splits: Integer for number of slices of the dataset.
-    batch_size: Integer for number of examples per batch.
+    initial_sample_proportion: Float for proportion of entire training
+      dataset to sample initially before active sampling begins.
+    subgroup_ids: List of strings of IDs indicating subgroups.
+    subgroup_proportions: List of floats indicating proportion that each
+      subgroup should take in initial training dataset.
 
-  Returns:
+  Returns:if subgroup_proportions:
+      self.subgroup_proportions = subgroup_proportions
+    else:
+      self.subgroup_proportions = [1.] * len(subgroup_ids)
     A tuple containing the split training data, split validation data, the
     combined training dataset, and a dictionary mapping evaluation dataset names
     to their respective combined datasets.
   """
-  split_size_in_pct = int(100 / num_splits)
+  # No subgroups in this datset so ignored
+  del subgroup_ids, subgroup_proportions
+  split_size_in_pct = int(100 * initial_sample_proportion/ num_splits)
   val_splits = tfds.load(
       'cardiotox_fingerprint_dataset',
       split=[
           f'validation[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, 100, split_size_in_pct)
+          for k in range(0, int(100 *
+                                initial_sample_proportion), split_size_in_pct)
       ],
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True)
 
@@ -174,10 +217,10 @@ def get_cardiotoxicity_dataset(
       'cardiotox_fingerprint_dataset',
       split=[
           f'train[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, 100, split_size_in_pct)
+          for k in range(0, int(100 *
+                                initial_sample_proportion), split_size_in_pct)
       ],
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True)
 
@@ -185,7 +228,6 @@ def get_cardiotoxicity_dataset(
       'cardiotox_fingerprint_dataset',
       split='test',
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True,
       with_info=False)
@@ -194,7 +236,6 @@ def get_cardiotoxicity_dataset(
       'cardiotox_fingerprint_dataset',
       split='test2',
       data_dir=DATA_DIR,
-      batch_size=batch_size,
       try_gcs=False,
       as_supervised=True,
       with_info=False)
@@ -217,12 +258,25 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
       '1.0.0': 'Initial release.',
   }
 
+  def __init__(self,
+               subgroup_ids: List[str],
+               subgroup_proportions: Optional[List[float]] = None,
+               **kwargs):
+    super(WaterbirdsDataset, self).__init__(**kwargs)
+    self.subgroup_ids = subgroup_ids
+    if subgroup_proportions:
+      self.subgroup_proportions = subgroup_proportions
+    else:
+      self.subgroup_proportions = [1.] * len(subgroup_ids)
+
   def _info(self) -> tfds.core.DatasetInfo:
     """Dataset metadata (homepage, citation,...)."""
     return tfds.core.DatasetInfo(
         builder=self,
         features=tfds.features.FeaturesDict({
             'example_id': tfds.features.Text(),
+            'subgroup_id': tfds.features.Text(),
+            'subgroup_label': tfds.features.ClassLabel(num_classes=2),
             'feature': tfds.features.Image(shape=(224, 224, 3)),
             'label': tfds.features.ClassLabel(num_classes=2),
             'place': tfds.features.ClassLabel(num_classes=2),
@@ -296,22 +350,20 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         'validation':
             self._generate_examples(
                 os.path.join(_WATERBIRDS_DATA_DIR,
-                             _WATERBIRDS_VALIDATION_PATTERN),
-                is_training=False),
+                             _WATERBIRDS_VALIDATION_PATTERN)),
         'train_sample':
             self._generate_examples(
                 os.path.join(_WATERBIRDS_DATA_DIR,
-                             _WATERBIRDS_TRAIN_SAMPLE_PATTERN),
-                is_training=True),
+                             _WATERBIRDS_TRAIN_SAMPLE_PATTERN)),
         'test':
             self._generate_examples(
-                os.path.join(_WATERBIRDS_DATA_DIR, _WATERBIRDS_TEST_PATTERN),
-                is_training=False),
+                os.path.join(_WATERBIRDS_DATA_DIR, _WATERBIRDS_TEST_PATTERN)),
     }
 
-  def _generate_examples(
-      self, file_pattern: str,
-      is_training: bool) -> Iterator[Tuple[str, Dict[str, Any]]]:
+  def _generate_examples(self,
+                         file_pattern: str,
+                         is_training: Optional[bool] = False
+                        ) -> Iterator[Tuple[str, Dict[str, Any]]]:
     """Generator of examples for each split."""
     dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)
 
@@ -326,9 +378,6 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         cycle_length=16,
         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    if is_training:
-      dataset = dataset.shuffle(1024)
-
     # Parses and pre-processes the data in parallel.
     dataset = dataset.map(self._dataset_parser, num_parallel_calls=2)
 
@@ -340,10 +389,58 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
       options.experimental_deterministic = False
       dataset = dataset.with_options(options)
 
+      # Prepare initial training set.
+      # Pre-computed dataset size or large number >= estimated dataset size.
+      dataset_size = 4780
+      dataset = dataset.shuffle(dataset_size)
+      sampled_datasets = []
+      remaining_proportion = 1.
+      for idx, subgroup_id in enumerate(self.subgroup_ids):
+
+        def filter_fn_subgroup(image, label, place, image_filename,
+                               place_filename):
+          _ = image, image_filename, place_filename
+          return tf.math.equal(
+              tf.strings.join(
+                  [tf.strings.as_string(label),
+                   tf.strings.as_string(place)],
+                  separator='_'), subgroup_id)  # pylint: disable=cell-var-from-loop
+
+        subgroup_dataset = dataset.filter(filter_fn_subgroup)
+        subgroup_sample_size = int(dataset_size *
+                                   self.subgroup_proportions[idx])
+        subgroup_dataset = subgroup_dataset.take(subgroup_sample_size)
+        sampled_datasets.append(subgroup_dataset)
+        remaining_proportion -= self.subgroup_proportions[idx]
+
+      def filter_fn_remaining(image, label, place, image_filename,
+                              place_filename):
+        _ = image, image_filename, place_filename
+        return tf.reduce_all(
+            tf.math.not_equal(
+                tf.strings.join(
+                    [tf.strings.as_string(label),
+                     tf.strings.as_string(place)],
+                    separator='_'), self.subgroup_ids))
+
+      remaining_dataset = dataset.filter(filter_fn_remaining)
+      remaining_sample_size = int(dataset_size * remaining_proportion)
+      remaining_dataset = remaining_dataset.take(remaining_sample_size)
+      sampled_datasets.append(remaining_dataset)
+
+      dataset = sampled_datasets[0]
+      for ds in sampled_datasets[1:]:
+        dataset = dataset.concatenate(ds)
+      dataset = dataset.shuffle(dataset_size)
+
     for example in dataset:
       image, label, place, image_filename, place_filename = example
+      subgroup_id = str(label.numpy()) + '_' + str(place.numpy())
+      subgroup_label = 1 if subgroup_id in self.subgroup_ids else 0
       yield image_filename.numpy(), {
           'example_id': image_filename.numpy(),
+          'subgroup_id': subgroup_id,
+          'subgroup_label': subgroup_label,
           'feature': image.numpy(),
           'label': label.numpy(),
           'place': place.numpy(),
@@ -354,47 +451,62 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
 
 @register_dataset('waterbirds')
 def get_waterbirds_dataset(
-    num_splits: int, batch_size: int
+    num_splits: int,
+    initial_sample_proportion: float,
+    subgroup_ids: List[str],
+    subgroup_proportions: List[float],
+    is_training: Optional[bool] = True,
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
     num_splits: Integer for number of slices of the dataset.
-    batch_size: Integer for number of examples per batch.
+    initial_sample_proportion: Float for proportion of entire training
+      dataset to sample initially before active sampling begins.
+    subgroup_ids: List of strings of IDs indicating subgroups.
+    subgroup_proportions: List of floats indicating proportion that each
+      subgroup should take in initial training dataset.
+    is_training: Dataset used for evaluation (in this case as_supervised is
+      set to True in the val/test)
 
   Returns:
     A tuple containing the split training data, split validation data, the
     combined training dataset, and a dictionary mapping evaluation dataset names
     to their respective combined datasets.
   """
-  split_size_in_pct = int(100 / num_splits)
+  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
+  reduced_datset_sz = int(100 * initial_sample_proportion)
+  builder_kwargs = {
+      'subgroup_ids': subgroup_ids,
+      'subgroup_proportions': subgroup_proportions
+  }
   val_splits = tfds.load(
       'waterbirds_dataset',
       split=[
           f'validation[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, 100, split_size_in_pct)
+          for k in range(0, reduced_datset_sz, split_size_in_pct)
       ],
       data_dir=DATA_DIR,
-      batch_size=batch_size,
+      builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=True)
+      as_supervised=is_training)
 
   train_splits = tfds.load(
       'waterbirds_dataset',
       split=[
           f'train[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, 100, split_size_in_pct)
+          for k in range(0, reduced_datset_sz, split_size_in_pct)
       ],
       data_dir=DATA_DIR,
-      batch_size=batch_size,
+      builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=True)
+      as_supervised=is_training)
 
   train_sample = tfds.load(
       'waterbirds_dataset',
       split='train_sample',
       data_dir=DATA_DIR,
-      batch_size=batch_size,
+      builder_kwargs=builder_kwargs,
       try_gcs=False,
       as_supervised=True,
       with_info=False)
@@ -403,7 +515,84 @@ def get_waterbirds_dataset(
       'waterbirds_dataset',
       split='test',
       data_dir=DATA_DIR,
-      batch_size=batch_size,
+      builder_kwargs=builder_kwargs,
+      try_gcs=False,
+      as_supervised=is_training,
+      with_info=False)
+
+  train_ds = gather_data_splits(list(range(num_splits)), train_splits)
+  val_ds = gather_data_splits(list(range(num_splits)), val_splits)
+  eval_datasets = {
+      'val': val_ds,
+      'test': test_ds,
+  }
+  return Dataloader(
+      train_splits,
+      val_splits,
+      train_ds,
+      train_sample_ds=train_sample,
+      eval_ds=eval_datasets)
+
+
+@register_dataset('celeb_a')
+def get_celeba_dataset(
+    num_splits: int, initial_sample_proportion: float,
+    subgroup_ids: List[str], subgroup_proportions: List[float],
+) -> Dataloader:
+  """Returns datasets for training, validation, and possibly test sets.
+
+  Args:
+    num_splits: Integer for number of slices of the dataset.
+    initial_sample_proportion: Float for proportion of entire training
+      dataset to sample initially before active sampling begins.
+    subgroup_ids: List of strings of IDs indicating subgroups.
+    subgroup_proportions: List of floats indicating proportion that each
+      subgroup should take in initial training dataset.
+
+  Returns:
+    A tuple containing the split training data, split validation data, the
+    combined training dataset, and a dictionary mapping evaluation dataset names
+    to their respective combined datasets.
+  """
+  del subgroup_proportions, subgroup_ids
+  read_config = tfds.ReadConfig()
+  read_config.add_tfds_id = True  # Set `True` to return the 'tfds_id' key
+  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
+  reduced_dataset_sz = int(100 * initial_sample_proportion)
+  train_splits = tfds.load(
+      'celeb_a',
+      read_config=read_config,
+      split=[
+          f'train[:{k}%]+train[{k+split_size_in_pct}%:]'
+          for k in range(0, reduced_dataset_sz, split_size_in_pct)
+      ],
+      data_dir=DATA_DIR,
+      try_gcs=False,
+      as_supervised=True
+      )
+  val_splits = tfds.load(
+      'celeb_a',
+      read_config=read_config,
+      split=[
+          f'validation[{k}%:{k+split_size_in_pct}%]'
+          for k in range(0, reduced_dataset_sz, split_size_in_pct)
+      ],
+      data_dir=DATA_DIR,
+      try_gcs=False,
+      as_supervised=True
+      )
+  train_sample = tfds.load(
+      'celeb_a',
+      split='train_sample',
+      data_dir=DATA_DIR,
+      try_gcs=False,
+      as_supervised=True,
+      with_info=False)
+
+  test_ds = tfds.load(
+      'celeb_a',
+      split='test',
+      data_dir=DATA_DIR,
       try_gcs=False,
       as_supervised=True,
       with_info=False)

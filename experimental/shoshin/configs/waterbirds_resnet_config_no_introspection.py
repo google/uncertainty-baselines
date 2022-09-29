@@ -29,6 +29,7 @@ def get_config() -> ml_collections.ConfigDict:
   config.data.initial_sample_proportion = .25
 
   config.active_sampling.num_samples_per_round = 500
+  config.active_sampling.sample_score = 'ensemble_uncertainty'
   config.num_rounds = 4
 
   data = config.data
@@ -38,5 +39,8 @@ def get_config() -> ml_collections.ConfigDict:
   model = config.model
   model.name = 'resnet'
   model.dropout_rate = 0.2
+  config.train_bias = False
+  config.generate_bias_table = False
+  config.introspective_training = False
 
   return config

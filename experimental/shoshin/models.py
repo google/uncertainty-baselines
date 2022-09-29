@@ -49,12 +49,18 @@ def get_model(name: str):
 
 @dataclasses.dataclass
 class ModelTrainingParameters:
+  """Dataclass for training parameters."""
   model_name: str
   train_bias: bool
   num_classes: int
   num_epochs: int
+  optimizer: str = 'adam'
   learning_rate: float = 1e-4
   hidden_sizes: Optional[List[int]] = None
+  do_reweighting: Optional[bool] = False
+  reweighting_signal: Optional[str] = 'bias'
+  reweighting_lambda: Optional[float] = 0.5
+  reweighting_error_percentile_threshold: Optional[float] = 0.2
 
 
 @register_model('mlp')

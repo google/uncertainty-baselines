@@ -23,14 +23,6 @@ def get_config() -> ml_collections.ConfigDict:
   """Get mlp config."""
   config = base_config.get_config()
 
-  # Consider landbirds on water and waterbirds on land as subgroups.
-  config.data.subgroup_ids = ()  # ('0_1', '1_0')
-  config.data.subgroup_proportions = ()  # (0.04, 0.012)
-  config.data.initial_sample_proportion = .25
-
-  config.active_sampling.num_samples_per_round = 500
-  config.num_rounds = 4
-
   data = config.data
   data.name = 'waterbirds'
   data.num_classes = 2
@@ -38,5 +30,9 @@ def get_config() -> ml_collections.ConfigDict:
   model = config.model
   model.name = 'resnet'
   model.dropout_rate = 0.2
+
+  config.train_bias = False
+  reweighting = config.reweighting
+  reweighting.do_reweighting = True
 
   return config

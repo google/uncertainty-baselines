@@ -29,8 +29,6 @@ import pandas as pd
 import tensorflow as tf
 
 import data  # local file import from experimental.shoshin
-import models  # local file import from experimental.shoshin
-import train_tf_lib  # local file import from experimental.shoshin
 
 
 EXAMPLE_ID_KEY = 'example_id'
@@ -39,31 +37,14 @@ BIAS_LABEL_KEY = 'bias_label'
 COMBOS_SUBDIR = 'combos'
 
 
-def load_trained_models(combos_dir: str,
-                        model_params: models.ModelTrainingParameters):
-  """Loads models trained on different combinations of data splits."""
-  trained_models = []
-  for combo_name in tf.io.gfile.listdir(combos_dir):
-    combo_model = train_tf_lib.init_model(
-        model_params=model_params,
-        experiment_name=combo_name)
-    ckpt_dir = os.path.join(combos_dir, combo_name, 'checkpoints')
-    best_latest_checkpoint = tf.train.latest_checkpoint(ckpt_dir)
-    load_status = combo_model.load_weights(best_latest_checkpoint)
-    # Optimizer will not be loaded (https://b.corp.google.com/issues/124099628),
-    # so expect only partial load. This is not currently an issue because
-    # model is only used for inference.
-    load_status.expect_partial()
-    load_status.assert_existing_objects_matched()
-    trained_models.append(combo_model)
-  return trained_models
-
-
 def load_existing_bias_table(path_to_table: str):
+  """Loads bias table from file."""
   df = pd.read_csv(path_to_table)
+  key_tensor = np.array([eval(x).decode('UTF-8') for    #  pylint:disable=eval-used
+                         x in df[EXAMPLE_ID_KEY].to_list()])
   init = tf.lookup.KeyValueTensorInitializer(
       keys=tf.convert_to_tensor(
-          df[EXAMPLE_ID_KEY].to_numpy(), dtype=tf.string),
+          key_tensor, dtype=tf.string),
       values=tf.convert_to_tensor(
           df[BIAS_LABEL_KEY].to_numpy(), dtype=tf.int64),
       key_dtype=tf.string,
@@ -78,7 +59,8 @@ def get_example_id_to_bias_label_table(
     bias_percentile_threshold: float,
     bias_value_threshold: Optional[float] = None,
     save_dir: Optional[str] = None,
-    save_table: Optional[bool] = True) -> tf.lookup.StaticHashTable:
+    save_table: Optional[bool] = True
+) -> tf.lookup.StaticHashTable:
   """Generates a lookup table mapping example ID to bias label.
 
   Args:
@@ -179,3 +161,74 @@ def get_example_id_to_bias_label_table(
       key_dtype=tf.string,
       value_dtype=tf.int64)
   return tf.lookup.StaticHashTable(init, default_value=0)
+
+
+def get_example_id_to_predictions_table(
+    dataloader: data.Dataloader,
+    trained_models: List[tf.keras.Model],
+    has_bias: bool,
+    split: Optional[str] = 'train',
+    save_dir: Optional[str] = None,
+    save_table: Optional[bool] = True) -> pd.DataFrame:
+  """Generates a lookup table mapping example ID to bias label.
+
+  Args:
+    dataloader: Dataclass object containing training and validation data.
+    trained_models: List of trained models.
+    has_bias: Do the trained models have a bias prediction head
+    split: Which split of the dataset to use ('train'/'val'/'test')
+    save_dir: Directory in which predictions table will be saved as CSV.
+    save_table: Boolean for whether or not to save table.
+
+  Returns:
+    A pandas dataframe mapping example ID to all label and bias predictions.
+  """
+  table_name = 'predictions_table'
+  ds = dataloader.train_ds
+  if split != 'train':
+    ds = dataloader.eval_ds[split]
+    table_name += '_' + split
+  labels = list(
+      ds.map(
+          lambda feats, label, example_id: label).as_numpy_iterator())
+  labels = np.concatenate(labels)
+  predictions_all = []
+  if has_bias:
+    bias_predictions_all = []
+  for idx, model in enumerate(trained_models):
+    model = trained_models[idx]
+    predictions = model.predict(ds)
+    predictions_all.append(predictions['main'][..., 1])
+    if has_bias:
+      bias_predictions_all.append(predictions['bias'][..., 1])
+  example_ids = list(ds.map(
+      lambda feats, label, example_id: example_id).as_numpy_iterator())
+  example_ids = np.concatenate(example_ids)
+  predictions_all = np.stack(predictions_all)
+  if has_bias:
+    bias_predictions_all = np.stack(bias_predictions_all)
+
+  logging.info('# of examples in prediction table is: %s', example_ids.shape[0])
+
+  dict_values = {'example_id': example_ids}
+  for i in range(predictions_all.shape[0]):
+    dict_values[f'predictions_label_{i}'] = predictions_all[i]
+    if has_bias:
+      dict_values[f'predictions_bias_{i}'] = bias_predictions_all[i]
+  df = pd.DataFrame(dict_values)
+  if save_table:
+    df.to_csv(os.path.join(save_dir, table_name + '.csv'), index=False)
+  return df
+
+
+# Helper functions to process hash tables
+
+
+def filter_ids_fn(hash_table, value=1):
+  """Filter dataset based on whether ids take a certain value in hash table."""
+  def filter_fn(feats, label, example_ids):
+    del feats, label
+    return hash_table.lookup(example_ids) == value
+  return filter_fn
+
+

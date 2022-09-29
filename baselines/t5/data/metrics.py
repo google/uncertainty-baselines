@@ -504,6 +504,7 @@ def deepbank_uncertainty_metrics(
     all_node_prob_match_list += node_prob_match_list
     all_attr_prob_match_list += attr_prob_match_list
     all_edge_prob_match_list += edge_prob_match_list
+  all_combine_prob_match_list = all_node_prob_match_list + all_edge_prob_match_list
 
   def compositional_eval(prob_match_list):
     model_pred_confs = np.array([p for (p, _) in prob_match_list],
@@ -531,13 +532,16 @@ def deepbank_uncertainty_metrics(
   # Node evaluation
   node_ece, node_calib_auroc, node_calib_auprc = compositional_eval(
       all_node_prob_match_list)
-  # Node evaluation
+  # Attr evaluation
   attr_ece, attr_calib_auroc, attr_calib_auprc = compositional_eval(
       all_attr_prob_match_list)
   # Edge evaluation
   edge_ece, edge_calib_auroc, edge_calib_auprc = compositional_eval(
       all_edge_prob_match_list)
-  # Uncertainty metrics based on smtach
+  # Node+edge evaluation
+  combine_ece, combine_calib_auroc, combine_calib_auprc = compositional_eval(
+      all_combine_prob_match_list)
+  # Uncertainty metrics based on smatch
   model_pred_confs = np.exp(np.array(seq_log_probs, dtype=np.float32))
   model_pred_confs_ece = np.stack([1. - model_pred_confs, model_pred_confs],
                                   axis=-1)
@@ -574,6 +578,9 @@ def deepbank_uncertainty_metrics(
       smatch_ece=smatch_ece.result()['ece'],
       smatch_calib_auroc=smatch_calib_auroc.result()['calibration_auc'],
       smatch_calib_auprc=smatch_calib_auprc.result()['calibration_auc'],
+      combine_ece=combine_ece.result()['ece'],
+      combine_calib_auroc=combine_calib_auroc.result()['calibration_auc'],
+      combine_calib_auprc=combine_calib_auprc.result()['calibration_auc'],
   )
   return analysis
 
@@ -664,6 +671,7 @@ def dataflow_uncertainty_metrics(
     all_node_prob_match_list += node_prob_match_list
     all_attr_prob_match_list += attr_prob_match_list
     all_edge_prob_match_list += edge_prob_match_list
+  all_combine_prob_match_list = all_node_prob_match_list + all_edge_prob_match_list
 
   def compositional_eval(prob_match_list):
     model_pred_confs = np.array([p for (p, _) in prob_match_list],
@@ -691,13 +699,16 @@ def dataflow_uncertainty_metrics(
   # Node evaluation
   node_ece, node_calib_auroc, node_calib_auprc = compositional_eval(
       all_node_prob_match_list)
-  # Node evaluation
+  # Attr evaluation
   attr_ece, attr_calib_auroc, attr_calib_auprc = compositional_eval(
       all_attr_prob_match_list)
   # Edge evaluation
   edge_ece, edge_calib_auroc, edge_calib_auprc = compositional_eval(
       all_edge_prob_match_list)
-  # Uncertainty metrics based on smtach
+  # Node+edge evaluation
+  combine_ece, combine_calib_auroc, combine_calib_auprc = compositional_eval(
+      all_combine_prob_match_list)
+  # Uncertainty metrics based on smatch
   model_pred_confs = np.exp(np.array(seq_log_probs, dtype=np.float32))
   model_pred_confs_ece = np.stack([1. - model_pred_confs, model_pred_confs],
                                   axis=-1)
@@ -734,6 +745,9 @@ def dataflow_uncertainty_metrics(
       smatch_ece=smatch_ece.result()['ece'],
       smatch_calib_auroc=smatch_calib_auroc.result()['calibration_auc'],
       smatch_calib_auprc=smatch_calib_auprc.result()['calibration_auc'],
+      combine_ece=combine_ece.result()['ece'],
+      combine_calib_auroc=combine_calib_auroc.result()['calibration_auc'],
+      combine_calib_auprc=combine_calib_auprc.result()['calibration_auc'],
   )
   return analysis
 

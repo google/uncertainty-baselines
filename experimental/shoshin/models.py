@@ -60,6 +60,7 @@ class ModelTrainingParameters:
   do_reweighting: Optional[bool] = False
   reweighting_signal: Optional[str] = 'bias'
   reweighting_lambda: Optional[float] = 0.5
+  reweighting_error_percentile_threshold: Optional[float] = 0.2
 
 
 @register_model('mlp')

@@ -114,6 +114,7 @@ def get_reweighting_config():
   config.signal = 'bias'  # Options are bias, error.
   # Weight that underrepresented group examples will receive. Between 0 and 1.
   config.lambda_value = 0.
+  config.error_percentile_threshold = 0.2
   return config
 
 

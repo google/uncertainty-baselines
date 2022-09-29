@@ -26,6 +26,7 @@ import os
 from typing import Dict, List, Optional
 
 from absl import logging
+import numpy as np
 import tensorflow as tf
 import data  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
@@ -40,7 +41,8 @@ class TwoHeadedOutputModel(tf.keras.Model):
                name: str,
                do_reweighting: Optional[bool] = False,
                reweighting_signal: Optional[str] = 'bias',
-               reweighting_lambda: Optional[float] = 0.5):
+               reweighting_lambda: Optional[float] = 0.5,
+               error_percentile_threshold: Optional[float] = 0.2):
     super(TwoHeadedOutputModel, self).__init__(name=name)
     self.train_bias = train_bias
     if self.train_bias or do_reweighting:
@@ -48,8 +50,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
 
     if do_reweighting:
       self.do_reweighting = do_reweighting
-      self.reweighting_signal = 'bias'
+      self.reweighting_signal = reweighting_signal
       self.reweighting_lambda = reweighting_lambda
+      if self.reweighting_signal == 'error':
+        self.error_percentile_threshold = error_percentile_threshold
 
     self.model = model
 
@@ -78,20 +82,23 @@ class TwoHeadedOutputModel(tf.keras.Model):
       }
       if self.do_reweighting:
         if self.reweighting_signal == 'bias':
-          bias_example_multiplex = tf.math.multiply(
-              self.reweighting_lambda,
-              tf.ones_like(y_true_bias, dtype=tf.float32))
-          not_bias_example_multiplex = tf.math.multiply(
-              1. - self.reweighting_lambda,
-              tf.ones_like(y_true_bias, dtype=tf.float32))
-          sample_weight = tf.where(
-              tf.math.equal(y_true_bias, 1),
-              bias_example_multiplex,
-              not_bias_example_multiplex)
-        else:
-          # TODO(jihyeonlee): Use prediction error instead. @dvij, can we save
-          # predictions in the last round for this?
-          sample_weight = None
+          example_labels = y_true_bias
+        else:  # Use prediction error.
+          error = tf.math.subtract(
+              tf.ones_like(y_pred), tf.gather_nd(y_pred, y_true_main))
+          threshold = np.percentile(error, self.error_percentile_threshold)
+          example_labels = tf.math.greater(error, threshold)
+
+        above_threshold_example_multiplex = tf.math.multiply(
+            self.reweighting_lambda,
+            tf.ones_like(example_labels, dtype=tf.float32))
+        below_threshold_example_multiplex = tf.math.multiply(
+            1. - self.reweighting_lambda,
+            tf.ones_like(example_labels, dtype=tf.float32))
+        sample_weight = tf.where(
+            tf.math.equal(example_labels, 1),
+            above_threshold_example_multiplex,
+            below_threshold_example_multiplex)
 
       total_loss = self.compiled_loss(
           y_true, y_pred, sample_weight=sample_weight)
@@ -219,7 +226,9 @@ def init_model(
       name=experiment_name,
       do_reweighting=model_params.do_reweighting,
       reweighting_signal=model_params.reweighting_signal,
-      reweighting_lambda=model_params.reweighting_lambda)
+      reweighting_lambda=model_params.reweighting_lambda,
+      error_percentile_threshold=model_params
+      .reweighting_error_percentile_threshold)
 
   if model_params.train_bias or model_params.do_reweighting:
     if example_id_to_bias_table:

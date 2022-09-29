@@ -56,6 +56,9 @@ def compute_ids_to_sample(
   elif sampling_score == 'bias':
     sample_avg = predictions_df[prediction_bias_cols].mean(axis=1).to_numpy()
     predictions_df['sampling_score'] = 1 - sample_avg
+  elif sampling_score == 'random':
+    predictions_df['sampling_score'] = np.random.randint(
+        1, predictions_df.shape[0], predictions_df.shape[0])
   predictions_df = predictions_df.sort_values(
       by='sampling_score', ascending=True)
   return predictions_df.head(num_samples)['example_id'].to_numpy()

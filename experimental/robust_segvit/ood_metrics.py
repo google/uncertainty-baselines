@@ -81,7 +81,7 @@ def preprocess_outlier(outlier):
 
 def get_ood_score(
     logits: jnp.ndarray,
-    method_name: str = 'msp',
+    method_name: str = 'nmlogit',
     num_top_k: int = 5,
     ) -> Dict[str, Any]:
   """Get OOD score."""
@@ -97,6 +97,9 @@ def get_ood_score(
   elif method_name == 'mlogit':
     max_logits = jnp.max(logits, -1)
     ood_score = 1 - max_logits
+  elif method_name == 'nmlogit':
+    max_logits = jnp.max(logits, -1)
+    ood_score = - 1 * max_logits
   elif method_name == 'sum_topklogit':
     ood_score = jax.lax.top_k(logits, num_top_k)[0].sum(-1)
   elif method_name == '1-sum_topklogit':
@@ -106,6 +109,31 @@ def get_ood_score(
     raise NotImplementedError(
         f'Missing method {method_name} to calculate OOD score.')
   return ood_score
+
+
+def get_score(
+    logits: jnp.ndarray,
+    method_name: str = 'mlogit',
+    num_top_k: int = 5,
+    ) -> Dict[str, Any]:
+  """Get OOD score."""
+
+  if method_name == 'msp':
+    probs = jax.nn.softmax(logits, -1)
+    ood_score = jnp.max(probs, -1)
+  elif method_name == 'entropy':
+    probs = jax.nn.softmax(logits, -1)
+    entropy = -jnp.sum(probs * jnp.log(probs), axis=-1)
+    ood_score = entropy
+  elif method_name == 'mlogit':
+    ood_score = jnp.max(logits, -1)
+  elif method_name == 'sum_topklogit':
+    ood_score = jax.lax.top_k(logits, num_top_k)[0].sum(-1)
+  else:
+    raise NotImplementedError(
+        f'Missing method {method_name} to calculate OOD score.')
+  return ood_score
+
 
 
 def get_ood_metrics(

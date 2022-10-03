@@ -34,9 +34,9 @@ def check_flags(config: ml_collections.ConfigDict):
   if 100 % config.data.num_splits != 0:
     raise ValueError('100 should be divisible by config.data.num_splits ',
                      'because we use TFDS split by percent feature.')
-  if config.bias_percentile_threshold < 0. or config.bias_percentile_threshold > 1.:
+  if config.bias_percentile_threshold < 0 or config.bias_percentile_threshold > 100:
     raise ValueError(
-        'config.bias_percentile_threshold must be between 0. and 1.')
+        'config.bias_percentile_threshold must be between 0 and 100.')
   if config.bias_value_threshold and (config.bias_value_threshold < 0. or
                                       config.bias_value_threshold > 1.):
     raise ValueError('config.bias_value_threshold must be between 0. and 1.')

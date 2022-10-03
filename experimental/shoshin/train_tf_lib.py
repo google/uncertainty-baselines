@@ -48,8 +48,8 @@ class TwoHeadedOutputModel(tf.keras.Model):
     if self.train_bias or do_reweighting:
       self.id_to_bias_table = None
 
+    self.do_reweighting = do_reweighting
     if do_reweighting:
-      self.do_reweighting = do_reweighting
       self.reweighting_signal = reweighting_signal
       self.reweighting_lambda = reweighting_lambda
       if self.reweighting_signal == 'error':
@@ -81,6 +81,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
           'main': y_true_main,
           'bias': y_true_bias
       }
+      sample_weight = None
       if self.do_reweighting:
         if self.reweighting_signal == 'bias':
           example_labels = y_true_bias_original

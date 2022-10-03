@@ -132,7 +132,7 @@ def get_config() -> ml_collections.ConfigDict:
   config.num_rounds = 4
 
   # Threshold to generate bias labels. Can be specified as percentile or value.
-  config.bias_percentile_threshold = 0.2
+  config.bias_percentile_threshold = 80
   config.bias_value_threshold = None
   config.save_bias_table = True
   # Path to existing bias table to use in training the bias head. If

@@ -56,7 +56,7 @@ def get_example_id_to_bias_label_table(
     dataloader: data.Dataloader,
     combos_dir: str, trained_models: List[tf.keras.Model],
     num_splits: int,
-    bias_percentile_threshold: float,
+    bias_percentile_threshold: int,
     bias_value_threshold: Optional[float] = None,
     save_dir: Optional[str] = None,
     save_table: Optional[bool] = True
@@ -69,8 +69,10 @@ def get_example_id_to_bias_label_table(
       used in training.
     trained_models: List of trained models.
     num_splits: Total number of slices that data was split into.
-    bias_percentile_threshold: Float representing the percentile of bias
-      values to give a label of 1 (and 0 for all others).
+    bias_percentile_threshold: Integer between 0 and 100  representing the
+      percentile of bias values to give a label of 1 (and 0 for all others).
+      Given a vector V of length N, the q-th percentile of V is the value q/100
+      of the way from the minimum to the maximum in a sorted copy of V.
     bias_value_threshold: Float representing the bias value threshold, above
       which examples will receive a bias label of 1 (and 0 if below). Use
       percentile by default.

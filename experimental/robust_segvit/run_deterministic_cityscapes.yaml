@@ -1,0 +1,32 @@
+name: deterministic_cityscapes
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.use_wandb:
+    value: true
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "configs/cityscapes/deterministic.py"
+  - "--output_dir"
+  - "gs://ub-ekb/segmenter/cityscapes/deterministic"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

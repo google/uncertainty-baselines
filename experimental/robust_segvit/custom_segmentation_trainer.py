@@ -164,7 +164,21 @@ def evaluate(train_state: train_utils.TrainState,
   # Evaluate global metrics on one of the hosts (lead_host), but given
   # intermediate values collected from all hosts.
 
-  for _ in range(steps_per_eval):
+  # store logits
+  store_logits = config.eval_configs.get('store_logits', False)
+
+  if store_logits:
+    store_logits_fname = os.path.join(workdir, prefix, "logits", "val.h5py")
+    f = h5py.File(store_logits_fname, 'w', libver='latest')
+    f.swmr_mode = True  # single write multi-read
+    input_shape = dataset.meta_data['input_shape'][1:3]
+    num_classes = dataset.meta_data['num_classes']
+    num_eval_examples = int(steps_per_eval * config.batch_size)
+    logits_out = f.create_dataset('logits', (num_eval_examples,) + input_shape + (num_classes,))
+    inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
+    labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
+
+  for step_ in range(steps_per_eval):
     eval_batch = next(dataset.valid_iter)
     e_batch, e_logits, e_metrics, confusion_matrix, unc_confusion_matrix = eval_step_pmapped(
         train_state=train_state, batch=eval_batch)
@@ -174,6 +188,16 @@ def evaluate(train_state: train_utils.TrainState,
       eval_all_confusion_mats.append(to_cpu(confusion_matrix, all_gather=True))
       eval_all_unc_confusion_mats.append(
           to_cpu(unc_confusion_matrix, all_gather=True))
+
+      if store_logits:
+        start_idx = step_ * config.batch_size
+        end_idx = start_idx + config.batch_size
+        logits_out[start_idx:end_idx] = e_logits
+        inputs_out[start_idx:end_idx] = e_batch['inputs']
+        labels_out[start_idx:end_idx] = e_batch['labels']
+
+  if store_logits:
+    f.close()
 
   # Compute global metrics
   eval_global_metrics_summary = {}
@@ -226,6 +250,7 @@ def evaluate_ood(
     writer: metric_writers.MetricWriter,
     lead_host: Any,
     prefix: str = 'valid',
+    workdir: str ='',
     **kwargs,
 ) -> Dict[str, Any]:
   """Model evaluator.
@@ -254,6 +279,20 @@ def evaluate_ood(
 
   auc_online = kwargs.pop('auc_online', False)
 
+  # store logits
+  store_logits = config.eval_configs.get('store_logits', False)
+
+  if store_logits:
+    store_logits_fname = os.path.join(workdir, prefix, "logits", "val.h5py")
+    f = h5py.File(store_logits_fname, 'w', libver='latest')
+    f.swmr_mode = True  # single write multi-read
+    input_shape = dataset.meta_data['input_shape'][1:3]
+    num_classes = dataset.meta_data['num_classes']
+    num_eval_examples = int(steps_per_eval * config.batch_size)
+    logits_out = f.create_dataset('logits', (num_eval_examples,) + input_shape + (num_classes,))
+    inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
+    labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
+
   if auc_online:
     # TODO(kellybuchanan): check split of data across devices.
     # initialize metrics: ideally in each device in each host/process/machine
@@ -264,10 +303,19 @@ def evaluate_ood(
     auc_roc = tf.keras.metrics.AUC(curve='ROC')
 
     # Loop through each machine:
-    for _ in range(steps_per_eval):
+    for step_ in range(steps_per_eval):
       eval_batch = next(dataset.valid_iter)
       e_batch, e_logits = eval_step_pmapped(
           train_state=train_state, batch=eval_batch)
+
+
+      if store_logits:
+        start_idx = step_ * config.batch_size
+        end_idx = start_idx + config.batch_size
+        logits_out[start_idx:end_idx] = e_logits
+        inputs_out[start_idx:end_idx] = e_batch['inputs']
+        labels_out[start_idx:end_idx] = e_batch['labels']
+
 
       # In eval_step_pmapped we have not used all gather, so each metric is in
       # each device and we should be able to compute devices separately
@@ -279,6 +327,8 @@ def evaluate_ood(
       auc_pr.update_state(
           e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
 
+    if store_logits:
+      f.close()
     # How to communicate metrics across hosts?
     # Ideally we can collect auc_metrics per host, merge them, compute result.
     # However, we cannot pass arbitraty class.
@@ -337,6 +387,7 @@ def evaluate_ood(
     eval_summary = {'auroc': float(auc_roc.result().numpy()),
                     'auprc': float(auc_pr.result().numpy()),
                     }
+
   else:
     eval_logits = []
     eval_ood_masks = []
@@ -592,10 +643,12 @@ def eval_step(
   # Collect predictions and batches from all hosts.
   # use all_gather to copy and replicate across all hosts
   # we skip doing this for batch and logits to save memory
+  # unless we want to store the logits
   # predictions = jnp.argmax(logits, axis=-1)
   # predictions = jax.lax.all_gather(predictions, 'batch')
-  # logits = jax.lax.all_gather(logits, 'batch')
-  # batch = jax.lax.all_gather(batch, 'batch')
+  if config.eval_configs.get('store_logits', False):
+    logits = jax.lax.all_gather(logits, 'batch')
+    batch = jax.lax.all_gather(batch, 'batch')
   confusion_matrix = jax.lax.all_gather(confusion_matrix, 'batch')
   unc_confusion_matrix = jax.lax.all_gather(unc_confusion_matrix, 'batch')
 
@@ -660,9 +713,10 @@ def eval_step_baseline(
   # Collect predictions and batches from all hosts.
   # use all_gather to copy and replicate across all hosts
   # we can skip doing this for batch and logits to save memory
-  # is the OOM in tpu or cpu?
-  # batch = jax.lax.all_gather(batch, 'batch')
-  # logits = jax.lax.all_gather(logits, 'batch')
+  # jis the OOM in tpu or cpu?
+  if config.eval_configs.get('store_logits', False):
+    batch = jax.lax.all_gather(batch, 'batch')
+    logits = jax.lax.all_gather(logits, 'batch')
 
   return batch, logits
 
@@ -1172,7 +1226,6 @@ def evaluate_ood_step(
   Returns:
     eval_summary: summary evaluation
   """
-  del workdir
   eval_summary = {}
 
   if config.get('eval_covariate_shift', False):
@@ -1222,6 +1275,7 @@ def evaluate_ood_step(
           lead_host=lead_host,
           global_metrics_fn=global_metrics_fn,
           global_unc_metrics_fn=global_unc_metrics_fn,
+          workdir=workdir,
       )
 
       # Wait until computations are done before exiting.
@@ -1274,6 +1328,7 @@ def evaluate_ood_step(
           eval_step_pmapped=eval_step_ood_pmapped,
           writer=writer,
           lead_host=lead_host,
+          workdir=workdir,
       )
 
       # Wait until computations are done before exiting.
@@ -1290,6 +1345,7 @@ def evaluate_cityscapes_c(
     lead_host: Any,
     global_metrics_fn: Any,
     global_unc_metrics_fn: Any,
+    workdir: str = None,
 ) -> Dict[str, Any]:
   """Evaluate cityscapes-c dataset.
 
@@ -1343,6 +1399,7 @@ def evaluate_cityscapes_c(
           global_metrics_fn=global_metrics_fn,
           global_unc_metrics_fn=global_unc_metrics_fn,
           prefix=dataset.meta_data['prefix'],
+          workdir=workdir,
       )
 
       local_list.append(eval_summary)
@@ -1373,6 +1430,7 @@ def evaluate_fishyscapes(
     eval_step_pmapped: Any,
     writer: metric_writers.MetricWriter,
     lead_host: Any,
+    workdir: str = '',
 ) -> Dict[str, Any]:
   """Evaluate Fishyscapes dataset.
 
@@ -1422,6 +1480,7 @@ def evaluate_fishyscapes(
         writer=writer,
         lead_host=lead_host,
         prefix=dataset.meta_data['prefix'],
+        workdir=workdir,
         **config.get('eval_robustness_configs', {}),
     )
 
@@ -1450,6 +1509,7 @@ def evaluate_ade20k_ood_open(
     eval_step_pmapped: Any,
     writer: metric_writers.MetricWriter,
     lead_host: Any,
+    workdir: str = '',
 ) -> Dict[str, Any]:
   """Evaluate ADE20k OOD dataset.
 
@@ -1496,6 +1556,7 @@ def evaluate_ade20k_ood_open(
       writer=writer,
       lead_host=lead_host,
       prefix=dataset.meta_data['prefix'],
+      workdir=workdir,
       **config.get('eval_robustness_configs', {}),
   )
 
@@ -1522,6 +1583,7 @@ def evaluate_ade20k_corrupted(
     lead_host: Any,
     global_metrics_fn: Any,
     global_unc_metrics_fn: Any,
+    workdir : str,
 ) -> Dict[str, Any]:
   """Evaluate Ade20k-C dataset.
 
@@ -1575,6 +1637,7 @@ def evaluate_ade20k_corrupted(
           global_metrics_fn=global_metrics_fn,
           global_unc_metrics_fn=global_unc_metrics_fn,
           prefix=dataset.meta_data['prefix'],
+          workdir=workdir,
       )
 
       local_list.append(eval_summary)
@@ -1605,6 +1668,7 @@ def evaluate_street_hazards_ood_open(
     eval_step_pmapped: Any,
     writer: metric_writers.MetricWriter,
     lead_host: Any,
+    workdir: str,
 ) -> Dict[str, Any]:
   """Evaluate StreetHazards OOD dataset.
 
@@ -1651,6 +1715,7 @@ def evaluate_street_hazards_ood_open(
       writer=writer,
       lead_host=lead_host,
       prefix=dataset.meta_data['prefix'],
+      workdir=workdir,
       **config.get('eval_robustness_configs', {}),
   )
 

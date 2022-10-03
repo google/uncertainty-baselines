@@ -57,7 +57,6 @@ def calculate_num_patches_binary_maps(
 
   unc_confusion_matrix = jnp.stack((n_ac, n_ic, n_iu, n_au), axis=-1)
 
-  unc_confusion_matrix = unc_confusion_matrix[jnp.newaxis, ...]  # Dummy batch dim.
   return unc_confusion_matrix
 
 
@@ -85,6 +84,7 @@ def get_pavpu(unc_confusion_matrix):
 
 
 def get_uncertainty_confusion_matrix(
+    *,
     logits: jnp.ndarray,
     labels: jnp.ndarray,
     uncertainty_measure: str = 'softmax',
@@ -153,6 +153,7 @@ def get_uncertainty_confusion_matrix(
   unc_confusion_matrix = calculate_num_patches_binary_maps(
       binary_acc_map, binary_unc_map)
 
+  unc_confusion_matrix = unc_confusion_matrix[jnp.newaxis, ...]  # Dummy batch dim.
   return unc_confusion_matrix
 
 

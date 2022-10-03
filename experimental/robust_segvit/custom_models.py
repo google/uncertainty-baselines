@@ -391,6 +391,11 @@ def global_unc_metrics_fn(
   assert isinstance(all_unc_confusion_mats, list)  # List of eval batches.
   cm = np.sum(all_unc_confusion_mats, axis=0)  # Sum over eval batches.
 
+  if cm.ndim == 2:  # [batch_size, 4]
+    pass
+  elif cm.ndim == 3:  # [num_devices, batch_size per device, 4]
+    cm = np.sum(cm, axis=0)  # sum over devices
+
   assert cm.ndim == 2, ('Expecting uncertainty confusion matrix to have shape '
                         '[batch_size, 4], got '
                         f'{cm.shape}.')

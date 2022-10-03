@@ -15,7 +15,7 @@ parameters:
   config.wandb_entity :
     value: ${{entity}}
   config.batch_size:
-    value: 16
+    value: 24
   config.model.decoder.mean_field_factor:
     values: [1, 2, 5, 6, 10]
 

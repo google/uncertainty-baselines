@@ -265,6 +265,7 @@ class SegmentationTrainerTest(parameterized.TestCase):
         window_size=window_size,
         uncertainty_measure='softmax',
       ), axis_name='batch')
+
     unc_confusion_matrix = [
         cm_pmapped(labels=labels, logits=logits_, weights=masks)
         for labels, logits_, masks in

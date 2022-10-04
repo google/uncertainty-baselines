@@ -1,0 +1,37 @@
+name: cityscapes_deterministic_eval
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.use_wandb:
+    value: true
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+  config.batch_size:
+    value: 16
+  config.eval_configs.store_logits:
+    value: true
+  config.eval_covariate_shift:
+    value: false
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "configs/cityscapes/deterministic_eval.py"
+  - "--output_dir"
+  - "cityscapes/deterministic_eval"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

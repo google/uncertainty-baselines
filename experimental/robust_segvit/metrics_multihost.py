@@ -87,7 +87,13 @@ class ComputeOODAUCMetric:
 
   def calculate_and_update_scores(self, logits, label, sample_weight, *kwargs):
     ood_score = get_ood_score(logits, *kwargs)
-    self.auc.update_state(label, ood_score, sample_weight=sample_weight)
+
+    # skip images where all the pixels are ood or there are no ood pixels
+    all_pixel_ood = jnp.sum(label*sample_weight) == 1
+    no_pixel_ood = jnp.sum(label*sample_weight) == 0
+
+    if not(all_pixel_ood) and not(no_pixel_ood):
+      self.auc.update_state(label, ood_score, sample_weight=sample_weight)
 
   def gather_metrics(self):
     auc_state = keras_auc_to_arrays(self.auc)

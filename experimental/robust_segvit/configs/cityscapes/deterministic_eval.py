@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Evaluate segmenter_be model on cityscapes dataset.
+r"""Eval segmenter model trained on cityscapes dataset.
 
 """
 # pylint: enable=line-too-long
@@ -27,20 +27,20 @@ _CITYSCAPES_TRAIN_SIZE = 2975
 _CITYSCAPES_TRAIN_SIZE_SPLIT = 146
 
 # Model specs.
-CHECKPOINT_ORIGIN = 'ub'
 VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
 target_size = (768, 768)
-EXPERIMENTID = '45338505-1'
+
+
+CHECKPOINT_ORIGIN = 'ub'
+EXPERIMENTID = '45337813-1'
 
 # Upstream
 CHECKPOINT_PATHS = {
-    ('ub', 'L', 16, None, 'token', '43838585-16'):
-        'gs://ub-ekb/checkpoints_to_upload/cityscapes/43838585-16',
-    ('ub', 'L', 16, None, 'token', '45338505-1'):
-        'gs://ub-checkpoints/45338505-cityscapes_segmenter_be/1',
+    ('ub', 'L', 16, None, 'token', '45337813-1'):
+        'gs://ub-checkpoints/45337813-cityscapes_segmenter_pretrained/1',
 }
 
 
@@ -65,7 +65,7 @@ def get_config(runlocal=''):
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'cityscapes_segmenter_be_eval'
+  config.experiment_name = 'cityscapes_segmenter_eval'
 
   # Dataset.
   config.dataset_name = 'cityscapes'
@@ -82,7 +82,7 @@ def get_config(runlocal=''):
   config.model.patches.size = (STRIDE, STRIDE)
 
   config.model.backbone = ml_collections.ConfigDict()
-  config.model.backbone.type = 'vit_be'
+  config.model.backbone.type = 'vit'
   config.model.backbone.mlp_dim = mlp_dim
   config.model.backbone.num_heads = num_heads
   config.model.backbone.num_layers = num_layers
@@ -93,13 +93,7 @@ def get_config(runlocal=''):
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear_be'
-
-  # BE variables
-  config.model.backbone.ens_size = 3
-  config.model.backbone.random_sign_init = 0.5
-  config.model.backbone.be_layers = (22, 23)
-  config.fast_weight_lr_multiplier = 2.0
+  config.model.decoder.type = 'linear'
 
   # Training.
   config.trainer_name = 'segvit_trainer'
@@ -162,6 +156,7 @@ def get_config(runlocal=''):
   config.checkpoint_configs.checkpoint_path = CHECKPOINT_PATH
   config.checkpoint_configs.classifier = 'token'
 
+
   # wandb.ai configurations.
   config.use_wandb = False
   config.wandb_dir = 'wandb'
@@ -218,35 +213,16 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
     raise NotImplementedError('')
 
   overwrites.append(
-      hyper.sweep('config.checkpoint_configs.checkpoint_format',
+      hyper.sweep('config.pretrained_backbone_configs.checkpoint_format',
                   [backbone_origin]))
   overwrites.append(
-      hyper.sweep('config.checkpoint_configs.checkpoint_path', [
+      hyper.sweep('config.pretrained_backbone_configs.checkpoint_path', [
           CHECKPOINT_PATHS[(backbone_origin, vit_size, stride, resnet_size,
-                            classifier, upstream_task)]
+                       classifier, upstream_task)]
       ]))
 
   return hyper.product(overwrites)
 
 
 def get_sweep(hyper):
-  """Defines the parameters used to compare multiple metrics during eval."""
-
-  checkpoints = hyper.chainit([
-      checkpoint(hyper, 'ub', 'L', 16, None, 'token', '43838585-16'),
-  ])
-
-  metric_msp = hyper.fixed(
-      'config.eval_robustness_configs.method_name', 'msp', length=1)
-
-  metric_topk = hyper.product([
-      hyper.sweep('config.eval_robustness_configs.method_name',
-                  ['sum_topklogit', '1-sum_topklogit']),
-      hyper.sweep('config.eval_robustness_configs.num_top_k',
-                  [1, 2, 3, 4, 5, 10, 15]),
-  ])
-
-  metric_types = hyper.chainit([metric_msp, metric_topk])
-
-  return hyper.product(
-      [checkpoints, metric_types])
+  return hyper.product([])

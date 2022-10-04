@@ -165,6 +165,7 @@ def get_config(runlocal=''):
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
   config.model.input_shape = target_size
+  config.eval_configs.store_logits = False
 
   # Eval parameters for robustness
   config.eval_label_shift = True

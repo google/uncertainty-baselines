@@ -16,7 +16,7 @@ parameters:
     value: ${{entity}}
   config.batch_size:
     value: 16
-  config.store_logits:
+  config.eval_configs.store_logits:
     value: false
 
 

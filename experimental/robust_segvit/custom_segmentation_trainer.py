@@ -168,7 +168,7 @@ def evaluate(train_state: train_utils.TrainState,
   store_logits = config.eval_configs.get('store_logits', False)
 
   if store_logits:
-    store_logits_fname = os.path.join(workdir, prefix, "logits", "val.h5py")
+    store_logits_fname = os.path.join(workdir, "{}_{}_val.h5py".format(prefix,"logits"))
     f = h5py.File(store_logits_fname, 'w', libver='latest')
     f.swmr_mode = True  # single write multi-read
     input_shape = dataset.meta_data['input_shape'][1:3]
@@ -283,7 +283,7 @@ def evaluate_ood(
   store_logits = config.eval_configs.get('store_logits', False)
 
   if store_logits:
-    store_logits_fname = os.path.join(workdir, prefix, "logits", "val.h5py")
+    store_logits_fname = os.path.join(workdir, "{}_{}_val.h5py".format(prefix,"logits"))
     f = h5py.File(store_logits_fname, 'w', libver='latest')
     f.swmr_mode = True  # single write multi-read
     input_shape = dataset.meta_data['input_shape'][1:3]

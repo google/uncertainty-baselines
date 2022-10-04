@@ -1,0 +1,36 @@
+name: cityscapes_het_eval
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.use_wandb:
+    value: true
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+  config.batch_size:
+    value: 16
+  config.store_logits:
+    value: false
+
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "configs/cityscapes/het_eval.py"
+  - "--output_dir"
+  - "gs://ub-ekb/segmenter/cityscapes/het_eval"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

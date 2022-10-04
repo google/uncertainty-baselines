@@ -20,8 +20,8 @@ r"""Eval segmenter model on ade20k_ind.
 # pylint: enable=line-too-long
 
 import ml_collections
-import datetime
 import os
+import datetime
 
 _CITYSCAPES_FINE_TRAIN_SIZE = 2975
 _CITYSCAPES_COARSE_TRAIN_SIZE = 19998
@@ -39,24 +39,24 @@ TRAIN_SIZES = {
 }
 
 # Model specs.
-CHECKPOINT_ORIGIN = 'ub'
 VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
-EXPERIMENTID = '45349725-1'
-
 target_size = (640, 640)
 
+CHECKPOINT_ORIGIN = 'ub'
+EXPERIMENTID='45350699-1'
 # Upstream
 CHECKPOINT_PATHS = {
-    ('ub', 'L', 16, None, 'token', '45349725-1'):
-        'gs://ub-checkpoints/45349725-ade20k_ind_segmenter_be/1',
+    ('ub', 'L', 16, None, 'token', '45350699-1'):
+        'gs://ub-checkpoints/45350699-ade20k_ind_segmenter_gp/1',
 }
 
 
 CHECKPOINT_PATH = CHECKPOINT_PATHS[(CHECKPOINT_ORIGIN, VIT_SIZE, STRIDE,
                                     RESNET_SIZE, CLASSIFIER, EXPERIMENTID)]
+
 
 if VIT_SIZE == 'B':
   mlp_dim = 3072
@@ -78,7 +78,7 @@ def get_config(runlocal=''):
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'ade20k_ind_be_eval'
+  config.experiment_name = 'ade20k_ind_segmenter_gp_eval'
 
   # Dataset.
   config.dataset_name = 'robust_segvit_segmentation'
@@ -101,7 +101,7 @@ def get_config(runlocal=''):
   config.model.patches.size = (STRIDE, STRIDE)
 
   config.model.backbone = ml_collections.ConfigDict()
-  config.model.backbone.type = 'vit_be'
+  config.model.backbone.type = 'vit'
   config.model.backbone.mlp_dim = mlp_dim
   config.model.backbone.num_heads = num_heads
   config.model.backbone.num_layers = num_layers
@@ -112,13 +112,20 @@ def get_config(runlocal=''):
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear_be'
+  config.model.decoder.type = 'gp'
 
-  # BE variables
-  config.model.backbone.ens_size = 3
-  config.model.backbone.random_sign_init = -0.5
-  config.model.backbone.be_layers = (22, 23)
-  config.fast_weight_lr_multiplier = 1.0
+  # GP layer params
+  config.model.decoder.gp_layer = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs.ridge_penalty = 1.
+  # Disable momentum in order to use exact covariance update for finetuning.
+  # Disable to allow exact cov update.
+  config.model.decoder.gp_layer.covmat_kwargs.momentum = 0.99
+  config.model.decoder.mean_field_factor = 1.
+  # Additional params
+  config.model.decoder.gp_layer.normalize_input = True
+  config.model.decoder.gp_layer.hidden_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.hidden_kwargs.feature_scale = 1.
 
   # Training.
   config.trainer_name = 'segvit_trainer'
@@ -194,12 +201,14 @@ def get_config(runlocal=''):
   if runlocal:
     config.count_flops = False
     config.dataset_configs.train_target_size = (128, 128)
+    config.model.input_shape = config.dataset_configs.train_target_size
     config.batch_size = 8
     config.num_training_epochs = 5
     config.warmup_steps = 0
     config.dataset_configs.train_split = f'train[:{TRAIN_SAMPLES}]'
     config.dataset_configs.validation_split = f'validation[:{TRAIN_SAMPLES}]'
     config.num_train_examples = TRAIN_SAMPLES
+
   return config
 
 
@@ -229,35 +238,17 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
     raise NotImplementedError('')
 
   overwrites.append(
-      hyper.sweep('config.checkpoint_configs.checkpoint_format',
+      hyper.sweep('config.pretrained_backbone_configs.checkpoint_format',
                   [backbone_origin]))
   overwrites.append(
-      hyper.sweep('config.checkpoint_configs.checkpoint_path', [
+      hyper.sweep('config.pretrained_backbone_configs.checkpoint_path', [
           CHECKPOINT_PATHS[(backbone_origin, vit_size, stride, resnet_size,
-                            classifier, upstream_task)]
+                       classifier, upstream_task)]
       ]))
 
   return hyper.product(overwrites)
 
 
 def get_sweep(hyper):
-  """Defines the parameters used to compare multiple metrics during eval."""
+  return hyper.product([])
 
-  checkpoints = hyper.chainit([
-      checkpoint(hyper, 'ub', 'L', 16, None, 'token', '43838358-2'),
-  ])
-
-  metric_msp = hyper.fixed(
-      'config.eval_robustness_configs.method_name', 'msp', length=1)
-
-  metric_topk = hyper.product([
-      hyper.sweep('config.eval_robustness_configs.method_name',
-                  ['sum_topklogit', '1-sum_topklogit']),
-      hyper.sweep('config.eval_robustness_configs.num_top_k',
-                  [1, 2, 3, 4, 5, 10, 15]),
-  ])
-
-  metric_types = hyper.chainit([metric_msp, metric_topk])
-
-  return hyper.product(
-      [checkpoints, metric_types])

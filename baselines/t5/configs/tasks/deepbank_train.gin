@@ -21,7 +21,7 @@ from t5x import utils
 # Register necessary SeqIO Tasks/Mixtures.
 import data.mixtures  # local file import from baselines.t5
 
-MIXTURE_OR_TASK_NAME = 'deepbank_1.1'
+MIXTURE_OR_TASK_NAME = 'deepbank_1.1_train'
 
 # Configure a binary classification model.
 # Note on targets: for classification, only one target token (class ID) is needed.

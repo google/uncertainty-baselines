@@ -18,7 +18,10 @@ parameters:
     value: 16
   config.eval_configs.store_logits:
     value: false
-
+  config.eval_covariate_shift:
+    value: false
+  config.eval_robustness_configs.method_name:
+    value: 'msp'
 
 
 command:

@@ -37,8 +37,6 @@ EXPERIMENTID = '45338505-1'
 
 # Upstream
 CHECKPOINT_PATHS = {
-    ('ub', 'L', 16, None, 'token', '43838585-16'):
-        'gs://ub-ekb/checkpoints_to_upload/cityscapes/43838585-16',
     ('ub', 'L', 16, None, 'token', '45338505-1'):
         'gs://ub-checkpoints/45338505-cityscapes_segmenter_be/1',
 }

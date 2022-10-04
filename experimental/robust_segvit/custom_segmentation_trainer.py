@@ -322,9 +322,14 @@ def evaluate_ood(
 
       ood_score = get_ood_score(e_logits, **kwargs)
 
-      auc_roc.update_state(
+      # skip images where all the pixels are ood or there are no ood pixels
+      all_pixel_ood = jnp.sum(e_batch['label'] * e_batch['batch_mask']) == 1
+      no_pixel_ood = jnp.sum(e_batch['label'] * e_batch['batch_mask']) == 0
+
+      if not (all_pixel_ood) and not (no_pixel_ood):
+        auc_roc.update_state(
           e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
-      auc_pr.update_state(
+        auc_pr.update_state(
           e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
 
     if store_logits:

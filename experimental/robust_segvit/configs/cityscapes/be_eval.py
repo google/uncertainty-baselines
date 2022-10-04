@@ -153,6 +153,12 @@ def get_config(runlocal=''):
   config.eval_robustness_configs.method_name = 'msp'
   config.eval_robustness_configs.num_top_k = 5
 
+  # Load checkpoint
+  config.checkpoint_configs = ml_collections.ConfigDict()
+  config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
+  config.checkpoint_configs.checkpoint_path = CHECKPOINT_PATH
+  config.checkpoint_configs.classifier = 'token'
+
   if runlocal:
     config.count_flops = False
     config.target_size = (128, 128)
@@ -162,12 +168,6 @@ def get_config(runlocal=''):
     config.dataset_configs.train_split = 'train[:5%]'
     config.steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.get_ref(
         'batch_size')
-  else:
-    # Load checkpoint
-    config.checkpoint_configs = ml_collections.ConfigDict()
-    config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
-    config.checkpoint_configs.checkpoint_path = CHECKPOINT_PATH
-    config.checkpoint_configs.classifier = 'token'
 
   return config
 

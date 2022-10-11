@@ -77,8 +77,10 @@ t5_heteroscedastic.TransformerHeteroscedastic:
 # Decoding override to write Top-K beams and scores to output.
 NUM_DECODES = 5
 RETURN_ALL_DECODES = False
+RETURN_SCORES = False
 heteroscedastic_models.EncoderDecoderHeteroscedasticBeamScoreModel.predict_batch_with_aux.num_decodes = %NUM_DECODES
 heteroscedastic_models.EncoderDecoderHeteroscedasticBeamScoreModel.predict_batch_with_aux.return_all_decodes = %RETURN_ALL_DECODES
+heteroscedastic_models.EncoderDecoderHeteroscedasticBeamScoreModel.predict_batch.return_scores = %RETURN_SCORES
 
 # Set beam search parameters.
 RETURN_TOKEN_SCORES = True

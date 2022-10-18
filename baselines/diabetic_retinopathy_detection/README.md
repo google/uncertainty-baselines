@@ -184,6 +184,11 @@ Ensemble evaluation, where each ensemble is formed by sampling without replaceme
 python baselines/diabetic_retinopathy_detection/eval_model.py --checkpoint_bucket='bucket-name' --output_bucket='results-bucket-name' --dr_decision_threshold='moderate' --model_type='deterministic' --k_ensemble_members=3 --ensemble_sampling_repetitions=6
 ```
 
+**Details on `eval_model.py` flags**
+
+`single_model_multi_train_seeds` will evaluate a single model with multiple train random seeds instead of multiple evaluation seeds. The particular evaluation seed you choose should be specified with parameter `seed`. If you enable this option, all checkpoints in the checkpoint directory will be loaded, and you will iterate through them, averaging performance metrics across the single models.
+On the other hand, if you wish to evaluate ensembles (i.e., average predictions, produce ensemble-based uncertainty estimates), our procedure is to construct ensembles by randomly sampling (without replacement) model checkpoints from a checkpoint directory. `k_ensemble_members` specifies the size of each ensemble, i.e., the number of models to sample without replacement in each repetition. `ensemble_sampling_repetitions` specifies the number of iterations in which we sample and evaluate an ensemble composed of a subset of all checkpoints.
+
 ## Plot ROC and Selective Prediction Curves
 
 Now we can generate the same ROC and selective prediction plots as appear in the paper (e.g., if you have run the above training and evaluation for many different Bayesian deep learning methods).

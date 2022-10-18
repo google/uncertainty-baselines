@@ -140,7 +140,6 @@ def mixup(batch_size, aug_params, images, labels):
     aug_params: Dict of data augmentation hyper parameters.
     images: A batch of images of shape [batch_size, ...]
     labels: A batch of labels of shape [batch_size, num_classes]
-
   Returns:
     A tuple of (images, labels) with the same dimensions as the input with
     Mixup regularization applied.
@@ -192,15 +191,16 @@ def mixup(batch_size, aug_params, images, labels):
     labels = tf.reshape(
         tf.tile(labels, [1, aug_count + 1]), [batch_size, aug_count + 1, -1])
     labels_mix = (
-        labels * mix_weight +
-        tf.gather(labels, mixup_index) * (1. - mix_weight))
+        labels * mix_weight + tf.gather(labels, mixup_index) *
+        (1. - mix_weight))
     labels_mix = tf.reshape(
         tf.transpose(labels_mix, [1, 0, 2]), [batch_size * (aug_count + 1), -1])
   else:
     labels_mix = (
-        labels * mix_weight +
-        tf.gather(labels, mixup_index) * (1. - mix_weight))
-  return images_mix, labels_mix
+        labels * mix_weight + tf.gather(labels, mixup_index) *
+        (1. - mix_weight))
+
+return images_mix, labels_mix
 
 
 def adaptive_mixup(batch_size, aug_params, images, labels):
@@ -215,7 +215,6 @@ def adaptive_mixup(batch_size, aug_params, images, labels):
     aug_params: Dict of data augmentation hyper parameters.
     images: A batch of images of shape [batch_size, ...]
     labels: A batch of labels of shape [batch_size, num_classes]
-
   Returns:
     A tuple of (images, labels) with the same dimensions as the input with
     Mixup regularization applied.
@@ -229,8 +228,8 @@ def adaptive_mixup(batch_size, aug_params, images, labels):
   # Need to filter out elements in alpha which equal to 0.
   greater_zero_indicator = tf.cast(alpha > 0, alpha.dtype)
   less_one_indicator = tf.cast(alpha < 1, alpha.dtype)
-  valid_alpha_indicator = tf.cast(
-      greater_zero_indicator * less_one_indicator, tf.bool)
+  valid_alpha_indicator = tf.cast(greater_zero_indicator * less_one_indicator,
+                                  tf.bool)
   sampled_alpha = tf.where(valid_alpha_indicator, alpha, 0.1)
   mix_weight = tfd.Beta(sampled_alpha, sampled_alpha).sample()
   mix_weight = tf.where(valid_alpha_indicator, mix_weight, alpha)
@@ -253,4 +252,5 @@ def adaptive_mixup(batch_size, aug_params, images, labels):
   images_mix = (
       images * images_mix_weight + images[::-1] * (1. - images_mix_weight))
   labels_mix = labels * mix_weight + labels[::-1] * (1. - mix_weight)
-  return images_mix, labels_mix
+
+return images_mix, labels_mix

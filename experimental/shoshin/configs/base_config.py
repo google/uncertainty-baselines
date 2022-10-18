@@ -49,13 +49,13 @@ def get_data_config():
   config.num_classes = 2
   config.batch_size = 64
   # Number of slices into which train and val will be split.
-  config.num_splits = 5
+  config.num_splits = 100
   # Ratio of splits that will be considered out-of-distribution from each
   # combination, e.g. when num_splits == 5 and ood_ratio == 0.4, 2 out 5
   # slices will be excluded for every combination of training data.
   config.ood_ratio = 0.4
-  # Indices of data splits to include in training. All by default.
-  config.included_splits_idx = (0, 1, 2, 3, 4)
+  # Indices of data splits to include in training.
+  config.split_id = 0
   # Subgroup IDs. Specify them in an experiment config. For example, for
   # Waterbirds, the subgroup IDs might be ('0_1', '1_0') for landbirds on water
   # and waterbirds on land, respectively.
@@ -64,6 +64,13 @@ def get_data_config():
   # Waterbirds, the subgroup proportions might be (0.05, 0.05), meaning each
   # subgroup will represent 5% of the dataset.
   config.subgroup_proportions = ()
+  config.split_seed = 0
+  config.initial_sample_seed = 0
+  config.split_proportion = 1.0
+
+  # Leave one out training
+  config.loo_id = ''
+  config.loo_training = False
 
   # Proportion of training set to sample initially. Rest is considered the pool
   # for active sampling.
@@ -150,6 +157,9 @@ def get_config() -> ml_collections.ConfigDict:
 
   # Round of acitve sampling being performed
   config.round_idx = -1
+
+  # Keep predictions of individual models
+  config.keep_individual_predictions = True
 
   # Whether to generate bias table (from stage one models) or prediction table
   #    (from stage two models)

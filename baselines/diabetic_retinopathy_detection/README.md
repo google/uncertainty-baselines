@@ -91,9 +91,22 @@ dataset_test_builder = ub.datasets.get(
 dataset_test_builder._dataset_builder.download_and_prepare(download_dir=f'{data_dir}/downloads/')
 ```
 
-We can also construct the Severity Shift train and evaluation sets, by substituting "ub_diabetic_retinopathy_detection" with "diabetic_retinopathy_severity_shift_mild", and using splits "train" and "test". Severity Shift depends on precisely the same data as the original Diabetic Retinopathy dataset, so we do not need to go back to step 1.
+**Install / Download for Severity and Country Shifts**
+
+Severity Shift depends on precisely the same data as the original Diabetic Retinopathy dataset, so we do not need to go back to step 1.
+
+We can package the Severity Shift splits into TF objects by substituting "ub_diabetic_retinopathy_detection" with "diabetic_retinopathy_severity_shift_mild", and using the following arguments for `split`:
+ ```
+train
+in_domain_validation
+ood_validation
+in_domain_test
+ood_test
+```
 
 On the other hand, to download the (much smaller) APTOS dataset, we do need to repeat steps from step 1, downloading from https://www.kaggle.com/c/aptos2019-blindness-detection. Note that APTOS only includes "validation" and "test" splits.
+
+**Additional Splits for Exploration**
 
 There are several additional splits available for experimenting with other partitions of the severity levels into binary classification, and with other preprocessing configurations. 
 See the following files for details on available splits:

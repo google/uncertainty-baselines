@@ -97,10 +97,17 @@ def main(_) -> None:
   logging.info('Running Round %d of Training.', config.round_idx)
   if config.round_idx == 0:
     # If initial round of sampling, sample randomly initial_sample_proportion
-    dataloader = dataset_builder(config.data.num_splits,
-                                 config.data.initial_sample_proportion,
-                                 config.data.subgroup_ids,
-                                 config.data.subgroup_proportions)
+    dataloader = dataset_builder(
+        config.data.num_splits,
+        config.data.initial_sample_proportion,
+        config.data.subgroup_ids,
+        config.data.subgroup_proportions,
+        initial_sample_seed=config.data.initial_sample_seed,
+        split_seed=config.data.split_seed,
+        split_proportion=config.data.split_proportion,
+        loo_training=config.data.loo_training,
+        loo_id=config.data.loo_id,
+    )
   else:
     # If latter round, keep track of split generated in last round of active
     #   sampling
@@ -127,17 +134,14 @@ def main(_) -> None:
       logging.info(
           'Error: Bias table not found')
       return
-  # Training a single model on a combination of data splits.
-  included_splits_idx = [int(i) for i in config.data.included_splits_idx]
-  train_ds = data.gather_data_splits(included_splits_idx,
-                                     dataloader.train_splits)
-  val_ds = data.gather_data_splits(included_splits_idx,
-                                   dataloader.val_splits)
+  # Training a single model on a specific
+  train_ds = dataloader.train_splits[int(config.data.split_id)]
+  val_ds = dataloader.val_splits[int(config.data.split_id)]
   dataloader.train_ds = train_ds
   dataloader.eval_ds['val'] = val_ds
   experiment_name = 'stage_2' if config.train_bias else 'stage_1'
 
-  _ = train_tf_lib.train_and_evaluate(
+  model = train_tf_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,
       dataloader=dataloader,
       model_params=model_params,
@@ -149,6 +153,9 @@ def main(_) -> None:
       early_stopping=config.training.early_stopping,
       ensemble_dir=FLAGS.ensemble_dir,
       example_id_to_bias_table=example_id_to_bias_table)
+
+  if config.keep_individual_predictions:
+    train_tf_lib.create_predictions_table(model, dataloader, output_dir)
 
 
 if __name__ == '__main__':

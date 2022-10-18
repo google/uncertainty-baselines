@@ -25,8 +25,9 @@ and the label is specific to the main task.
 import dataclasses
 import json
 import os
-from typing import Any, Dict, Iterator, Optional, Tuple, List, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
+import pandas as pd
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -71,8 +72,8 @@ def get_dataset(name: str):
 
 @dataclasses.dataclass
 class Dataloader:
-  train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
-  val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
+  train_splits: List[tf.data.Dataset]  # Result of tfds.load with 'split' arg.
+  val_splits: List[tf.data.Dataset]  # Result of tfds.load with 'split' arg.
   train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
   train_sample_ds: Optional[tf.data.Dataset] = None  # Subsample of train set.
   eval_ds: Optional[Dict[
@@ -118,6 +119,15 @@ def get_train_ids(dataloader: Dataloader):
   for ids in ids_train_list:
     ids_train += ids.tolist()
   return ids_train
+
+
+def filter_ids_fn(hash_table, value=1):
+  # Filter dataset based on whether ids take a certain value in hash table.
+
+  def filter_fn(feats, label, example_ids):
+    del feats, label
+    return hash_table.lookup(example_ids) == value
+  return filter_fn
 
 
 class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
@@ -455,7 +465,12 @@ def get_waterbirds_dataset(
     initial_sample_proportion: float,
     subgroup_ids: List[str],
     subgroup_proportions: List[float],
+    split_proportion: Optional[float] = 0.7,
+    initial_sample_seed: Optional[int] = 0,
+    split_seed: Optional[int] = 0,
     is_training: Optional[bool] = True,
+    loo_training: Optional[bool] = False,
+    loo_id: Optional[str] = None,
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -466,41 +481,135 @@ def get_waterbirds_dataset(
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
+    split_proportion: Relative size of each split
+    initial_sample_seed: Seed used for supsampling from org dataset
+    split_seed: Seed used to sample the splits
     is_training: Dataset used for evaluation (in this case as_supervised is
       set to True in the val/test)
+    loo_training: Train splits with only a single sample removed
+    loo_id: the id of the removed sample
 
   Returns:
     A tuple containing the split training data, split validation data, the
     combined training dataset, and a dictionary mapping evaluation dataset names
     to their respective combined datasets.
   """
-  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
-  reduced_datset_sz = int(100 * initial_sample_proportion)
+
+  meta_data_df = pd.read_csv(_WATERBIRDS_METADATA_DIR)
+  reduced_datset_sz = int(
+      (meta_data_df['split'] == 0).sum() * initial_sample_proportion)
+
   builder_kwargs = {
       'subgroup_ids': subgroup_ids,
       'subgroup_proportions': subgroup_proportions
   }
-  val_splits = tfds.load(
-      'waterbirds_dataset',
-      split=[
-          f'validation[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, reduced_datset_sz, split_size_in_pct)
-      ],
-      data_dir=DATA_DIR,
-      builder_kwargs=builder_kwargs,
-      try_gcs=False,
-      as_supervised=is_training)
 
-  train_splits = tfds.load(
+  train_ds = tfds.load(
       'waterbirds_dataset',
-      split=[
-          f'train[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, reduced_datset_sz, split_size_in_pct)
-      ],
+      split='train',
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=is_training)
+      as_supervised=True,
+      with_info=False)
+
+  def create_ids_table(meta_data_df,
+                       initial_sample_size,
+                       initial_sample_seed,
+                       split_proportion,
+                       num_splits,
+                       split_seed,
+                       train=True) -> List[tf.lookup.StaticHashTable]:
+    """Creates static hash tables representing ids in each file in ids_dir for each split."""
+    ids_tables = []
+    meta_data_df = meta_data_df[meta_data_df['split'] == 0]  # Get trainset
+    ids = meta_data_df['img_filename']
+    subset_ids = ids.sample(
+        n=initial_sample_size, random_state=initial_sample_seed)
+    # ids_dir is populated by the sample_and_split_ids function above
+    for split_num in range(num_splits):
+      ids_i = subset_ids.sample(
+          frac=split_proportion, random_state=split_num + split_seed)
+      if not train:
+        ids_i = subset_ids[~subset_ids.isin(ids_i)]
+        if split_proportion >= 1:
+          # If the split is the entire subsample we use the
+          # remaining data as validation, only needed for loo training.
+          ids_i = ids[~ids.isin(subset_ids)]
+      keys = tf.convert_to_tensor(ids_i, dtype=tf.string)
+      values = tf.ones(shape=keys.shape, dtype=tf.int64)
+      init = tf.lookup.KeyValueTensorInitializer(
+          keys=keys,
+          values=values,
+          key_dtype=tf.string,
+          value_dtype=tf.int64)
+      ids_tables.append(tf.lookup.StaticHashTable(init, default_value=0))
+    return ids_tables
+
+  def create_loo_ids_table(meta_data_df,
+                           initial_sample_size,
+                           initial_sample_seed,
+                           loo_id,
+                           num_splits,
+                           train=True) -> List[tf.lookup.StaticHashTable]:
+    """Creates static hash table representing ids in each file in ids_dir with all ids except loo_id."""
+    ids_tables = []
+    meta_data_df = meta_data_df[meta_data_df['split'] == 0]  # Get trainset
+    ids = meta_data_df['img_filename']
+    subset_ids = ids.sample(
+        n=initial_sample_size, random_state=initial_sample_seed)
+    # ids_dir is populated by the sample_and_split_ids function above
+    ids_i = subset_ids[subset_ids != loo_id]
+    if not train:
+      ids_i = subset_ids[~subset_ids.isin(ids_i)]
+    keys = tf.convert_to_tensor(ids_i, dtype=tf.string)
+    values = tf.ones(shape=keys.shape, dtype=tf.int64)
+    init = tf.lookup.KeyValueTensorInitializer(
+        keys=keys, values=values, key_dtype=tf.string, value_dtype=tf.int64)
+    ids_tables = [
+        tf.lookup.StaticHashTable(init, default_value=0)
+        for split_num in range(num_splits)
+    ]
+    return ids_tables
+
+  if loo_training:
+    train_ids = create_loo_ids_table(
+        meta_data_df,
+        initial_sample_size=reduced_datset_sz,
+        initial_sample_seed=0,
+        loo_id=loo_id,
+        num_splits=num_splits,
+        train=True)
+    val_ids = create_loo_ids_table(
+        meta_data_df,
+        initial_sample_size=reduced_datset_sz,
+        initial_sample_seed=0,
+        loo_id=loo_id,
+        num_splits=num_splits,
+        train=False)
+  else:
+    train_ids = create_ids_table(
+        meta_data_df,
+        initial_sample_size=reduced_datset_sz,
+        initial_sample_seed=initial_sample_seed,
+        split_proportion=split_proportion,
+        num_splits=num_splits,
+        split_seed=split_seed,
+        train=True)
+    val_ids = create_ids_table(
+        meta_data_df,
+        initial_sample_size=reduced_datset_sz,
+        initial_sample_seed=initial_sample_seed,
+        split_proportion=split_proportion,
+        num_splits=num_splits,
+        split_seed=split_seed,
+        train=False)
+
+  train_splits = [
+      train_ds.filter(filter_ids_fn(ids_tab)) for ids_tab in train_ids
+  ]
+
+  val_splits = [train_ds.filter(filter_ids_fn(ids_tab)) for ids_tab in val_ids]
 
   train_sample = tfds.load(
       'waterbirds_dataset',
@@ -520,8 +629,15 @@ def get_waterbirds_dataset(
       as_supervised=is_training,
       with_info=False)
 
-  train_ds = gather_data_splits(list(range(num_splits)), train_splits)
-  val_ds = gather_data_splits(list(range(num_splits)), val_splits)
+  val_ds = tfds.load(
+      'waterbirds_dataset',
+      split='validation',
+      data_dir=DATA_DIR,
+      builder_kwargs=builder_kwargs,
+      try_gcs=False,
+      as_supervised=is_training,
+      with_info=False)
+
   eval_datasets = {
       'val': val_ds,
       'test': test_ds,

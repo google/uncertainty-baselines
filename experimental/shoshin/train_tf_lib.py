@@ -27,6 +27,7 @@ from typing import Dict, List, Optional
 
 from absl import logging
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 import data  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
@@ -535,3 +536,40 @@ def train_and_evaluate(
         example_id_to_bias_table=example_id_to_bias_table)
     evaluate_model(two_head_model, checkpoint_dir, dataloader.eval_ds)
     return two_head_model
+
+
+def create_predictions_table(model, dataloader, save_dir, save_table=True):
+  """Generates a lookup table mapping example ID and training set membership to prediction.
+
+  Args:
+    model: Trained model
+    dataloader: Dataclass object containing training and validation data.
+    save_dir: Directory in which predictions table will be saved as CSV.
+    save_table: Boolean for whether or not to save table.
+  Returns:
+    A pandas dataframe mapping example ID topredictions and group membership.
+  """
+
+  table_name = 'predictions_table'
+  dfs = []
+  for is_train, ds  in enumerate([dataloader.eval_ds['val'],
+                                  dataloader.train_ds]):
+    labels = list(
+        ds.map(
+            lambda feats, label, example_id: label).as_numpy_iterator())
+    labels = np.concatenate(labels)
+    predictions = model.predict(ds)
+    example_ids = list(ds.map(
+        lambda feats, label, example_id: example_id).as_numpy_iterator())
+    example_ids = np.concatenate(example_ids)
+    in_train = is_train*np.ones_like(example_ids)
+    dict_values = {'example_id': example_ids}
+    dict_values['in_train'] = in_train
+    dict_values['predictions_label'] = predictions['main'][..., 1]
+    dfs.append(pd.DataFrame(dict_values))
+  df = pd.concat(dfs)
+  if save_table:
+    df.to_csv(os.path.join(save_dir, table_name + '.csv'), index=False)
+  return df
+
+

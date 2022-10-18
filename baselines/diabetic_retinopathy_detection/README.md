@@ -22,7 +22,7 @@ Models are trained with images of blood vessels in the eye, as seen in the [Tens
 
 Bayesian deep learning seeks to equip deep neural networks with the ability to precisely quantify their predictive uncertainty, and has promised to make deep learning more reliable for safety-critical real-world applications. Yet, existing Bayesian deep learning methods fall short of this promise; new methods continue to be evaluated on unrealistic test beds that do not reflect the complexities of downstream real-world tasks that would benefit most from reliable uncertainty quantification. We propose a set of real-world tasks that accurately reflect such complexities and are designed to assess the reliability of predictive models in safety-critical scenarios. Specifically, we curate two publicly available datasets of high-resolution human retina images exhibiting varying degrees of diabetic retinopathy, a medical condition that can lead to blindness, and use them to design a suite of automated diagnosis tasks that require reliable predictive uncertainty quantification. We use these tasks to benchmark well-established and state-of-the-art Bayesian deep learning methods on task-specific evaluation metrics. We provide an easy-to-use codebase for fast and easy benchmarking following reproducibility and software design principles. We provide implementations of all methods included in the benchmark as well as results computed over 100 TPU days, 20 GPU days, 400 hyperparameter configurations, and evaluation on at least 6 random seeds each.
 
-## Installation
+## Environment Installation
 
 Set up and activate the Python environment by executing
 
@@ -33,6 +33,74 @@ python3 -m pip install -e .[models,jax,tensorflow,torch,retinopathy]  # In uncer
 pip install "git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics"
 pip install 'git+https://github.com/google/edward2.git'
 ```
+
+## Data Installation
+
+Because the data is distributed through Kaggle, we need to take a manual route to downloading.
+
+1. Download from Kaggle: https://www.kaggle.com/c/diabetic-retinopathy-detection
+
+2. Extract everything to ``$DATA_DIR/downloads/manual``; your directory should look like
+
+``sample/  sampleSubmission.csv  test/  train/  trainLabels.csv``
+
+3. Confirm successful download of files
+
+You should have 35,126 training images and 53,576 test images, which should be located in manual/train and manual/test.
+
+You may check this with the command 
+
+`ls -1 | wc -l`
+
+4. Manual loading -- this is not contained in standard execution of diabetic-retinopathy model execution (yet)
+
+I suggest doing this loading in a `screen` session, in case it fails -- it takes a while. 
+
+I suggest doing this in an ipython shell!
+
+``$ ipython``
+
+**Train loading:**
+
+First, we initialize a DiabeticRetinopathyDetectionDataset object.
+
+```
+import uncertainty_baselines as ub
+
+data_dir = $DATA_DIR
+
+dataset_train_builder = ub.datasets.get(
+    "ub_diabetic_retinopathy_detection",
+    split='train',
+    data_dir=data_dir, download_data=True)
+```
+
+We then need to shuffle and package our data into TF objects:
+
+```
+dataset_train_builder._dataset_builder.download_and_prepare(download_dir=f'{data_dir}/downloads/')
+```
+
+Rinse and repeat for test data:
+
+```
+dataset_test_builder = ub.datasets.get(
+    "ub_diabetic_retinopathy_detection",
+    split='test',
+    data_dir=data_dir, download_data=True)
+dataset_test_builder._dataset_builder.download_and_prepare(download_dir=f'{data_dir}/downloads/')
+```
+
+We can also construct the Severity Shift train and evaluation sets, by substituting "ub_diabetic_retinopathy_detection" with "diabetic_retinopathy_severity_shift_mild", and using splits "train" and "test". Severity Shift depends on precisely the same data as the original Diabetic Retinopathy dataset, so we do not need to go back to step 1.
+
+On the other hand, to download the (much smaller) APTOS dataset, we do need to repeat steps from step 1, downloading from https://www.kaggle.com/c/aptos2019-blindness-detection. Note that APTOS only includes "validation" and "test" splits.
+
+There are several additional splits available for experimenting with other partitions of the severity levels into binary classification, and with other preprocessing configurations. 
+See the following files for details on available splits:
+*  [uncertainty_baselines/datasets/diabetic_retinopathy_detection.py](uncertainty_baselines/datasets/diabetic_retinopathy_detection.py): standard EyePACS dataset
+*  [uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_mild.py](uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_mild.py): Severity Shift with the binary decision threshold between no and mild DR, and {moderate, severe, proliferative} DR as out-of-distribution
+*  [uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_moderate.py](uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_moderate.py): Severity Shift with the binary decision threshold between mild and moderate DR, and {severe, proliferative} DR as out-of-distribution
+*  [uncertainty_baselines/datasets/aptos.py](uncertainty_baselines/datasets/aptos.py): APTOS distributionally shifted evaluation dataset, partitioned into "validation" and "test" splits
 
 ## Tuning Scripts
 

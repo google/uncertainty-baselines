@@ -213,7 +213,7 @@ class ModifiedResNet(nn.Module):
       self.attnpool = AttentionPool(
           self.num_heads, self.out_features, name='attnpool')
 
-  def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+  def __call__(self, x: jnp.ndarray, return_feature_map=False) -> jnp.ndarray:
 
     def stem(x):
       for conv, bn in [(self.conv1, self.bn1), (self.conv2, self.bn2),
@@ -231,7 +231,10 @@ class ModifiedResNet(nn.Module):
     if self.out_features is not None:
       x = self.attnpool(x)
 
-    return x, feature_map
+    if return_feature_map:
+      return x, feature_map
+    else:
+      return x
 
 
 class MLP(nn.Module):

@@ -276,7 +276,7 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         features=tfds.features.FeaturesDict({
             'example_id': tfds.features.Text(),
             'subgroup_id': tfds.features.Text(),
-            'subgroup_label': tfds.features.ClassLabel(num_classes=2),
+            'subgroup_label': tfds.features.ClassLabel(num_classes=4),
             'feature': tfds.features.Image(shape=(224, 224, 3)),
             'label': tfds.features.ClassLabel(num_classes=2),
             'place': tfds.features.ClassLabel(num_classes=2),
@@ -314,10 +314,33 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
       A preprocessed image `Tensor`.
     """
     image = self._decode_and_center_crop(image_bytes)
-    image = tf.image.random_flip_left_right(image)
+    # No data augmentation, like in JTT paper.
+    # image = tf.image.random_flip_left_right(image)
     image = tf.image.resize([image], [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE],
                             method='nearest')[0]
     return image
+
+  def _get_subgroup_label(self, label: tf.Tensor,
+                          place: tf.Tensor) -> tf.Tensor:
+    """Determines subgroup label for given combination of label and place.
+
+    0 for landbirds on land, 1 for waterbirds on water, 2 for landbirds
+    on water, and 3 for waterbirds on land.
+
+    Args:
+      label: Class label (waterbird or landbird).
+      place: Place label (water or land).
+
+    Returns:
+      TF Tensor containing subgroup label (integer).
+    """
+    if tf.math.equal(label, place):
+      return label
+    else:
+      if tf.math.equal(label, 1):  # and place == 0, so waterbird on land
+        return tf.constant(2, dtype=tf.int32)
+      else:
+        return tf.constant(3, dtype=tf.int32)
 
   def _dataset_parser(self, value):
     """Parse a Waterbirds record from a serialized string Tensor."""
@@ -336,8 +359,22 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     place = tf.cast(parsed['image/class/place'], dtype=tf.int32)
     image_filename = tf.cast(parsed['image/filename/raw'], dtype=tf.string)
     place_filename = tf.cast(parsed['image/filename/places'], dtype=tf.string)
+    subgroup_id = tf.strings.join(
+        [tf.strings.as_string(label),
+         tf.strings.as_string(place)],
+        separator='_')
+    subgroup_label = self._get_subgroup_label(label, place)
 
-    return image, label, place, image_filename, place_filename
+    return image_filename, {
+        'example_id': image_filename,
+        'label': label,
+        'place': place,
+        'feature': image,
+        'image_filename': image_filename,
+        'place_filename': place_filename,
+        'subgroup_id': subgroup_id,
+        'subgroup_label': subgroup_label
+    }
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     """Download the data and define splits."""
@@ -397,13 +434,12 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
       remaining_proportion = 1.
       for idx, subgroup_id in enumerate(self.subgroup_ids):
 
-        def filter_fn_subgroup(image, label, place, image_filename,
-                               place_filename):
-          _ = image, image_filename, place_filename
+        def filter_fn_subgroup(image_filename, feats):
+          _ = image_filename
           return tf.math.equal(
               tf.strings.join(
-                  [tf.strings.as_string(label),
-                   tf.strings.as_string(place)],
+                  [tf.strings.as_string(feats['label']),
+                   tf.strings.as_string(feats['place'])],
                   separator='_'), subgroup_id)  # pylint: disable=cell-var-from-loop
 
         subgroup_dataset = dataset.filter(filter_fn_subgroup)
@@ -413,14 +449,13 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         sampled_datasets.append(subgroup_dataset)
         remaining_proportion -= self.subgroup_proportions[idx]
 
-      def filter_fn_remaining(image, label, place, image_filename,
-                              place_filename):
-        _ = image, image_filename, place_filename
+      def filter_fn_remaining(image_filename, feats):
+        _ = image_filename
         return tf.reduce_all(
             tf.math.not_equal(
                 tf.strings.join(
-                    [tf.strings.as_string(label),
-                     tf.strings.as_string(place)],
+                    [tf.strings.as_string(feats['label']),
+                     tf.strings.as_string(feats['place'])],
                     separator='_'), self.subgroup_ids))
 
       remaining_dataset = dataset.filter(filter_fn_remaining)
@@ -433,20 +468,7 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         dataset = dataset.concatenate(ds)
       dataset = dataset.shuffle(dataset_size)
 
-    for example in dataset:
-      image, label, place, image_filename, place_filename = example
-      subgroup_id = str(label.numpy()) + '_' + str(place.numpy())
-      subgroup_label = 1 if subgroup_id in self.subgroup_ids else 0
-      yield image_filename.numpy(), {
-          'example_id': image_filename.numpy(),
-          'subgroup_id': subgroup_id,
-          'subgroup_label': subgroup_label,
-          'feature': image.numpy(),
-          'label': label.numpy(),
-          'place': place.numpy(),
-          'image_filename': image_filename.numpy(),
-          'place_filename': place_filename.numpy(),
-      }
+    return dataset.as_numpy_iterator()
 
 
 @register_dataset('waterbirds')

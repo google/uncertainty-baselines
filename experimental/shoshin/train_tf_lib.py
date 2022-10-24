@@ -270,7 +270,7 @@ def create_callbacks(
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(
         monitor='val_main_auc',
         min_delta=0.001,
-        patience=3,
+        patience=30,
         verbose=1,
         mode='max',
         baseline=None,

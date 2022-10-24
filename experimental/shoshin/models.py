@@ -54,8 +54,8 @@ class ModelTrainingParameters:
   train_bias: bool
   num_classes: int
   num_epochs: int
-  optimizer: str = 'adam'
-  learning_rate: float = 1e-4
+  optimizer: str = 'sgd'
+  learning_rate: float = 1e-5
   hidden_sizes: Optional[List[int]] = None
   do_reweighting: Optional[bool] = False
   reweighting_signal: Optional[str] = 'bias'
@@ -120,13 +120,25 @@ class ResNet(tf.keras.Model):
         pooling='avg'
         # TODO(jihyeonlee): Consider making pooling method a flag.
     )
+
+    regularizer = tf.keras.regularizers.L2(l2=1.)
+    for layer in self.resnet_model.layers:
+      layer.trainable = True
+      if hasattr(layer, 'kernel_regularizer'):
+        setattr(layer, 'kernel_regularizer', regularizer)
+
     self.output_main = tf.keras.layers.Dense(
-        model_params.num_classes, activation='softmax', name='main')
+        2,
+        activation='softmax',
+        name='main',
+        kernel_regularizer=regularizer)
+
     self.output_bias = tf.keras.layers.Dense(
         model_params.num_classes,
         trainable=model_params.train_bias,
         activation='softmax',
-        name='bias')
+        name='bias',
+        kernel_regularizer=regularizer)
 
   def call(self, inputs):
     x = self.resnet_model(inputs)

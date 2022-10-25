@@ -53,6 +53,7 @@ class ModelTrainingParameters:
   model_name: str
   train_bias: bool
   num_classes: int
+  num_subgroups: int
   num_epochs: int
   optimizer: str = 'sgd'
   learning_rate: float = 1e-5

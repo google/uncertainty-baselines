@@ -37,6 +37,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
 
   def __init__(self,
                model: tf.keras.Model,
+               num_subgroups: int,
                train_bias: bool,
                name: str,
                do_reweighting: Optional[bool] = False,
@@ -56,6 +57,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
         self.error_percentile_threshold = error_percentile_threshold
 
     self.model = model
+    self.num_subgroups = num_subgroups
+    if self.num_subgroups > 1:
+      self.avg_acc = tf.keras.metrics.Mean(name='avg_acc')
+      self.avg_auc = tf.keras.metrics.Mean(name='avg_auc')
 
   def call(self, inputs):
     return self.model(inputs)
@@ -63,8 +68,32 @@ class TwoHeadedOutputModel(tf.keras.Model):
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table
 
+  def _compute_average_metrics(self,
+                               metrics) -> Dict[str, tf.keras.metrics.Metric]:
+    """Computes metrics as average of all subgroups."""
+    accs = []
+    aucs = []
+    for m in metrics:
+      if 'subgroup' in m.name and 'main' in m.name:
+        if 'acc' in m.name:
+          accs.append(m.result())
+        elif 'auc' in m.name:
+          aucs.append(m.result())
+    self.avg_acc.reset_state()
+    self.avg_auc.reset_state()
+    self.avg_acc.update_state(accs)
+    self.avg_auc.update_state(aucs)
+    return {
+        self.avg_acc.name: self.avg_acc.result(),
+        self.avg_auc.name: self.avg_auc.result()
+    }
+
   def train_step(self, inputs):
-    features, labels, example_ids = inputs
+    features = inputs['feature']
+    labels = inputs['label']
+    example_ids = inputs['example_id']
+    subgroup_labels = inputs['subgroup_label']
+
     y_true_main = tf.one_hot(labels, depth=2)
 
     with tf.GradientTape() as tape:
@@ -110,12 +139,30 @@ class TwoHeadedOutputModel(tf.keras.Model):
     self.optimizer.apply_gradients(
         zip(gradients, self.model.trainable_variables))
 
+    for i in range(self.num_subgroups):
+      subgroup_idx = tf.where(tf.math.equal(subgroup_labels, i))
+      subgroup_pred = tf.gather(y_pred['main'], subgroup_idx, axis=0)
+
+      subgroup_true = tf.gather(y_true['main'], subgroup_idx, axis=0)
+      y_true['_'.join(['subgroup', str(i), 'main'])] = subgroup_true
+      y_pred['_'.join(['subgroup', str(i), 'main'])] = subgroup_pred
+      if self.train_bias:
+        subgroup_pred = tf.gather(y_pred['bias'], subgroup_idx, axis=0)
+        subgroup_true = tf.gather(y_true['bias'], subgroup_idx, axis=0)
+        y_true['_'.join(['subgroup', str(i), 'bias'])] = subgroup_true
+        y_pred['_'.join(['subgroup', str(i), 'bias'])] = subgroup_pred
+
     self.compiled_metrics.update_state(y_true, y_pred)
     results = {m.name: m.result() for m in self.metrics}
+    results.update(self._compute_average_metrics(self.metrics))
+
     return results
 
   def test_step(self, inputs):
-    features, labels, example_ids = inputs
+    features = inputs['feature']
+    labels = inputs['label']
+    example_ids = inputs['example_id']
+    subgroup_labels = inputs['subgroup_label']
     y_true_main = tf.one_hot(labels, depth=2)
     y_pred = self(features, training=False)
 
@@ -130,9 +177,21 @@ class TwoHeadedOutputModel(tf.keras.Model):
         'main': y_true_main,
         'bias': y_true_bias
     }
+    for i in range(self.num_subgroups):
+      subgroup_idx = tf.where(tf.math.equal(subgroup_labels, i))
+      subgroup_pred = tf.gather(y_pred['main'], subgroup_idx, axis=0)
+      subgroup_true = tf.gather(y_true['main'], subgroup_idx, axis=0)
+      y_true['_'.join(['subgroup', str(i), 'main'])] = subgroup_true
+      y_pred['_'.join(['subgroup', str(i), 'main'])] = subgroup_pred
+      if self.train_bias:
+        subgroup_pred = tf.gather(y_pred['bias'], subgroup_idx, axis=0)
+        subgroup_true = tf.gather(y_true['bias'], subgroup_idx, axis=0)
+        y_true['_'.join(['subgroup', str(i), 'bias'])] = subgroup_true
+        y_pred['_'.join(['subgroup', str(i), 'bias'])] = subgroup_pred
 
     self.compiled_metrics.update_state(y_true, y_pred)
     results = {m.name: m.result() for m in self.metrics}
+    results.update(self._compute_average_metrics(self.metrics))
     return results
 
 
@@ -157,6 +216,30 @@ def compile_model(model: tf.keras.Model,
   else:  # sgd
     optimizer = tf.keras.optimizers.SGD(
         learning_rate=model_params.learning_rate, momentum=0.9)
+  metrics = {
+      'main': [
+          tf.keras.metrics.CategoricalAccuracy(name='acc'),
+          tf.keras.metrics.AUC(name='auc')
+      ],
+      'bias': [
+          tf.keras.metrics.CategoricalAccuracy(name='acc'),
+          tf.keras.metrics.AUC(name='auc')
+      ]
+  }
+  for i in range(model_params.num_subgroups):
+    metrics.update({
+        '_'.join(['subgroup', str(i), 'main']): [
+            tf.keras.metrics.CategoricalAccuracy(name='acc'),
+            tf.keras.metrics.AUC(name='auc')
+        ]
+    })
+    if model.train_bias:
+      metrics.update({
+          '_'.join(['subgroup', str(i), 'bias']): [
+              tf.keras.metrics.CategoricalAccuracy(name='acc'),
+              tf.keras.metrics.AUC(name='auc')
+          ]
+      })
   model.compile(
       optimizer=optimizer,
       loss={
@@ -167,16 +250,7 @@ def compile_model(model: tf.keras.Model,
           'main': 1,
           'bias': 1 if model.train_bias else 0
       },
-      metrics={
-          'main': [
-              tf.keras.metrics.CategoricalAccuracy(name='acc'),
-              tf.keras.metrics.AUC(name='auc')
-          ],
-          'bias': [
-              tf.keras.metrics.CategoricalAccuracy(name='acc'),
-              tf.keras.metrics.AUC(name='auc')
-          ]
-      },
+      metrics=metrics,
       weighted_metrics=[])
   return model
 
@@ -195,13 +269,22 @@ def evaluate_model(model: tf.keras.Model,
   load_status = model.load_weights(best_latest_checkpoint)
   load_status.assert_consumed()
   for ds_name in eval_ds.keys():
-    result = model.evaluate(
+    results = model.evaluate(
         eval_ds[ds_name], return_dict=True)
     logging.info('Evaluation Dataset Name: %s', ds_name)
-    logging.info('Main Acc: %f', result['main_acc'])
-    logging.info('Main AUC: %f', result['main_auc'])
-    logging.info('Bias Acc: %f', result['bias_acc'])
-    logging.info('Bias Acc: %f', result['bias_auc'])
+    logging.info('Main Acc: %f', results['main_acc'])
+    logging.info('Main AUC: %f', results['main_auc'])
+    if model.train_bias:
+      logging.info('Bias Acc: %f', results['bias_acc'])
+      logging.info('Bias Acc: %f', results['bias_auc'])
+    if model.num_subgroups > 0:
+      for i in range(model.num_subgroups):
+        logging.info('Subgroup %d Acc: %f', i,
+                     results[f'subgroup_{i}_main_acc'])
+        logging.info('Subgroup %d AUC: %f', i,
+                     results[f'subgroup_{i}_main_auc'])
+      logging.info('Average Acc: %f', results['avg_acc'])
+      logging.info('Average AUC: %f', results['avg_auc'])
 
 
 def init_model(
@@ -224,6 +307,7 @@ def init_model(
 
   two_head_model = TwoHeadedOutputModel(
       model=base_model,
+      num_subgroups=model_params.num_subgroups,
       train_bias=model_params.train_bias,
       name=experiment_name,
       do_reweighting=model_params.do_reweighting,

@@ -58,19 +58,17 @@ def main(_) -> None:
 
   config = FLAGS.config
   base_config.check_flags(config)
-
+  combos_dir = os.path.join(config.output_dir,
+                            generate_bias_table_lib.COMBOS_SUBDIR)
   model_params = models.ModelTrainingParameters(
       model_name=config.model.name,
       train_bias=config.train_bias,
       num_classes=config.data.num_classes,
+      num_subgroups=0,
       num_epochs=config.training.num_epochs,
       learning_rate=config.optimizer.learning_rate,
       hidden_sizes=config.model.hidden_sizes,
   )
-  combos_dir = os.path.join(config.output_dir,
-                            generate_bias_table_lib.COMBOS_SUBDIR)
-  trained_models = train_tf_lib.load_trained_models(
-      combos_dir, model_params)
 
   dataset_builder = data.get_dataset(config.data.name)
   if config.generate_bias_table:
@@ -89,6 +87,10 @@ def main(_) -> None:
               generate_bias_table_lib.filter_ids_fn(ids_tab)) for
           ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
     dataloader = data.apply_batch(dataloader, config.data.batch_size)
+    model_params.num_subgroups = dataloader.num_subgroups
+    trained_models = train_tf_lib.load_trained_models(
+        combos_dir, model_params)
+
     _ = generate_bias_table_lib.get_example_id_to_bias_label_table(
         dataloader=dataloader,
         combos_dir=combos_dir,
@@ -103,6 +105,9 @@ def main(_) -> None:
         config.data.num_splits, 1, config.data.subgroup_ids,
         config.data.subgroup_proportions)
     dataloader = data.apply_batch(dataloader, config.data.batch_size)
+    model_params.num_subgroups = dataloader.num_subgroups
+    trained_models = train_tf_lib.load_trained_models(
+        combos_dir, model_params)
     _ = generate_bias_table_lib.get_example_id_to_predictions_table(
         dataloader=dataloader,
         trained_models=trained_models,

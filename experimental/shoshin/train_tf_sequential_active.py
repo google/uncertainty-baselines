@@ -74,15 +74,6 @@ def main(_) -> None:
 
   logging.info(config)
 
-  model_params = models.ModelTrainingParameters(
-      model_name=config.model.name,
-      train_bias=config.train_bias,
-      num_classes=config.data.num_classes,
-      num_epochs=config.training.num_epochs,
-      learning_rate=config.optimizer.learning_rate,
-      hidden_sizes=config.model.hidden_sizes,
-  )
-
   output_dir = config.output_dir
   ids_dir = ''
   # Train only the main task without a bias head or rounds of active learning.
@@ -119,6 +110,15 @@ def main(_) -> None:
       ]
     # Apply batching (must apply batching only after filtering)
     dataloader = data.apply_batch(dataloader, config.data.batch_size)
+    model_params = models.ModelTrainingParameters(
+        model_name=config.model.name,
+        train_bias=config.train_bias,
+        num_classes=config.data.num_classes,
+        num_subgroups=dataloader.num_subgroups,
+        num_epochs=config.training.num_epochs,
+        learning_rate=config.optimizer.learning_rate,
+        hidden_sizes=config.model.hidden_sizes,
+    )
     if not config.train_single_model:
       output_dir = os.path.join(config.output_dir, f'round_{round_idx}')
       ids_dir = os.path.join(output_dir, 'ids')

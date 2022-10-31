@@ -75,7 +75,7 @@ def get_data_config():
 def get_training_config():
   """Get training config."""
   config = ml_collections.ConfigDict()
-  config.num_epochs = 10
+  config.num_epochs = 300
   config.save_model_checkpoints = True
   # TODO(jihyeonlee): Allow user to specify early stopping patience.
   # When True, stops training when val AUC does not improve after 3 epochs.
@@ -143,7 +143,7 @@ def get_config() -> ml_collections.ConfigDict:
   # When True, trains the stage 2 model (stage 1 is calculating bias table)
   # as an ensemble of models. When True and only a single model is being
   # trained, trains that model as an ensemble.
-  config.train_stage_2_as_ensemble = False
+  config.train_stage_2_as_ensemble = True
 
   # Combo index to train
   config.combo_index = 0

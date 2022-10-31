@@ -38,7 +38,6 @@ MIN_TEMPERATURE = t5x_decoding.MIN_TEMPERATURE
 
 # Imports symbols for data classes.
 DecodingState = t5x_decoding.DecodingState
-SamplingLoopState = t5x_decoding.SamplingLoopState
 
 # Imports symbols for helper functions.
 brevity_penalty = t5x_decoding.brevity_penalty
@@ -57,6 +56,39 @@ _dynamic_update_vector_slice_in_dim = t5x_decoding._dynamic_update_vector_slice_
 #------------------------------------------------------------------------------
 # Temperature Sampling
 #------------------------------------------------------------------------------
+
+
+@flax.struct.dataclass
+class SamplingLoopState:
+  """Holds sampling state data.
+
+  This data class is identical to `t5x_decoding.SamplingLoopState`, except for
+  also including a `token_log_prob_no_temp` field that contains no-temperature
+  token-level probabilities.
+
+  Attributes:
+    cur_index: [batch_size] array position of the sampling loop in the length
+      dimension.
+    sequences: [batch_size * num_decodes, max_decode_len] array of current
+      sampled sequence prefixes.
+    cache: any mapping of arrays, e.g. flax attention cache.
+    cur_token: [batch_size, num_decodes] single timestep slice containing
+      current tokens.
+    ended: [batch_size, num_decodes] binary array marking completed sequences.
+    rng: Jax PRNGKey
+    log_prob: [batch_size, num_decodes] array of log probs for each sequence.
+    token_log_prob_no_temp: [batch_size * num_decodes, max_decode_len] array of
+      no-temperature token-level log probs for each sequence.
+  """
+  cur_index: jnp.ndarray
+  sequences: jnp.ndarray
+  cache: Mapping[str, jnp.ndarray]
+  cur_token: jnp.ndarray
+  ended: jnp.ndarray
+  rng: jnp.ndarray
+  log_prob: jnp.ndarray
+  # Allows the loop state to carry token-level probabilities.
+  token_log_prob_no_temp: jnp.ndarray
 
 
 def temperature_sample(
@@ -78,9 +110,14 @@ def temperature_sample(
     state_callback_fn: Optional[Callable[[SamplingLoopState],
                                          SamplingLoopState]] = None,
     logit_callback_fn: Optional[Callable[[jnp.ndarray, SamplingLoopState],
-                                         jnp.ndarray]] = None
+                                         jnp.ndarray]] = None,
+    return_token_scores: bool = False
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-  """Temperature sampling for language model generation.
+  """Temperature sampling with token-level probability outputs.
+
+  This function is identical to `t5x_decoding.temperature_sample`, except that
+  it supports returning token-level, no-temperature log probability in its
+  decodes (controlled by the argument `return_token_scores`).
 
   Args:
     inputs: array: [batch_size, max_decode_len] int32 sequence of tokens.
@@ -123,11 +160,16 @@ def temperature_sample(
       sampling step. The function should take arguments (logits, state) and it
       should return the modified logits. See `decoding_test.py` for an example
       usage.
+    return_token_scores: Whether to return no-temperature token-level
+      log probability scores instead of the sequence-level scores.
 
   Returns:
     A tuple (decodes, log_prob) where `decodes` is sampled sequences with shape
-    [batch_size, num_decodes, max_decode_len] sorted by `log_prob`, which is log
-    probability of each of the sampled sequences.
+    [batch_size, num_decodes, max_decode_len] sorted by sequence-level log
+    probability. `log_prob` is [batch_size, num_decodes] log probability of each
+    of the sampled sequences (if `return_token_scores=False`), or the
+    [batch_size, num_decodes, max_decode_len] log probability of each of the
+    token in the sampled sequences (if `return_token_scores=True`).
   """
   if decode_rng is None:
     decode_rng = jax.random.PRNGKey(0)
@@ -154,38 +196,59 @@ def temperature_sample(
     expanded_inputs = inputs
     expanded_cache = cache
 
+  # NB: This is the main place we differ from the original function:
+  # the `_temperature_sample_single_trial` returns token-level log_prob
+  # (shape [batch * num_decodes, len]) rather than sequence-level log_prob
+  # (shape [batch * num_decodes]).
   # expanded_decodes: [batch * num_decodes, len]
   # expanded_log_prob: [batch * num_decodes]
-  expanded_decodes, expanded_log_prob = _temperature_sample_single_trial(
-      expanded_inputs,
-      expanded_cache,
-      tokens_to_logits,
-      eos_id,
-      decode_rng,
-      temperature,
-      topk,
-      topp,
-      initial_index=initial_index,
-      max_decode_steps=max_decode_steps,
-      rescale_log_probs=rescale_log_probs,
-      state_callback_fn=state_callback_fn,
-      logit_callback_fn=logit_callback_fn)
+  # expanded_token_log_prob_no_temp: [batch * num_decodes, len]
+  (expanded_decodes, expanded_log_prob,
+   expanded_token_log_prob_no_temp) = _temperature_sample_single_trial(
+       expanded_inputs,
+       expanded_cache,
+       tokens_to_logits,
+       eos_id,
+       decode_rng,
+       temperature,
+       topk,
+       topp,
+       initial_index=initial_index,
+       max_decode_steps=max_decode_steps,
+       rescale_log_probs=rescale_log_probs,
+       state_callback_fn=state_callback_fn,
+       logit_callback_fn=logit_callback_fn)
 
   batch_size = inputs.shape[0]
   # [batch * num_decodes, len] -> [batch, num_decodes, len]
   decodes = unflatten_beam_dim(expanded_decodes, batch_size, num_decodes)
   # [batch * num_decodes] -> [batch, num_decodes]
   log_prob = unflatten_beam_dim(expanded_log_prob, batch_size, num_decodes)
+  # [batch * num_decodes, len] -> [batch, num_decodes, len]
+  token_log_prob_no_temp = unflatten_beam_dim(
+      expanded_token_log_prob_no_temp, batch_size, num_decodes)
 
   # Sort `decodes` and `log_prob` by increasing log probabilities of the sampled
   # sequence.
   # [batch, num_decodes, 1]
   idxs = jnp.expand_dims(jnp.argsort(log_prob, axis=-1), axis=-1)
 
-  # returns [batch, num_decodes, len], [batch, num_decodes] in sorted order.
-  return jnp.take_along_axis(
-      decodes, idxs, axis=1), jnp.take_along_axis(
-          log_prob, jnp.squeeze(idxs, axis=-1), axis=-1)
+  # returns sorted result.
+  # [batch, num_decodes, len]
+  decodes_sorted = jnp.take_along_axis(decodes, idxs, axis=1)
+
+  # NB: This is the second place we differ from original function:
+  # We allow model to return token-level score if `return_token_scores=True`.
+  if return_token_scores:
+    # [batch, num_decodes, len]
+    log_prob_sorted = jnp.take_along_axis(
+        token_log_prob_no_temp, idxs, axis=1)
+  else:
+    # [batch, num_decodes]
+    log_prob_sorted = jnp.take_along_axis(
+        log_prob, jnp.squeeze(idxs, axis=-1), axis=-1)
+
+  return decodes_sorted, log_prob_sorted
 
 
 def _temperature_sample_single_trial(
@@ -206,8 +269,7 @@ def _temperature_sample_single_trial(
     logit_callback_fn: Optional[Callable[[jnp.ndarray, SamplingLoopState],
                                          jnp.ndarray]] = None
 ) -> jnp.ndarray:
-  """A helper function for `temperature_sample`."""
-
+  """A helper function for `temperature_sample` with token-level probs."""
   # We can check the values of topp and topk only if they are not dynamic.
   if not _is_tracer(topp) and topp and topk:
     raise ValueError('At most one of `topp` or `topk` may be non-zero.')
@@ -272,8 +334,12 @@ def _temperature_sample_single_trial(
   # as well as the generated output of newly sampled tokens.
   sequences0 = expanded_prompt_inputs
   log_prob0 = jnp.zeros((batch_size,), dtype=jnp.float32)
+  # NB: This is the first place we differ from the original:
+  # by adding an all-zero token_log_prob0 to the initialization.
+  token_log_prob0 = jnp.zeros((batch_size, max_decode_len), dtype=jnp.float32)
   sampling_loop_init_state = SamplingLoopState(i0, sequences0, cache, token0,
-                                               ended0, rng0, log_prob0)
+                                               ended0, rng0, log_prob0,
+                                               token_log_prob0)
   # Initial eos count to be used to determine whether eos is "generated". Many
   # inputs follow the format bos, inputs..., eos, targets..., eos. By counting
   # the number of eos tokens we can detect when a new one is added, instead of
@@ -329,15 +395,27 @@ def _temperature_sample_single_trial(
         log_probs = jax.nn.log_softmax(scaled_logits)
       else:
         log_probs = jax.nn.log_softmax(logits)
+
       # [batch, vocab] -> [batch]
       next_log_prob = jnp.squeeze(
           jnp.take_along_axis(
               log_probs, jnp.expand_dims(next_token, axis=1), axis=-1),
           axis=-1)
 
-      return (next_token, next_log_prob)
+      # NB: This is the second place we differ from the original:
+      # Appends no-temperature version of `next_log_prob`.
+      # The logic is similar to above block.
+      # [batch, vocab] -> [batch, vocab].
+      log_probs_no_temp = jax.nn.log_softmax(logits)
+      # [batch, vocab] -> [batch].
+      next_log_prob_no_temp = jnp.squeeze(
+          jnp.take_along_axis(
+              log_probs_no_temp,
+              jnp.expand_dims(next_token, axis=1), axis=-1), axis=-1)
 
-    def sample_logits_with_zero_temperature(logits):
+      return (next_token, next_log_prob, next_log_prob_no_temp)
+
+    def sample_logits_with_no_temperature(logits):
       # For zero temperature, we always want the greedy output, regardless
       # of the values of topk and topp.
 
@@ -352,13 +430,18 @@ def _temperature_sample_single_trial(
                 log_probs, jnp.expand_dims(next_token, axis=1), axis=-1),
             axis=-1)
 
-      return (next_token, next_log_prob)
+      # NB: This is the 3rd place we differ from the original:
+      # Appends no-temperature version of `next_log_prob`, so the signature is
+      # consistent with `sample_logits_with_nonzero_temperature`.
+      next_log_prob_no_temp = next_log_prob.copy()
+      return (next_token, next_log_prob, next_log_prob_no_temp)
 
     # Perform sampling with temperature
-    (next_token,
-     next_log_prob) = lax.cond(temperature > MIN_TEMPERATURE,
-                               sample_logits_with_nonzero_temperature,
-                               sample_logits_with_zero_temperature, logits)
+    (next_token, next_log_prob,
+     next_log_prob_no_temp) = lax.cond(temperature > MIN_TEMPERATURE,
+                                       sample_logits_with_nonzero_temperature,
+                                       sample_logits_with_no_temperature,
+                                       logits)
 
     # When different batch elements are at different points in the loop counter,
     # it is possible that an element that started at a higher index will reach
@@ -385,6 +468,16 @@ def _temperature_sample_single_trial(
     # [batch]
     next_token = (
         next_token * out_of_prompt + next_input_token * ~out_of_prompt)
+
+    # NB: This is the 4th place we differ from the original:
+    # by appending new no-temperature `next_log_prob` to the
+    # `next_token_log_prob`. Only add probability if outside prefix region.
+    # [batch, len] -> [batch, len]
+    next_log_prob_to_append = (
+        next_log_prob_no_temp * out_of_prompt) * jnp.squeeze(
+            ~state.ended, axis=-1).astype(jnp.int32)
+    next_token_log_prob_no_temp = (
+        state.token_log_prob_no_temp.at[:, i].set(next_log_prob_to_append))
 
     # only add probability if outside prefix region
     # [batch] -> [batch]
@@ -422,8 +515,11 @@ def _temperature_sample_single_trial(
     ended = state.ended | has_additional_eos | jnp.expand_dims(
         i >= max_decode_len - 1, axis=1)
 
+    # NB: This is the 5th place we differ from the original:
+    # Added `next_token_log_prob` to the `SamplingLoopState`.
     return SamplingLoopState(i + 1, new_sequences, new_cache,
-                             next_token_or_endpad, ended, rng2, next_log_prob)
+                             next_token_or_endpad, ended, rng2,
+                             next_log_prob, next_token_log_prob_no_temp)
 
   # Run sampling loop and collect final state.
   final_state = lax.while_loop(sampling_loop_cond_fn, sampling_loop_body_fn,
@@ -432,9 +528,12 @@ def _temperature_sample_single_trial(
   # Pick part of the state corresponding to the sampled sequences.
   final_sequences = final_state.sequences
   log_prob = final_state.log_prob
+  # NB: This is the last place we differ from the original:
+  # we also return the `token_log_prob`.
+  token_log_prob = final_state.token_log_prob_no_temp
   # Drop the first position because they are dummy bos tokens. Drop the new
   # garbage collection token at the end too.
-  return final_sequences[:, 1:-1], log_prob
+  return final_sequences[:, 1:-1], log_prob, token_log_prob
 
 
 #------------------------------------------------------------------------------

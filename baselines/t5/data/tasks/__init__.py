@@ -15,6 +15,3 @@
 
 """Register all tasks."""
 
-import data.tasks.mnli  # local file import from baselines.t5
-import data.tasks.nalue  # local file import from baselines.t5
-import data.tasks.toxic_comments  # local file import from baselines.t5

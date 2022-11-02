@@ -79,8 +79,9 @@ t5_gp.TransformerGaussianProcess:
 EVAL_DROPOUT_SEED = None
 EVAL_NUM_MCDROPOUT_SAMPLES = None
 ENSEMBLE_PROBS = True
-NUM_DECODES = 1
+NUM_DECODES = 5
 RETURN_ALL_DECODES = False
+RETURN_SCORES = False
 
 gp_models.EncoderDecoderGPBeamScoreModel.score_batch:
   dropout_seed = %EVAL_DROPOUT_SEED
@@ -91,6 +92,7 @@ gp_models.EncoderDecoderGPBeamScoreModel.predict_batch:
   dropout_seed = %EVAL_DROPOUT_SEED
   num_mcdropout_samples = %EVAL_NUM_MCDROPOUT_SAMPLES
   ensemble_probs = %ENSEMBLE_PROBS
+  return_scores = %RETURN_SCORES
 
 gp_models.EncoderDecoderGPBeamScoreModel.predict_batch_with_aux:
   num_decodes = %NUM_DECODES

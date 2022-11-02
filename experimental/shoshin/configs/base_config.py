@@ -34,9 +34,9 @@ def check_flags(config: ml_collections.ConfigDict):
   if 100 % config.data.num_splits != 0:
     raise ValueError('100 should be divisible by config.data.num_splits ',
                      'because we use TFDS split by percent feature.')
-  if config.bias_percentile_threshold < 0. or config.bias_percentile_threshold > 1.:
+  if config.bias_percentile_threshold < 0 or config.bias_percentile_threshold > 100:
     raise ValueError(
-        'config.bias_percentile_threshold must be between 0. and 1.')
+        'config.bias_percentile_threshold must be between 0 and 100.')
   if config.bias_value_threshold and (config.bias_value_threshold < 0. or
                                       config.bias_value_threshold > 1.):
     raise ValueError('config.bias_value_threshold must be between 0. and 1.')
@@ -75,19 +75,19 @@ def get_data_config():
 def get_training_config():
   """Get training config."""
   config = ml_collections.ConfigDict()
-  config.num_epochs = 10
+  config.num_epochs = 300
   config.save_model_checkpoints = True
   # TODO(jihyeonlee): Allow user to specify early stopping patience.
   # When True, stops training when val AUC does not improve after 3 epochs.
-  config.early_stopping = True
+  config.early_stopping = False
   return config
 
 
 def get_optimizer_config():
   """Get optimizer config."""
   config = ml_collections.ConfigDict()
-  config.learning_rate = 1e-4
-  config.type = 'adam'
+  config.learning_rate = 1e-5
+  config.type = 'sgd'
   return config
 
 
@@ -132,7 +132,7 @@ def get_config() -> ml_collections.ConfigDict:
   config.num_rounds = 4
 
   # Threshold to generate bias labels. Can be specified as percentile or value.
-  config.bias_percentile_threshold = 0.2
+  config.bias_percentile_threshold = 80
   config.bias_value_threshold = None
   config.save_bias_table = True
   # Path to existing bias table to use in training the bias head. If
@@ -143,7 +143,7 @@ def get_config() -> ml_collections.ConfigDict:
   # When True, trains the stage 2 model (stage 1 is calculating bias table)
   # as an ensemble of models. When True and only a single model is being
   # trained, trains that model as an ensemble.
-  config.train_stage_2_as_ensemble = False
+  config.train_stage_2_as_ensemble = True
 
   # Combo index to train
   config.combo_index = 0

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Task-specific configurations for DeepBank training and evaluation.
+# Task-specific configurations for XSum training and evaluation.
 from __gin__ import dynamic_registration
 
 from t5x import checkpoints
@@ -21,20 +21,16 @@ from t5x import utils
 # Register necessary SeqIO Tasks/Mixtures.
 import data.mixtures  # local file import from baselines.t5
 
-MIXTURE_OR_TASK_NAME = 'deepbank_1.1'
+MIXTURE_OR_TASK_NAME = 'cnn_dailymail_v002'
 
 # Configure a binary classification model.
 # Note on targets: for classification, only one target token (class ID) is needed.
-TASK_FEATURE_LENGTHS = {'inputs': 512, 'targets': 512}
+TASK_FEATURE_LENGTHS =  {'inputs': 512, 'targets': 128}
 
 # Disable caching since ub tasks are not cached in the official directory.
 USE_CACHED_TASKS = False
 
 # Adjust checkpoint saving.
-utils.CheckpointConfig:
-  restore = @utils.RestoreCheckpointConfig()
-  save = @utils.SaveCheckpointConfig()  # Set to `None` to skip checkpoint saving during hyperparameter sweeping.
-
 utils.SaveCheckpointConfig:
   period = 10000
   dtype = 'float32'
@@ -43,6 +39,6 @@ utils.SaveCheckpointConfig:
   checkpointer_cls = @checkpoints.SaveBestCheckpointer
 
 checkpoints.SaveBestCheckpointer:
-  metric_name_to_monitor = 'inference_eval/deepbank_1.1/eval/total_smatch'
+  metric_name_to_monitor = 'inference_eval/cnn_dailymail_v002/eval/rouge1'
   metric_mode = 'max'
   keep_checkpoints_without_metrics = False

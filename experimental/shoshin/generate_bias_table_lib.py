@@ -56,7 +56,7 @@ def get_example_id_to_bias_label_table(
     dataloader: data.Dataloader,
     combos_dir: str, trained_models: List[tf.keras.Model],
     num_splits: int,
-    bias_percentile_threshold: float,
+    bias_percentile_threshold: int,
     bias_value_threshold: Optional[float] = None,
     save_dir: Optional[str] = None,
     save_table: Optional[bool] = True
@@ -69,8 +69,10 @@ def get_example_id_to_bias_label_table(
       used in training.
     trained_models: List of trained models.
     num_splits: Total number of slices that data was split into.
-    bias_percentile_threshold: Float representing the percentile of bias
-      values to give a label of 1 (and 0 for all others).
+    bias_percentile_threshold: Integer between 0 and 100  representing the
+      percentile of bias values to give a label of 1 (and 0 for all others).
+      Given a vector V of length N, the q-th percentile of V is the value q/100
+      of the way from the minimum to the maximum in a sorted copy of V.
     bias_value_threshold: Float representing the bias value threshold, above
       which examples will receive a bias label of 1 (and 0 if below). Use
       percentile by default.
@@ -91,15 +93,19 @@ def get_example_id_to_bias_label_table(
     id_predictions_all = []
     ood_predictions_all = []
     labels = list(dataloader.train_splits[split_idx].map(
-        lambda feats, label, example_id: label).as_numpy_iterator())
+        lambda example: example['label']).as_numpy_iterator())
     labels += list(dataloader.val_splits[split_idx].map(
-        lambda feats, label, example_id: label).as_numpy_iterator())
+        lambda example: example['label']).as_numpy_iterator())
     labels = np.concatenate(labels)
     for combo_idx, combo in enumerate(tf.io.gfile.listdir(combos_dir)):
       if str(split_idx) in combo:
         model = trained_models[combo_idx]
-        id_predictions_train = model.predict(dataloader.train_splits[split_idx])
-        id_predictions_val = model.predict(dataloader.val_splits[split_idx])
+        id_predictions_train = model.predict(
+            dataloader.train_splits[split_idx].map(
+                lambda example: example['feature']))
+        id_predictions_val = model.predict(
+            dataloader.val_splits[split_idx].map(
+                lambda example: example['feature']))
         id_predictions = tf.concat(
             [id_predictions_train['main'], id_predictions_val['main']], axis=0)
         id_predictions = tf.gather_nd(
@@ -108,8 +114,11 @@ def get_example_id_to_bias_label_table(
       else:
         model = trained_models[combo_idx]
         ood_predictions_train = model.predict(
-            dataloader.train_splits[split_idx])
-        ood_predictions_val = model.predict(dataloader.val_splits[split_idx])
+            dataloader.train_splits[split_idx].map(
+                lambda example: example['feature']))
+        ood_predictions_val = model.predict(
+            dataloader.val_splits[split_idx].map(
+                lambda example: example['feature']))
         ood_predictions = tf.concat(
             [ood_predictions_train['main'], ood_predictions_val['main']],
             axis=0)
@@ -118,9 +127,9 @@ def get_example_id_to_bias_label_table(
         ood_predictions_all.append(ood_predictions)
 
     example_ids = list(dataloader.train_splits[split_idx].map(
-        lambda feats, label, example_id: example_id).as_numpy_iterator())
+        lambda example: example['example_id']).as_numpy_iterator())
     example_ids += list(dataloader.val_splits[split_idx].map(
-        lambda feats, label, example_id: example_id).as_numpy_iterator())
+        lambda example: example['example_id']).as_numpy_iterator())
     example_ids = np.concatenate(example_ids)
     example_ids_all.append(example_ids)
     id_predictions_avg = np.average(np.stack(id_predictions_all), axis=0)
@@ -190,19 +199,19 @@ def get_example_id_to_predictions_table(
     table_name += '_' + split
   labels = list(
       ds.map(
-          lambda feats, label, example_id: label).as_numpy_iterator())
+          lambda example: example['label']).as_numpy_iterator())
   labels = np.concatenate(labels)
   predictions_all = []
   if has_bias:
     bias_predictions_all = []
   for idx, model in enumerate(trained_models):
     model = trained_models[idx]
-    predictions = model.predict(ds)
+    predictions = model.predict(ds.map(lambda example: example['feature']))
     predictions_all.append(predictions['main'][..., 1])
     if has_bias:
       bias_predictions_all.append(predictions['bias'][..., 1])
   example_ids = list(ds.map(
-      lambda feats, label, example_id: example_id).as_numpy_iterator())
+      lambda example: example['example_id']).as_numpy_iterator())
   example_ids = np.concatenate(example_ids)
   predictions_all = np.stack(predictions_all)
   if has_bias:

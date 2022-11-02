@@ -66,6 +66,7 @@ EVAL_NUM_MCDROPOUT_SAMPLES = None
 ENSEMBLE_PROBS = True
 NUM_DECODES = 1
 RETURN_ALL_DECODES = False
+RETURN_SCORES = False
 
 models.EncoderDecoderBeamScoreModel.score_batch:
   dropout_seed = %EVAL_DROPOUT_SEED
@@ -76,6 +77,7 @@ models.EncoderDecoderBeamScoreModel.predict_batch:
   dropout_seed = %EVAL_DROPOUT_SEED
   num_mcdropout_samples = %EVAL_NUM_MCDROPOUT_SAMPLES
   ensemble_probs = %ENSEMBLE_PROBS
+  return_scores = %RETURN_SCORES
 
 models.EncoderDecoderBeamScoreModel.predict_batch_with_aux:
   num_decodes = %NUM_DECODES

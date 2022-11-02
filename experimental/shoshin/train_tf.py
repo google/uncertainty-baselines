@@ -79,21 +79,6 @@ def main(_) -> None:
     stream_handler = native_logging.StreamHandler(stream)
     logging.get_absl_logger().addHandler(stream_handler)
 
-  model_params = models.ModelTrainingParameters(
-      model_name=config.model.name,
-      train_bias=config.train_bias,
-      num_classes=config.data.num_classes,
-      num_epochs=config.training.num_epochs,
-      optimizer=config.optimizer.type,
-      learning_rate=config.optimizer.learning_rate,
-      hidden_sizes=config.model.hidden_sizes,
-      do_reweighting=config.reweighting.do_reweighting,
-      reweighting_lambda=config.reweighting.lambda_value,
-      reweighting_signal=config.reweighting.signal
-  )
-  model_params.train_bias = config.train_bias
-  output_dir = config.output_dir
-
   logging.info('Running Round %d of Training.', config.round_idx)
   if config.round_idx == 0:
     # If initial round of sampling, sample randomly initial_sample_proportion
@@ -112,6 +97,22 @@ def main(_) -> None:
         dataloader.train_ds.filter(
             generate_bias_table_lib.filter_ids_fn(ids_tab)) for
         ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
+
+  model_params = models.ModelTrainingParameters(
+      model_name=config.model.name,
+      train_bias=config.train_bias,
+      num_classes=config.data.num_classes,
+      num_subgroups=dataloader.num_subgroups,
+      num_epochs=config.training.num_epochs,
+      optimizer=config.optimizer.type,
+      learning_rate=config.optimizer.learning_rate,
+      hidden_sizes=config.model.hidden_sizes,
+      do_reweighting=config.reweighting.do_reweighting,
+      reweighting_lambda=config.reweighting.lambda_value,
+      reweighting_signal=config.reweighting.signal
+  )
+  model_params.train_bias = config.train_bias
+  output_dir = config.output_dir
 
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)

@@ -47,6 +47,9 @@ _WATERBIRDS_VALIDATION_PATTERN = ''
 # Smaller subsample for testing.
 _WATERBIRDS_TRAIN_SAMPLE_PATTERN = ''
 _WATERBIRDS_TEST_PATTERN = ''
+_WATERBIRDS_NUM_SUBGROUP = 4
+# TODO(dvij,martinstrobel): Set Celeb-A number of subgroups.
+_CELEB_A_NUM_SUBGROUP = 2
 
 RESNET_IMAGE_SIZE = 224
 CROP_PADDING = 32
@@ -71,6 +74,7 @@ def get_dataset(name: str):
 
 @dataclasses.dataclass
 class Dataloader:
+  num_subgroups: int  # Number of subgroups in data.
   train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
@@ -242,12 +246,9 @@ def get_cardiotoxicity_dataset(
 
   train_ds = gather_data_splits(list(range(num_splits)), train_splits)
   val_ds = gather_data_splits(list(range(num_splits)), val_splits)
-  eval_datasets = {
-      'val': val_ds,
-      'test': test_ds,
-      'test2': test2_ds
-  }
-  return Dataloader(train_splits, val_splits, train_ds, eval_ds=eval_datasets)
+  eval_datasets = {'val': val_ds, 'test': test_ds, 'test2': test2_ds}
+  return Dataloader(
+      1, train_splits, val_splits, train_ds, eval_ds=eval_datasets)
 
 
 class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
@@ -276,14 +277,13 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         features=tfds.features.FeaturesDict({
             'example_id': tfds.features.Text(),
             'subgroup_id': tfds.features.Text(),
-            'subgroup_label': tfds.features.ClassLabel(num_classes=2),
+            'subgroup_label': tfds.features.ClassLabel(num_classes=4),
             'feature': tfds.features.Image(shape=(224, 224, 3)),
             'label': tfds.features.ClassLabel(num_classes=2),
             'place': tfds.features.ClassLabel(num_classes=2),
             'image_filename': tfds.features.Text(),
             'place_filename': tfds.features.Text(),
         }),
-        supervised_keys=('feature', 'label', 'example_id'),
     )
 
   def _decode_and_center_crop(self, image_bytes: tf.Tensor):
@@ -314,10 +314,33 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
       A preprocessed image `Tensor`.
     """
     image = self._decode_and_center_crop(image_bytes)
-    image = tf.image.random_flip_left_right(image)
+    # No data augmentation, like in JTT paper.
+    # image = tf.image.random_flip_left_right(image)
     image = tf.image.resize([image], [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE],
                             method='nearest')[0]
     return image
+
+  def _get_subgroup_label(self, label: tf.Tensor,
+                          place: tf.Tensor) -> tf.Tensor:
+    """Determines subgroup label for given combination of label and place.
+
+    0 for landbirds on land, 1 for waterbirds on water, 2 for landbirds
+    on water, and 3 for waterbirds on land.
+
+    Args:
+      label: Class label (waterbird or landbird).
+      place: Place label (water or land).
+
+    Returns:
+      TF Tensor containing subgroup label (integer).
+    """
+    if tf.math.equal(label, place):
+      return label
+    else:
+      if tf.math.equal(label, 1):  # and place == 0, so waterbird on land
+        return tf.constant(2, dtype=tf.int32)
+      else:
+        return tf.constant(3, dtype=tf.int32)
 
   def _dataset_parser(self, value):
     """Parse a Waterbirds record from a serialized string Tensor."""
@@ -336,12 +359,25 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     place = tf.cast(parsed['image/class/place'], dtype=tf.int32)
     image_filename = tf.cast(parsed['image/filename/raw'], dtype=tf.string)
     place_filename = tf.cast(parsed['image/filename/places'], dtype=tf.string)
+    subgroup_id = tf.strings.join(
+        [tf.strings.as_string(label),
+         tf.strings.as_string(place)],
+        separator='_')
+    subgroup_label = self._get_subgroup_label(label, place)
 
-    return image, label, place, image_filename, place_filename
+    return image_filename, {
+        'example_id': image_filename,
+        'label': label,
+        'place': place,
+        'feature': image,
+        'image_filename': image_filename,
+        'place_filename': place_filename,
+        'subgroup_id': subgroup_id,
+        'subgroup_label': subgroup_label
+    }
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     """Download the data and define splits."""
-    # _WATERBIRDS_DATA_DIR
     return {
         'train':
             self._generate_examples(
@@ -397,14 +433,9 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
       remaining_proportion = 1.
       for idx, subgroup_id in enumerate(self.subgroup_ids):
 
-        def filter_fn_subgroup(image, label, place, image_filename,
-                               place_filename):
-          _ = image, image_filename, place_filename
-          return tf.math.equal(
-              tf.strings.join(
-                  [tf.strings.as_string(label),
-                   tf.strings.as_string(place)],
-                  separator='_'), subgroup_id)  # pylint: disable=cell-var-from-loop
+        def filter_fn_subgroup(image_filename, feats):
+          _ = image_filename
+          return tf.math.equal(feats['subgroup_id'], subgroup_id)  # pylint: disable=cell-var-from-loop
 
         subgroup_dataset = dataset.filter(filter_fn_subgroup)
         subgroup_sample_size = int(dataset_size *
@@ -413,15 +444,10 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         sampled_datasets.append(subgroup_dataset)
         remaining_proportion -= self.subgroup_proportions[idx]
 
-      def filter_fn_remaining(image, label, place, image_filename,
-                              place_filename):
-        _ = image, image_filename, place_filename
+      def filter_fn_remaining(image_filename, feats):
+        _ = image_filename
         return tf.reduce_all(
-            tf.math.not_equal(
-                tf.strings.join(
-                    [tf.strings.as_string(label),
-                     tf.strings.as_string(place)],
-                    separator='_'), self.subgroup_ids))
+            tf.math.not_equal(feats['subgroup_id'], self.subgroup_ids))
 
       remaining_dataset = dataset.filter(filter_fn_remaining)
       remaining_sample_size = int(dataset_size * remaining_proportion)
@@ -433,20 +459,7 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         dataset = dataset.concatenate(ds)
       dataset = dataset.shuffle(dataset_size)
 
-    for example in dataset:
-      image, label, place, image_filename, place_filename = example
-      subgroup_id = str(label.numpy()) + '_' + str(place.numpy())
-      subgroup_label = 1 if subgroup_id in self.subgroup_ids else 0
-      yield image_filename.numpy(), {
-          'example_id': image_filename.numpy(),
-          'subgroup_id': subgroup_id,
-          'subgroup_label': subgroup_label,
-          'feature': image.numpy(),
-          'label': label.numpy(),
-          'place': place.numpy(),
-          'image_filename': image_filename.numpy(),
-          'place_filename': place_filename.numpy(),
-      }
+    return dataset.as_numpy_iterator()
 
 
 @register_dataset('waterbirds')
@@ -454,8 +467,7 @@ def get_waterbirds_dataset(
     num_splits: int,
     initial_sample_proportion: float,
     subgroup_ids: List[str],
-    subgroup_proportions: List[float],
-    is_training: Optional[bool] = True,
+    subgroup_proportions: List[float]
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -466,8 +478,6 @@ def get_waterbirds_dataset(
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
-    is_training: Dataset used for evaluation (in this case as_supervised is
-      set to True in the val/test)
 
   Returns:
     A tuple containing the split training data, split validation data, the
@@ -488,8 +498,7 @@ def get_waterbirds_dataset(
       ],
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
-      try_gcs=False,
-      as_supervised=is_training)
+      try_gcs=False)
 
   train_splits = tfds.load(
       'waterbirds_dataset',
@@ -499,8 +508,7 @@ def get_waterbirds_dataset(
       ],
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
-      try_gcs=False,
-      as_supervised=is_training)
+      try_gcs=False)
 
   train_sample = tfds.load(
       'waterbirds_dataset',
@@ -508,7 +516,6 @@ def get_waterbirds_dataset(
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=True,
       with_info=False)
 
   test_ds = tfds.load(
@@ -517,7 +524,6 @@ def get_waterbirds_dataset(
       data_dir=DATA_DIR,
       builder_kwargs=builder_kwargs,
       try_gcs=False,
-      as_supervised=is_training,
       with_info=False)
 
   train_ds = gather_data_splits(list(range(num_splits)), train_splits)
@@ -527,6 +533,7 @@ def get_waterbirds_dataset(
       'test': test_ds,
   }
   return Dataloader(
+      _WATERBIRDS_NUM_SUBGROUP,
       train_splits,
       val_splits,
       train_ds,
@@ -604,6 +611,7 @@ def get_celeba_dataset(
       'test': test_ds,
   }
   return Dataloader(
+      _CELEB_A_NUM_SUBGROUP,
       train_splits,
       val_splits,
       train_ds,

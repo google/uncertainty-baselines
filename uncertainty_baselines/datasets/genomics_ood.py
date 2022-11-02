@@ -173,8 +173,12 @@ class GenomicsOodDataset(base.BaseDataset):
     del validation_percent
     del normalize_by_cifar
     if data_dir is None:
-      builder = tfds.builder('genomics_ood')
-      data_dir = builder.data_dir
+      # Specify the directory to the tfrecord data since the default
+      # tfds.builder('genomics_ood').data_dir is in arrayrecord
+      # /placer/prod/home/tensorflow-datasets-cns-storage-owner/datasets-arrayrecord/genomics_ood/0.0.1
+      # TODO(jjren) replace the customized _GenomicsOodDatasetBuilder
+      # to tfds.builder
+      data_dir = '/placer/prod/home/tensorflow-datasets-cns-storage-owner/datasets/genomics_ood/0.0.1'
 
     super().__init__(
         name='genomics_ood',

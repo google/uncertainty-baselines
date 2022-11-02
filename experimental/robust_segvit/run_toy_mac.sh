@@ -1,16 +1,26 @@
 #!/bin/bash
 
-# train toy model using wandb
-#wandb sweep run_toy_mac.yaml
-# before make sure we can run code vanilla version:
+# ----------------------------------------------------
+# train toy model on a DATASET:
+# ----------------------------------------------------
 
-DATASET='ade20k_ind'  # or cityscapes
+# to train toy model and track performance using wandb:
+# wandb sweep run_toy_mac.yaml
+
+DATASET='ade20k_ind'
 DATASET='cityscapes'
 DATASET='street_hazards'
 
+# ----------------------------------------------------
+# Set directory where outputs should be installed:
+# ----------------------------------------------------
 base_output_dir="gs://ub-ekb/segmenter/${DATASET}/toy_model"
-
-# Debug on Mac OS X platform
+run_name="toy_model"
+output_dir="${base_output_dir}/${run_name}"
+# ----------------------------------------------------
+# Set device configuration for Mac OS X platform
+# or TPU v2-8/v3-8 frameworks.
+# ----------------------------------------------------
 use_gpu=False
 if [ "$(uname)" = "Darwin" ] ; then
 tpu=False
@@ -22,9 +32,14 @@ num_cores=8
 batch_size=8
 fi
 
+# ----------------------------------------------------
+# Set configuration file
+# ----------------------------------------------------
 config_file="configs/${DATASET}/toy_model.py:runlocal"
-run_name="toy_model"
-output_dir="${base_output_dir}/${run_name}"
+
+# ----------------------------------------------------
+# Call model trainer.
+# ----------------------------------------------------
 python deterministic.py \
 --output_dir=${output_dir} \
 --num_cores=$num_cores \

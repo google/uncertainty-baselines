@@ -53,6 +53,8 @@ import h5py
 import os
 import resource
 import sys
+import copy
+import robustness_metrics as rm
 
 Batch = Dict[str, jnp.ndarray]
 MetricFn = Callable[[jnp.ndarray, Dict[str, jnp.ndarray]],
@@ -62,6 +64,14 @@ LossFn = Callable[[jnp.ndarray, Batch, Optional[jnp.ndarray]], float]
 # JAX team is working on type annotation for pytree:
 # https://github.com/google/jax/issues/1555
 PyTree = Any
+
+
+def host_all_gather_metrics(metric):
+  states = multihost_utils.process_allgather(metric.get_weights())
+  state = jax.tree_util.tree_map(lambda x: np.sum(x, axis=0), states)
+  metric_copy = copy.deepcopy(metric)
+  metric_copy.set_weights(state)
+  return metric_copy
 
 
 def to_cpu(x, all_gather=False):
@@ -164,6 +174,9 @@ def evaluate(train_state: train_utils.TrainState,
   # Evaluate global metrics on one of the hosts (lead_host), but given
   # intermediate values collected from all hosts.
 
+  # start ece metric
+  ece_metric = rm.metrics.ExpectedCalibrationError(num_bins=10)._metric
+
   # store logits
   store_logits = config.eval_configs.get('store_logits', False)
 
@@ -183,6 +196,13 @@ def evaluate(train_state: train_utils.TrainState,
     e_batch, e_logits, e_metrics, confusion_matrix, unc_confusion_matrix = eval_step_pmapped(
         train_state=train_state, batch=eval_batch)
     eval_metrics.append(train_utils.unreplicate_and_get(e_metrics))
+
+    probs = jax.nn.softmax(e_logits, axis=-1)
+
+    # TODO(kellybuchanan): add masking to ece metric in rm.
+    # updates on each host separately
+    ece_metric.update_state(e_batch['label'], probs, sample_weight=e_batch['batch_mask'])
+
     if lead_host and global_metrics_fn is not None:
       # Collect data to be sent for computing global metrics.
       eval_all_confusion_mats.append(to_cpu(confusion_matrix, all_gather=True))
@@ -194,7 +214,7 @@ def evaluate(train_state: train_utils.TrainState,
         end_idx = start_idx + config.batch_size
         logits_out[start_idx:end_idx] = e_logits
         inputs_out[start_idx:end_idx] = e_batch['inputs']
-        labels_out[start_idx:end_idx] = e_batch['labels']
+        labels_out[start_idx:end_idx] = e_batch['label']
 
   if store_logits:
     f.close()
@@ -217,6 +237,11 @@ def evaluate(train_state: train_utils.TrainState,
       writer=writer,
       prefix=prefix,
       )
+
+  # Gather ece from all hosts and write value:
+  ece_metric = host_all_gather_metrics(ece_metric)
+  ece = ece_metric.result()
+  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix) : ece} )
 
   # Visualize val predictions for one batch:
   if lead_host:
@@ -327,6 +352,7 @@ def evaluate_ood(
       no_pixel_ood = jnp.sum(e_batch['label'] * e_batch['batch_mask']) == 0
 
       if not (all_pixel_ood) and not (no_pixel_ood):
+        # sample weight 1 for values t include and 0 for values to exclude
         auc_roc.update_state(
           e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
         auc_pr.update_state(
@@ -1189,6 +1215,7 @@ def eval_ckpt(
 
   # ----------------------------------------------------------------------------
   # Evaluate OOD datasets
+  logging.info('Evaluating OOD datasets')
   eval_summary_ood = evaluate_ood_step(
       train_state=train_state,
       config=config,

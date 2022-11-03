@@ -15,7 +15,7 @@ parameters:
   config.wandb_entity :
     value: ${{entity}}
   config.batch_size:
-    value: 16
+    value: 8
   config.eval_configs.store_logits:
     value: false
   config.eval_covariate_shift:

@@ -114,7 +114,7 @@ def get_config(runlocal=''):
   config.model.backbone.num_heads = num_heads
   config.model.backbone.num_layers = num_layers
   config.model.backbone.hidden_size = hidden_size
-  config.model.backbone.dropout_rate = 0.1
+  config.model.backbone.dropout_rate = 0.0
   config.model.backbone.attention_dropout_rate = 0.0
   config.model.backbone.classifier = CLASSIFIER
 

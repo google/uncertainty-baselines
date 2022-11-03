@@ -14,9 +14,14 @@ DATASET='street_hazards'
 # ----------------------------------------------------
 # Set directory where outputs should be installed:
 # ----------------------------------------------------
-base_output_dir="gs://ub-ekb/segmenter/${DATASET}/toy_model"
+# can write results directly to gcp bucket
+# base_output_dir="gs://ub-ekb/segmenter/${DATASET}/toy_model"
+dt=$(date +"%Y-%m-%d-%H-%M-%S")
+
+base_output_dir="results/${DATASET}"
+
 run_name="toy_model"
-output_dir="${base_output_dir}/${run_name}"
+output_dir="${base_output_dir}/${run_name}/${dt}"
 # ----------------------------------------------------
 # Set device configuration for Mac OS X platform
 # or TPU v2-8/v3-8 frameworks.

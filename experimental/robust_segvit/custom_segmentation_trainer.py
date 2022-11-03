@@ -44,7 +44,6 @@ import eval_utils  # local file import from experimental.robust_segvit
 from ensemble_utils import log_average_softmax_probs  # local file import from experimental.robust_segvit
 from inference import process_batch  # local file import from experimental.robust_segvit
 from ood_metrics import get_ood_metrics  # local file import from experimental.robust_segvit
-from ood_metrics import get_ood_score  # local file import from experimental.robust_segvit
 from pretrainer_utils import convert_torch_to_jax_checkpoint  # local file import from experimental.robust_segvit
 from pretrainer_utils import convert_vision_transformer_to_scenic  # local file import from experimental.robust_segvit
 from uncertainty_metrics import get_uncertainty_confusion_matrix  # local file import from experimental.robust_segvit
@@ -53,8 +52,9 @@ import h5py
 import os
 import resource
 import sys
-import copy
 import robustness_metrics as rm
+from metrics_multihost import ComputeOODAUCMetric
+from metrics_multihost import host_all_gather_metrics
 
 Batch = Dict[str, jnp.ndarray]
 MetricFn = Callable[[jnp.ndarray, Dict[str, jnp.ndarray]],
@@ -64,14 +64,6 @@ LossFn = Callable[[jnp.ndarray, Batch, Optional[jnp.ndarray]], float]
 # JAX team is working on type annotation for pytree:
 # https://github.com/google/jax/issues/1555
 PyTree = Any
-
-
-def host_all_gather_metrics(metric):
-  states = multihost_utils.process_allgather(metric.get_weights())
-  state = jax.tree_util.tree_map(lambda x: np.sum(x, axis=0), states)
-  metric_copy = copy.deepcopy(metric)
-  metric_copy.set_weights(state)
-  return metric_copy
 
 
 def to_cpu(x, all_gather=False):
@@ -240,8 +232,7 @@ def evaluate(train_state: train_utils.TrainState,
 
   # Gather ece from all hosts and write value:
   ece_metric = host_all_gather_metrics(ece_metric)
-  ece = ece_metric.result()
-  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix) : ece} )
+  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix) : ece_metric.result()} )
 
   # Visualize val predictions for one batch:
   if lead_host:
@@ -321,18 +312,16 @@ def evaluate_ood(
   if auc_online:
     # TODO(kellybuchanan): check split of data across devices.
     # initialize metrics: ideally in each device in each host/process/machine
-    # keras initializes one metric in each host because it runs in cpu
-    # so we need to convert to jax to run metrics in each device in each host
-
-    auc_pr = tf.keras.metrics.AUC(curve='PR')
-    auc_roc = tf.keras.metrics.AUC(curve='ROC')
+    # keras initializes one metric in each host because it runs in cpu.
+    # so we need to convert the function to run metrics in each device/host.
+    auc_pr = ComputeOODAUCMetric(curve='PR', num_thresholds=100)
+    auc_roc = ComputeOODAUCMetric(curve='ROC', num_thresholds=100)
 
     # Loop through each machine:
     for step_ in range(steps_per_eval):
       eval_batch = next(dataset.valid_iter)
       e_batch, e_logits = eval_step_pmapped(
           train_state=train_state, batch=eval_batch)
-
 
       if store_logits:
         start_idx = step_ * config.batch_size
@@ -341,82 +330,18 @@ def evaluate_ood(
         inputs_out[start_idx:end_idx] = e_batch['inputs']
         labels_out[start_idx:end_idx] = e_batch['labels']
 
-
-      # In eval_step_pmapped we have not used all gather, so each metric is in
-      # each device and we should be able to compute devices separately
-
-      ood_score = get_ood_score(e_logits, **kwargs)
-
-      # skip images where all the pixels are ood or there are no ood pixels
-      all_pixel_ood = jnp.sum(e_batch['label'] * e_batch['batch_mask']) == 1
-      no_pixel_ood = jnp.sum(e_batch['label'] * e_batch['batch_mask']) == 0
-
-      if not (all_pixel_ood) and not (no_pixel_ood):
-        # sample weight 1 for values t include and 0 for values to exclude
-        auc_roc.update_state(
-          e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
-        auc_pr.update_state(
-          e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
+      # In eval_step_pmapped we have not used all gather, so each metric is in each device
+      # and we should be able to compute metrics in devices separately.
+      auc_pr.calculate_and_update_scores(logits=e_logits, label=e_batch['label'],
+                                         sample_weight=e_batch['batch_mask'], **kwargs)
+      auc_roc.calculate_and_update_scores(logits=e_logits, label=e_batch['label'],
+                                         sample_weight=e_batch['batch_mask'], **kwargs)
 
     if store_logits:
       f.close()
-    # How to communicate metrics across hosts?
-    # Ideally we can collect auc_metrics per host, merge them, compute result.
-    # However, we cannot pass arbitraty class.
-    # jax which doesn't work with arbitrary objects
-    # Here we write a custom merge_state as in tf.keras.metrics
-    # by pulling states from tf.keras obj, combining them and putting them back
-    # into a keras object using list of host's auc_roc objects.
 
-    def keras_auc_to_arrays(keras_auc_object):
-      """Pull out arrays from keras roc object."""
-      # The thresholds used are determinisitc, so we need not store them.
-      tp = jnp.asarray(keras_auc_object.true_positives)
-      fp = jnp.asarray(keras_auc_object.false_positives)
-      tn = jnp.asarray(keras_auc_object.true_negatives)
-      fn = jnp.asarray(keras_auc_object.false_negatives)
-      return tp, fp, tn, fn
-
-    def arrays_to_keras_auc(tp, fp, tn, fn, keras_auc_object):
-      """Assign confusion matrix arrays to a keras_auc_object."""
-      keras_auc_object.true_positives.assign(tp)
-      keras_auc_object.false_positives.assign(fp)
-      keras_auc_object.true_negatives.assign(tn)
-      keras_auc_object.false_negatives.assign(fn)
-      return keras_auc_object
-
-    auc_roc_state = keras_auc_to_arrays(auc_roc)
-    auc_pr_state = keras_auc_to_arrays(auc_pr)
-
-    def combine_states(all_auc_states):
-      # jax can take in trees of arrays, tuple is considered a tree so we can
-      # unpack it here.
-      # each array here has dimensions #host x shape
-
-      all_tp, all_fp, all_tn, all_fn = all_auc_states
-
-      assert all_tp.shape == (jax.process_count(), 200)
-      assert all_fp.shape == (jax.process_count(), 200)
-      assert all_tn.shape == (jax.process_count(), 200)
-      assert all_fn.shape == (jax.process_count(), 200)
-
-      tp = jnp.sum(all_tp, 0)
-      fp = jnp.sum(all_fp, 0)
-      tn = jnp.sum(all_tn, 0)
-      fn = jnp.sum(all_fn, 0)
-
-      return tp, fp, tn, fn
-
-    # Gather the data across all hosts.
-    all_auc_roc_states = multihost_utils.process_allgather(auc_roc_state)
-    all_auc_pr_states = multihost_utils.process_allgather(auc_pr_state)
-
-    # Below we pick the first device.
-    auc_roc = arrays_to_keras_auc(*combine_states(all_auc_roc_states), auc_roc)
-    auc_pr = arrays_to_keras_auc(*combine_states(all_auc_pr_states), auc_pr)
-
-    eval_summary = {'auroc': float(auc_roc.result().numpy()),
-                    'auprc': float(auc_pr.result().numpy()),
+    eval_summary = {'auroc': float(auc_roc.gather_metrics()),
+                    'auprc': float(auc_pr.gather_metrics()),
                     }
 
   else:
@@ -430,7 +355,7 @@ def evaluate_ood(
       e_batch, e_logits = eval_step_pmapped(
           train_state=train_state, batch=eval_batch)
 
-      # Store all logits in cpu
+      # Store all logits in cpu:
       if lead_host:
         e_batch = to_cpu(e_batch, all_gather=False)
         e_logits = to_cpu(e_logits, all_gather=False)
@@ -449,6 +374,7 @@ def evaluate_ood(
         ood_mask=eval_ood_labels,
         weights=eval_ood_masks,
         **kwargs)
+
   ############### LOG EVAL SUMMARY ###############
   writer.write_scalars(
       step, {

@@ -1,4 +1,12 @@
-"""Calculate ood metrics across hosts."""
+"""Calculate ood metrics across hosts.
+
+# How to communicate metrics across hosts?
+# Ideally we can collect auc_metrics per host, merge them, compute result.
+# However, we cannot pass arbitraty class.
+# jax which doesn't work with arbitrary objects.
+
+
+"""
 from typing import Any, Optional, Dict
 
 import jax
@@ -7,8 +15,13 @@ import tensorflow as tf
 from jax.experimental import multihost_utils
 from ood_metrics import get_ood_score
 from ood_metrics import get_score
+import numpy as np
+import copy
 
 
+# Here we write a custom merge_state as in tf.keras.metrics
+# by pulling states from tf.keras obj, combining them and putting them back
+# into a keras object using list of host's auc_roc objects.
 def keras_auc_to_arrays(keras_auc_object):
   """Pull out arrays from keras roc object."""
   # The thresholds used are determinisitc, so we need not store them.
@@ -48,6 +61,14 @@ def combine_states(all_auc_states, num_thresholds=200):
   return tp, fp, tn, fn
 
 
+def host_all_gather_metrics(metric):
+  states = multihost_utils.process_allgather(metric.get_weights())
+  state = jax.tree_util.tree_map(lambda x: np.sum(x, axis=0), states)
+  metric_copy = copy.deepcopy(metric)
+  metric_copy.set_weights(state)
+  return metric_copy
+
+
 class ComputeAUCMetric:
   """Calculate auc metrics across multiple hosts."""
   def __init__(self, curve, num_thresholds=200, from_logits=False):
@@ -76,7 +97,15 @@ class ComputeAUCMetric:
 
 
 class ComputeOODAUCMetric:
-  """Calculate auc metrics across multiple hosts."""
+  """Calculate auc metrics across multiple hosts.
+
+  Args:
+    curve: 'ROC' or 'PR' for the type of AUC.
+    num_thresholds: Number of thresholds to use for discretizing the roc curve.
+    from_logits:  Whether `y_pred` is expected to be a logits tensor. If it is a logits tensor,
+      a sigmoid function is applied to the logits.
+
+  """
   def __init__(self, curve, num_thresholds=200):
     self.curve = curve
     self.num_thresholds = num_thresholds
@@ -85,8 +114,8 @@ class ComputeOODAUCMetric:
                                     from_logits=self.from_logits,
                                     num_thresholds=self.num_thresholds)
 
-  def calculate_and_update_scores(self, logits, label, sample_weight, *kwargs):
-    ood_score = get_ood_score(logits, *kwargs)
+  def calculate_and_update_scores(self, logits, label, sample_weight, **kwargs):
+    ood_score = get_ood_score(logits, **kwargs)
 
     # skip images where all the pixels are ood or there are no ood pixels
     all_pixel_ood = jnp.sum(label*sample_weight) == 1
@@ -124,8 +153,8 @@ class ComputeScoreAUCMetric:
                                     thresholds=self.thresholds)
 
   def calculate_and_update_scores(self, logits, label, sample_weight, **kwargs):
-    " label 1 for ood pixel and 0 is otherwise "
-    conf = - 1 * get_score(logits=logits, **kwargs)
+    " label 1 for ood pixel and 0 is otherwise."
+    conf = - 1 * get_score(logits, **kwargs)
 
     # skip images where all the pixels are ood or there are no ood pixels
     all_pixel_ood = jnp.sum(label*sample_weight) == 1

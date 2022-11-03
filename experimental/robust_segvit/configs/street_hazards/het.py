@@ -160,7 +160,7 @@ def get_config(runlocal=''):
   config.lr_configs.warmup_steps = 1 * config.get_ref('steps_per_epoch')
   config.lr_configs.steps_per_cycle = config.get_ref(
       'num_training_epochs') * config.get_ref('steps_per_epoch')
-  config.lr_configs.base_learning_rate = 3e-5
+  config.lr_configs.base_learning_rate = 1e-4
 
   # model and data dtype
   config.model_dtype_str = 'float32'

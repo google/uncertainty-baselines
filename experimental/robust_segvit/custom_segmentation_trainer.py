@@ -167,8 +167,10 @@ def evaluate(train_state: train_utils.TrainState,
   # Evaluate global metrics on one of the hosts (lead_host), but given
   # intermediate values collected from all hosts.
 
-  # start ece metric
-  ece_metric = rm.metrics.ExpectedCalibrationError(num_bins=10)._metric
+  # setup calibration evaluation
+  ece_num_bins = config.get('ece_num_bins', 15)
+  ece_metric = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)._metric
+  calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)._metric
 
   # store logits
   store_logits = config.eval_configs.get('store_logits', False)
@@ -191,10 +193,11 @@ def evaluate(train_state: train_utils.TrainState,
     eval_metrics.append(train_utils.unreplicate_and_get(e_metrics))
 
     probs = jax.nn.softmax(e_logits, axis=-1)
-
-    # TODO(kellybuchanan): add masking to ece metric in rm.
     # updates on each host separately
-    ece_metric.update_state(e_batch['label'], probs, sample_weight=e_batch['batch_mask'])
+    ece_metric.update_state(labels=e_batch['label'], probabilities=probs, sample_weight=e_batch['batch_mask'])
+    y_pred = jnp.argmax(probs, axis=-1)  # predicted label indices
+    confidence = jnp.max(probs, axis=-1)  # confidence score for predicted labels
+    calib_auc.update_state(y_true=e_batch['label'], y_pred=y_pred, confidence=confidence, sample_weight=e_batch['batch_mask'])
 
     if lead_host and global_metrics_fn is not None:
       # Collect data to be sent for computing global metrics.
@@ -231,9 +234,12 @@ def evaluate(train_state: train_utils.TrainState,
       prefix=prefix,
       )
 
-  # Gather ece from all hosts and write value:
+  # Gather uncertainty metrics from all hosts and write value:
   ece_metric = host_all_gather_metrics(ece_metric)
-  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix) : ece_metric.result()} )
+  calib_auc = host_all_gather_metrics(calib_auc)
+  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix) : ece_metric.result(),
+                                           '{}_calib_auc'.format(prefix): calib_auc.result(),
+                                           } )
 
   # Visualize val predictions for one batch:
   if lead_host:

@@ -198,8 +198,6 @@ def convert_torch_to_jax_checkpoint(
       optimizer={"target": restored_params},)
   # pytype: enable=wrong-arg-types
 
-  # free memory
-  del restored_params
   return restored_train_state
 
 

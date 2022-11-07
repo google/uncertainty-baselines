@@ -42,12 +42,17 @@ _DEFAULT_PATH_CARDIOTOX_TEST_LABEL = ''
 _DEFAULT_PATH_CARDIOTOX_TEST2_FEATURE = ''
 _DEFAULT_PATH_CARDIOTOX_TEST2_LABEL = ''
 _WATERBIRDS_DATA_DIR = ''
+_WATERBIRDS10K_DATA_DIR = ''
 _WATERBIRDS_TRAIN_PATTERN = ''
 _WATERBIRDS_VALIDATION_PATTERN = ''
 # Smaller subsample for testing.
 _WATERBIRDS_TRAIN_SAMPLE_PATTERN = ''
 _WATERBIRDS_TEST_PATTERN = ''
 _WATERBIRDS_NUM_SUBGROUP = 4
+_WATERBIRDS_TRAIN_SIZE = 4780
+_WATERBIRDS10K_TRAIN_SIZE = 9549
+_WATERBIRDS10K_SUPPORTED_CORR_STRENGTH = (0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9,
+                                          0.95)
 # TODO(dvij,martinstrobel): Set Celeb-A number of subgroups.
 _CELEB_A_NUM_SUBGROUP = 2
 
@@ -262,9 +267,16 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
   def __init__(self,
                subgroup_ids: List[str],
                subgroup_proportions: Optional[List[float]] = None,
+               train_dataset_size: int = _WATERBIRDS_TRAIN_SIZE,
+               source_data_dir: str = _WATERBIRDS_DATA_DIR,
+               include_train_sample: bool = True,
                **kwargs):
     super(WaterbirdsDataset, self).__init__(**kwargs)
     self.subgroup_ids = subgroup_ids
+    self.train_dataset_size = train_dataset_size
+    # Path to original TFRecords to sample data from.
+    self.source_data_dir = source_data_dir
+    self.include_train_sample = include_train_sample
     if subgroup_proportions:
       self.subgroup_proportions = subgroup_proportions
     else:
@@ -378,23 +390,25 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     """Download the data and define splits."""
-    return {
+    split_generators = {
         'train':
             self._generate_examples(
-                os.path.join(_WATERBIRDS_DATA_DIR, _WATERBIRDS_TRAIN_PATTERN),
+                os.path.join(self.source_data_dir, _WATERBIRDS_TRAIN_PATTERN),
                 is_training=True),
         'validation':
             self._generate_examples(
-                os.path.join(_WATERBIRDS_DATA_DIR,
+                os.path.join(self.source_data_dir,
                              _WATERBIRDS_VALIDATION_PATTERN)),
-        'train_sample':
-            self._generate_examples(
-                os.path.join(_WATERBIRDS_DATA_DIR,
-                             _WATERBIRDS_TRAIN_SAMPLE_PATTERN)),
         'test':
             self._generate_examples(
-                os.path.join(_WATERBIRDS_DATA_DIR, _WATERBIRDS_TEST_PATTERN)),
+                os.path.join(self.source_data_dir, _WATERBIRDS_TEST_PATTERN)),
     }
+
+    if self.include_train_sample:
+      split_generators['train_sample'] = self._generate_examples(
+          os.path.join(self.source_data_dir, _WATERBIRDS_TRAIN_SAMPLE_PATTERN))
+
+    return split_generators
 
   def _generate_examples(self,
                          file_pattern: str,
@@ -427,7 +441,7 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
 
       # Prepare initial training set.
       # Pre-computed dataset size or large number >= estimated dataset size.
-      dataset_size = 4780
+      dataset_size = self.train_dataset_size
       dataset = dataset.shuffle(dataset_size)
       sampled_datasets = []
       remaining_proportion = 1.
@@ -462,13 +476,55 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     return dataset.as_numpy_iterator()
 
 
+class Waterbirds10kDataset(WaterbirdsDataset):
+  """DatasetBuilder for Waterbirds10K dataset."""
+
+  VERSION = tfds.core.Version('1.0.0')
+  RELEASE_NOTES = {
+      '1.0.0': 'Initial release.',
+  }
+
+  def __init__(self,
+               subgroup_ids: List[str],
+               subgroup_proportions: Optional[List[float]] = None,
+               corr_strength: float = 0.95,
+               train_dataset_size: int = _WATERBIRDS10K_TRAIN_SIZE,
+               source_data_parent_dir: str = _WATERBIRDS10K_DATA_DIR,
+               include_train_sample: bool = False,
+               **kwargs):
+    if corr_strength not in _WATERBIRDS10K_SUPPORTED_CORR_STRENGTH:
+      raise ValueError(
+          f'corr_strength {corr_strength} not supported. '
+          f'Should be one of: {_WATERBIRDS10K_SUPPORTED_CORR_STRENGTH}')
+
+    # Makes the source data directory based on `corr_strength`.
+    # The final data directory should follow the format
+    # `{parent_dir}/corr_strength_{corr_strength}`.
+    corr_strength_name = str(int(corr_strength * 100))
+    source_data_folder_name = f'corr_strength_{corr_strength_name}'
+    source_data_dir = os.path.join(source_data_parent_dir,
+                                   source_data_folder_name)
+
+    if not tf.io.gfile.exists(source_data_dir):
+      raise ValueError(f'Required data dir `{source_data_dir}` not exist.')
+    else:
+      tf.compat.v1.logging.info(f'Loading from `{source_data_dir}`.')
+
+    self.corr_strength = corr_strength
+    super().__init__(subgroup_ids, subgroup_proportions, train_dataset_size,
+                     source_data_dir, include_train_sample,
+                     **kwargs)
+
+
 @register_dataset('waterbirds')
-def get_waterbirds_dataset(
-    num_splits: int,
-    initial_sample_proportion: float,
-    subgroup_ids: List[str],
-    subgroup_proportions: List[float]
-) -> Dataloader:
+def get_waterbirds_dataset(num_splits: int,
+                           initial_sample_proportion: float,
+                           subgroup_ids: List[str],
+                           subgroup_proportions: List[float],
+                           tfds_dataset_name: str = 'waterbirds_dataset',
+                           include_train_sample: bool = True,
+                           data_dir: str = DATA_DIR,
+                           **additional_builder_kwargs) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
@@ -478,6 +534,10 @@ def get_waterbirds_dataset(
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
+    tfds_dataset_name: The name of the tfd dataset to load from.
+    include_train_sample: Whether to include the `train_sample` split.
+    data_dir: Default data directory to store the sampled waterbirds data.
+    **additional_builder_kwargs: Additional keyword arguments to data builder.
 
   Returns:
     A tuple containing the split training data, split validation data, the
@@ -488,43 +548,47 @@ def get_waterbirds_dataset(
   reduced_datset_sz = int(100 * initial_sample_proportion)
   builder_kwargs = {
       'subgroup_ids': subgroup_ids,
-      'subgroup_proportions': subgroup_proportions
+      'subgroup_proportions': subgroup_proportions,
+      'include_train_sample': include_train_sample,
+      **additional_builder_kwargs
   }
   val_splits = tfds.load(
-      'waterbirds_dataset',
+      tfds_dataset_name,
       split=[
           f'validation[{k}%:{k+split_size_in_pct}%]'
           for k in range(0, reduced_datset_sz, split_size_in_pct)
       ],
-      data_dir=DATA_DIR,
+      data_dir=data_dir,
       builder_kwargs=builder_kwargs,
       try_gcs=False)
 
   train_splits = tfds.load(
-      'waterbirds_dataset',
+      tfds_dataset_name,
       split=[
           f'train[{k}%:{k+split_size_in_pct}%]'
           for k in range(0, reduced_datset_sz, split_size_in_pct)
       ],
-      data_dir=DATA_DIR,
+      data_dir=data_dir,
       builder_kwargs=builder_kwargs,
       try_gcs=False)
 
-  train_sample = tfds.load(
-      'waterbirds_dataset',
-      split='train_sample',
-      data_dir=DATA_DIR,
+  test_ds = tfds.load(
+      tfds_dataset_name,
+      split='test',
+      data_dir=data_dir,
       builder_kwargs=builder_kwargs,
       try_gcs=False,
       with_info=False)
 
-  test_ds = tfds.load(
-      'waterbirds_dataset',
-      split='test',
-      data_dir=DATA_DIR,
-      builder_kwargs=builder_kwargs,
-      try_gcs=False,
-      with_info=False)
+  train_sample = ()
+  if include_train_sample:
+    train_sample = tfds.load(
+        tfds_dataset_name,
+        split='train_sample',
+        data_dir=data_dir,
+        builder_kwargs=builder_kwargs,
+        try_gcs=False,
+        with_info=False)
 
   train_ds = gather_data_splits(list(range(num_splits)), train_splits)
   val_ds = gather_data_splits(list(range(num_splits)), val_splits)
@@ -539,6 +603,30 @@ def get_waterbirds_dataset(
       train_ds,
       train_sample_ds=train_sample,
       eval_ds=eval_datasets)
+
+
+@register_dataset('waterbirds10k')
+def get_waterbirds10k_dataset(num_splits: int,
+                              initial_sample_proportion: float,
+                              subgroup_ids: List[str],
+                              subgroup_proportions: List[float],
+                              corr_strength: float = 0.95,
+                              data_dir: str = DATA_DIR) -> Dataloader:
+  """Returns datasets for Waterbirds 10K."""
+  # Create unique `waterbirds10k` directory for each correlation strength.
+  data_folder_name = int(corr_strength * 100)
+  data_folder_name = f'waterbirds10k_corr_strength_{data_folder_name}'
+  data_dir = os.path.join(data_dir, data_folder_name)
+
+  return get_waterbirds_dataset(
+      num_splits,
+      initial_sample_proportion,
+      subgroup_ids,
+      subgroup_proportions,
+      tfds_dataset_name='waterbirds10k_dataset',
+      include_train_sample=False,
+      corr_strength=corr_strength,
+      data_dir=data_dir)
 
 
 @register_dataset('celeb_a')

@@ -72,12 +72,16 @@ def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
 
-  dataset_builder = data.get_dataset(config.data.name)
   if FLAGS.keep_logs:
     tf.io.gfile.makedirs(config.output_dir)
     stream = tf.io.gfile.GFile(os.path.join(config.output_dir, 'log'), mode='w')
     stream_handler = native_logging.StreamHandler(stream)
     logging.get_absl_logger().addHandler(stream_handler)
+
+  dataset_builder = data.get_dataset(config.data.name)
+  ds_kwargs = {}
+  if config.data.name == 'waterbirds10k':
+    ds_kwargs = {'corr_strength': config.data.corr_strength}
 
   logging.info('Running Round %d of Training.', config.round_idx)
   if config.round_idx == 0:
@@ -85,13 +89,17 @@ def main(_) -> None:
     dataloader = dataset_builder(config.data.num_splits,
                                  config.data.initial_sample_proportion,
                                  config.data.subgroup_ids,
-                                 config.data.subgroup_proportions)
+                                 config.data.subgroup_proportions,
+                                 **ds_kwargs)
   else:
     # If latter round, keep track of split generated in last round of active
     #   sampling
     dataloader = dataset_builder(config.data.num_splits,
-                                 1,
-                                 (), ())
+                                 initial_sample_proportion=1,
+                                 subgroup_ids=(),
+                                 subgroup_proportions=(),
+                                 **ds_kwargs)
+
     # Filter each split to only have examples from example_ids_table
     dataloader.train_splits = [
         dataloader.train_ds.filter(

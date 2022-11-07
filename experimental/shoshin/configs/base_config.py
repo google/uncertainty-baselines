@@ -69,6 +69,10 @@ def get_data_config():
   # for active sampling.
   config.initial_sample_proportion = 0.5
 
+  # Correlation strength of the minority v.s. majority group. This is equivalent
+  # to the proportion of majority group examples in the data.
+  config.corr_strength = 0.95
+
   return config
 
 

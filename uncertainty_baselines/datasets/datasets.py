@@ -40,6 +40,7 @@ from uncertainty_baselines.datasets.dialog_state_tracking import SGDDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SGDDADataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SGDSynthDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset
+from uncertainty_baselines.datasets.dtd import DtdDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import GlueDatasets
 from uncertainty_baselines.datasets.imagenet import ImageNetDataset
@@ -99,6 +100,7 @@ DATASETS = {
         (DiabeticRetinopathySeverityShiftMildDataset),
     'diabetic_retinopathy_severity_shift_moderate':
         (DiabeticRetinopathySeverityShiftModerateDataset),
+    'dtd': DtdDataset,
     'imagenet': ImageNetDataset,
     'imagenet_corrupted': ImageNetCorruptedDataset,
     'mnist': MnistDataset,

@@ -81,12 +81,18 @@ def load_ood_datasets(ood_dataset_names,
     # If the OOD datasets are not CIFAR10/CIFAR100, we normalize by CIFAR
     # statistics, since all test datasets should be preprocessed the same.
     if 'cifar' not in ood_dataset_name:
+      # pylint:disable=g-long-ternary
+      ood_ds_kwargs = {
+          'image_shape': (32, 32, 3)
+      } if 'random' in ood_dataset_name else {
+          'validation_percent': in_dataset_validation_percent
+      }
       ood_dataset_builder = ood_dataset_class(
           in_dataset_builder,
           split='test',
-          validation_percent=in_dataset_validation_percent,
           normalize_by_cifar=True,
-          drop_remainder=drop_remainder)
+          drop_remainder=drop_remainder,
+          **ood_ds_kwargs)
     else:
       ood_dataset_builder = ood_dataset_class(
           in_dataset_builder,

@@ -15,6 +15,7 @@
 
 """Calculate uncertainty metrics for segmentation tasks."""
 from typing import Optional, Tuple
+import jax
 from jax import lax
 import jax.numpy as jnp
 from scenic.model_lib.layers import nn_ops
@@ -137,7 +138,7 @@ def get_uncertainty_confusion_matrix(
 
   # Calculate uncertainty map:
   if uncertainty_measure == 'softmax':
-    uncertainty_map = jnp.max(jnp.exp(logits) / jnp.sum(jnp.exp(logits), -1, keepdims=True), -1)
+    uncertainty_map = jnp.max(jax.nn.softmax(logits, -1), -1)
   elif uncertainty_measure == 'entropy':
     uncertainty_map = get_entropy_from_logits(logits)
   else:

@@ -125,9 +125,11 @@ class _RandomNoiseDataset(base.BaseDataset):
                num_parallel_parser_calls: int = 64,
                eval_filter_class_id: int = -1,
                data_mode: str = 'ind',
+               drop_remainder: bool = True,
                try_gcs: bool = False,
                download_data: bool = False,
                data_dir: Optional[str] = None,
+               normalize_by_cifar: bool = False,
                is_training: Optional[bool] = None):
     """Create a Random Image tf.data.Dataset builder.
 
@@ -146,12 +148,17 @@ class _RandomNoiseDataset(base.BaseDataset):
       eval_filter_class_id: evalulate inputs from a particular class only.
       data_mode: either 'ind' or 'ood' to decide whether to read in-distribution
         data or out-of-domain data.
+      drop_remainder: whether or not to drop the last batch of data if the
+        number of points is not exactly equal to the batch size. This option
+        needs to be True for running on TPUs.
       try_gcs: Whether or not to try to use the GCS stored versions of dataset
         files. Currently unsupported.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
       data_dir: Path to a directory containing the Genomics OOD dataset, with
         filenames train-*-of-*', 'validate.tfr', 'test.tfr'.
+      normalize_by_cifar: whether or not to normalize each image by the CIFAR
+        dataset mean and stddev.
       is_training: Whether or not the given `split` is the training split. Only
         required when the passed split is not one of ['train', 'validation',
         'test', tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST].
@@ -162,6 +169,7 @@ class _RandomNoiseDataset(base.BaseDataset):
         tfds.Split.VALIDATION: 1,
         tfds.Split.TEST: 2,
     }
+    self._normalize_by_cifar = normalize_by_cifar
     super().__init__(
         name=name,
         dataset_builder=_RandomDatasetBuilder(image_shape=image_shape),
@@ -169,6 +177,7 @@ class _RandomNoiseDataset(base.BaseDataset):
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
+        drop_remainder=drop_remainder,
         download_data=False)
 
 
@@ -196,7 +205,11 @@ class RandomGaussianImageDataset(_RandomNoiseDataset):
       image_max = tf.reduce_max(image)
       # Normalize the values of the image to be in [-1, 1].
       image = 2.0 * (image - image_min) / (image_max - image_min) - 1.0
-      label = tf.zeros([], tf.int32)
+      label = tf.zeros([], tf.float32)
+      if self._normalize_by_cifar:
+        mean = tf.constant([0.4914, 0.4822, 0.4465])
+        std = tf.constant([0.2470, 0.2435, 0.2616])
+        image = (image - mean) / std
       return {'features': image, 'labels': label}
 
     return _example_parser
@@ -225,7 +238,7 @@ class RandomRademacherImageDataset(_RandomNoiseDataset):
           dtype=tf.int32)
       image = tf.reshape(tf.cast(image, tf.float32), self._image_shape)
       image = 2.0 * (image - 0.5)
-      label = tf.zeros([], tf.int32)
+      label = tf.zeros([], tf.float32)
       return {'features': image, 'labels': label}
 
     return _example_parser

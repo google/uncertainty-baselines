@@ -486,18 +486,19 @@ def eval_ensemble(
     y_pred_main = []
     y_pred_bias = []
     for model in ensemble:
-      ensemble_prob_samples = model.predict(test_examples)
+      ensemble_prob_samples = model.predict(
+          test_examples.map(lambda x: x['features']))
       y_pred_main.append(ensemble_prob_samples['main'])
       y_pred_bias.append(ensemble_prob_samples['bias'])
     y_pred_main = tf.reduce_mean(y_pred_main, axis=0)
     y_pred_bias = tf.reduce_mean(y_pred_bias, axis=0)
     y_true_main = list(test_examples.map(
-        lambda feats, label, example_id: label).as_numpy_iterator())
+        lambda x: x['label']).as_numpy_iterator())
     y_true_main = tf.concat(y_true_main, axis=0)
     y_true_main = tf.convert_to_tensor(y_true_main, dtype=tf.int64)
     y_true_main = tf.one_hot(y_true_main, depth=2)
     example_ids = list(test_examples.map(
-        lambda feats, label, example_id: example_id).as_numpy_iterator())
+        lambda x: x['example_id']).as_numpy_iterator())
     example_ids = tf.concat(example_ids, axis=0)
     example_ids = tf.convert_to_tensor(example_ids, dtype=tf.string)
     y_true_bias = example_id_to_bias_table.lookup(example_ids)

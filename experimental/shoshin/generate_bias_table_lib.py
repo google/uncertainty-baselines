@@ -235,9 +235,8 @@ def get_example_id_to_predictions_table(
 
 def filter_ids_fn(hash_table, value=1):
   """Filter dataset based on whether ids take a certain value in hash table."""
-  def filter_fn(feats, label, example_ids):
-    del feats, label
-    return hash_table.lookup(example_ids) == value
+  def filter_fn(examples):
+    return hash_table.lookup(examples['example_id']) == value
   return filter_fn
 
 

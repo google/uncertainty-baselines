@@ -69,6 +69,10 @@ def get_data_config():
   # for active sampling.
   config.initial_sample_proportion = 0.5
 
+  # Correlation strength of the minority v.s. majority group. This is equivalent
+  # to the proportion of majority group examples in the data.
+  config.corr_strength = 0.95
+
   return config
 
 
@@ -86,6 +90,7 @@ def get_training_config():
 def get_optimizer_config():
   """Get optimizer config."""
   config = ml_collections.ConfigDict()
+  # With Adam, use lr 1e-4.
   config.learning_rate = 1e-5
   config.type = 'sgd'
   return config

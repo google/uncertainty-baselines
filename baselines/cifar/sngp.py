@@ -181,7 +181,7 @@ flags.DEFINE_bool('eval_on_ood', True,
 flags.DEFINE_list('ood_dataset', 'cifar10,svhn_cropped',
                   'list of OOD datasets to evaluate on.')
 flags.DEFINE_integer(
-    'ood_interval', 25, 'Number of epochs between evaluating on OOD metrics.'
+    'ood_interval', 100, 'Number of epochs between evaluating on OOD metrics.'
     ' Use -1 to never evaluate.')
 flags.DEFINE_string('saved_model_dir', None,
                     'Directory containing the saved model checkpoints.')
@@ -528,6 +528,7 @@ def main(argv):
                 temp_scale=FLAGS.gp_mc_temp_scale)
             logits = tf.math.log(probs)  # logits given probs is not unique
         else:
+          logits0 = logits
           covmat = tf.eye(logits.shape[0])
           if FLAGS.use_bfloat16:
             logits = tf.cast(logits, tf.float32)

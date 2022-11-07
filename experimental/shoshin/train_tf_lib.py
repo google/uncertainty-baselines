@@ -23,7 +23,7 @@ and evaluating on provided eval datasets.
 
 import itertools
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from absl import logging
 import numpy as np
@@ -450,20 +450,117 @@ def train_ensemble(
   return ensemble
 
 
+def find_epoch_ckpt_path(epoch: int,
+                         ckpt_dir: str,
+                         metric_name: str = 'val_auc',
+                         mode: str = 'highest') -> Union[str, List[str]]:
+  r"""Finds the checkpoints for a given epoch.
+
+  This function extracts the checkpoints corresponding to a given epoch under
+  `ckpt_dir`. It assumes the checkpoints follows the naming convention:
+
+  `{ckpt_dir}\epoch-{epoch}-{metric_name}-{metric_val}.ckpt`
+
+  If a checkpoint for a given epoch is not found, it will issue a warning and
+  return the checkpoint for the nearest epoch instead.
+
+  Args:
+    epoch: The epoch to exact checkpoints for.
+    ckpt_dir: The directory of checkpoints.
+    metric_name: The name of the performance metric.
+    mode: The return mode. One of ('highest', 'lowest', 'all'). Here, 'highest'
+      / 'lowest' means if there are multiple checkpoint for the required epoch,
+      return the checkpoint with the highest / lowest value for the metric.
+
+  Returns:
+    Strings for checkpoint directories.
+  """
+  if mode not in ('highest', 'lowest', 'all'):
+    raise ValueError(
+        f'mode `{mode}` not supported. Should be one of ("best", "all").')
+
+  # Collects checkpoint names.
+  ckpt_names = [
+      f_name.split('.ckpt')[0]
+      for f_name in tf.io.gfile.listdir(ckpt_dir)
+      if '.ckpt.index' in f_name
+  ]
+
+  if not ckpt_names:
+    raise ValueError(f'No valid checkpoint under the directory {ckpt_dir}.')
+
+  # Extract epoch number and metric values.
+  ckpt_epochs = np.array(
+      [int(f_name.split('epoch-')[1].split('-')[0]) for f_name in ckpt_names])
+  ckpt_metric = np.array([
+      float(f_name.split(f'{metric_name}-')[1].split('-')[0])
+      for f_name in ckpt_names
+  ])
+
+  if epoch not in ckpt_epochs:
+    # Uses nearest available epoch in `ckpt_epochs`.
+    nearest_epoch_id = np.argmin(np.abs(ckpt_epochs - epoch))
+    nearest_epoch = ckpt_epochs[nearest_epoch_id]
+    tf.compat.v1.logging.warn(
+        'Required epoch (%s) not in list of available epochs `%s`.'
+        'Use nearest epoch `%s`', epoch, np.unique(ckpt_epochs), nearest_epoch)
+    epoch = nearest_epoch
+
+  make_ckpt_path = lambda name: os.path.join(ckpt_dir, name + '.ckpt')
+  if mode == 'highest':
+    # Returns the checkpoint with highest metric value.
+    ckpt_id = np.argmax(ckpt_metric * (ckpt_epochs == epoch))
+    return make_ckpt_path(ckpt_names[ckpt_id])
+  elif mode == 'lowest':
+    # Returns the checkpoint with lowest metric value.
+    ckpt_id = np.argmin(-ckpt_metric * (ckpt_epochs == epoch))
+    return make_ckpt_path(ckpt_names[ckpt_id])
+  else:
+    # Returns all the checkpoints.
+    ckpt_ids = np.where(ckpt_epochs == epoch)[0]
+    return [make_ckpt_path(ckpt_names[ckpt_id]) for ckpt_id in ckpt_ids]
+
+
 def load_trained_models(combos_dir: str,
-                        model_params: models.ModelTrainingParameters):
-  """Loads models trained on different combinations of data splits."""
+                        model_params: models.ModelTrainingParameters,
+                        ckpt_epoch: int = -1):
+  """Loads models trained on different combinations of data splits.
+
+  Args:
+    combos_dir: Path to the checkpoint trained on different data splits.
+    model_params: Model config.
+    ckpt_epoch: The epoch to load the checkpoint from. If negative, load the
+      latest checkpoint.
+
+  Returns:
+    The list of loaded models for different combinations of data splits.
+  """
   trained_models = []
   for combo_name in tf.io.gfile.listdir(combos_dir):
     combo_model = init_model(
         model_params=model_params,
         experiment_name=combo_name)
     ckpt_dir = os.path.join(combos_dir, combo_name, 'checkpoints')
-    best_latest_checkpoint = tf.train.latest_checkpoint(ckpt_dir)
-    load_status = combo_model.load_weights(best_latest_checkpoint)
-    # Optimizer will not be loaded (https://b.corp.google.com/issues/124099628),
-    # so expect only partial load. This is not currently an issue because
-    # model is only used for inference.
+    if ckpt_epoch < 0:
+      # Loads the latest checkpoint.
+      checkpoint_path = tf.train.latest_checkpoint(ckpt_dir)
+      tf.compat.v1.logging.info(f'Loading best model from `{checkpoint_path}`')
+    else:
+      # Loads the required checkpoint.
+      # By default, select the checkpoint with highest validation AUC.
+      checkpoint_path = find_epoch_ckpt_path(
+          ckpt_epoch, ckpt_dir, metric_name='val_auc', mode='highest')
+      tf.compat.v1.logging.info(
+          f'Loading model for checkpoint {ckpt_epoch} from `{checkpoint_path}`')
+
+    if not tf.io.gfile.exists(checkpoint_path + '.index'):
+      raise ValueError(
+          f'Required checkpoint file `{checkpoint_path}` not exist.')
+
+    load_status = combo_model.load_weights(checkpoint_path)
+
+    # Optimizer will not be loaded, so expect only partial load.
+    # This is not currently an issue because model is only used for inference.
     load_status.expect_partial()
     load_status.assert_existing_objects_matched()
     trained_models.append(combo_model)

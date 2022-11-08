@@ -1287,7 +1287,7 @@ def evaluate_cityscapes_c(
   ood_config.update({'dataset_name': 'cityscapes_variants'})
 
   accuracy_per_corruption = {}
-  prefix = 'citycvalid'
+  prefix = 'cityc'
   for corruption in cityscapes_variants.CITYSCAPES_C_CORRUPTIONS:
     local_list = []  # list to compute macro average per corruption
     for severity in cityscapes_variants.CITYSCAPES_C_SEVERITIES:
@@ -1298,7 +1298,7 @@ def evaluate_cityscapes_c(
       rng, data_rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)
       dataset.meta_data['dataset_name'] = 'cityscapes_c'
-      dataset.meta_data['prefix'] = prefix + f'_{corruption}_{severity}'
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}_{severity}/valid'
 
       eval_summary = evaluate(
           train_state=train_state,
@@ -1325,7 +1325,7 @@ def evaluate_cityscapes_c(
   # append name to metrics
   key_separator = '_'
   avg_cityscapes_c_metrics = {
-      key_separator.join((prefix, key)): val
+      key_separator.join((prefix + '/valid', key)): val
       for key, val in cityscapes_c_metrics.items()
   }
   # update metrics
@@ -1371,7 +1371,7 @@ def evaluate_fishyscapes(
 
   device_count = jax.device_count()
   accuracy_per_corruption = {}
-  prefix = 'fishyvalid'
+  prefix = 'fishyscapes'
   for corruption in cityscapes_variants.FISHYSCAPES_CORRUPTIONS:
 
     with ood_config.unlocked():
@@ -1381,7 +1381,7 @@ def evaluate_fishyscapes(
     data_rng, rng = jax.random.split(rng)
     dataset = train_utils.get_dataset(ood_config, data_rng)
     dataset.meta_data['dataset_name'] = 'fishyscapes'
-    dataset.meta_data['prefix'] = prefix + f'_{corruption}'
+    dataset.meta_data['prefix'] = prefix + f'/{corruption}/valid'
 
     eval_summary = evaluate_ood(
         train_state=train_state,
@@ -1404,7 +1404,7 @@ def evaluate_fishyscapes(
   # append name to metrics
   key_separator = '_'
   avg_fishyscapes_metrics = {
-      key_separator.join((prefix, key)): val
+      key_separator.join((prefix +'/valid', key)): val
       for key, val in fishyscapes_metrics.items()
   }
   # update metrics
@@ -1449,7 +1449,7 @@ def evaluate_ade20k_ood_open(
   ood_config.update({'dataset_name': 'robust_segvit_segmentation'})
 
   device_count = jax.device_count()
-  prefix = 'ade20k_ood_open'
+  prefix = 'ade20k_ood_open/valid'
 
   with ood_config.unlocked():
     ood_config.dataset_configs.name = 'ade20k_ood_open'
@@ -1472,7 +1472,7 @@ def evaluate_ade20k_ood_open(
       **config.get('eval_robustness_configs', {}),
   )
 
-  # append name to metrics
+  # append name to metrics:
   key_separator = '_'
   avg_open_set_metrics = {
       key_separator.join((prefix, key)): val
@@ -1536,7 +1536,7 @@ def evaluate_ade20k_corrupted(
 
       data_rng, rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)
-      dataset.meta_data['prefix'] = prefix + f'_{corruption}_{severity}'
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}_{severity}/valid'
 
       eval_summary = evaluate(
           train_state=train_state,
@@ -1563,7 +1563,7 @@ def evaluate_ade20k_corrupted(
   # append name to metrics
   key_separator = '_'
   avg_corrupted_metrics = {
-      key_separator.join((prefix, key)): val
+      key_separator.join((prefix + '/valid', key)): val
       for key, val in ade20k_c_metrics.items()
   }
   # update metrics
@@ -1608,7 +1608,7 @@ def evaluate_street_hazards_ood_open(
   ood_config.update({'dataset_name': 'robust_segvit_segmentation'})
 
   device_count = jax.device_count()
-  prefix = 'street_hazards_open'
+  prefix = 'street_hazards_open/valid'
 
   with ood_config.unlocked():
     ood_config.dataset_configs.name = 'street_hazards_open'

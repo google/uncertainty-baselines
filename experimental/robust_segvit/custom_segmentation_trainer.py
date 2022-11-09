@@ -1284,7 +1284,7 @@ def evaluate_cityscapes_c(
   # update config:
   ood_config = ml_collections.ConfigDict()
   ood_config.update(**config)
-  ood_config.update({'dataset_name': 'cityscapes_variants'})
+  ood_config.update({'dataset_name': 'robust_segvit_variants'})
 
   accuracy_per_corruption = {}
   prefix = 'cityc'
@@ -1293,7 +1293,7 @@ def evaluate_cityscapes_c(
     for severity in cityscapes_variants.CITYSCAPES_C_SEVERITIES:
 
       with ood_config.unlocked():
-        ood_config.dataset_configs.dataset_name = f'cityscapes_corrupted/semantic_segmentation_{corruption}_{severity}'
+        ood_config.dataset_configs.name = f'cityscapes_c_{corruption}_{severity}'
 
       rng, data_rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)
@@ -1367,7 +1367,7 @@ def evaluate_fishyscapes(
   # update config:
   ood_config = ml_collections.ConfigDict()
   ood_config.update(**config)
-  ood_config.update({'dataset_name': 'cityscapes_variants'})
+  ood_config.update({'dataset_name': 'robust_segvit_variants'})
 
   device_count = jax.device_count()
   accuracy_per_corruption = {}
@@ -1375,7 +1375,7 @@ def evaluate_fishyscapes(
   for corruption in cityscapes_variants.FISHYSCAPES_CORRUPTIONS:
 
     with ood_config.unlocked():
-      ood_config.dataset_configs.dataset_name = f'fishyscapes/{corruption}'
+      ood_config.dataset_configs.name = f'fishyscapes/{corruption}'
       ood_config.batch_size = device_count
 
     data_rng, rng = jax.random.split(rng)

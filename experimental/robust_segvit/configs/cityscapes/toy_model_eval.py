@@ -65,7 +65,6 @@ def get_config(runlocal=''):
   config.dataset_configs.train_split = 'train[:16]'
   config.dataset_configs.validation_split = 'validation[:16]'
   config.dataset_configs.name = 'cityscapes'  # name of dataset to evaluate
-
   config.dataset_configs.train_target_size = config.dataset_configs.get_ref(
       'target_size')
   config.dataset_configs.denoise = None

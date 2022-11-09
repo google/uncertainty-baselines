@@ -1298,7 +1298,7 @@ def evaluate_cityscapes_c(
       rng, data_rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)
       dataset.meta_data['dataset_name'] = 'cityscapes_c'
-      dataset.meta_data['prefix'] = prefix + f'/{corruption}_{severity}/valid'
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}/{severity}/valid'
 
       eval_summary = evaluate(
           train_state=train_state,
@@ -1536,7 +1536,7 @@ def evaluate_ade20k_corrupted(
 
       data_rng, rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)
-      dataset.meta_data['prefix'] = prefix + f'/{corruption}_{severity}/valid'
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}/{severity}/valid'
 
       eval_summary = evaluate(
           train_state=train_state,

@@ -123,6 +123,18 @@ def get_reweighting_config():
   return config
 
 
+def get_evaluation_config():
+  """Get config for performing introspection signal computation."""
+  config = ml_collections.ConfigDict()
+  # A iterable tuple of epochs to compute checkpoint for.
+  config.signal_ckpt_epochs = ()
+  # Number of training epochs to check for computing introspection signals.
+  # Used if `signal_ckpt_epochs` is empty. If 0 then compute signals based
+  # on the latest epoch using `tf.train.latest_checkpoint`.
+  config.num_signal_ckpts = 0
+  return config
+
+
 def get_config() -> ml_collections.ConfigDict:
   """Get config."""
   config = ml_collections.ConfigDict()
@@ -169,4 +181,5 @@ def get_config() -> ml_collections.ConfigDict:
   config.model = get_model_config()
   config.active_sampling = get_active_sampling_config()
   config.reweighting = get_reweighting_config()
+  config.eval = get_evaluation_config()
   return config

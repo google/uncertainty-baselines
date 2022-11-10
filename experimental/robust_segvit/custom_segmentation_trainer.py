@@ -1157,7 +1157,9 @@ def evaluate_ood_step(
     global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
 
     eval_ood_covariate = {'cityscapes_c': evaluate_cityscapes_c,
-                          'ade20k_ind_c': evaluate_ade20k_corrupted,}
+                          'ade20k_ind_c': evaluate_ade20k_corrupted,
+                          'street_hazards_c': evaluate_street_hazards_corrupted,
+                          }
 
     # TODO(kellybuchanan): merge data sources.
     # The form of the ind dataset name depends on the source of the data.
@@ -1173,6 +1175,9 @@ def evaluate_ood_step(
     elif any('ade20k' in ind_name for ind_name in ind_names):
       logging.info('Loading Ade20k_ind_c')
       ood_dataset = 'ade20k_ind_c'
+    elif any('street' in ind_name for ind_name in ind_names):
+      logging.info('Loading street_hazards_c')
+      ood_dataset = 'street_hazards_c'
     else:
       logging.info('OOD Covariate shift dataset is not implemented')
       ood_dataset = None
@@ -1529,10 +1534,97 @@ def evaluate_ade20k_corrupted(
   prefix = 'ade20k_ind_c'
   for corruption in datasets_info.ADE20K_C_CORRUPTIONS:
     local_list = []  # list to compute macro average per corruption
-    for severity in range(1, 6):
+    for severity in datasets_info.ADE20K_C_SEVERITIES:
 
       with ood_config.unlocked():
         ood_config.dataset_configs.name = f'ade20k_ind_c_{corruption}_{severity}'
+
+      data_rng, rng = jax.random.split(rng)
+      dataset = train_utils.get_dataset(ood_config, data_rng)
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}/{severity}/valid'
+
+      eval_summary = evaluate(
+          train_state=train_state,
+          dataset=dataset,
+          config=ood_config,
+          step=0,
+          eval_step_pmapped=eval_step_pmapped,
+          writer=writer,
+          lead_host=lead_host,
+          global_metrics_fn=global_metrics_fn,
+          global_unc_metrics_fn=global_unc_metrics_fn,
+          prefix=dataset.meta_data['prefix'],
+          workdir=workdir,
+      )
+
+      local_list.append(eval_summary)
+
+    accuracy_per_corruption[corruption] = eval_utils.average_list_of_dicts(
+        local_list)
+
+  ade20k_c_metrics = eval_utils.average_list_of_dicts(
+      accuracy_per_corruption.values())
+
+  # append name to metrics
+  key_separator = '_'
+  avg_corrupted_metrics = {
+      key_separator.join((prefix + '/valid', key)): val
+      for key, val in ade20k_c_metrics.items()
+  }
+  # update metrics
+  eval_summary.update(avg_corrupted_metrics)
+  writer.write_scalars(0, avg_corrupted_metrics)
+  writer.flush()
+  return eval_summary
+
+
+def evaluate_street_hazards_corrupted(
+    train_state: train_utils.TrainState,
+    config: ml_collections.ConfigDict,
+    rng: Any,
+    eval_step_pmapped: Any,
+    writer: metric_writers.MetricWriter,
+    lead_host: Any,
+    global_metrics_fn: Any,
+    global_unc_metrics_fn: Any,
+    workdir : str,
+) -> Dict[str, Any]:
+  """Evaluate StreetHazards-C dataset.
+
+  Args:
+    train_state: train state.
+    config: experiment configuration.
+    rng: jax rng.
+    eval_step_pmapped: eval state
+    writer: CLU metrics writer instance.
+    lead_host: Evaluate global metrics on one of the hosts (lead_host) given
+      intermediate values collected from all hosts.
+    global_metrics_fn: global metrics to evaluate.
+    global_unc_metrics_fn: global uncertainty metrics to evaluate.
+  Returns:
+    eval_summary: summary evaluation
+  """
+  # Load dataset
+  # set resource limit to debug in mac osx
+  # (see https://github.com/tensorflow/datasets/issues/1441)
+  if jax.process_index() == 0 and sys.platform == 'darwin':
+   low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
+   resource.setrlimit(resource.RLIMIT_NOFILE, (low, high))
+
+  # update config:
+  ood_config = ml_collections.ConfigDict()
+  ood_config.update(**config)
+  ood_config.update({'dataset_name': 'robust_segvit_variants'})
+
+  # Calculate metrics per corruption.
+  accuracy_per_corruption = {}
+  prefix = 'street_hazards_c'
+  for corruption in datasets_info.STREETHAZARDS_C_CORRUPTIONS:
+    local_list = []  # list to compute macro average per corruption
+    for severity in datasets_info.STREETHAZARDS_C_SEVERITIES:
+
+      with ood_config.unlocked():
+        ood_config.dataset_configs.name = f'street_hazards_c_{corruption}_{severity}'
 
       data_rng, rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)

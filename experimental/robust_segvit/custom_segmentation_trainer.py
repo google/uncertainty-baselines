@@ -1288,9 +1288,9 @@ def evaluate_cityscapes_c(
 
   accuracy_per_corruption = {}
   prefix = 'cityc'
-  for corruption in cityscapes_variants.CITYSCAPES_C_CORRUPTIONS:
+  for corruption in datasets_info.CITYSCAPES_C_CORRUPTIONS:
     local_list = []  # list to compute macro average per corruption
-    for severity in cityscapes_variants.CITYSCAPES_C_SEVERITIES:
+    for severity in datasets_info.CITYSCAPES_C_SEVERITIES:
 
       with ood_config.unlocked():
         ood_config.dataset_configs.name = f'cityscapes_c_{corruption}_{severity}'
@@ -1372,7 +1372,7 @@ def evaluate_fishyscapes(
   device_count = jax.device_count()
   accuracy_per_corruption = {}
   prefix = 'fishyscapes'
-  for corruption in cityscapes_variants.FISHYSCAPES_CORRUPTIONS:
+  for corruption in datasets_info.FISHYSCAPES_CORRUPTIONS:
 
     with ood_config.unlocked():
       ood_config.dataset_configs.name = f'fishyscapes/{corruption}'

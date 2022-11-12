@@ -190,13 +190,13 @@ def get_config(runlocal=''):
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
   config.eval_mode = False
-  config.eval_covariate_shift = False
-  config.eval_label_shift = False
+  config.eval_covariate_shift = True
+  config.eval_label_shift = True
   config.model.input_shape = target_size
 
   config.eval_robustness_configs = ml_collections.ConfigDict()
   config.eval_robustness_configs.auc_online = True
-  config.eval_robustness_configs.method_name = 'mlogit'
+  config.eval_robustness_configs.method_name = 'msp'
 
   # wandb.ai configurations.
   config.use_wandb = False

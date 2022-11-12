@@ -176,7 +176,7 @@ def get_config(runlocal=''):
 
   config.eval_robustness_configs = ml_collections.ConfigDict()
   config.eval_robustness_configs.auc_online = True
-  config.eval_robustness_configs.method_name = 'mlogit'
+  config.eval_robustness_configs.method_name = 'msp'
 
   # wandb.ai configurations.
   config.use_wandb = False

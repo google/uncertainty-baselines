@@ -14,8 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Evaluate segmenter model on street_hazards.
-
+r"""Eval toy segmenter model on cityscapes.
 
 """
 # pylint: enable=line-too-long
@@ -24,82 +23,52 @@ import ml_collections
 import os
 import datetime
 
-_CITYSCAPES_FINE_TRAIN_SIZE = 2975
-_CITYSCAPES_COARSE_TRAIN_SIZE = 19998
+batch_size = 8
+_CITYSCAPES_TRAIN_SIZE_SPLIT = 16
 
-_ADE20K_TRAIN_SIZE = 20210
-_PASCAL_VOC_TRAIN_SIZE = 10582
-_PASCAL_CONTEXT_TRAIN_SIZE = 4998
-_STREET_HAZARDS_TRAIN_SIZE = 5125
-
-TRAIN_SIZES = {
-    'cityscapes': _CITYSCAPES_FINE_TRAIN_SIZE,
-    'ade20k': _ADE20K_TRAIN_SIZE,
-    'ade20k_ind': _ADE20K_TRAIN_SIZE,
-    'pascal_voc': _PASCAL_VOC_TRAIN_SIZE,
-    'pascal_context': _PASCAL_CONTEXT_TRAIN_SIZE,
-    'street_hazards': _STREET_HAZARDS_TRAIN_SIZE
-
-}
-
-# Model specs.
-target_size = (720, 720)
-
-LOAD_PRETRAINED_BACKBONE = True
-VIT_SIZE = 'L'
-STRIDE = 16
-RESNET_SIZE = None
-CLASSIFIER = 'token'
-UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
-target_size = (720, 720)
-
-CHECKPOINT_ORIGIN = 'ub'
-EXPERIMENTID='det_run1'
+# Model spec.
+STRIDE = 4
+mlp_dim = 2
+num_heads = 1
+num_layers = 1
+hidden_size = 1
+target_size = (128, 128)
 
 # Upstream
-MODEL_PATHS = {
-    ('ub', 'L', 16, None, 'token', 'det_run1'):
-        'gs://ub-ekb/segmenter/street_hazards/deterministic/deterministic_2022-09-27-07-32-08',
+CHECKPOINT_ORIGIN = 'ub'
+VIT_SIZE = 'debug'
+RESNET_SIZE = None
+CLASSIFIER = 'token'
+EXPERIMENTID = 'city_toy'
+
+CHECKPOINT_PATHS = {
+    ('ub', 'debug', 4, None, 'token', 'city_toy'):
+        'ub-ekb/segmenter/cityscapes/toy_model/toy_model',
 }
 
 
-MODEL_PATH = MODEL_PATHS[(CHECKPOINT_ORIGIN, VIT_SIZE, STRIDE,
+CHECKPOINT_PATH = CHECKPOINT_PATHS[(CHECKPOINT_ORIGIN, VIT_SIZE, STRIDE,
                                     RESNET_SIZE, CLASSIFIER, EXPERIMENTID)]
 
-if VIT_SIZE == 'B':
-  mlp_dim = 3072
-  num_heads = 12
-  num_layers = 12
-  hidden_size = 768
-elif VIT_SIZE == 'L':
-  mlp_dim = 4096
-  num_heads = 16
-  num_layers = 24
-  hidden_size = 1024
-
-TRAIN_SAMPLES = 32
-
-
 def get_config(runlocal=''):
-  """Returns the configuration for ADE20k_ind segmentation."""
+  """Returns the configuration for Cityscapes segmentation."""
 
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'street_hazards_deterministic_eval'
+  config.experiment_name = 'cityscapes_segmenter_toy_model'
 
   # Dataset.
   config.dataset_name = 'robust_segvit_segmentation'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
+  config.dataset_configs.train_split = 'train[:16]'
+  config.dataset_configs.validation_split = 'validation[:16]'
+  config.dataset_configs.name = 'cityscapes'  # name of dataset to evaluate
   config.dataset_configs.train_target_size = config.dataset_configs.get_ref(
       'target_size')
   config.dataset_configs.denoise = None
   config.dataset_configs.use_timestep = 0
-
-  config.dataset_configs.train_split = 'train'
-  config.dataset_configs.name = 'street_hazards'
-  config.dataset_configs.dataset_name = ''  # ood name flag to write in eval.
 
   # Model.
   config.model_name = 'segvit'
@@ -114,9 +83,9 @@ def get_config(runlocal=''):
   config.model.backbone.num_heads = num_heads
   config.model.backbone.num_layers = num_layers
   config.model.backbone.hidden_size = hidden_size
-  config.model.backbone.dropout_rate = 0.0
+  config.model.backbone.dropout_rate = 0.1
   config.model.backbone.attention_dropout_rate = 0.0
-  config.model.backbone.classifier = CLASSIFIER
+  config.model.backbone.classifier = 'gap'
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
@@ -129,20 +98,19 @@ def get_config(runlocal=''):
   config.l2_decay_factor = 0.0
   config.max_grad_norm = 1.0
   config.label_smoothing = None
-  config.num_training_epochs = ml_collections.FieldReference(100)
-  config.batch_size = 32
+  config.num_training_epochs = ml_collections.FieldReference(2)
+  config.batch_size = batch_size
   config.rng_seed = 0
   config.focal_loss_gamma = 0.0
 
   # Learning rate.
-  config.num_train_examples = TRAIN_SIZES.get(config.dataset_configs.name)
-  config.steps_per_epoch = config.get_ref(
-      'num_train_examples') // config.get_ref('batch_size')
+  config.steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.get_ref(
+      'batch_size')
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
   config.lr_configs = ml_collections.ConfigDict()
   config.lr_configs.learning_rate_schedule = 'compound'
   config.lr_configs.factors = 'constant * cosine_decay * linear_warmup'
-  config.lr_configs.warmup_steps = 1 * config.get_ref('steps_per_epoch')
+  config.lr_configs.warmup_steps = 0
   config.lr_configs.steps_per_cycle = config.get_ref(
       'num_training_epochs') * config.get_ref('steps_per_epoch')
   config.lr_configs.base_learning_rate = 1e-4
@@ -151,11 +119,7 @@ def get_config(runlocal=''):
   config.model_dtype_str = 'float32'
   config.data_dtype_str = 'float32'
 
-  # Load checkpoint
-  config.checkpoint_configs = ml_collections.ConfigDict()
-  config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
-  config.checkpoint_configs.checkpoint_path = MODEL_PATH
-  config.checkpoint_configs.classifier = 'token'
+  # init not included
 
   # Logging.
   config.write_summary = True
@@ -169,12 +133,11 @@ def get_config(runlocal=''):
   config.log_eval_steps = 1 * config.get_ref('steps_per_epoch')
 
   # Evaluation.
+  config.eval_mode = True
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
-  config.eval_mode = True
   config.eval_covariate_shift = True
   config.eval_label_shift = True
-  config.model.input_shape = target_size
   config.eval_configs.store_logits = False
 
   config.eval_robustness_configs = ml_collections.ConfigDict()
@@ -194,53 +157,8 @@ def get_config(runlocal=''):
 
   if runlocal:
     config.count_flops = False
-    config.dataset_configs.train_target_size = (128, 128)
-    config.model.input_shape = config.dataset_configs.train_target_size
-    config.batch_size = 8
-    config.num_training_epochs = 5
-    config.warmup_steps = 0
-    config.dataset_configs.train_split = f'train[:{TRAIN_SAMPLES}]'
-    config.dataset_configs.validation_split = f'validation[:{TRAIN_SAMPLES}]'
-    config.num_train_examples = TRAIN_SAMPLES
 
   return config
-
-
-def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
-               classifier, upstream_task):
-  """Defines checkpoints for sweep."""
-  overwrites = []
-  if resnet_size is not None:
-    raise NotImplementedError('')
-  else:
-    overwrites.append(
-        hyper.sweep('config.model.patches', [{
-            'size': (stride, stride)
-        }]))
-
-  if vit_size == 'B':
-    overwrites.append(hyper.sweep('config.model.backbone.mlp_dim', [3072]))
-    overwrites.append(hyper.sweep('config.model.backbone.num_heads', [12]))
-    overwrites.append(hyper.sweep('config.model.backbone.num_layers', [12]))
-    overwrites.append(hyper.sweep('config.model.backbone.hidden_size', [768]))
-  elif vit_size == 'L':
-    overwrites.append(hyper.sweep('config.model.backbone.mlp_dim', [4096]))
-    overwrites.append(hyper.sweep('config.model.backbone.num_heads', [16]))
-    overwrites.append(hyper.sweep('config.model.backbone.num_layers', [24]))
-    overwrites.append(hyper.sweep('config.model.backbone.hidden_size', [1024]))
-  else:
-    raise NotImplementedError('')
-
-  overwrites.append(
-      hyper.sweep('config.pretrained_backbone_configs.checkpoint_format',
-                  [backbone_origin]))
-  overwrites.append(
-      hyper.sweep('config.pretrained_backbone_configs.checkpoint_path', [
-          MODEL_PATHS[(backbone_origin, vit_size, stride, resnet_size,
-                       classifier, upstream_task)]
-      ]))
-
-  return hyper.product(overwrites)
 
 
 def get_sweep(hyper):

@@ -44,11 +44,15 @@ def get_config(runlocal=''):
   config.experiment_name = 'cityscapes_segmenter_toy_model'
 
   # Dataset.
-  config.dataset_name = 'cityscapes'
+  config.dataset_name = 'robust_segvit_segmentation'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
   config.dataset_configs.train_split = 'train[:5%]'
-  config.dataset_configs.dataset_name = ''  # name of ood dataset to evaluate
+  config.dataset_configs.name = 'cityscapes'  # name of dataset to evaluate
+  config.dataset_configs.train_target_size = config.dataset_configs.get_ref(
+      'target_size')
+  config.dataset_configs.denoise = None
+  config.dataset_configs.use_timestep = 0
 
   # Model.
   config.model_name = 'segvit'

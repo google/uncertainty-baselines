@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Evaluate segmenter model on street_hazards.
+r"""Evaluate segmenter_gp model on street_hazards.
 
 
 """
@@ -54,12 +54,12 @@ UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
 target_size = (720, 720)
 
 CHECKPOINT_ORIGIN = 'ub'
-EXPERIMENTID='det_run1'
+EXPERIMENTID='gp_run1'
 
 # Upstream
 MODEL_PATHS = {
-    ('ub', 'L', 16, None, 'token', 'det_run1'):
-        'gs://ub-ekb/segmenter/street_hazards/deterministic/deterministic_2022-09-27-07-32-08',
+    ('ub', 'L', 16, None, 'token', 'gp_run1'):
+        'gs://ub-ekb/segmenter/street_hazards/gp/gp_2022-10-03-15-05-54',
 }
 
 
@@ -86,7 +86,7 @@ def get_config(runlocal=''):
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'street_hazards_deterministic_eval'
+  config.experiment_name = 'street_hazards_gp_eval'
 
   # Dataset.
   config.dataset_name = 'robust_segvit_segmentation'
@@ -120,7 +120,20 @@ def get_config(runlocal=''):
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear'
+  config.model.decoder.type = 'gp'
+
+  # GP layer params
+  config.model.decoder.gp_layer = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs.ridge_penalty = 1.
+  # Disable momentum in order to use exact covariance update for finetuning.
+  # Disable to allow exact cov update.
+  config.model.decoder.gp_layer.covmat_kwargs.momentum = 0.99
+  config.model.decoder.mean_field_factor = 1.
+  # Additional params
+  config.model.decoder.gp_layer.normalize_input = True
+  config.model.decoder.gp_layer.hidden_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.hidden_kwargs.feature_scale = 1.
 
   # Training.
   config.trainer_name = 'segvit_trainer'

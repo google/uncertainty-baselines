@@ -14,8 +14,9 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Evaluate segmenter model on street_hazards.
+r"""Train segmenter model on ade20k_ind.
 
+Compare performance from deterministic upstream checkpoints.
 
 """
 # pylint: enable=line-too-long
@@ -38,33 +39,33 @@ TRAIN_SIZES = {
     'ade20k_ind': _ADE20K_TRAIN_SIZE,
     'pascal_voc': _PASCAL_VOC_TRAIN_SIZE,
     'pascal_context': _PASCAL_CONTEXT_TRAIN_SIZE,
-    'street_hazards': _STREET_HAZARDS_TRAIN_SIZE
-
+    'street_hazards': _STREET_HAZARDS_TRAIN_SIZE,
 }
 
 # Model specs.
-target_size = (720, 720)
-
 LOAD_PRETRAINED_BACKBONE = True
+BACKBONE_ORIGIN = 'vision_transformer'
 VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
-UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
 target_size = (720, 720)
+UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
 
-CHECKPOINT_ORIGIN = 'ub'
-EXPERIMENTID='det_run1'
 
 # Upstream
 MODEL_PATHS = {
-    ('ub', 'L', 16, None, 'token', 'det_run1'):
-        'gs://ub-ekb/segmenter/street_hazards/deterministic/deterministic_2022-09-27-07-32-08',
+
+    # Imagenet 21k + finetune in imagenet2012 with perf 0.85 adap_res 384
+    ('vision_transformer', 'L', 16, None, 'token', 'i21k+imagenet2012'):
+        'gs://vit_models/imagenet21k+imagenet2012/ViT-L_16.npz',
+    ('vision_transformer', 'L', 16, None, 'token', 'augreg+i21k+imagenet2012'):
+        'gs://vit_models/augreg/L_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.1-sd_0.1--imagenet2012-steps_20k-lr_0.01-res_384.npz',
 }
 
 
-MODEL_PATH = MODEL_PATHS[(CHECKPOINT_ORIGIN, VIT_SIZE, STRIDE,
-                                    RESNET_SIZE, CLASSIFIER, EXPERIMENTID)]
+MODEL_PATH = MODEL_PATHS[(BACKBONE_ORIGIN, VIT_SIZE, STRIDE, RESNET_SIZE,
+                          CLASSIFIER, UPSTREAM_TASK)]
 
 if VIT_SIZE == 'B':
   mlp_dim = 3072
@@ -81,12 +82,12 @@ TRAIN_SAMPLES = 32
 
 
 def get_config(runlocal=''):
-  """Returns the configuration for ADE20k_ind segmentation."""
+  """Returns the configuration for street hazards segmentation."""
 
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'street_hazards_deterministic_eval'
+  config.experiment_name = 'street_hazards_ind_segmenter_het_hyper'
 
   # Dataset.
   config.dataset_name = 'robust_segvit_segmentation'
@@ -114,13 +115,27 @@ def get_config(runlocal=''):
   config.model.backbone.num_heads = num_heads
   config.model.backbone.num_layers = num_layers
   config.model.backbone.hidden_size = hidden_size
-  config.model.backbone.dropout_rate = 0.0
+  config.model.backbone.dropout_rate = 0.1
   config.model.backbone.attention_dropout_rate = 0.0
   config.model.backbone.classifier = CLASSIFIER
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear'
+  config.model.decoder.type = 'het'
+
+  # Het layer params
+  # temp: wide sweep [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]
+  config.model.decoder.temperature = 1.0
+  # efficient low rank approx ~ FxK where K is the classes. False for K<20.
+  config.model.decoder.param_efficient = False
+  # F as a low rank approx of KxK matrix has num_factors:
+  # imagenet~15, jft~50, cifar~6, cityscapes~sweep(5-10).
+  config.model.decoder.num_factors = 5
+  # mc_samples: use as much as can be afforded, ideally > 10.
+  config.model.decoder.mc_samples = 1000
+  config.model.decoder.return_locs = False
+  # turn on to run an approx on KHW x KHW instead of KxK.
+  config.model.decoder.share_samples_across_batch = False
 
   # Training.
   config.trainer_name = 'segvit_trainer'
@@ -151,11 +166,14 @@ def get_config(runlocal=''):
   config.model_dtype_str = 'float32'
   config.data_dtype_str = 'float32'
 
-  # Load checkpoint
-  config.checkpoint_configs = ml_collections.ConfigDict()
-  config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
-  config.checkpoint_configs.checkpoint_path = MODEL_PATH
-  config.checkpoint_configs.classifier = 'token'
+  # load pretrained backbone
+  config.load_pretrained_backbone = LOAD_PRETRAINED_BACKBONE
+  config.pretrained_backbone_configs = ml_collections.ConfigDict()
+  config.pretrained_backbone_configs.checkpoint_format = BACKBONE_ORIGIN
+  config.pretrained_backbone_configs.checkpoint_path = MODEL_PATH
+  config.pretrained_backbone_configs.token_init = True
+  config.pretrained_backbone_configs.classifier = 'token'
+  config.pretrained_backbone_configs.backbone_type = 'vit'
 
   # Logging.
   config.write_summary = True
@@ -171,11 +189,10 @@ def get_config(runlocal=''):
   # Evaluation.
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
-  config.eval_mode = True
-  config.eval_covariate_shift = True
-  config.eval_label_shift = True
+  config.eval_mode = False
+  config.eval_covariate_shift = False
+  config.eval_label_shift = False
   config.model.input_shape = target_size
-  config.eval_configs.store_logits = False
 
   config.eval_robustness_configs = ml_collections.ConfigDict()
   config.eval_robustness_configs.auc_online = True
@@ -244,4 +261,16 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
 
 
 def get_sweep(hyper):
-  return hyper.product([])
+  """Defines the hyper-parameters sweeps for doing grid search."""
+  parameters = [
+      hyper.sweep('config.model.decoder.num_factors',
+                  hyper.discrete([5, 10, 20, 50])),
+      hyper.sweep('config.model.decoder.temperature',
+                  [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]),
+      hyper.sweep('config.model.decoder.share_samples_across_batch',
+                  [True, False]),
+      hyper.sweep('config.model.decoder.param_efficient',
+                  [True, False]),
+  ]
+
+  return hyper.product(parameters)

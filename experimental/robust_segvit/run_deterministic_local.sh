@@ -12,6 +12,7 @@ base_output_dir="gs://ub-ekb/segmenter/${DATASET}/deterministic"
 
 # Debug on Mac OS X platform
 use_gpu=False
+
 if [ "$(uname)" = "Darwin" ] ; then
 tpu=False
 num_cores=1
@@ -22,6 +23,8 @@ num_cores=8
 batch_size=8
 fi
 
+use_wandb=True
+
 config_file="configs/${DATASET}/deterministic.py:runlocal"
 run_name="local"
 output_dir="${base_output_dir}/${run_name}"
@@ -31,4 +34,5 @@ python deterministic.py \
 --use_gpu=$use_gpu \
 --config=${config_file} \
 --config.batch_size=${batch_size} \
+--config.use_wandb=${use_wandb} \
 --tpu=${tpu} \

@@ -19,7 +19,7 @@ use_wandb=True
 
 for dataset  in "cityscapes"  #"ade20k_ind" "street_hazards"
 do
-for model in "deterministic" "gp" "be" "het"
+for model in "deterministic" "gp" "het" "be" 
 do
 for rng_seed in 1
 do

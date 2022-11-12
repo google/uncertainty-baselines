@@ -41,6 +41,7 @@ fi
 # Set configuration file
 # ----------------------------------------------------
 config_file="configs/${DATASET}/toy_model.py:runlocal"
+use_wandb=True
 
 # ----------------------------------------------------
 # Call model trainer.
@@ -51,4 +52,5 @@ python deterministic.py \
 --use_gpu=$use_gpu \
 --config=${config_file} \
 --config.batch_size=${batch_size} \
+--config.use_wandb=${use_wandb} \
 --tpu=${tpu} \

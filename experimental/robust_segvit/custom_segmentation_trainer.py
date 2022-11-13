@@ -257,6 +257,7 @@ def evaluate(train_state: train_utils.TrainState,
   writer.flush()
 
   # Free some memory
+  del example_viz, images, e_batch, e_predictions, e_logits, e_metrics, eval_batch
   del eval_metrics
   del eval_global_metrics_summary
   del eval_all_confusion_mats
@@ -890,6 +891,7 @@ def train(
                                            extra_training_logs),
           writer=writer)
 
+      del example_viz, train_metrics, extra_training_logs
       # Reset metric accumulation for next evaluation cycle.
       train_metrics, extra_training_logs = [], []
 

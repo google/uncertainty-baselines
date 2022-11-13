@@ -125,7 +125,6 @@ class ComputeOODAUCMetric:
       self.auc.update_state(label, ood_score, sample_weight=sample_weight)
 
   def gather_metrics(self):
-    auc_state = keras_auc_to_arrays(self.auc)
 
     # Gather the metrics:
     self.auc = host_all_gather_metrics(self.auc)

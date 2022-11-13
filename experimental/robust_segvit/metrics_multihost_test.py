@@ -84,7 +84,9 @@ class OODMetricsMultiHostTest(parameterized.TestCase):
     np.random.seed(seed)
     num_thresholds = 1000
 
-    ood_kwargs = {}
+    ood_kwargs = {
+      'method_name': 'mlogit',
+    }
     # Create test data:
     num_classes = 2
     input_shape = [8, 1, 224, 224]
@@ -119,7 +121,7 @@ class OODMetricsMultiHostTest(parameterized.TestCase):
       auc_roc.calculate_and_update_scores(logits=pred,
                                label=ood_label,
                                sample_weight=fake_batch['batch_mask'],
-                               *ood_kwargs,
+                               **ood_kwargs,
                                )
     auc_result = auc_roc.gather_metrics().numpy()
 

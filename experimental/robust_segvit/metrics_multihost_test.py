@@ -63,7 +63,7 @@ class OODMetricsMultiHostTest(parameterized.TestCase):
                                sample_weight=fake_batch['batch_mask'],
                                )
 
-    auc_result = auc_roc.gather_metrics()
+    auc_result = auc_roc.gather_metrics().numpy()
 
     # Numpy result:
     if np.all(batch_np['batch_mask'] == 0):
@@ -121,7 +121,7 @@ class OODMetricsMultiHostTest(parameterized.TestCase):
                                sample_weight=fake_batch['batch_mask'],
                                *ood_kwargs,
                                )
-    auc_result = auc_roc.gather_metrics()
+    auc_result = auc_roc.gather_metrics().numpy()
 
     # Numpy result:
     if np.all(batch_np['batch_mask'] == 0):
@@ -180,7 +180,7 @@ class OODMetricsMultiHostTest(parameterized.TestCase):
                                sample_weight=fake_batch['batch_mask'],
                                **ood_kwargs,
                                )
-    auc_result = auc_roc.gather_metrics()
+    auc_result = auc_roc.gather_metrics().numpy()
 
     # Numpy result:
     if np.all(batch_np['batch_mask'] == 0):

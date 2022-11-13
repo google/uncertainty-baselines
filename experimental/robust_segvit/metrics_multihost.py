@@ -93,7 +93,7 @@ class ComputeAUCMetric:
                                                    num_thresholds=self.num_thresholds),
                                    self.auc)
 
-    return self.auc.result().numpy()
+    return self.auc.result()
 
 
 class ComputeOODAUCMetric:
@@ -127,15 +127,10 @@ class ComputeOODAUCMetric:
   def gather_metrics(self):
     auc_state = keras_auc_to_arrays(self.auc)
 
-    # Gather the data across all hosts.
-    all_auc_states = multihost_utils.process_allgather(auc_state)
+    # Gather the metrics:
+    self.auc = host_all_gather_metrics(self.auc)
 
-    # Below we pick the first device.
-    self.auc = arrays_to_keras_auc(*combine_states(all_auc_states,
-                                                   num_thresholds=self.num_thresholds),
-                                   self.auc)
-
-    return self.auc.result().numpy()
+    return self.auc.result()
 
 
 class ComputeScoreAUCMetric:
@@ -174,4 +169,4 @@ class ComputeScoreAUCMetric:
                                                    num_thresholds=self.num_thresholds),
                                    self.auc)
 
-    return self.auc.result().numpy()
+    return self.auc.result()

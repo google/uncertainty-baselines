@@ -54,7 +54,7 @@ import os
 import resource
 import sys
 import robustness_metrics as rm
-from metrics_multihost import ComputeOODAUCMetric, ComputeScoreAUCMetric
+from metrics_multihost import ComputeOODAUCMetric
 from metrics_multihost import host_all_gather_metrics
 
 Batch = Dict[str, jnp.ndarray]

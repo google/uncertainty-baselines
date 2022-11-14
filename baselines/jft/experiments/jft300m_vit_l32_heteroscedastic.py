@@ -20,8 +20,6 @@ r"""Heteroscedastic ViT-L/32.
 # pylint: enable=line-too-long
 
 import ml_collections
-# TODO(dusenberrymw): Open-source remaining imports.
-from experiments import common_fewshot  # local file import from baselines.jft
 
 
 def get_config():
@@ -76,6 +74,9 @@ def get_config():
   config.model.mc_samples = 1000
   config.model.num_factors = 50
   config.model.param_efficient = True
+  config.model.temperature_lower_bound = 0.05
+  config.model.temperature_upper_bound = 5.0
+  config.model.latent_het = False
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -93,14 +94,13 @@ def get_config():
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
 
-  # Few-shot eval section
-  config.fewshot = common_fewshot.get_fewshot()
-  config.fewshot.log_steps = 50_000
   return config
 
 
 def get_sweep(hyper):
   return hyper.product([
       hyper.sweep('config.seed', [0]),
-      hyper.sweep('config.model.temperature', [0.6, 0.7, 0.8, 0.9])
+      hyper.sweep('config.model.mc_samples', [1000]),
+      hyper.sweep('config.model.latent_het', [True]),
+      hyper.sweep('config.model.temperature', [-1]),
   ])

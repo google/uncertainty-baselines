@@ -68,7 +68,7 @@ def fetch_temperature(config, replicated_params):
   prefix = 'multiclass_head' if config.model.multiclass else 'multilabel_head'
   lower = config.model.temperature_lower_bound
   upper = config.model.temperature_upper_bound
-  t = jax.nn.sigmoid(replicated_params[prefix]['temperature_pre_sigmoid'][0])
+  t = jax.nn.sigmoid(replicated_params[prefix]['pre_sigmoid_temperature'][0])
   return float((upper - lower) * t + lower)
 
 

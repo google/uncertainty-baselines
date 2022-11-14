@@ -20,7 +20,6 @@ r"""BiT ResNet152x{1,2} Heteroscedastic.
 # pylint: enable=line-too-long
 
 import ml_collections
-from experiments.common_fewshot import get_fewshot  # local file import from baselines.jft
 
 
 def get_config():
@@ -86,10 +85,6 @@ def get_config():
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-5
 
-  # Few-shot eval section
-  config.fewshot = get_fewshot()
-  config.fewshot.log_steps = 50_000
-
   # Disable unnecessary CNS TTLs.
   config.ttl = 0
   return config
@@ -99,7 +94,8 @@ def get_sweep(hyper):
   return hyper.product([
       hyper.sweep('config.seed', [0]),
       hyper.sweep('config.num_epochs', [7]),
+      hyper.sweep('config.model.mc_samples', [1000]),
       hyper.sweep('config.model.width_factor', [1]),
-      hyper.sweep('config.model.temperature', [-1]),
-      hyper.sweep('config.model.latent_het', [True, False])
+      hyper.sweep('config.model.temperature', [-1.0]),
+      hyper.sweep('config.model.latent_het', [True])
   ])

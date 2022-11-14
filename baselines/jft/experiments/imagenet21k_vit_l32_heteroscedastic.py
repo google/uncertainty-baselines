@@ -71,6 +71,9 @@ def get_config():
   config.model.mc_samples = 1000
   config.model.num_factors = 50
   config.model.param_efficient = True
+  config.model.temperature_lower_bound = 0.05
+  config.model.temperature_upper_bound = 5.0
+  config.model.latent_het = False
 
   # Optimizer section
   config.optim_name = 'Adam'
@@ -92,8 +95,9 @@ def get_config():
 
 
 def get_sweep(hyper):
-  # Below shows an example for how to sweep hyperparameters.
   return hyper.product([
       hyper.sweep('config.seed', [0]),
-      hyper.sweep('config.model.temperature', [2.25]),
+      hyper.sweep('config.model.temperature', [-1]),
+      hyper.sweep('config.model.latent_het', [True]),
+      hyper.sweep('config.model.mc_samples', [1000]),
   ])

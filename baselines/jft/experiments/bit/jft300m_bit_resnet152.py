@@ -88,7 +88,7 @@ def get_config():
 
 def get_sweep(hyper):
   return hyper.product([
-      hyper.sweep('config.seed', [0]),
-      hyper.sweep('config.model.width_factor', [1, 2]),
+      hyper.sweep('config.seed', [0, 1, 2]),
+      hyper.sweep('config.model.width_factor', [1]),
       hyper.sweep('config.model.temperature', [1.0]),
   ])

@@ -54,7 +54,7 @@ import os
 import resource
 import sys
 import robustness_metrics as rm
-from metrics_multihost import ComputeOODAUCMetric, ComputeScoreAUCMetric
+from metrics_multihost import ComputeOODAUCMetric
 from metrics_multihost import host_all_gather_metrics
 
 Batch = Dict[str, jnp.ndarray]
@@ -234,10 +234,14 @@ def evaluate(train_state: train_utils.TrainState,
       prefix=prefix,
       )
 
+  del e_metrics, eval_batch, eval_metrics, eval_global_metrics_summary
+  del eval_all_confusion_mats
+  del eval_all_unc_confusion_mats
+
   # Gather uncertainty metrics from all hosts and write value:
   ece_metric = host_all_gather_metrics(ece_metric)
   calib_auc = host_all_gather_metrics(calib_auc)
-  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix) : ece_metric.result(),
+  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix): ece_metric.result(),
                                            '{}_calib_auc'.format(prefix): calib_auc.result(),
                                            } )
 
@@ -257,10 +261,7 @@ def evaluate(train_state: train_utils.TrainState,
   writer.flush()
 
   # Free some memory
-  del eval_metrics
-  del eval_global_metrics_summary
-  del eval_all_confusion_mats
-  del eval_all_unc_confusion_mats
+  del example_viz, images, e_batch, e_predictions, e_logits, logits
   return eval_summary
 
 
@@ -347,8 +348,8 @@ def evaluate_ood(
     if store_logits:
       f.close()
 
-    eval_summary = {'auroc': float(auc_roc.gather_metrics()),
-                    'auprc': float(auc_pr.gather_metrics()),
+    eval_summary = {'auroc': auc_roc.gather_metrics(),
+                    'auprc': auc_pr.gather_metrics(),
                     }
 
   else:
@@ -517,12 +518,14 @@ def train_step(
         logits)  # batch_size x h x w x num_classes
 
   metrics = metrics_fn(logits, batch)
-  new_train_state = train_state.replace(  # pytype: disable=attribute-error
+  logits = jnp.argmax(logits, axis=-1)
+
+  train_state = train_state.replace(  # pytype: disable=attribute-error
       global_step=step + 1,
       optimizer=new_optimizer,
       model_state=new_model_state,
       rng=new_rng)
-  return new_train_state, metrics, lr, jnp.argmax(logits, axis=-1)
+  return train_state, metrics, lr, logits
 
 
 def eval_step(
@@ -884,12 +887,13 @@ def train(
 
       train_summary = train_utils.log_train_summary(
           step=step,
-          train_metrics=jax.tree_map(train_utils.unreplicate_and_get,
+          train_metrics=jax.tree_util.tree_map(train_utils.unreplicate_and_get,
                                      train_metrics),
-          extra_training_logs=jax.tree_map(train_utils.unreplicate_and_get,
+          extra_training_logs=jax.tree_util.tree_map(train_utils.unreplicate_and_get,
                                            extra_training_logs),
           writer=writer)
 
+      del example_viz, train_metrics, extra_training_logs
       # Reset metric accumulation for next evaluation cycle.
       train_metrics, extra_training_logs = [], []
 

@@ -8,8 +8,8 @@
 # wandb sweep run_toy_mac.yaml
 
 DATASET='ade20k_ind'
-DATASET='cityscapes'
 DATASET='street_hazards'
+DATASET='cityscapes'
 
 # ----------------------------------------------------
 # Set directory where outputs should be installed:
@@ -41,6 +41,8 @@ fi
 # Set configuration file
 # ----------------------------------------------------
 config_file="configs/${DATASET}/toy_model.py:runlocal"
+use_wandb=True
+eval_covariate_shift=False
 
 # ----------------------------------------------------
 # Call model trainer.
@@ -51,4 +53,6 @@ python deterministic.py \
 --use_gpu=$use_gpu \
 --config=${config_file} \
 --config.batch_size=${batch_size} \
+--config.eval_covariate_shift=${eval_covariate_shift} \
+--config.use_wandb=${use_wandb} \
 --tpu=${tpu} \

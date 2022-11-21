@@ -111,6 +111,7 @@ class SNGPTest(absltest.TestCase):
             total_steps=4,
             eval_steps=2,
             eval_period=1000,
+            stats_period=None,
             random_seed=0,
             summarize_config_fn=gin_utils.summarize_gin_config,
         )

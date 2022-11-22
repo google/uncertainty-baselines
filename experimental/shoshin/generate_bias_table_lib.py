@@ -37,6 +37,22 @@ BIAS_LABEL_KEY = 'bias_label'
 COMBOS_SUBDIR = 'combos'
 
 
+def compute_signal_epochs(num_signal_ckpts: int, num_total_epochs: int):
+  """Computes the epochs to compute introspection signals."""
+  if num_signal_ckpts <= 0:
+    # This will inform the `train_tf_lib.load_trained_models` to just use the
+    # best checkpoint.
+    return [-1]
+
+  # Computes the epochs in log scale.
+  log_epochs = np.linspace(0, np.log(num_total_epochs), num=num_signal_ckpts)
+  epochs = np.ceil(np.exp(log_epochs)).astype(int)
+  epochs = list(np.unique(epochs))
+  # Still allows the computation of the best checkpoint.
+  epochs.append(-1)
+  return epochs
+
+
 def load_existing_bias_table(path_to_table: str):
   """Loads bias table from file."""
   df = pd.read_csv(path_to_table)
@@ -54,13 +70,14 @@ def load_existing_bias_table(path_to_table: str):
 
 def get_example_id_to_bias_label_table(
     dataloader: data.Dataloader,
-    combos_dir: str, trained_models: List[tf.keras.Model],
+    combos_dir: str,
+    trained_models: List[tf.keras.Model],
     num_splits: int,
     bias_percentile_threshold: int,
     bias_value_threshold: Optional[float] = None,
     save_dir: Optional[str] = None,
-    save_table: Optional[bool] = True
-) -> tf.lookup.StaticHashTable:
+    ckpt_epoch: int = -1,
+    save_table: Optional[bool] = True) -> tf.lookup.StaticHashTable:
   """Generates a lookup table mapping example ID to bias label.
 
   Args:
@@ -77,14 +94,25 @@ def get_example_id_to_bias_label_table(
       which examples will receive a bias label of 1 (and 0 if below). Use
       percentile by default.
     save_dir: Directory in which bias table will be saved as CSV.
+    ckpt_epoch: The training epoch where the models in `trained_models` are
+      loaded from. It only impacts the file name of the bias table.
     save_table: Boolean for whether or not to save table.
 
   Returns:
-    A lookup table mapping example ID to bias label.
+    A lookup table mapping example ID to bias label and additional meta data
+    (i.e., target label, subgroup label, and introspection signals).
   """
+  is_train_all = []
   example_ids_all = []
-  bias_values_all = []
+  target_labels_all = []
+  groups_labels_all = []
+
   bias_labels_all = []
+  bias_values_all = []
+  vars_values_all = []
+  nois_values_all = []
+  gap_values_all = []
+  error_values_all = []
   for split_idx in range(num_splits):
     # For each split of data,
     # 1. Get the models that included this split (as in-domain training data).
@@ -92,13 +120,27 @@ def get_example_id_to_bias_label_table(
     # 3. Calculate the bias value and, using the threshold, bias label.
     id_predictions_all = []
     ood_predictions_all = []
+
+    # Collects target and place labels.
     labels = list(dataloader.train_splits[split_idx].map(
         lambda example: example['label']).as_numpy_iterator())
     labels += list(dataloader.val_splits[split_idx].map(
         lambda example: example['label']).as_numpy_iterator())
     labels = np.concatenate(labels)
+    target_labels_all.append(labels)
+
+    group_labels = list(dataloader.train_splits[split_idx].map(
+        lambda example: example['subgroup_label']).as_numpy_iterator())
+    group_labels += list(dataloader.val_splits[split_idx].map(
+        lambda example: example['subgroup_label']).as_numpy_iterator())
+    group_labels = np.concatenate(group_labels)
+    groups_labels_all.append(group_labels)
+
+    # Collects in-sample and out-of-sample predictions.
     for combo_idx, combo in enumerate(tf.io.gfile.listdir(combos_dir)):
-      if str(split_idx) in combo:
+      splits_in_combo = [int(split_idx) for split_idx in combo.split('_')]
+      if split_idx in splits_in_combo:
+        # Identifies in-sample model and collects its predictions.
         model = trained_models[combo_idx]
         id_predictions_train = model.predict(
             dataloader.train_splits[split_idx].map(
@@ -112,6 +154,7 @@ def get_example_id_to_bias_label_table(
             id_predictions, tf.expand_dims(labels, axis=1), batch_dims=1)
         id_predictions_all.append(id_predictions)
       else:
+        # Identifies out-of-sample model and collects its predictions.
         model = trained_models[combo_idx]
         ood_predictions_train = model.predict(
             dataloader.train_splits[split_idx].map(
@@ -126,43 +169,101 @@ def get_example_id_to_bias_label_table(
             ood_predictions, tf.expand_dims(labels, axis=1), batch_dims=1)
         ood_predictions_all.append(ood_predictions)
 
-    example_ids = list(dataloader.train_splits[split_idx].map(
+    # Collects example ids and is_train indicators.
+    # NB: The extracted example id are byte strings.
+    example_ids_train = list(dataloader.train_splits[split_idx].map(
         lambda example: example['example_id']).as_numpy_iterator())
-    example_ids += list(dataloader.val_splits[split_idx].map(
+    example_ids_val = list(dataloader.val_splits[split_idx].map(
         lambda example: example['example_id']).as_numpy_iterator())
+    example_ids = example_ids_train + example_ids_val
     example_ids = np.concatenate(example_ids)
     example_ids_all.append(example_ids)
+
+    is_train = tf.concat([
+        tf.ones(len(np.concatenate(example_ids_train)), dtype=tf.int64),
+        tf.zeros(len(np.concatenate(example_ids_val)), dtype=tf.int64)
+    ], axis=0)
+    is_train_all.append(is_train)
+
+    # Computes in-sample and out-of-sample predictions and bias values.
     id_predictions_avg = np.average(np.stack(id_predictions_all), axis=0)
     ood_predictions_avg = np.average(np.stack(ood_predictions_all), axis=0)
     bias_values = np.absolute(
         np.subtract(id_predictions_avg, ood_predictions_avg))
-    # Calculate bias labels using value threshold by default.
+    vars_values = np.std(np.stack(ood_predictions_all), axis=0)
+    # Since the `id_predictions_avg` is the predictive probability for the
+    # target class. The `noise` is simply the distance between the predicted
+    # probability and the true probability of target class (i.e., 1.).
+    nois_values = np.absolute(np.subtract(1., id_predictions_avg))
+    error_values = np.average(np.subtract(1., ood_predictions_all), axis=0)
+    gap_values = np.average(
+        np.absolute(np.subtract(id_predictions_avg[None, :],
+                                np.stack(ood_predictions_all))), axis=0)
+
+    # Calculates bias labels using value threshold by default.
     # If percentile is specified, use percentile instead.
     if bias_percentile_threshold:
       threshold = np.percentile(bias_values, bias_percentile_threshold)
     else:
       threshold = bias_value_threshold
     bias_labels = tf.math.greater(bias_values, threshold)
-    bias_values_all.append(bias_values)
-    bias_labels_all.append(bias_labels)
 
+    bias_labels_all.append(bias_labels)
+    bias_values_all.append(bias_values)
+    vars_values_all.append(vars_values)
+    nois_values_all.append(nois_values)
+
+    gap_values_all.append(gap_values)
+    error_values_all.append(error_values)
+
+  is_train_all = np.concatenate(is_train_all)
   example_ids_all = np.concatenate(example_ids_all)
-  bias_values_all = np.squeeze(np.concatenate(bias_values_all))
+  target_labels_all = np.concatenate(target_labels_all)
+  groups_labels_all = np.concatenate(groups_labels_all)
+
   bias_labels_all = np.squeeze(np.concatenate(bias_labels_all))
+  bias_values_all = np.squeeze(np.concatenate(bias_values_all))
+  vars_values_all = np.squeeze(np.concatenate(vars_values_all))
+  nois_values_all = np.squeeze(np.concatenate(nois_values_all))
+  gap_values_all = np.squeeze(np.concatenate(gap_values_all))
+  error_values_all = np.squeeze(np.concatenate(error_values_all))
+
   logging.info('# of examples: %s', example_ids_all.shape[0])
-  logging.info('# of bias labels: %s', bias_labels_all.shape[0])
+  logging.info('# of target_label: %s', target_labels_all.shape[0])
+  logging.info('# of groups_label: %s', groups_labels_all.shape[0])
+  logging.info('# of bias_label: %s', bias_labels_all.shape[0])
   logging.info('# of non-zero bias labels: %s',
                tf.math.count_nonzero(bias_labels_all).numpy())
+
+  logging.info('# of bias: %s', bias_values_all.shape[0])
+  logging.info('# of variance: %s', vars_values_all.shape[0])
+  logging.info('# of noise: %s', nois_values_all.shape[0])
+  logging.info('# of gap: %s', nois_values_all.shape[0])
+  logging.info('# of noise: %s', gap_values_all.shape[0])
+  logging.info('# of error: %s', error_values_all.shape[0])
+  logging.info('# of is_train: %s', is_train_all.shape[0])
+  logging.info('# of train examples: %s',
+               tf.math.count_nonzero(is_train_all).numpy())
 
   if save_table:
     df = pd.DataFrame({
         'example_id': example_ids_all,
+        'target_label': target_labels_all,
+        'groups_label': groups_labels_all,
+        'bias_label': bias_labels_all,
         'bias': bias_values_all,
-        'bias_label': bias_labels_all
+        'variance': vars_values_all,
+        'noise': nois_values_all,
+        'gap': gap_values_all,
+        'error': error_values_all,
+        # Whether this example belongs to the training data.
+        'is_train': is_train_all
     })
-    df.to_csv(
-        os.path.join(save_dir, 'bias_table.csv'),
-        index=False)
+
+    csv_name = os.path.join(
+        save_dir,
+        'bias_table.csv' if ckpt_epoch < 0 else f'bias_table_{ckpt_epoch}.csv')
+    df.to_csv(csv_name, index=False)
 
   init = tf.lookup.KeyValueTensorInitializer(
       keys=tf.convert_to_tensor(example_ids_all, dtype=tf.string),
@@ -238,5 +339,3 @@ def filter_ids_fn(hash_table, value=1):
   def filter_fn(examples):
     return hash_table.lookup(examples['example_id']) == value
   return filter_fn
-
-

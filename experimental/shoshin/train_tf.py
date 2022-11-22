@@ -90,7 +90,9 @@ def main(_) -> None:
       train_bias=config.train_bias,
       num_classes=config.data.num_classes,
       num_subgroups=dataloader.num_subgroups,
+      worst_group_label=dataloader.worst_group_label,
       num_epochs=config.training.num_epochs,
+      l2_regularization_factor=config.model.l2_regularization_factor,
       optimizer=config.optimizer.type,
       learning_rate=config.optimizer.learning_rate,
       hidden_sizes=config.model.hidden_sizes,
@@ -106,7 +108,8 @@ def main(_) -> None:
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 
-  if config.train_bias or config.reweighting.do_reweighting:
+  if config.train_bias or (config.reweighting.do_reweighting and
+                           config.reweighting.signal == 'bias'):
     # Bias head will be trained as well, so gets bias labels.
     if config.path_to_existing_bias_table:
       example_id_to_bias_table = generate_bias_table_lib.load_existing_bias_table(

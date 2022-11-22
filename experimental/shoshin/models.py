@@ -55,8 +55,10 @@ class ModelTrainingParameters:
   num_classes: int
   num_subgroups: int
   num_epochs: int
+  l2_regularization_factor: float = 0.5
   optimizer: str = 'sgd'
   learning_rate: float = 1e-5
+  worst_group_label: Optional[int] = 2
   hidden_sizes: Optional[List[int]] = None
   do_reweighting: Optional[bool] = False
   reweighting_signal: Optional[str] = 'bias'
@@ -122,11 +124,17 @@ class ResNet(tf.keras.Model):
         # TODO(jihyeonlee): Consider making pooling method a flag.
     )
 
-    regularizer = tf.keras.regularizers.L2(l2=1.)
+    regularizer = tf.keras.regularizers.L2(
+        l2=model_params.l2_regularization_factor)
     for layer in self.resnet_model.layers:
       layer.trainable = True
       if hasattr(layer, 'kernel_regularizer'):
         setattr(layer, 'kernel_regularizer', regularizer)
+      if isinstance(layer, tf.keras.layers.Conv2D):
+        layer.use_bias = False
+        layer.kernel_initializer = 'he_normal'
+      if isinstance(layer, tf.keras.layers.BatchNormalization):
+        layer.momentum = 0.9
 
     self.output_main = tf.keras.layers.Dense(
         2,

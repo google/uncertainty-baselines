@@ -40,6 +40,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
                num_subgroups: int,
                train_bias: bool,
                name: str,
+               worst_group_label: Optional[int] = 2,
                do_reweighting: Optional[bool] = False,
                reweighting_signal: Optional[str] = 'bias',
                reweighting_lambda: Optional[float] = 0.5,
@@ -60,7 +61,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     self.num_subgroups = num_subgroups
     if self.num_subgroups > 1:
       self.avg_acc = tf.keras.metrics.Mean(name='avg_acc')
-      self.avg_auc = tf.keras.metrics.Mean(name='avg_auc')
+      self.worst_group_label = worst_group_label
 
   def call(self, inputs):
     return self.model(inputs)
@@ -72,20 +73,13 @@ class TwoHeadedOutputModel(tf.keras.Model):
                                metrics) -> Dict[str, tf.keras.metrics.Metric]:
     """Computes metrics as average of all subgroups."""
     accs = []
-    aucs = []
     for m in metrics:
       if 'subgroup' in m.name and 'main' in m.name:
-        if 'acc' in m.name:
-          accs.append(m.result())
-        elif 'auc' in m.name:
-          aucs.append(m.result())
+        accs.append(m.result())
     self.avg_acc.reset_state()
-    self.avg_auc.reset_state()
     self.avg_acc.update_state(accs)
-    self.avg_auc.update_state(aucs)
     return {
-        self.avg_acc.name: self.avg_acc.result(),
-        self.avg_auc.name: self.avg_auc.result()
+        self.avg_acc.name: self.avg_acc.result()
     }
 
   def train_step(self, inputs):
@@ -99,41 +93,45 @@ class TwoHeadedOutputModel(tf.keras.Model):
     with tf.GradientTape() as tape:
       y_pred = self(features, training=True)
 
-      y_true_bias = None
-      if self.train_bias or self.do_reweighting:
+      y_true = {'main': y_true_main}
+      if self.train_bias or (self.do_reweighting and
+                             self.reweighting_signal == 'bias'):
         if self.id_to_bias_table is None:
           raise ValueError('id_to_bias_table must not be None.')
         y_true_bias = self.id_to_bias_table.lookup(example_ids)
         y_true_bias_original = y_true_bias
         y_true_bias = tf.one_hot(y_true_bias, depth=2)
-      y_true = {
-          'main': y_true_main,
-          'bias': y_true_bias
-      }
+        y_true['bias'] = y_true_bias
+
       sample_weight = None
       if self.do_reweighting:
         if self.reweighting_signal == 'bias':
-          example_labels = y_true_bias_original
-        else:  # Use prediction error.
+          # Loads bias label from table, which has already been determined by
+          # threshold.
+          reweighting_labels = y_true_bias_original
+        elif self.reweighting_signal == 'error':  # Use prediction error.
           error = tf.math.subtract(
               tf.ones_like(y_pred), tf.gather_nd(y_pred, y_true_main))
           threshold = np.percentile(error, self.error_percentile_threshold)
-          example_labels = tf.math.greater(error, threshold)
+          reweighting_labels = tf.math.greater(error, threshold)
+        else:  # Give weight to worst group only.
+          reweighting_labels = tf.math.equal(subgroup_labels,
+                                             self.worst_group_label)
 
         above_threshold_example_multiplex = tf.math.multiply(
             self.reweighting_lambda,
-            tf.ones_like(example_labels, dtype=tf.float32))
+            tf.ones_like(reweighting_labels, dtype=tf.float32))
         below_threshold_example_multiplex = tf.math.multiply(
             1. - self.reweighting_lambda,
-            tf.ones_like(example_labels, dtype=tf.float32))
+            tf.ones_like(reweighting_labels, dtype=tf.float32))
         sample_weight = tf.where(
-            tf.math.equal(example_labels, 1),
+            reweighting_labels,
             above_threshold_example_multiplex,
             below_threshold_example_multiplex)
 
       total_loss = self.compiled_loss(
           y_true, y_pred, sample_weight=sample_weight)
-      total_loss += sum(self.losses)  # Regularization loss
+      total_loss += sum(self.losses)  # Regularization loss.
 
     gradients = tape.gradient(total_loss, self.model.trainable_variables)
     self.optimizer.apply_gradients(
@@ -165,18 +163,13 @@ class TwoHeadedOutputModel(tf.keras.Model):
     subgroup_labels = inputs['subgroup_label']
     y_true_main = tf.one_hot(labels, depth=2)
     y_pred = self(features, training=False)
-
-    y_true_bias = None
+    y_true = {'main': y_true_main}
     if self.train_bias:
       if self.id_to_bias_table is None:
         raise ValueError('id_to_bias_table must not be None.')
       y_true_bias = self.id_to_bias_table.lookup(example_ids)
-      y_true_bias = tf.one_hot(y_true_bias, depth=2)
+      y_true['bias'] = tf.one_hot(y_true_bias, depth=2)
 
-    y_true = {
-        'main': y_true_main,
-        'bias': y_true_bias
-    }
     for i in range(self.num_subgroups):
       subgroup_idx = tf.where(tf.math.equal(subgroup_labels, i))
       subgroup_pred = tf.gather(y_pred['main'], subgroup_idx, axis=0)
@@ -216,21 +209,25 @@ def compile_model(model: tf.keras.Model,
   else:  # sgd
     optimizer = tf.keras.optimizers.SGD(
         learning_rate=model_params.learning_rate, momentum=0.9)
+  loss = {'main': compute_loss_main}
+  loss_weights = {'main': 1}
   metrics = {
       'main': [
           tf.keras.metrics.CategoricalAccuracy(name='acc'),
           tf.keras.metrics.AUC(name='auc')
-      ],
-      'bias': [
-          tf.keras.metrics.CategoricalAccuracy(name='acc'),
-          tf.keras.metrics.AUC(name='auc')
       ]
   }
+  if model.train_bias:
+    metrics['bias'] = [
+        tf.keras.metrics.CategoricalAccuracy(name='acc'),
+        tf.keras.metrics.AUC(name='auc')
+    ]
+    loss['bias'] = compute_loss_bias
+    loss_weights['bias'] = 1
   for i in range(model_params.num_subgroups):
     metrics.update({
         '_'.join(['subgroup', str(i), 'main']): [
             tf.keras.metrics.CategoricalAccuracy(name='acc'),
-            tf.keras.metrics.AUC(name='auc')
         ]
     })
     if model.train_bias:
@@ -242,16 +239,9 @@ def compile_model(model: tf.keras.Model,
       })
   model.compile(
       optimizer=optimizer,
-      loss={
-          'main': compute_loss_main,
-          'bias': compute_loss_bias
-      },
-      loss_weights={
-          'main': 1,
-          'bias': 1 if model.train_bias else 0
-      },
-      metrics=metrics,
-      weighted_metrics=[])
+      loss=loss,
+      loss_weights=loss_weights,
+      metrics=metrics)
   return model
 
 
@@ -277,14 +267,11 @@ def evaluate_model(model: tf.keras.Model,
     if model.train_bias:
       logging.info('Bias Acc: %f', results['bias_acc'])
       logging.info('Bias Acc: %f', results['bias_auc'])
-    if model.num_subgroups > 0:
+    if model.num_subgroups > 1:
       for i in range(model.num_subgroups):
         logging.info('Subgroup %d Acc: %f', i,
                      results[f'subgroup_{i}_main_acc'])
-        logging.info('Subgroup %d AUC: %f', i,
-                     results[f'subgroup_{i}_main_auc'])
       logging.info('Average Acc: %f', results['avg_acc'])
-      logging.info('Average AUC: %f', results['avg_auc'])
 
 
 def init_model(
@@ -308,6 +295,7 @@ def init_model(
   two_head_model = TwoHeadedOutputModel(
       model=base_model,
       num_subgroups=model_params.num_subgroups,
+      worst_group_label=model_params.worst_group_label,
       train_bias=model_params.train_bias,
       name=experiment_name,
       do_reweighting=model_params.do_reweighting,

@@ -83,6 +83,7 @@ class Dataloader:
   train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
+  worst_group_label: Optional[int] = 2  # Label of the worst subgroup.
   train_sample_ds: Optional[tf.data.Dataset] = None  # Subsample of train set.
   eval_ds: Optional[Dict[
       str,
@@ -601,6 +602,7 @@ def get_waterbirds_dataset(num_splits: int,
       train_splits,
       val_splits,
       train_ds,
+      worst_group_label=2,  # 1_0, waterbirds on land.
       train_sample_ds=train_sample,
       eval_ds=eval_datasets)
 

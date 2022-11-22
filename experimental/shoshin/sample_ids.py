@@ -18,19 +18,6 @@ r"""Binary executable for generating ids to sample in next round.
 This file serves as a binary to compute the ids of samples to be included in
 next round of training in an active learning loop.
 
-Usage:
-# pylint: disable=line-too-long
-
-  ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/sample_ids.py \
-      --adhoc_import_modules=uncertainty_baselines \
-      -- \
-      --xm_runlocal \
-      --logtostderr \
-      --dataset_name=cardiotoxicity \
-      --config.output_dir=...(directory containing bias and predictions table)\
-      --config.ids_dir=...(directory where to save computed ids)
-
-# pylint: enable=line-too-long
 
 Note: In output_dir, models trained on different splits of data must already
 exist and be present in directory.

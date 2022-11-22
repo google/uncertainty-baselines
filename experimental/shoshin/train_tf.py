@@ -15,27 +15,6 @@
 
 r"""Binary to run training on a single model once.
 
-You can run just this file to train locally or use xm_launch.py to launch on
-XManager.
-
-Usage:
-# pylint: disable=line-too-long
-
-Note: config.output_dir can be a CNS path.
-
-To train MLP on Cardiotoxicity Fingerprint dataset locally with two output
-heads, one for the main task and one for bias, and even as an ensemble:
-ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/train_tf.py \
-  --adhoc_import_modules=uncertainty_baselines \
-    -- \
-    --xm_runlocal \
-    --alsologtostderr \
-    --config=third_party/py/uncertainty_baselines/experimental/shoshin/configs/cardiotoxicity_mlp_config.py \
-    --config.output_dir=/tmp/cardiotox/ \
-    --config.train_bias=True/False
-    --config.path_to_existing_bias_table=...
-    --config.round_idx=(which round of active sampling (0 is treated specially)
-    --config.ids_dir=(directory containing the example ids for the various splits)
 
 # pylint: enable=line-too-long
 """

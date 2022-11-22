@@ -15,20 +15,6 @@
 
 r"""Binary to run active sampling locally in a sequential manner.
 
-Usage:
-# pylint: disable=line-too-long
-
-Note: config.output_dir can be a CNS path.
-
-To train with active sampling on Cardiotoxicity Fingerprint dataset locally:
-ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/train_tf_sequuential_active.py \
-  --adhoc_import_modules=uncertainty_baselines \
-    -- \
-    --xm_runlocal \
-    --alsologtostderr \
-    --config=third_party/py/uncertainty_baselines/experimental/shoshin/configs/cardiotoxicity_mlp_config.py \
-    --config.output_dir=/tmp/cardiotox/ \
-    --config.train_stage_2_as_ensemble=True
 
 # pylint: enable=line-too-long
 """

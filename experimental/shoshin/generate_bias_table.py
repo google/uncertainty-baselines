@@ -18,18 +18,6 @@ r"""Binary executable for generating bias label table.
 This file serves as a binary to calculate bias values and create a lookup table
 that maps from example ID to bias label.
 
-Usage:
-# pylint: disable=line-too-long
-
-  ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/generate_bias_table.py \
-      --adhoc_import_modules=uncertainty_baselines \
-      -- \
-      --xm_runlocal \
-      --logtostderr \
-      --dataset_name=cardiotoxicity \
-      --model_name=mlp \
-      --output_dir='/tmp/cardiotox/round_0' \
-      --bias_percentile_threshold=0.1
 
 # pylint: enable=line-too-long
 
@@ -72,6 +60,7 @@ def main(_) -> None:
 
   dataset_builder = data.get_dataset(config.data.name)
   if config.generate_bias_table:
+    # Loads data.
     if config.round_idx == 0:
       dataloader = dataset_builder(config.data.num_splits,
                                    config.data.initial_sample_proportion,
@@ -81,33 +70,56 @@ def main(_) -> None:
       dataloader = dataset_builder(config.data.num_splits, 1,
                                    config.data.subgroup_ids,
                                    config.data.subgroup_proportions,)
-       # Filter each split to only have examples from example_ids_table
+      # Filter each split to only have examples from example_ids_table
       dataloader.train_splits = [
           dataloader.train_ds.filter(
               generate_bias_table_lib.filter_ids_fn(ids_tab)) for
           ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
     dataloader = data.apply_batch(dataloader, config.data.batch_size)
     model_params.num_subgroups = dataloader.num_subgroups
-    trained_models = train_tf_lib.load_trained_models(
-        combos_dir, model_params)
 
-    _ = generate_bias_table_lib.get_example_id_to_bias_label_table(
-        dataloader=dataloader,
-        combos_dir=combos_dir,
-        trained_models=trained_models,
-        num_splits=config.data.num_splits,
-        bias_percentile_threshold=config.bias_percentile_threshold,
-        bias_value_threshold=config.bias_value_threshold,
-        save_dir=config.output_dir,
-        save_table=True)
+    # Selects training epochs to compute introspection signals from.
+    ckpt_epochs = config.eval.signal_ckpt_epochs
+    if not ckpt_epochs:
+      # If `signal_ckpt_epochs` is not provided via eval config, compute the
+      # list of epochs number to load checkpoint from based on
+      # `config.eval.num_signal_ckpts`. If `num_signal_ckpts=0`, then only the
+      # latest epoch will be loaded.
+      ckpt_epochs = generate_bias_table_lib.compute_signal_epochs(
+          config.eval.num_signal_ckpts,
+          num_total_epochs=config.training.num_epochs)
+
+    # Computes introspection signal for every checkpoint epoch.
+    for ckpt_epoch in ckpt_epochs:
+      # Loads model.
+      trained_models = train_tf_lib.load_trained_models(
+          combos_dir, model_params, ckpt_epoch=ckpt_epoch)
+
+      # Generates table.
+      _ = generate_bias_table_lib.get_example_id_to_bias_label_table(
+          dataloader=dataloader,
+          combos_dir=combos_dir,
+          trained_models=trained_models,
+          num_splits=config.data.num_splits,
+          bias_percentile_threshold=config.bias_percentile_threshold,
+          bias_value_threshold=config.bias_value_threshold,
+          save_dir=config.output_dir,
+          ckpt_epoch=ckpt_epoch,
+          save_table=True)
   else:
+    # Generates prediction table for all splits.
     dataloader = dataset_builder(
         config.data.num_splits, 1, config.data.subgroup_ids,
         config.data.subgroup_proportions)
     dataloader = data.apply_batch(dataloader, config.data.batch_size)
     model_params.num_subgroups = dataloader.num_subgroups
+
+    # Loads model. Here we use the best checkpoint for prediction table by
+    # setting `ckpt_epoch=-1`.
     trained_models = train_tf_lib.load_trained_models(
-        combos_dir, model_params)
+        combos_dir, model_params, ckpt_epoch=-1)
+
+    # Generates table.
     _ = generate_bias_table_lib.get_example_id_to_predictions_table(
         dataloader=dataloader,
         trained_models=trained_models,

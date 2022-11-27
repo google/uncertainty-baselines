@@ -220,13 +220,13 @@ class VisionTransformerHet(nn.Module):
   classifier: str = 'token'
   # heteroscedastic args
   multiclass: bool = False
-  temperature: float = 1.0
+  temperature: float = 1.0  # temperature < 0 -> temperature will be learned
   mc_samples: int = 1000
   num_factors: int = 0
   param_efficient: bool = True
   return_locs: bool = False
   fix_base_model: bool = False
-  tune_temperature: bool = False
+  latent_het: bool = False
   temperature_lower_bound: Optional[float] = None
   temperature_upper_bound: Optional[float] = None
 
@@ -290,9 +290,10 @@ class VisionTransformerHet(nn.Module):
           self.mc_samples,
           logits_only=True,
           return_locs=self.return_locs,
-          tune_temperature=self.tune_temperature,
+          tune_temperature=self.temperature <= 0,
           temperature_lower_bound=self.temperature_lower_bound,
           temperature_upper_bound=self.temperature_upper_bound,
+          latent_dim=self.hidden_size if self.latent_het else None,
           name='multiclass_head')
     else:
       output_layer = ed.nn.MCSigmoidDenseFA(
@@ -304,9 +305,10 @@ class VisionTransformerHet(nn.Module):
           self.mc_samples,
           logits_only=True,
           return_locs=self.return_locs,
-          tune_temperature=self.tune_temperature,
+          tune_temperature=self.temperature <= 0,
           temperature_lower_bound=self.temperature_lower_bound,
           temperature_upper_bound=self.temperature_upper_bound,
+          latent_dim=self.hidden_size if self.latent_het else None,
           name='multilabel_head')
 
     # TODO(markcollier): Fix base model without using stop_gradient.
@@ -330,13 +332,14 @@ def vision_transformer_het(num_classes: int,
                            representation_size: Optional[int] = None,
                            classifier: str = 'token',
                            multiclass: bool = False,
+                           # temperature < 0 -> temperature will be learned
                            temperature: float = 1.0,
                            mc_samples: int = 1000,
                            num_factors: int = 0,
                            param_efficient: bool = True,
                            return_locs: bool = False,
                            fix_base_model: bool = False,
-                           tune_temperature: bool = False,
+                           latent_het: bool = False,
                            temperature_lower_bound: Optional[float] = None,
                            temperature_upper_bound: Optional[float] = None):
   """Builds a Heteroscedastic Vision Transformer (ViT) model."""
@@ -356,6 +359,6 @@ def vision_transformer_het(num_classes: int,
       param_efficient=param_efficient,
       return_locs=return_locs,
       fix_base_model=fix_base_model,
-      tune_temperature=tune_temperature,
+      latent_het=latent_het,
       temperature_lower_bound=temperature_lower_bound,
       temperature_upper_bound=temperature_upper_bound)

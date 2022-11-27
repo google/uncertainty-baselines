@@ -69,25 +69,30 @@ def get_data_config():
   # for active sampling.
   config.initial_sample_proportion = 0.5
 
+  # Correlation strength of the minority v.s. majority group. This is equivalent
+  # to the proportion of majority group examples in the data.
+  config.corr_strength = 0.95
+
   return config
 
 
 def get_training_config():
   """Get training config."""
   config = ml_collections.ConfigDict()
-  config.num_epochs = 10
+  config.num_epochs = 300
   config.save_model_checkpoints = True
   # TODO(jihyeonlee): Allow user to specify early stopping patience.
   # When True, stops training when val AUC does not improve after 3 epochs.
-  config.early_stopping = True
+  config.early_stopping = False
   return config
 
 
 def get_optimizer_config():
   """Get optimizer config."""
   config = ml_collections.ConfigDict()
-  config.learning_rate = 1e-4
-  config.type = 'adam'
+  # With Adam, use lr 1e-4.
+  config.learning_rate = 1e-5
+  config.type = 'sgd'
   return config
 
 
@@ -96,6 +101,7 @@ def get_model_config():
   config = ml_collections.ConfigDict()
   config.name = ''
   config.hidden_sizes = None
+  config.l2_regularization_factor = 0.5
   return config
 
 
@@ -115,6 +121,18 @@ def get_reweighting_config():
   # Weight that underrepresented group examples will receive. Between 0 and 1.
   config.lambda_value = 0.
   config.error_percentile_threshold = 0.2
+  return config
+
+
+def get_evaluation_config():
+  """Get config for performing introspection signal computation."""
+  config = ml_collections.ConfigDict()
+  # A iterable tuple of epochs to compute checkpoint for.
+  config.signal_ckpt_epochs = ()
+  # Number of training epochs to check for computing introspection signals.
+  # Used if `signal_ckpt_epochs` is empty. If 0 then compute signals based
+  # on the latest epoch using `tf.train.latest_checkpoint`.
+  config.num_signal_ckpts = 0
   return config
 
 
@@ -143,7 +161,7 @@ def get_config() -> ml_collections.ConfigDict:
   # When True, trains the stage 2 model (stage 1 is calculating bias table)
   # as an ensemble of models. When True and only a single model is being
   # trained, trains that model as an ensemble.
-  config.train_stage_2_as_ensemble = False
+  config.train_stage_2_as_ensemble = True
 
   # Combo index to train
   config.combo_index = 0
@@ -164,4 +182,5 @@ def get_config() -> ml_collections.ConfigDict:
   config.model = get_model_config()
   config.active_sampling = get_active_sampling_config()
   config.reweighting = get_reweighting_config()
+  config.eval = get_evaluation_config()
   return config

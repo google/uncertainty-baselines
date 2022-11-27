@@ -17,7 +17,6 @@
 
 import json
 import os
-import queue
 import re
 
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Type, Union
@@ -28,7 +27,6 @@ import numpy as np
 import seqio
 from t5x import adafactor
 from t5x import optimizers
-from t5x import partitioning
 from t5x import train_state as train_state_lib
 from t5x import utils
 
@@ -401,5 +399,3 @@ class TrainStateEnsembleInitializer(utils.TrainStateInitializer):
     if params_list:
       train_state = last_train_state.replace_params(params_list)  # type: ignore
       yield train_state
-
-

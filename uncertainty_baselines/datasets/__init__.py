@@ -43,6 +43,7 @@ from uncertainty_baselines.datasets.dialog_state_tracking import SGDDataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SGDDADataset
 from uncertainty_baselines.datasets.dialog_state_tracking import SimDialDataset
 from uncertainty_baselines.datasets.drug_cardiotoxicity import DrugCardiotoxicityDataset
+from uncertainty_baselines.datasets.dtd import DtdDataset
 from uncertainty_baselines.datasets.fashion_mnist import FashionMnistDataset
 from uncertainty_baselines.datasets.genomics_ood import GenomicsOodDataset
 from uncertainty_baselines.datasets.glue import ColaDataset

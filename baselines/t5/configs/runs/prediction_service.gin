@@ -14,11 +14,7 @@
 
 from __gin__ import dynamic_registration
 
-# copybara:strip_begin(internal-only)
-include 'third_party/py/t5x/configs/runs/prediction_service.gin'
-# copybara:strip_end_and_replace_begin
-# include 't5x/configs/runs/prediction_service.gin'
-# copybara:replace_end
+include 't5x/configs/runs/prediction_service.gin'
 
 import __main__ as prediction_service
 from t5x import partitioning

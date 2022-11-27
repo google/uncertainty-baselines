@@ -785,3 +785,51 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
       return sequence_scores, intermediates
 
     return sequence_scores
+
+
+class DecoderOnlyBeamScoreModel(t5x_models.DecoderOnlyModel):
+  """An DecoderOnlyModel that outputs (sequences, scores) during inference.
+
+  This model is equivalent to t5x's DecoderOnlyModel, but with its
+  predict_batch() function modified to output both the predicted sequence and
+  the corresponding token-level or sequence-level log-likelihood scores.
+  The latter is needed for quantifying model uncertainty for the structured
+  output.
+
+  It is intended to be used for model inference with
+  DecoderOnlyModel.predict_batch_with_aux()'s `num_decodes` set to > 1 and
+  `return_all_decodes` set to `True` in the gin file.
+
+  Despite the name `BeamScore`, this model class in fact supports arbitrary
+  decoding algorithms.
+  """
+
+  def predict_batch(
+      self,
+      params: t5x_models.PyTreeDef,
+      batch: Mapping[str, jnp.ndarray],
+      rng: Optional[jnp.ndarray] = None,
+      *,
+      return_scores: bool = False,
+  ) -> Union[jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
+    """Thin wrapper around `self.predict_batch_with_aux`.
+
+    Args:
+      params: model parameters.
+      batch: a batch of inputs.
+      rng: an optional RNG key to use during prediction (e.g., for decoding).
+      return_scores: whether to return log-likelihood scores along with the
+        predicted sequence.
+
+    Returns:
+      The model predictions with optional scores.
+    """
+    # The return value is a 2-tuple of the predicted sequences and the
+    # scores for each predicted sequence.
+    predictions, scores_dict = self.predict_batch_with_aux(
+        params=params, batch=batch, rng=rng)
+    scores = scores_dict['scores']
+
+    if return_scores:
+      return predictions, scores
+    return predictions

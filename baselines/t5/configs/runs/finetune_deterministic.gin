@@ -17,11 +17,7 @@
 # Adapted from t5x/configs/runs/pretrain_deterministic.py
 
 from __gin__ import dynamic_registration
-# copybara:strip_begin(internal-only)
-include 'third_party/py/t5x/configs/runs/finetune.gin'
-# copybara:strip_end_and_replace_begin
-# include 't5x/configs/runs/finetune.gin'
-# copybara:replace_end
+include 't5x/configs/runs/finetune.gin'
 
 import __main__ as train_script
 from t5x import utils

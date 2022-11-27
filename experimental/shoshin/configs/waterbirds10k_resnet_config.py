@@ -32,13 +32,12 @@ def get_config() -> ml_collections.ConfigDict:
   config.num_rounds = 4
 
   data = config.data
-  data.name = 'waterbirds'
+  data.name = 'waterbirds10k'
   data.num_classes = 2
+  data.corr_strength = 0.95
 
   model = config.model
   model.name = 'resnet'
   model.dropout_rate = 0.2
 
-  # Set to 0 to compute introspection signal based on the best epoch.
-  config.eval.num_signal_ckpts = 0
   return config

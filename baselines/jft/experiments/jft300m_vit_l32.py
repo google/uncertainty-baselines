@@ -94,5 +94,5 @@ def get_config():
 def get_sweep(hyper):
   return hyper.product([
       # Use this for the experiments that use four seeds.
-      hyper.sweep('config.seed', range(4)),
+      hyper.sweep('config.seed', [0]),
   ])

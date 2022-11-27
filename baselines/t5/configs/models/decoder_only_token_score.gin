@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Model configuration of `EncoderDecoderBeamScore` model that uses a
+# Model configuration of `DecoderOnlyBeamScoreModel` that uses a
 # custom beam_decode function to output a token-level score.
 from __gin__ import dynamic_registration
 
-include 'uncertainty_baselines/baselines/t5/configs/models/encoder_decoder_beam_score.gin'
+include 'uncertainty_baselines/baselines/t5/configs/models/decoder_only_beam_score.gin'
 
 import decoding  # local file import from baselines.t5
 from models import models  # local file import from baselines.t5
@@ -33,6 +33,7 @@ RETURN_ALL_DECODES = False
 
 # Sets beam search parameters.
 # Uses custom decoding function that also returns token-level scores.
+# TODO(jereliu): switch to @decoding.temperature_sample after it is incomplemented.
 RETURN_TOKEN_SCORES = True
 models.EncoderDecoderBeamScoreModel.decode_fn = @decoding.beam_search
 decoding.beam_search.alpha = 0.6

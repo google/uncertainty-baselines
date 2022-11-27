@@ -13,5 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Register all tasks."""
+"""Tests for SVHN."""
 
+import tensorflow as tf
+import uncertainty_baselines as ub
+
+
+class DtdDatasetTest(ub.datasets.DatasetTest):
+
+  def testDatasetSize(self):
+    super()._testDatasetSize(
+        ub.datasets.DtdDataset, (32, 32, 3),
+        validation_percent=0.15,
+        normalize_by_cifar=True)
+
+
+if __name__ == '__main__':
+  tf.test.main()

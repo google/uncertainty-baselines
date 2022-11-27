@@ -15,27 +15,6 @@
 
 r"""Binary to run training on a single model once.
 
-You can run just this file to train locally or use xm_launch.py to launch on
-XManager.
-
-Usage:
-# pylint: disable=line-too-long
-
-Note: config.output_dir can be a CNS path.
-
-To train MLP on Cardiotoxicity Fingerprint dataset locally with two output
-heads, one for the main task and one for bias, and even as an ensemble:
-ml_python3 third_party/py/uncertainty_baselines/experimental/shoshin/train_tf.py \
-  --adhoc_import_modules=uncertainty_baselines \
-    -- \
-    --xm_runlocal \
-    --alsologtostderr \
-    --config=third_party/py/uncertainty_baselines/experimental/shoshin/configs/cardiotoxicity_mlp_config.py \
-    --config.output_dir=/tmp/cardiotox/ \
-    --config.train_bias=True/False
-    --config.path_to_existing_bias_table=...
-    --config.round_idx=(which round of active sampling (0 is treated specially)
-    --config.ids_dir=(directory containing the example ids for the various splits)
 
 # pylint: enable=line-too-long
 """
@@ -72,18 +51,48 @@ def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
 
-  dataset_builder = data.get_dataset(config.data.name)
   if FLAGS.keep_logs:
     tf.io.gfile.makedirs(config.output_dir)
     stream = tf.io.gfile.GFile(os.path.join(config.output_dir, 'log'), mode='w')
     stream_handler = native_logging.StreamHandler(stream)
     logging.get_absl_logger().addHandler(stream_handler)
 
+  dataset_builder = data.get_dataset(config.data.name)
+  ds_kwargs = {}
+  if config.data.name == 'waterbirds10k':
+    ds_kwargs = {'corr_strength': config.data.corr_strength}
+
+  logging.info('Running Round %d of Training.', config.round_idx)
+  if config.round_idx == 0:
+    # If initial round of sampling, sample randomly initial_sample_proportion
+    dataloader = dataset_builder(config.data.num_splits,
+                                 config.data.initial_sample_proportion,
+                                 config.data.subgroup_ids,
+                                 config.data.subgroup_proportions,
+                                 **ds_kwargs)
+  else:
+    # If latter round, keep track of split generated in last round of active
+    #   sampling
+    dataloader = dataset_builder(config.data.num_splits,
+                                 initial_sample_proportion=1,
+                                 subgroup_ids=(),
+                                 subgroup_proportions=(),
+                                 **ds_kwargs)
+
+    # Filter each split to only have examples from example_ids_table
+    dataloader.train_splits = [
+        dataloader.train_ds.filter(
+            generate_bias_table_lib.filter_ids_fn(ids_tab)) for
+        ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
+
   model_params = models.ModelTrainingParameters(
       model_name=config.model.name,
       train_bias=config.train_bias,
       num_classes=config.data.num_classes,
+      num_subgroups=dataloader.num_subgroups,
+      worst_group_label=dataloader.worst_group_label,
       num_epochs=config.training.num_epochs,
+      l2_regularization_factor=config.model.l2_regularization_factor,
       optimizer=config.optimizer.type,
       learning_rate=config.optimizer.learning_rate,
       hidden_sizes=config.model.hidden_sizes,
@@ -94,31 +103,13 @@ def main(_) -> None:
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir
 
-  logging.info('Running Round %d of Training.', config.round_idx)
-  if config.round_idx == 0:
-    # If initial round of sampling, sample randomly initial_sample_proportion
-    dataloader = dataset_builder(config.data.num_splits,
-                                 config.data.initial_sample_proportion,
-                                 config.data.subgroup_ids,
-                                 config.data.subgroup_proportions)
-  else:
-    # If latter round, keep track of split generated in last round of active
-    #   sampling
-    dataloader = dataset_builder(config.data.num_splits,
-                                 1,
-                                 (), ())
-    # Filter each split to only have examples from example_ids_table
-    dataloader.train_splits = [
-        dataloader.train_ds.filter(
-            generate_bias_table_lib.filter_ids_fn(ids_tab)) for
-        ids_tab in sampling_policies.convert_ids_to_table(config.ids_dir)]
-
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 
-  if config.train_bias or config.reweighting.do_reweighting:
+  if config.train_bias or (config.reweighting.do_reweighting and
+                           config.reweighting.signal == 'bias'):
     # Bias head will be trained as well, so gets bias labels.
     if config.path_to_existing_bias_table:
       example_id_to_bias_table = generate_bias_table_lib.load_existing_bias_table(

@@ -23,7 +23,7 @@ and evaluating on provided eval datasets.
 
 import itertools
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from absl import logging
 import numpy as np
@@ -37,8 +37,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
 
   def __init__(self,
                model: tf.keras.Model,
+               num_subgroups: int,
                train_bias: bool,
                name: str,
+               worst_group_label: Optional[int] = 2,
                do_reweighting: Optional[bool] = False,
                reweighting_signal: Optional[str] = 'bias',
                reweighting_lambda: Optional[float] = 0.5,
@@ -56,6 +58,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
         self.error_percentile_threshold = error_percentile_threshold
 
     self.model = model
+    self.num_subgroups = num_subgroups
+    if self.num_subgroups > 1:
+      self.avg_acc = tf.keras.metrics.Mean(name='avg_acc')
+      self.worst_group_label = worst_group_label
 
   def call(self, inputs):
     return self.model(inputs)
@@ -63,76 +69,122 @@ class TwoHeadedOutputModel(tf.keras.Model):
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table
 
+  def _compute_average_metrics(self,
+                               metrics) -> Dict[str, tf.keras.metrics.Metric]:
+    """Computes metrics as average of all subgroups."""
+    accs = []
+    for m in metrics:
+      if 'subgroup' in m.name and 'main' in m.name:
+        accs.append(m.result())
+    self.avg_acc.reset_state()
+    self.avg_acc.update_state(accs)
+    return {
+        self.avg_acc.name: self.avg_acc.result()
+    }
+
   def train_step(self, inputs):
-    features, labels, example_ids = inputs
+    features = inputs['feature']
+    labels = inputs['label']
+    example_ids = inputs['example_id']
+    subgroup_labels = inputs['subgroup_label']
+
     y_true_main = tf.one_hot(labels, depth=2)
 
     with tf.GradientTape() as tape:
       y_pred = self(features, training=True)
 
-      y_true_bias = None
-      if self.train_bias or self.do_reweighting:
+      y_true = {'main': y_true_main}
+      if self.train_bias or (self.do_reweighting and
+                             self.reweighting_signal == 'bias'):
         if self.id_to_bias_table is None:
           raise ValueError('id_to_bias_table must not be None.')
         y_true_bias = self.id_to_bias_table.lookup(example_ids)
         y_true_bias_original = y_true_bias
         y_true_bias = tf.one_hot(y_true_bias, depth=2)
-      y_true = {
-          'main': y_true_main,
-          'bias': y_true_bias
-      }
+        y_true['bias'] = y_true_bias
+
       sample_weight = None
       if self.do_reweighting:
         if self.reweighting_signal == 'bias':
-          example_labels = y_true_bias_original
-        else:  # Use prediction error.
+          # Loads bias label from table, which has already been determined by
+          # threshold.
+          reweighting_labels = y_true_bias_original
+        elif self.reweighting_signal == 'error':  # Use prediction error.
           error = tf.math.subtract(
               tf.ones_like(y_pred), tf.gather_nd(y_pred, y_true_main))
           threshold = np.percentile(error, self.error_percentile_threshold)
-          example_labels = tf.math.greater(error, threshold)
+          reweighting_labels = tf.math.greater(error, threshold)
+        else:  # Give weight to worst group only.
+          reweighting_labels = tf.math.equal(subgroup_labels,
+                                             self.worst_group_label)
 
         above_threshold_example_multiplex = tf.math.multiply(
             self.reweighting_lambda,
-            tf.ones_like(example_labels, dtype=tf.float32))
+            tf.ones_like(reweighting_labels, dtype=tf.float32))
         below_threshold_example_multiplex = tf.math.multiply(
             1. - self.reweighting_lambda,
-            tf.ones_like(example_labels, dtype=tf.float32))
+            tf.ones_like(reweighting_labels, dtype=tf.float32))
         sample_weight = tf.where(
-            tf.math.equal(example_labels, 1),
+            reweighting_labels,
             above_threshold_example_multiplex,
             below_threshold_example_multiplex)
 
       total_loss = self.compiled_loss(
           y_true, y_pred, sample_weight=sample_weight)
-      total_loss += sum(self.losses)  # Regularization loss
+      total_loss += sum(self.losses)  # Regularization loss.
 
     gradients = tape.gradient(total_loss, self.model.trainable_variables)
     self.optimizer.apply_gradients(
         zip(gradients, self.model.trainable_variables))
 
+    for i in range(self.num_subgroups):
+      subgroup_idx = tf.where(tf.math.equal(subgroup_labels, i))
+      subgroup_pred = tf.gather(y_pred['main'], subgroup_idx, axis=0)
+
+      subgroup_true = tf.gather(y_true['main'], subgroup_idx, axis=0)
+      y_true['_'.join(['subgroup', str(i), 'main'])] = subgroup_true
+      y_pred['_'.join(['subgroup', str(i), 'main'])] = subgroup_pred
+      if self.train_bias:
+        subgroup_pred = tf.gather(y_pred['bias'], subgroup_idx, axis=0)
+        subgroup_true = tf.gather(y_true['bias'], subgroup_idx, axis=0)
+        y_true['_'.join(['subgroup', str(i), 'bias'])] = subgroup_true
+        y_pred['_'.join(['subgroup', str(i), 'bias'])] = subgroup_pred
+
     self.compiled_metrics.update_state(y_true, y_pred)
     results = {m.name: m.result() for m in self.metrics}
+    results.update(self._compute_average_metrics(self.metrics))
+
     return results
 
   def test_step(self, inputs):
-    features, labels, example_ids = inputs
+    features = inputs['feature']
+    labels = inputs['label']
+    example_ids = inputs['example_id']
+    subgroup_labels = inputs['subgroup_label']
     y_true_main = tf.one_hot(labels, depth=2)
     y_pred = self(features, training=False)
-
-    y_true_bias = None
+    y_true = {'main': y_true_main}
     if self.train_bias:
       if self.id_to_bias_table is None:
         raise ValueError('id_to_bias_table must not be None.')
       y_true_bias = self.id_to_bias_table.lookup(example_ids)
-      y_true_bias = tf.one_hot(y_true_bias, depth=2)
+      y_true['bias'] = tf.one_hot(y_true_bias, depth=2)
 
-    y_true = {
-        'main': y_true_main,
-        'bias': y_true_bias
-    }
+    for i in range(self.num_subgroups):
+      subgroup_idx = tf.where(tf.math.equal(subgroup_labels, i))
+      subgroup_pred = tf.gather(y_pred['main'], subgroup_idx, axis=0)
+      subgroup_true = tf.gather(y_true['main'], subgroup_idx, axis=0)
+      y_true['_'.join(['subgroup', str(i), 'main'])] = subgroup_true
+      y_pred['_'.join(['subgroup', str(i), 'main'])] = subgroup_pred
+      if self.train_bias:
+        subgroup_pred = tf.gather(y_pred['bias'], subgroup_idx, axis=0)
+        subgroup_true = tf.gather(y_true['bias'], subgroup_idx, axis=0)
+        y_true['_'.join(['subgroup', str(i), 'bias'])] = subgroup_true
+        y_pred['_'.join(['subgroup', str(i), 'bias'])] = subgroup_pred
 
     self.compiled_metrics.update_state(y_true, y_pred)
     results = {m.name: m.result() for m in self.metrics}
+    results.update(self._compute_average_metrics(self.metrics))
     return results
 
 
@@ -157,27 +209,39 @@ def compile_model(model: tf.keras.Model,
   else:  # sgd
     optimizer = tf.keras.optimizers.SGD(
         learning_rate=model_params.learning_rate, momentum=0.9)
-  model.compile(
-      optimizer=optimizer,
-      loss={
-          'main': compute_loss_main,
-          'bias': compute_loss_bias
-      },
-      loss_weights={
-          'main': 1,
-          'bias': 1 if model.train_bias else 0
-      },
-      metrics={
-          'main': [
-              tf.keras.metrics.CategoricalAccuracy(name='acc'),
-              tf.keras.metrics.AUC(name='auc')
-          ],
-          'bias': [
+  loss = {'main': compute_loss_main}
+  loss_weights = {'main': 1}
+  metrics = {
+      'main': [
+          tf.keras.metrics.CategoricalAccuracy(name='acc'),
+          tf.keras.metrics.AUC(name='auc')
+      ]
+  }
+  if model.train_bias:
+    metrics['bias'] = [
+        tf.keras.metrics.CategoricalAccuracy(name='acc'),
+        tf.keras.metrics.AUC(name='auc')
+    ]
+    loss['bias'] = compute_loss_bias
+    loss_weights['bias'] = 1
+  for i in range(model_params.num_subgroups):
+    metrics.update({
+        '_'.join(['subgroup', str(i), 'main']): [
+            tf.keras.metrics.CategoricalAccuracy(name='acc'),
+        ]
+    })
+    if model.train_bias:
+      metrics.update({
+          '_'.join(['subgroup', str(i), 'bias']): [
               tf.keras.metrics.CategoricalAccuracy(name='acc'),
               tf.keras.metrics.AUC(name='auc')
           ]
-      },
-      weighted_metrics=[])
+      })
+  model.compile(
+      optimizer=optimizer,
+      loss=loss,
+      loss_weights=loss_weights,
+      metrics=metrics)
   return model
 
 
@@ -195,13 +259,19 @@ def evaluate_model(model: tf.keras.Model,
   load_status = model.load_weights(best_latest_checkpoint)
   load_status.assert_consumed()
   for ds_name in eval_ds.keys():
-    result = model.evaluate(
+    results = model.evaluate(
         eval_ds[ds_name], return_dict=True)
     logging.info('Evaluation Dataset Name: %s', ds_name)
-    logging.info('Main Acc: %f', result['main_acc'])
-    logging.info('Main AUC: %f', result['main_auc'])
-    logging.info('Bias Acc: %f', result['bias_acc'])
-    logging.info('Bias Acc: %f', result['bias_auc'])
+    logging.info('Main Acc: %f', results['main_acc'])
+    logging.info('Main AUC: %f', results['main_auc'])
+    if model.train_bias:
+      logging.info('Bias Acc: %f', results['bias_acc'])
+      logging.info('Bias Acc: %f', results['bias_auc'])
+    if model.num_subgroups > 1:
+      for i in range(model.num_subgroups):
+        logging.info('Subgroup %d Acc: %f', i,
+                     results[f'subgroup_{i}_main_acc'])
+      logging.info('Average Acc: %f', results['avg_acc'])
 
 
 def init_model(
@@ -224,6 +294,8 @@ def init_model(
 
   two_head_model = TwoHeadedOutputModel(
       model=base_model,
+      num_subgroups=model_params.num_subgroups,
+      worst_group_label=model_params.worst_group_label,
       train_bias=model_params.train_bias,
       name=experiment_name,
       do_reweighting=model_params.do_reweighting,
@@ -270,7 +342,7 @@ def create_callbacks(
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(
         monitor='val_main_auc',
         min_delta=0.001,
-        patience=3,
+        patience=30,
         verbose=1,
         mode='max',
         baseline=None,
@@ -366,20 +438,117 @@ def train_ensemble(
   return ensemble
 
 
+def find_epoch_ckpt_path(epoch: int,
+                         ckpt_dir: str,
+                         metric_name: str = 'val_auc',
+                         mode: str = 'highest') -> Union[str, List[str]]:
+  r"""Finds the checkpoints for a given epoch.
+
+  This function extracts the checkpoints corresponding to a given epoch under
+  `ckpt_dir`. It assumes the checkpoints follows the naming convention:
+
+  `{ckpt_dir}\epoch-{epoch}-{metric_name}-{metric_val}.ckpt`
+
+  If a checkpoint for a given epoch is not found, it will issue a warning and
+  return the checkpoint for the nearest epoch instead.
+
+  Args:
+    epoch: The epoch to exact checkpoints for.
+    ckpt_dir: The directory of checkpoints.
+    metric_name: The name of the performance metric.
+    mode: The return mode. One of ('highest', 'lowest', 'all'). Here, 'highest'
+      / 'lowest' means if there are multiple checkpoint for the required epoch,
+      return the checkpoint with the highest / lowest value for the metric.
+
+  Returns:
+    Strings for checkpoint directories.
+  """
+  if mode not in ('highest', 'lowest', 'all'):
+    raise ValueError(
+        f'mode `{mode}` not supported. Should be one of ("best", "all").')
+
+  # Collects checkpoint names.
+  ckpt_names = [
+      f_name.split('.ckpt')[0]
+      for f_name in tf.io.gfile.listdir(ckpt_dir)
+      if '.ckpt.index' in f_name
+  ]
+
+  if not ckpt_names:
+    raise ValueError(f'No valid checkpoint under the directory {ckpt_dir}.')
+
+  # Extract epoch number and metric values.
+  ckpt_epochs = np.array(
+      [int(f_name.split('epoch-')[1].split('-')[0]) for f_name in ckpt_names])
+  ckpt_metric = np.array([
+      float(f_name.split(f'{metric_name}-')[1].split('-')[0])
+      for f_name in ckpt_names
+  ])
+
+  if epoch not in ckpt_epochs:
+    # Uses nearest available epoch in `ckpt_epochs`.
+    nearest_epoch_id = np.argmin(np.abs(ckpt_epochs - epoch))
+    nearest_epoch = ckpt_epochs[nearest_epoch_id]
+    tf.compat.v1.logging.warn(
+        'Required epoch (%s) not in list of available epochs `%s`.'
+        'Use nearest epoch `%s`', epoch, np.unique(ckpt_epochs), nearest_epoch)
+    epoch = nearest_epoch
+
+  make_ckpt_path = lambda name: os.path.join(ckpt_dir, name + '.ckpt')
+  if mode == 'highest':
+    # Returns the checkpoint with highest metric value.
+    ckpt_id = np.argmax(ckpt_metric * (ckpt_epochs == epoch))
+    return make_ckpt_path(ckpt_names[ckpt_id])
+  elif mode == 'lowest':
+    # Returns the checkpoint with lowest metric value.
+    ckpt_id = np.argmin(-ckpt_metric * (ckpt_epochs == epoch))
+    return make_ckpt_path(ckpt_names[ckpt_id])
+  else:
+    # Returns all the checkpoints.
+    ckpt_ids = np.where(ckpt_epochs == epoch)[0]
+    return [make_ckpt_path(ckpt_names[ckpt_id]) for ckpt_id in ckpt_ids]
+
+
 def load_trained_models(combos_dir: str,
-                        model_params: models.ModelTrainingParameters):
-  """Loads models trained on different combinations of data splits."""
+                        model_params: models.ModelTrainingParameters,
+                        ckpt_epoch: int = -1):
+  """Loads models trained on different combinations of data splits.
+
+  Args:
+    combos_dir: Path to the checkpoint trained on different data splits.
+    model_params: Model config.
+    ckpt_epoch: The epoch to load the checkpoint from. If negative, load the
+      latest checkpoint.
+
+  Returns:
+    The list of loaded models for different combinations of data splits.
+  """
   trained_models = []
   for combo_name in tf.io.gfile.listdir(combos_dir):
     combo_model = init_model(
         model_params=model_params,
         experiment_name=combo_name)
     ckpt_dir = os.path.join(combos_dir, combo_name, 'checkpoints')
-    best_latest_checkpoint = tf.train.latest_checkpoint(ckpt_dir)
-    load_status = combo_model.load_weights(best_latest_checkpoint)
-    # Optimizer will not be loaded (https://b.corp.google.com/issues/124099628),
-    # so expect only partial load. This is not currently an issue because
-    # model is only used for inference.
+    if ckpt_epoch < 0:
+      # Loads the latest checkpoint.
+      checkpoint_path = tf.train.latest_checkpoint(ckpt_dir)
+      tf.compat.v1.logging.info(f'Loading best model from `{checkpoint_path}`')
+    else:
+      # Loads the required checkpoint.
+      # By default, select the checkpoint with highest validation AUC.
+      checkpoint_path = find_epoch_ckpt_path(
+          ckpt_epoch, ckpt_dir, metric_name='val_auc', mode='highest')
+      tf.compat.v1.logging.info(
+          f'Loading model for checkpoint {ckpt_epoch} from `{checkpoint_path}`')
+
+    if not tf.io.gfile.exists(checkpoint_path + '.index'):
+      raise ValueError(
+          f'Required checkpoint file `{checkpoint_path}` not exist.')
+
+    load_status = combo_model.load_weights(checkpoint_path)
+
+    # Optimizer will not be loaded, so expect only partial load.
+    # This is not currently an issue because model is only used for inference.
     load_status.expect_partial()
     load_status.assert_existing_objects_matched()
     trained_models.append(combo_model)
@@ -402,18 +571,19 @@ def eval_ensemble(
     y_pred_main = []
     y_pred_bias = []
     for model in ensemble:
-      ensemble_prob_samples = model.predict(test_examples)
+      ensemble_prob_samples = model.predict(
+          test_examples.map(lambda x: x['features']))
       y_pred_main.append(ensemble_prob_samples['main'])
       y_pred_bias.append(ensemble_prob_samples['bias'])
     y_pred_main = tf.reduce_mean(y_pred_main, axis=0)
     y_pred_bias = tf.reduce_mean(y_pred_bias, axis=0)
     y_true_main = list(test_examples.map(
-        lambda feats, label, example_id: label).as_numpy_iterator())
+        lambda x: x['label']).as_numpy_iterator())
     y_true_main = tf.concat(y_true_main, axis=0)
     y_true_main = tf.convert_to_tensor(y_true_main, dtype=tf.int64)
     y_true_main = tf.one_hot(y_true_main, depth=2)
     example_ids = list(test_examples.map(
-        lambda feats, label, example_id: example_id).as_numpy_iterator())
+        lambda x: x['example_id']).as_numpy_iterator())
     example_ids = tf.concat(example_ids, axis=0)
     example_ids = tf.convert_to_tensor(example_ids, dtype=tf.string)
     y_true_bias = example_id_to_bias_table.lookup(example_ids)

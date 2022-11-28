@@ -118,10 +118,15 @@ class BeamPredictionsTest(parameterized.TestCase):
        r'prediction output from predict_batch\(\) must be a list of integer'),
       ('wrong_score_format', DEFAULT_SENT_IDS, tuple(DEFAULT_SCORES),
        r'scores output from predict_batch\(\) should be either list, dict, or a jax device array'
-      ), ('wrong_score_dict_key', DEFAULT_SENT_IDS, dict(score=DEFAULT_SCORES),
-          r'score dictionary from predict_batch\(\) must contain key `scores`'),
-      ('mismatch_len', DEFAULT_SENT_IDS, DEFAULT_SCORES + [0.95],
-       r'Lengths of beam_predictions and beam_scores should equal'))
+      ),
+      ('wrong_score_dict_key', DEFAULT_SENT_IDS, dict(score=DEFAULT_SCORES),
+       r'score dictionary from predict_batch\(\) must contain key `scores`'),
+      (
+          'mismatch_len',
+          DEFAULT_SENT_IDS,
+          DEFAULT_SCORES + [0.95],
+          r'Number of decoded samples contained in `beam_predictions` and '  # pylint:disable=implicit-str-concat
+          r'`beam_scores` should equal'))
   def test_process_beam_prediction_outputs_type_error(
       self, test_prediction, test_score, expected_regex):
     """Tests the type check errors in process_beam_prediction_outputs."""

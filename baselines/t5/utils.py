@@ -259,14 +259,22 @@ def process_beam_prediction_outputs(
 
   # Optionally, also processes the beam scores.
   if output_beam_scores and output_contains_scores:
-    # Make sure length of beam_scores matches with beam_predictions.
-    if len(beam_scores) != len(beam_predictions):
-      raise ValueError(
-          'Lengths of beam_predictions and beam_scores should equal. Got '
-          f'len(beam_predictions)={len(beam_predictions)}, '
-          f'len(beam_scores)={len(beam_scores)}.')
+    if len(beam_predictions) == 1:
+      # In case of a single beam sample, return beam scores as it is.
+      beam_outputs_dict['beam_scores'] = beam_scores
+    else:
+      # In case of multiple beam samples, apply special processing to make sure
+      # beam scores are ranked in decreasing order.
+      if len(beam_scores) != len(beam_predictions):
+        # Make sure number of samples from beam_scores matches that from
+        # beam_predictions.
+        raise ValueError(
+            'Number of decoded samples contained in `beam_predictions` and '
+            '`beam_scores` should equal. Got '
+            f'len(beam_predictions)={len(beam_predictions)}, '
+            f'len(beam_scores)={len(beam_scores)}.')
 
-    beam_outputs_dict['beam_scores'] = beam_scores[::-1]
+      beam_outputs_dict['beam_scores'] = beam_scores[::-1]
 
   return beam_outputs_dict
 

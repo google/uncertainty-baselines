@@ -61,6 +61,12 @@ def main(_) -> None:
   ds_kwargs = {}
   if config.data.name == 'waterbirds10k':
     ds_kwargs = {'corr_strength': config.data.corr_strength}
+  elif config.data.name == 'skai':
+    ds_kwargs = {
+        'labeled_train_pattern': config.data.labeled_train_pattern,
+        'unlabeled_train_pattern': config.data.unlabeled_train_pattern,
+        'validation_pattern': config.data.validation_pattern
+    }
 
   logging.info('Running Round %d of Training.', config.round_idx)
   if config.round_idx == 0:

@@ -144,10 +144,10 @@ def get_example_id_to_bias_label_table(
         model = trained_models[combo_idx]
         id_predictions_train = model.predict(
             dataloader.train_splits[split_idx].map(
-                lambda example: example['feature']))
+                lambda example: example['input_feature']))
         id_predictions_val = model.predict(
             dataloader.val_splits[split_idx].map(
-                lambda example: example['feature']))
+                lambda example: example['input_feature']))
         id_predictions = tf.concat(
             [id_predictions_train['main'], id_predictions_val['main']], axis=0)
         id_predictions = tf.gather_nd(
@@ -158,10 +158,10 @@ def get_example_id_to_bias_label_table(
         model = trained_models[combo_idx]
         ood_predictions_train = model.predict(
             dataloader.train_splits[split_idx].map(
-                lambda example: example['feature']))
+                lambda example: example['input_feature']))
         ood_predictions_val = model.predict(
             dataloader.val_splits[split_idx].map(
-                lambda example: example['feature']))
+                lambda example: example['input_feature']))
         ood_predictions = tf.concat(
             [ood_predictions_train['main'], ood_predictions_val['main']],
             axis=0)
@@ -307,7 +307,8 @@ def get_example_id_to_predictions_table(
     bias_predictions_all = []
   for idx, model in enumerate(trained_models):
     model = trained_models[idx]
-    predictions = model.predict(ds.map(lambda example: example['feature']))
+    predictions = model.predict(
+        ds.map(lambda example: example['input_feature']))
     predictions_all.append(predictions['main'][..., 1])
     if has_bias:
       bias_predictions_all.append(predictions['bias'][..., 1])

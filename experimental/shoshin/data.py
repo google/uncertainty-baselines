@@ -30,7 +30,6 @@ from typing import Any, Dict, Iterator, Optional, Tuple, List, Union
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-
 DATASET_REGISTRY = {}
 DATA_DIR = '/tmp/data'
 _DEFAULT_PATH_CARDIOTOX_TRAIN_FEATURE = ''
@@ -53,6 +52,7 @@ _WATERBIRDS_TRAIN_SIZE = 4780
 _WATERBIRDS10K_TRAIN_SIZE = 9549
 _WATERBIRDS10K_SUPPORTED_CORR_STRENGTH = (0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9,
                                           0.95)
+
 # TODO(dvij,martinstrobel): Set Celeb-A number of subgroups.
 _CELEB_A_NUM_SUBGROUP = 2
 
@@ -62,6 +62,7 @@ CROP_PADDING = 32
 
 def register_dataset(name: str):
   """Provides decorator to register functions that return dataset."""
+
   def save(dataset_builder):
     DATASET_REGISTRY[name] = dataset_builder
     return dataset_builder
@@ -93,14 +94,15 @@ class Dataloader:
 def apply_batch(dataloader, batch_size):
   """Apply batching to dataloader."""
   dataloader.train_splits = [
-      data.batch(batch_size) for data in dataloader.train_splits]
+      data.batch(batch_size) for data in dataloader.train_splits
+  ]
   dataloader.val_splits = [
-      data.batch(batch_size) for data in dataloader.val_splits]
+      data.batch(batch_size) for data in dataloader.val_splits
+  ]
   num_splits = len(dataloader.train_splits)
-  train_ds = gather_data_splits(list(range(num_splits)),
-                                dataloader.train_splits)
-  val_ds = gather_data_splits(list(range(num_splits)),
-                              dataloader.val_splits)
+  train_ds = gather_data_splits(
+      list(range(num_splits)), dataloader.train_splits)
+  val_ds = gather_data_splits(list(range(num_splits)), dataloader.val_splits)
   dataloader.train_ds = train_ds
   dataloader.eval_ds['val'] = val_ds
   for (k, v) in dataloader.eval_ds.items():
@@ -143,33 +145,39 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
     return tfds.core.DatasetInfo(
         builder=self,
         features=tfds.features.FeaturesDict({
-            'example_id': tfds.features.Text(),
-            'feature': tfds.features.Tensor(shape=(1024,),
-                                            dtype=tf.int64),
-            'label': tfds.features.ClassLabel(num_classes=2),
+            'example_id':
+                tfds.features.Text(),
+            'input_feature':
+                tfds.features.Tensor(shape=(1024,), dtype=tf.int64),
+            'label':
+                tfds.features.ClassLabel(num_classes=2),
         }),
-        supervised_keys=('feature', 'label', 'example_id'),
+        supervised_keys=('input_feature', 'label', 'example_id'),
     )
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     """Loads data and defines splits."""
     return {
-        'train': self._generate_examples(
-            features_path=_DEFAULT_PATH_CARDIOTOX_TRAIN_FEATURE,
-            label_path=_DEFAULT_PATH_CARDIOTOX_TRAIN_LABEL),
-        'validation': self._generate_examples(
-            features_path=_DEFAULT_PATH_CARDIOTOX_VALIDATION_FEATURE,
-            label_path=_DEFAULT_PATH_CARDIOTOX_VALIDATION_LABEL),
-        'test': self._generate_examples(
-            features_path=_DEFAULT_PATH_CARDIOTOX_TEST_FEATURE,
-            label_path=_DEFAULT_PATH_CARDIOTOX_TEST_LABEL),
-        'test2': self._generate_examples(
-            features_path=_DEFAULT_PATH_CARDIOTOX_TEST2_FEATURE,
-            label_path=_DEFAULT_PATH_CARDIOTOX_TEST2_LABEL),
+        'train':
+            self._generate_examples(
+                features_path=_DEFAULT_PATH_CARDIOTOX_TRAIN_FEATURE,
+                label_path=_DEFAULT_PATH_CARDIOTOX_TRAIN_LABEL),
+        'validation':
+            self._generate_examples(
+                features_path=_DEFAULT_PATH_CARDIOTOX_VALIDATION_FEATURE,
+                label_path=_DEFAULT_PATH_CARDIOTOX_VALIDATION_LABEL),
+        'test':
+            self._generate_examples(
+                features_path=_DEFAULT_PATH_CARDIOTOX_TEST_FEATURE,
+                label_path=_DEFAULT_PATH_CARDIOTOX_TEST_LABEL),
+        'test2':
+            self._generate_examples(
+                features_path=_DEFAULT_PATH_CARDIOTOX_TEST2_FEATURE,
+                label_path=_DEFAULT_PATH_CARDIOTOX_TEST2_LABEL),
     }
 
-  def _generate_examples(self, features_path, label_path) -> Iterator[
-      Tuple[str, Dict[str, Any]]]:
+  def _generate_examples(self, features_path,
+                         label_path) -> Iterator[Tuple[str, Dict[str, Any]]]:
     """Generates examples for each split."""
     with tf.io.gfile.GFile(features_path, 'r') as features_file:
       x = json.load(features_file)
@@ -179,7 +187,7 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
       key = '_'.join([molecule_id, str(idx)])
       yield key, {
           'example_id': molecule_id,
-          'feature': x[molecule_id],
+          'input_feature': x[molecule_id],
           'label': y[molecule_id]
       }
 
@@ -195,23 +203,21 @@ def get_cardiotoxicity_dataset(
 
   Args:
     num_splits: Integer for number of slices of the dataset.
-    initial_sample_proportion: Float for proportion of entire training
-      dataset to sample initially before active sampling begins.
+    initial_sample_proportion: Float for proportion of entire training dataset
+      to sample initially before active sampling begins.
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
-
-  Returns:if subgroup_proportions:
-      self.subgroup_proportions = subgroup_proportions
-    else:
-      self.subgroup_proportions = [1.] * len(subgroup_ids)
-    A tuple containing the split training data, split validation data, the
-    combined training dataset, and a dictionary mapping evaluation dataset names
-    to their respective combined datasets.
+  Returns:if subgroup_proportions: self.subgroup_proportions =
+    subgroup_proportions
+    else: self.subgroup_proportions = [1.] * len(subgroup_ids) A tuple
+      containing the split training data, split validation data, the combined
+      training dataset, and a dictionary mapping evaluation dataset names to
+      their respective combined datasets.
   """
   # No subgroups in this datset so ignored
   del subgroup_ids, subgroup_proportions
-  split_size_in_pct = int(100 * initial_sample_proportion/ num_splits)
+  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
   val_splits = tfds.load(
       'cardiotox_fingerprint_dataset',
       split=[
@@ -288,14 +294,23 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     return tfds.core.DatasetInfo(
         builder=self,
         features=tfds.features.FeaturesDict({
-            'example_id': tfds.features.Text(),
-            'subgroup_id': tfds.features.Text(),
-            'subgroup_label': tfds.features.ClassLabel(num_classes=4),
-            'feature': tfds.features.Image(shape=(224, 224, 3)),
-            'label': tfds.features.ClassLabel(num_classes=2),
-            'place': tfds.features.ClassLabel(num_classes=2),
-            'image_filename': tfds.features.Text(),
-            'place_filename': tfds.features.Text(),
+            'example_id':
+                tfds.features.Text(),
+            'subgroup_id':
+                tfds.features.Text(),
+            'subgroup_label':
+                tfds.features.ClassLabel(num_classes=4),
+            'input_feature':
+                tfds.features.Image(
+                    shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3)),
+            'label':
+                tfds.features.ClassLabel(num_classes=2),
+            'place':
+                tfds.features.ClassLabel(num_classes=2),
+            'image_filename':
+                tfds.features.Text(),
+            'place_filename':
+                tfds.features.Text(),
         }),
     )
 
@@ -312,8 +327,10 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
 
     offset_height = ((image_height - padded_center_crop_size) + 1) // 2
     offset_width = ((image_width - padded_center_crop_size) + 1) // 2
-    crop_window = tf.stack([offset_height, offset_width,
-                            padded_center_crop_size, padded_center_crop_size])
+    crop_window = tf.stack([
+        offset_height, offset_width, padded_center_crop_size,
+        padded_center_crop_size
+    ])
     image = tf.io.decode_and_crop_jpeg(image_bytes, crop_window, channels=3)
     return image
 
@@ -382,7 +399,7 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
         'example_id': image_filename,
         'label': label,
         'place': place,
-        'feature': image,
+        'input_feature': image,
         'image_filename': image_filename,
         'place_filename': place_filename,
         'subgroup_id': subgroup_id,
@@ -513,8 +530,137 @@ class Waterbirds10kDataset(WaterbirdsDataset):
 
     self.corr_strength = corr_strength
     super().__init__(subgroup_ids, subgroup_proportions, train_dataset_size,
-                     source_data_dir, include_train_sample,
-                     **kwargs)
+                     source_data_dir, include_train_sample, **kwargs)
+
+
+@dataclasses.dataclass
+class SkaiDatasetConfig(tfds.core.BuilderConfig):
+  """Configuration for SKAI datasets.
+
+  Any of the attributes can be left blank if they don't exist.
+
+  Attributes:
+    name: Name of the dataset.
+    labeled_train_pattern: Pattern for labeled training examples tfrecords.
+    labeled_test_pattern: Pattern for labeled test examples tfrecords.
+    unlabeled_pattern: Pattern for unlabeled examples tfrecords.
+  """
+  name: str = ''
+  labeled_train_pattern: str = ''
+  labeled_test_pattern: str = ''
+  unlabeled_pattern: str = ''
+  num_channels: int = 3
+
+
+class SkaiDataset(tfds.core.GeneratorBasedBuilder):
+  """TFDS dataset for SKAI.
+
+  Example usage:
+    import tensorflow_datasets.public_api as tfds
+    from skai import dataset
+
+    ds = tfds.load('skai_dataset', builder_kwargs={
+      'config': SkaiDatasetConfig(
+          name='example',
+          labeled_train_pattern='gs://path/to/train_labeled_examples.tfrecord',
+          labeled_test_pattern='gs://path/to/test_labeled_examples.tfrecord',
+          unlabeled_pattern='gs://path/to/unlabeled_examples-*.tfrecord')
+    })
+    labeled_train_dataset = ds['labeled_train']
+    labeled_test_dataset = ds['labeled_test']
+    unlabeled_test_dataset = ds['unlabeled']
+  """
+
+  VERSION = tfds.core.Version('1.0.0')
+
+  def __init__(self,
+               subgroup_ids: List[str],
+               subgroup_proportions: Optional[List[float]] = None,
+               include_train_sample: bool = True,
+               **kwargs):
+    super(SkaiDataset, self).__init__(**kwargs)
+    self.subgroup_ids = subgroup_ids
+    # Path to original TFRecords to sample data from.
+    self.include_train_sample = include_train_sample
+    if subgroup_proportions:
+      self.subgroup_proportions = subgroup_proportions
+    else:
+      self.subgroup_proportions = [1.] * len(subgroup_ids)
+
+  def _info(self):
+    return tfds.core.DatasetInfo(
+        builder=self,
+        description='Skai',
+        features=tfds.features.FeaturesDict({
+            'input_feature':
+                tfds.features.Tensor(
+                    shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE,
+                           self.builder_config.num_channels),
+                    dtype=tf.uint8),
+            'example_id':
+                tfds.features.Text(),
+            'coordinates':
+                tfds.features.Tensor(shape=(2,), dtype=tf.float32),
+            'encoded_coordinates':
+                tfds.features.Tensor(shape=(), dtype=tf.string),
+            'pre_image_png':
+                tfds.features.Tensor(shape=(64, 64, 3), dtype=tf.uint8),
+            'post_image_png':
+                tfds.features.Tensor(shape=(64, 64, 3), dtype=tf.uint8),
+            'label':
+                tfds.features.Tensor(shape=(), dtype=tf.int64),
+            'subgroup_label':
+                tfds.features.Tensor(shape=(), dtype=tf.int64),
+        }))
+
+  def _split_generators(self, dl_manager: tfds.download.DownloadManager):
+    splits = {}
+    if self.builder_config.labeled_train_pattern:
+      splits['labeled_train'] = self._generate_examples(
+          self.builder_config.labeled_train_pattern)
+    if self.builder_config.labeled_test_pattern:
+      splits['labeled_test'] = self._generate_examples(
+          self.builder_config.labeled_test_pattern)
+    if self.builder_config.unlabeled_pattern:
+      splits['unlabeled'] = self._generate_examples(
+          self.builder_config.unlabeled_pattern)
+    return splits
+
+  def _decode_record(self, record_bytes):
+    features = tf.io.parse_single_example(
+        record_bytes, {
+            'coordinates': tf.io.FixedLenFeature([2], dtype=tf.float32),
+            'encoded_coordinates': tf.io.FixedLenFeature([], dtype=tf.string),
+            'pre_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
+            'post_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
+            'label': tf.io.FixedLenFeature([], dtype=tf.float32)
+        })
+    example_id = tf.cast(features['encoded_coordinates'], tf.string)
+    features['pre_image_png'] = tf.io.decode_image(
+        features['pre_image_png'],
+        channels=3,
+        expand_animations=False,
+        dtype=tf.uint8)
+    features['post_image_png'] = tf.io.decode_image(
+        features['post_image_png'],
+        channels=3,
+        expand_animations=False,
+        dtype=tf.uint8)
+    # TODO(jihyeonlee): Support stacked image feature.
+    features['input_feature'] = tf.image.convert_image_dtype(
+        tf.image.resize(features['post_image_png'],
+                        [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE]), tf.uint8)
+    features['example_id'] = example_id
+    features['label'] = tf.cast(features['label'], tf.int64)
+    features['subgroup_label'] = features['label']
+    return example_id, features
+
+  def _generate_examples(self, pattern: str):
+    if not pattern:
+      return
+    paths = tf.io.gfile.glob(pattern)
+    ds = tf.data.TFRecordDataset(paths).map(self._decode_record)
+    return ds.as_numpy_iterator()
 
 
 @register_dataset('waterbirds')
@@ -530,8 +676,8 @@ def get_waterbirds_dataset(num_splits: int,
 
   Args:
     num_splits: Integer for number of slices of the dataset.
-    initial_sample_proportion: Float for proportion of entire training
-      dataset to sample initially before active sampling begins.
+    initial_sample_proportion: Float for proportion of entire training dataset
+      to sample initially before active sampling begins.
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
@@ -633,15 +779,17 @@ def get_waterbirds10k_dataset(num_splits: int,
 
 @register_dataset('celeb_a')
 def get_celeba_dataset(
-    num_splits: int, initial_sample_proportion: float,
-    subgroup_ids: List[str], subgroup_proportions: List[float],
+    num_splits: int,
+    initial_sample_proportion: float,
+    subgroup_ids: List[str],
+    subgroup_proportions: List[float],
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
   Args:
     num_splits: Integer for number of slices of the dataset.
-    initial_sample_proportion: Float for proportion of entire training
-      dataset to sample initially before active sampling begins.
+    initial_sample_proportion: Float for proportion of entire training dataset
+      to sample initially before active sampling begins.
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
@@ -665,8 +813,7 @@ def get_celeba_dataset(
       ],
       data_dir=DATA_DIR,
       try_gcs=False,
-      as_supervised=True
-      )
+      as_supervised=True)
   val_splits = tfds.load(
       'celeb_a',
       read_config=read_config,
@@ -676,8 +823,7 @@ def get_celeba_dataset(
       ],
       data_dir=DATA_DIR,
       try_gcs=False,
-      as_supervised=True
-      )
+      as_supervised=True)
   train_sample = tfds.load(
       'celeb_a',
       split='train_sample',
@@ -706,4 +852,100 @@ def get_celeba_dataset(
       val_splits,
       train_ds,
       train_sample_ds=train_sample,
+      eval_ds=eval_datasets)
+
+
+@register_dataset('skai')
+def get_skai_dataset(num_splits: int,
+                     initial_sample_proportion: float,
+                     subgroup_ids: List[str],
+                     subgroup_proportions: List[float],
+                     tfds_dataset_name: str = 'skai_dataset',
+                     data_dir: str = DATA_DIR,
+                     include_train_sample: Optional[bool] = False,
+                     labeled_train_pattern: str = '',
+                     unlabeled_train_pattern: str = '',
+                     validation_pattern: str = '',
+                     **additional_builder_kwargs) -> Dataloader:
+  """Returns datasets for training, validation, and possibly test sets.
+
+  Args:
+    num_splits: Integer for number of slices of the dataset.
+    initial_sample_proportion: Float for proportion of entire training dataset
+      to sample initially before active sampling begins.
+    subgroup_ids: List of strings of IDs indicating subgroups.
+    subgroup_proportions: List of floats indicating proportion that each
+      subgroup should take in initial training dataset.
+    tfds_dataset_name: The name of the tfd dataset to load from.
+    data_dir: Default data directory to store the sampled data.
+    include_train_sample: Whether to include the `train_sample` split.
+    labeled_train_pattern: File pattern for labeled training data.
+    unlabeled_train_pattern: File pattern for unlabeled training data.
+    validation_pattern: File pattern for validation data.
+    **additional_builder_kwargs: Additional keyword arguments to data builder.
+
+  Returns:
+    A tuple containing the split training data, split validation data, the
+    combined training dataset, and a dictionary mapping evaluation dataset names
+    to their respective combined datasets.
+  """
+  hurricane_ian_config = SkaiDatasetConfig(
+      name='hurricane_ian',
+      labeled_train_pattern=labeled_train_pattern,
+      labeled_test_pattern=validation_pattern,
+      unlabeled_pattern=unlabeled_train_pattern
+  )
+  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
+  reduced_datset_sz = int(100 * initial_sample_proportion)
+  builder_kwargs = {
+      'config': hurricane_ian_config,
+      'subgroup_ids': subgroup_ids,
+      'subgroup_proportions': subgroup_proportions,
+      'include_train_sample': include_train_sample,
+      **additional_builder_kwargs
+  }
+
+  val_splits = tfds.load(
+      tfds_dataset_name,
+      split=[
+          f'labeled_test[{k}%:{k+split_size_in_pct}%]'
+          for k in range(0, reduced_datset_sz, split_size_in_pct)
+      ],
+      data_dir=data_dir,
+      builder_kwargs=builder_kwargs,
+      try_gcs=False)
+
+  train_splits = tfds.load(
+      tfds_dataset_name,
+      split=[
+          f'labeled_train[{k}%:{k+split_size_in_pct}%]'
+          for k in range(0, reduced_datset_sz, split_size_in_pct)
+      ],
+      data_dir=data_dir,
+      builder_kwargs=builder_kwargs,
+      try_gcs=False)
+
+  # TODO(jihyeonlee): Utilize unlabeled data.
+
+  # No separate test set, so use validation for now.
+  test_ds = tfds.load(
+      tfds_dataset_name,
+      split='labeled_test',
+      data_dir=data_dir,
+      builder_kwargs=builder_kwargs,
+      try_gcs=False,
+      with_info=False)
+
+  train_ds = gather_data_splits(list(range(num_splits)), train_splits)
+  val_ds = gather_data_splits(list(range(num_splits)), val_splits)
+  eval_datasets = {
+      'val': val_ds,
+      'test': test_ds,
+  }
+  return Dataloader(
+      2,
+      train_splits,
+      val_splits,
+      train_ds,
+      train_sample_ds=None,
       eval_ds=eval_datasets)

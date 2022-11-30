@@ -83,7 +83,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     }
 
   def train_step(self, inputs):
-    features = inputs['feature']
+    features = inputs['input_feature']
     labels = inputs['label']
     example_ids = inputs['example_id']
     subgroup_labels = inputs['subgroup_label']
@@ -152,12 +152,13 @@ class TwoHeadedOutputModel(tf.keras.Model):
 
     self.compiled_metrics.update_state(y_true, y_pred)
     results = {m.name: m.result() for m in self.metrics}
-    results.update(self._compute_average_metrics(self.metrics))
+    if self.num_subgroups > 1:
+      results.update(self._compute_average_metrics(self.metrics))
 
     return results
 
   def test_step(self, inputs):
-    features = inputs['feature']
+    features = inputs['input_feature']
     labels = inputs['label']
     example_ids = inputs['example_id']
     subgroup_labels = inputs['subgroup_label']
@@ -184,7 +185,8 @@ class TwoHeadedOutputModel(tf.keras.Model):
 
     self.compiled_metrics.update_state(y_true, y_pred)
     results = {m.name: m.result() for m in self.metrics}
-    results.update(self._compute_average_metrics(self.metrics))
+    if self.num_subgroups > 1:
+      results.update(self._compute_average_metrics(self.metrics))
     return results
 
 
@@ -572,7 +574,7 @@ def eval_ensemble(
     y_pred_bias = []
     for model in ensemble:
       ensemble_prob_samples = model.predict(
-          test_examples.map(lambda x: x['features']))
+          test_examples.map(lambda x: x['input_feature']))
       y_pred_main.append(ensemble_prob_samples['main'])
       y_pred_bias.append(ensemble_prob_samples['bias'])
     y_pred_main = tf.reduce_mean(y_pred_main, axis=0)

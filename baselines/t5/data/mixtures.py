@@ -25,7 +25,7 @@ from data.tasks import mnli as mnli_config  # local file import from baselines.t
 MixtureRegistry = seqio.MixtureRegistry
 
 # ========================== Toxic Comments ================================
-# TODO(jerelu): Add toxic comments covert mixtures.
+# TODO(jereliu): Add toxic comments covert mixtures.
 
 # A mixture that trains on wikipedia_talk and
 # evaluates on the validation splits of civil_comments.

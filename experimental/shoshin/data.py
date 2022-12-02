@@ -544,12 +544,14 @@ class SkaiDatasetConfig(tfds.core.BuilderConfig):
     labeled_train_pattern: Pattern for labeled training examples tfrecords.
     labeled_test_pattern: Pattern for labeled test examples tfrecords.
     unlabeled_pattern: Pattern for unlabeled examples tfrecords.
+    use_post_disaster_only: Whether to use post-disaster imagery only rather
+      than full 6-channel stacked image input.
   """
   name: str = ''
   labeled_train_pattern: str = ''
   labeled_test_pattern: str = ''
   unlabeled_pattern: str = ''
-  num_channels: int = 3
+  use_post_disaster_only: bool = False
 
 
 class SkaiDataset(tfds.core.GeneratorBasedBuilder):
@@ -594,8 +596,8 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
         features=tfds.features.FeaturesDict({
             'input_feature':
                 tfds.features.Tensor(
-                    shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE,
-                           self.builder_config.num_channels),
+                    shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3 if
+                           self.builder_config.use_post_disaster_only else 6),
                     dtype=tf.uint8),
             'example_id':
                 tfds.features.Text(),
@@ -646,10 +648,14 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
         channels=3,
         expand_animations=False,
         dtype=tf.uint8)
-    # TODO(jihyeonlee): Support stacked image feature.
+    if self.builder_config.use_post_disaster_only:
+      image = features['post_image_png']
+    else:
+      image = tf.concat([features['pre_image_png'], features['post_image_png']],
+                        axis=-1)
     features['input_feature'] = tf.image.convert_image_dtype(
-        tf.image.resize(features['post_image_png'],
-                        [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE]), tf.uint8)
+        tf.image.resize(image, [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE]),
+        tf.uint8)
     features['example_id'] = example_id
     features['label'] = tf.cast(features['label'], tf.int64)
     features['subgroup_label'] = features['label']
@@ -866,6 +872,7 @@ def get_skai_dataset(num_splits: int,
                      labeled_train_pattern: str = '',
                      unlabeled_train_pattern: str = '',
                      validation_pattern: str = '',
+                     use_post_disaster_only: Optional[bool] = False,
                      **additional_builder_kwargs) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -882,6 +889,8 @@ def get_skai_dataset(num_splits: int,
     labeled_train_pattern: File pattern for labeled training data.
     unlabeled_train_pattern: File pattern for unlabeled training data.
     validation_pattern: File pattern for validation data.
+    use_post_disaster_only: Whether to use post-disaster imagery only rather
+      than full 6-channel stacked image input.
     **additional_builder_kwargs: Additional keyword arguments to data builder.
 
   Returns:
@@ -893,7 +902,8 @@ def get_skai_dataset(num_splits: int,
       name='hurricane_ian',
       labeled_train_pattern=labeled_train_pattern,
       labeled_test_pattern=validation_pattern,
-      unlabeled_pattern=unlabeled_train_pattern
+      unlabeled_pattern=unlabeled_train_pattern,
+      use_post_disaster_only=use_post_disaster_only
   )
   split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
   reduced_datset_sz = int(100 * initial_sample_proportion)

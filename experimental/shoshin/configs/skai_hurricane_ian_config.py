@@ -16,15 +16,32 @@
 """Configuration file for experiment with SKAI data and ResNet model."""
 
 import ml_collections
-from configs import skai_baseline_config  # local file import from experimental.shoshin
+from configs import base_config  # local file import from experimental.shoshin
 
 
 def get_config() -> ml_collections.ConfigDict:
   """Get mlp config."""
-  config = skai_baseline_config.get_config()
+  config = base_config.get_config()
+
+  config.train_bias = False
+  config.num_rounds = 1
+  config.round_idx = 0
 
   data = config.data
+  data.name = 'skai'
+  data.num_classes = 2
+  # TODO(jihyeonlee): Determine what are considered subgroups in SKAI domain
+  # and add support for identifying by ID.
+  data.subgroup_ids = ()
+  data.subgroup_proportions = ()
+  data.initial_sample_proportion = 1.
   data.labeled_train_pattern = ''
   data.unlabeled_train_pattern = ''
   data.validation_pattern = ''
+  data.use_post_disaster_only = False
+
+  model = config.model
+  model.name = 'resnet'
+  model.num_channels = 6
+
   return config

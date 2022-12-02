@@ -65,8 +65,11 @@ def main(_) -> None:
     ds_kwargs = {
         'labeled_train_pattern': config.data.labeled_train_pattern,
         'unlabeled_train_pattern': config.data.unlabeled_train_pattern,
-        'validation_pattern': config.data.validation_pattern
+        'validation_pattern': config.data.validation_pattern,
+        'use_post_disaster_only': config.data.use_post_disaster_only
     }
+    if config.data.use_post_disaster_only:
+      config.model.num_channels = 3
 
   logging.info('Running Round %d of Training.', config.round_idx)
   if config.round_idx == 0:
@@ -98,6 +101,7 @@ def main(_) -> None:
       num_subgroups=dataloader.num_subgroups,
       worst_group_label=dataloader.worst_group_label,
       num_epochs=config.training.num_epochs,
+      num_channels=config.model.num_channels,
       l2_regularization_factor=config.model.l2_regularization_factor,
       optimizer=config.optimizer.type,
       learning_rate=config.optimizer.learning_rate,

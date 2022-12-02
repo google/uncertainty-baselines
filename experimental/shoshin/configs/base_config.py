@@ -101,6 +101,7 @@ def get_model_config():
   config = ml_collections.ConfigDict()
   config.name = ''
   config.hidden_sizes = None
+  config.num_channels = 3
   config.l2_regularization_factor = 0.5
   return config
 

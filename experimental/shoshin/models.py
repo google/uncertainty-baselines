@@ -55,6 +55,7 @@ class ModelTrainingParameters:
   num_classes: int
   num_subgroups: int
   num_epochs: int
+  num_channels: int = 3
   l2_regularization_factor: float = 0.5
   optimizer: str = 'sgd'
   learning_rate: float = 1e-5
@@ -117,8 +118,9 @@ class ResNet(tf.keras.Model):
 
     self.resnet_model = tf.keras.applications.resnet50.ResNet50(
         include_top=False,
-        weights='imagenet',
-        input_shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3),
+        weights=None,
+        input_shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE,
+                     model_params.num_channels),
         classes=model_params.num_classes,
         pooling='avg'
         # TODO(jihyeonlee): Consider making pooling method a flag.

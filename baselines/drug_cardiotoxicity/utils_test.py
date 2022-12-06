@@ -17,6 +17,7 @@
 
 import os
 
+from absl import flags
 from absl.testing import parameterized
 import numpy as np
 import robustness_metrics as rm

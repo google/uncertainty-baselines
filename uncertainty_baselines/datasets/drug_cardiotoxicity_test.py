@@ -15,6 +15,7 @@
 
 """Tests for DrugCardiotoxicityDataset."""
 
+from absl import flags
 from absl.testing import parameterized
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -29,6 +30,10 @@ class DrugCardiotoxicityDatasetTest(tf.test.TestCase, parameterized.TestCase):
       ('Test', tfds.Split.TEST, False, 839),
       ('Test2', tfds.Split('test2'), False, 177))
   def testDatasetSize(self, split, is_training, expected_size):
+    # The files expected are in TFRecord format and the new default format in
+    # TFDS is set to ArrayRecord.
+    # Disabling the default for cardiotoxicity builder tests for the time being.
+    flags.FLAGS.array_record_default = False
     dataset_builder = ub.datasets.DrugCardiotoxicityDataset(
         split=split,
         is_training=is_training,
@@ -40,6 +45,7 @@ class DrugCardiotoxicityDatasetTest(tf.test.TestCase, parameterized.TestCase):
                                   ('Test', tfds.Split.TEST, False),
                                   ('Test2', tfds.Split('test2'), False))
   def testDatasetShape(self, split, is_training):
+    flags.FLAGS.array_record_default = False
     batch_size = 128
     dataset_builder = ub.datasets.DrugCardiotoxicityDataset(
         split=split,

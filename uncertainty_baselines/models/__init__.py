@@ -84,6 +84,7 @@ try:
   from uncertainty_baselines.models.vit_hetgp import vision_transformer_hetgp
   from uncertainty_baselines.models.vit_mimo import vision_transformer_mimo
   from uncertainty_baselines.models.vit_heteroscedastic import vision_transformer_het
+  from uncertainty_baselines.models.vit_tram import vision_transformer_tram
 except ImportError:
   logging.warning('Skipped ViT models due to ImportError.', exc_info=True)
 except tf.errors.NotFoundError:

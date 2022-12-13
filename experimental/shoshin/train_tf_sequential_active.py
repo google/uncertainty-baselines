@@ -113,8 +113,11 @@ def main(_) -> None:
     if config.train_bias:
       # Bias head will be trained as well, so gets bias labels.
       if config.path_to_existing_bias_table:
-        example_id_to_bias_table = generate_bias_table_lib.load_existing_bias_table(
-            config.path_to_existing_bias_table)
+        example_id_to_bias_table = (
+            generate_bias_table_lib.load_existing_bias_table(
+                config.path_to_existing_bias_table
+            )
+        )
       else:
         logging.info(
             'Training models on different splits of data to calculate bias...')
@@ -130,16 +133,22 @@ def main(_) -> None:
             save_model_checkpoints=config.training.save_model_checkpoints,
             early_stopping=config.training.early_stopping)
         trained_models = train_tf_lib.load_trained_models(
-            combos_dir, model_params)
-        example_id_to_bias_table = generate_bias_table_lib.get_example_id_to_bias_label_table(
-            dataloader=dataloader,
-            combos_dir=combos_dir,
-            trained_models=trained_models,
-            num_splits=config.data.num_splits,
-            bias_value_threshold=config.bias_value_threshold,
-            bias_percentile_threshold=config.bias_percentile_threshold,
-            save_dir=output_dir,
-            save_table=config.save_bias_table)
+            combos_dir, model_params
+        )
+        example_id_to_bias_table = (
+            generate_bias_table_lib.get_example_id_to_bias_label_table(
+                dataloader=dataloader,
+                combos_dir=combos_dir,
+                trained_models=trained_models,
+                num_splits=config.data.num_splits,
+                bias_value_threshold=config.bias_value_threshold,
+                tracin_value_threshold=config.tracin_value_threshold,
+                bias_percentile_threshold=config.bias_percentile_threshold,
+                tracin_percentile_threshold=config.tracin_percentile_threshold,
+                save_dir=output_dir,
+                save_table=config.save_bias_table,
+            )
+        )
     model_params.train_bias = config.train_bias
     if config.train_bias and config.data.included_splits_idx:
       # Likely training a single model on a combination of data splits.
@@ -165,7 +174,7 @@ def main(_) -> None:
         example_id_to_bias_table=example_id_to_bias_table)
 
     # Get all ids used for training
-    ids_train = data.get_train_ids(dataloader)
+    ids_train = data.get_ids_from_dataset(dataloader.train_ds)
     # Get predictions from trained models on whole dataset
     dataloader = dataset_builder(
         config.data.num_splits,
@@ -178,13 +187,15 @@ def main(_) -> None:
         for split in dataloader.train_splits
     ]
     dataloader = data.apply_batch(dataloader, config.data.batch_size)
-    predictions_df = generate_bias_table_lib.get_example_id_to_predictions_table(
-        dataloader,
-        trained_stagetwo_models,
-        config.train_bias,
-        save_dir=output_dir,
-        save_table=config.save_bias_table
+    predictions_df = (
+        generate_bias_table_lib.get_example_id_to_predictions_table(
+            dataloader,
+            trained_stagetwo_models,
+            config.train_bias,
+            save_dir=output_dir,
+            save_table=config.save_bias_table,
         )
+    )
     # Compute new ids to sample and append to initial set of ids
     next_ids_dir = os.path.join(config.output_dir, f'round_{round_idx}/ids')
     _ = sampling_policies.sample_and_split_ids(

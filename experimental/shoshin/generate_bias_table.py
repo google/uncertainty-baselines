@@ -102,7 +102,9 @@ def main(_) -> None:
           trained_models=trained_models,
           num_splits=config.data.num_splits,
           bias_percentile_threshold=config.bias_percentile_threshold,
+          tracin_percentile_threshold=config.tracin_percentile_threshold,
           bias_value_threshold=config.bias_value_threshold,
+          tracin_value_threshold=config.tracin_value_threshold,
           save_dir=config.output_dir,
           ckpt_epoch=ckpt_epoch,
           save_table=True)

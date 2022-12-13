@@ -25,8 +25,9 @@ and the label is specific to the main task.
 import dataclasses
 import json
 import os
-from typing import Any, Dict, Iterator, Optional, Tuple, List, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -121,15 +122,105 @@ def gather_data_splits(
   return data_slice
 
 
-def get_train_ids(dataloader: Dataloader):
-  # Get example ids used for training
-  ids_train_list = list(
-      dataloader.train_ds.map(
-          lambda feats, label, example_id: example_id).as_numpy_iterator())
-  ids_train = []
-  for ids in ids_train_list:
-    ids_train += ids.tolist()
-  return ids_train
+def get_ids_from_dataset(dataset: tf.data.Dataset) -> List[str]:
+  """Gets example ids from dataset."""
+  ids_list = list(dataset.map(lambda x: x['example_id']).as_numpy_iterator())
+  if isinstance(ids_list[0], np.ndarray):
+    new_ids_list = []
+    for ids in ids_list:
+      new_ids_list += ids.tolist()
+    return new_ids_list
+  else:
+    return ids_list
+
+
+def create_ids_table(dataloader: Dataloader,
+                     initial_sample_proportion: float,
+                     initial_sample_seed: int,
+                     split_proportion: float,
+                     split_num: int,
+                     split_seed: int,
+                     training: bool) -> tf.lookup.StaticHashTable:
+  """Creates a hash table representing ids in each each split.
+
+  Args:
+    dataloader: Dataloader for the unfilterd dataset.
+    initial_sample_proportion: Proportion of larger subset to initial dataset.
+    initial_sample_seed: Seed to select the larger subset (identical for all
+      splits.)
+    split_proportion: Proportion of split to larger subset.
+    split_num: Number of split. Used to set the sampling seed for the split
+      subset.
+    split_seed: Split seed second part of the sampling seed.
+    training: Whether to create a training set or a validation set.
+
+  Returns:
+    A hash table mapping ids to membership in the filtered dataset.
+  """
+  ids = get_ids_from_dataset(dataloader.train_ds)
+  initial_sample_size = int(len(ids) * initial_sample_proportion)
+  np.random.seed(initial_sample_seed)
+  subset_ids = np.random.choice(ids, initial_sample_size, replace=False)
+  # ids_dir is populated by the sample_and_split_ids function above
+  tf.compat.v1.logging.info('Seed number %d', split_num + split_seed)
+  np.random.seed(split_num + split_seed)
+  ids_i = np.random.choice(
+      subset_ids, int(split_proportion * initial_sample_size), replace=False)
+  tf.compat.v1.logging.info('Subset size %d', len(ids_i))
+  if not training:
+    ids_i = subset_ids[~np.isin(subset_ids, ids_i)]
+  keys = tf.convert_to_tensor(ids_i, dtype=tf.string)
+  values = tf.ones(shape=keys.shape, dtype=tf.int64)
+  init = tf.lookup.KeyValueTensorInitializer(
+      keys=keys,
+      values=values,
+      key_dtype=tf.string,
+      value_dtype=tf.int64)
+  return tf.lookup.StaticHashTable(init, default_value=0)
+
+
+def filter_set(
+    dataloader: Dataloader,
+    initial_sample_proportion: float,
+    initial_sample_seed: int,
+    split_proportion: float,
+    split_id: int,
+    split_seed: int,
+    training: bool,
+) -> tf.data.Dataset:
+  """Filters training set to create subsets of arbitrary size.
+
+  First, a set of initial_sample_proportion is selected from which the different
+  training an validation sets are sampled according to split_proportion. The
+  indiviudal splits are used to train an ensemble of models where each model is
+  trained on an equally sized training set.
+
+  Args:
+    dataloader: Dataloader for the unfilterd dataset.
+    initial_sample_proportion: Proportion of larger subset to initial dataset.
+    initial_sample_seed: Seed to select the larger subset (identical for all
+      splits.)
+    split_proportion: Proportion of split to larger subset.
+    split_id: Number of split. Used to set the sampling seed for the split
+      subset.
+    split_seed: Split seed second part of the sampling seed.
+    training:  Whether to create a training set or a validation set.
+
+  Returns:
+    A filtered dataset.
+  """
+  filter_table = create_ids_table(
+      dataloader,
+      initial_sample_proportion=initial_sample_proportion,
+      initial_sample_seed=initial_sample_seed,
+      split_proportion=split_proportion,
+      split_num=split_id,
+      split_seed=split_seed,
+      training=training,
+  )
+  return dataloader.train_ds.filter(
+      lambda datapoint: filter_table.lookup(datapoint['example_id']) == 1
+  )
 
 
 class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):

@@ -527,9 +527,7 @@ def load_trained_models(combos_dir: str,
   """
   trained_models = []
   for combo_name in tf.io.gfile.listdir(combos_dir):
-    combo_model = init_model(
-        model_params=model_params,
-        experiment_name=combo_name)
+
     ckpt_dir = os.path.join(combos_dir, combo_name, 'checkpoints')
     if ckpt_epoch < 0:
       # Loads the latest checkpoint.
@@ -543,18 +541,133 @@ def load_trained_models(combos_dir: str,
       tf.compat.v1.logging.info(
           f'Loading model for checkpoint {ckpt_epoch} from `{checkpoint_path}`')
 
-    if not tf.io.gfile.exists(checkpoint_path + '.index'):
-      raise ValueError(
-          f'Required checkpoint file `{checkpoint_path}` not exist.')
-
-    load_status = combo_model.load_weights(checkpoint_path)
-
-    # Optimizer will not be loaded, so expect only partial load.
-    # This is not currently an issue because model is only used for inference.
-    load_status.expect_partial()
-    load_status.assert_existing_objects_matched()
+    combo_model = load_one_checkpoint(checkpoint_path=checkpoint_path,
+                                      model_params=model_params,
+                                      experiment_name=combo_name)
     trained_models.append(combo_model)
   return trained_models
+
+
+def load_one_checkpoint(
+    checkpoint_path: str,
+    model_params: models.ModelTrainingParameters,
+    experiment_name: str,
+) -> tf.keras.Model:
+  """Loads a model checkpoint.
+
+  Args:
+    checkpoint_path: Path to checkpoint
+    model_params: Model training parameters
+    experiment_name: Name of experiment
+
+  Returns:
+    A model checkpoint.
+  """
+  if not tf.io.gfile.exists(checkpoint_path + '.index'):
+    raise ValueError(
+        f'Required checkpoint file `{checkpoint_path}` not exist.')
+
+  model = init_model(
+      model_params=model_params,
+      experiment_name=experiment_name)
+  load_status = model.load_weights(checkpoint_path)
+  # Optimizer will not be loaded (https://b.corp.google.com/issues/124099628),
+  # so expect only partial load. This is not currently an issue because
+  # model is only used for inference.
+  load_status.expect_partial()
+  load_status.assert_existing_objects_matched()
+  return model
+
+
+# TODO(martinstrobel): Merge this function with `find_epoch_ckpt_path`.
+def generate_checkpoint_list(
+    checkpoint_dir: str,
+    checkpoint_list: Optional[List[str]] = None,
+    checkpoint_selection: Optional[str] = 'first',
+    checkpoint_number: Optional[int] = 5,
+    checkpoint_name: Optional[str] = '',
+) -> Optional[List[str]]:
+  """Creates a list of checkpoints to load.
+
+  Args:
+    checkpoint_dir: Path to the checkpoint directory.
+    checkpoint_list: List of checkpoint names (only used when checkpoint
+      selection is list)
+    checkpoint_selection: Mode of how to select checkpoints.
+    'first': Select the first x checkpoints by epoch
+    'last' : Select the las x checkpoints by epoch.
+    'spread': Select x checlpoints spread out evenly over all epochs
+    'list':  Select the checkpoints provided in checkpoint_list.
+    'name': Select the named checkpoint
+    checkpoint_number: Number of chekcpoints returned (only used when checkpoint
+      selection is first, last, or spread)
+    checkpoint_name: Name of a single checkpoint (only used when a checkpoint
+      selection is name)
+  Returns:
+    List of checkpoints to load
+  """
+  if checkpoint_selection != 'list':
+    ckpts_names = tf.io.gfile.listdir(checkpoint_dir)
+    ckpts_names = list(filter(lambda x: '.ckpt.index' in x, ckpts_names))
+    ckpts_names = list(map(lambda x: x[:-6], ckpts_names))
+    epochs = [int(ckpt_name.split('-')[1]) for ckpt_name in ckpts_names]
+    sorted_ckpts_names = [ckpts_names[i] for i in np.argsort(epochs)]
+    if checkpoint_selection == 'first':
+      checkpoint_list = sorted_ckpts_names[:checkpoint_number]
+    elif checkpoint_selection == 'last' and checkpoint_number:
+      checkpoint_list = sorted_ckpts_names[int(-checkpoint_number):]
+    elif checkpoint_selection == 'spread':
+      checkpoint_list = [
+          sorted_ckpts_names[i]
+          for i in range(0, len(sorted_ckpts_names),
+                         int(len(sorted_ckpts_names) / checkpoint_number))
+      ]
+    elif checkpoint_selection == 'all':
+      checkpoint_list = sorted_ckpts_names
+    elif checkpoint_selection == 'name':
+      checkpoint_list = [str(checkpoint_name)]
+  return checkpoint_list
+
+
+# TODO(martinstrobel): Merge this function with `load_trained_models`.
+def load_model_checkpoints(checkpoint_dir: str,
+                           model_params: models.ModelTrainingParameters,
+                           checkpoint_list: Optional[List[str]],
+                           checkpoint_selection: Optional[str] = 'first',
+                           checkpoint_number: Optional[int] = 5,
+                           checkpoint_name: Optional[str] = '',
+                           ) -> List[tf.keras.Model]:
+  """Loads model checkpoints from a given checkpoint directory.
+
+  Args:
+    checkpoint_dir: Path to the checkpoint directory.
+    model_params: Model training parameters
+    checkpoint_list: List of checkpoint names (only used when checkpoint
+      selection is list)
+    checkpoint_selection: Mode of how to select checkpoints.
+    'first': Select the first x checkpoints by epoch
+    'last' : Select the las x checkpoints by epoch.
+    'spread': Select x checlpoints spread out evenly over all epochs
+    'list':  Select the checkpoints provided in checkpoint_list.
+    checkpoint_number: Number of chekcpoints returned (only used when checkpoint
+      selection is first, last, or spread)
+    checkpoint_name: Name of a single checkpoint (only used when a checkpoint
+      selection is name)
+
+  Returns:
+    A list of model checkpoints.
+  """
+  checkpoint_list = generate_checkpoint_list(checkpoint_dir, checkpoint_list,
+                                             checkpoint_selection,
+                                             checkpoint_number, checkpoint_name)
+  checkpoints = []
+  for checkpoint in checkpoint_list:
+    ckpt_path = os.path.join(checkpoint_dir, checkpoint)
+    ckpt = load_one_checkpoint(checkpoint_path=ckpt_path,
+                               model_params=model_params,
+                               experiment_name='')
+    checkpoints.append(ckpt)
+  return checkpoints
 
 
 def eval_ensemble(

@@ -68,11 +68,31 @@ def get_data_config():
   # Proportion of training set to sample initially. Rest is considered the pool
   # for active sampling.
   config.initial_sample_proportion = 0.5
+  # Whether to use data splits for the creation of an ensemble or filtering.
+  # When filtering is used instead of creating combinations of splits each
+  # model is trained on a random subsample of the dataset. Split guarantees
+  # each point to be in the exact number of splits defined by the ood ratio.
+  # Filtering only guarantees this in expectation.
+  config.use_splits = True
+  config.use_filtering = False
 
-  # Correlation strength of the minority v.s. majority group. This is equivalent
+  # The following arguments are only used when use_filtering=True
+  # The sum of split seed and split_id form the sampling seed for subset
+  # selection.
+  config.split_seed = 0
+  config.split_id = 0
+  # Seed for initial sample selection when filitering is used.
+  config.initial_sample_seed = 0
+  # Proportion of split to size of initial training set (similar to ood_ratio
+  # but can have arbitrary value between 0 and 1.)
+  config.split_proportion = 0.7
+
+  # Leave one out training
+  config.loo_id = ''
+  config.loo_training = False
+  # Correlation strength of the minority vs majority group. This is equivalent
   # to the proportion of majority group examples in the data.
   config.corr_strength = 0.95
-
   return config
 
 
@@ -153,10 +173,14 @@ def get_config() -> ml_collections.ConfigDict:
   # Threshold to generate bias labels. Can be specified as percentile or value.
   config.bias_percentile_threshold = 80
   config.bias_value_threshold = None
+  config.tracin_percentile_threshold = 80
+  config.tracin_value_threshold = None
   config.save_bias_table = True
   # Path to existing bias table to use in training the bias head. If
   # unspecified, generates new one.
   config.path_to_existing_bias_table = ''
+  # The signal used to train the bias head.
+  config.bias_head_prediction_signal = 'bias_label'
 
   config.train_bias = True
   # When True, trains the stage 2 model (stage 1 is calculating bias table)
@@ -176,6 +200,9 @@ def get_config() -> ml_collections.ConfigDict:
 
   # Whether or not to do introspective training
   config.introspective_training = True
+
+  # Whether to save the ids used during training (for bias estimation)
+  config.save_train_ids = True
 
   config.data = get_data_config()
   config.training = get_training_config()

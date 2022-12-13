@@ -26,6 +26,7 @@ from absl import app
 from absl import flags
 from absl import logging
 from ml_collections import config_flags
+import pandas as pd
 import tensorflow as tf
 import data  # local file import from experimental.shoshin
 import generate_bias_table_lib  # local file import from experimental.shoshin
@@ -72,13 +73,14 @@ def main(_) -> None:
       config.model.num_channels = 3
 
   logging.info('Running Round %d of Training.', config.round_idx)
+  get_split_config = lambda x: x if config.data.use_splits else 1
   if config.round_idx == 0:
-    # If initial round of sampling, sample randomly initial_sample_proportion
-    dataloader = dataset_builder(config.data.num_splits,
-                                 config.data.initial_sample_proportion,
-                                 config.data.subgroup_ids,
-                                 config.data.subgroup_proportions,
-                                 **ds_kwargs)
+    dataloader = dataset_builder(
+        num_splits=get_split_config(config.data.num_splits),
+        initial_sample_proportion=get_split_config(
+            config.data.initial_sample_proportion),
+        subgroup_ids=config.data.subgroup_ids,
+        subgroup_proportions=config.data.subgroup_proportions, **ds_kwargs)
   else:
     # If latter round, keep track of split generated in last round of active
     #   sampling
@@ -113,8 +115,6 @@ def main(_) -> None:
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir
 
-  # Apply batching (must apply batching only after filtering)
-  dataloader = data.apply_batch(dataloader, config.data.batch_size)
   tf.io.gfile.makedirs(output_dir)
   example_id_to_bias_table = None
 
@@ -122,21 +122,62 @@ def main(_) -> None:
                            config.reweighting.signal == 'bias'):
     # Bias head will be trained as well, so gets bias labels.
     if config.path_to_existing_bias_table:
-      example_id_to_bias_table = generate_bias_table_lib.load_existing_bias_table(
-          config.path_to_existing_bias_table)
+      example_id_to_bias_table = (
+          generate_bias_table_lib.load_existing_bias_table(
+              config.path_to_existing_bias_table,
+              config.bias_head_prediction_signal,
+          )
+      )
     else:
       logging.info(
           'Error: Bias table not found')
       return
-  # Training a single model on a combination of data splits.
-  included_splits_idx = [int(i) for i in config.data.included_splits_idx]
-  train_ds = data.gather_data_splits(included_splits_idx,
-                                     dataloader.train_splits)
-  val_ds = data.gather_data_splits(included_splits_idx,
-                                   dataloader.val_splits)
-  dataloader.train_ds = train_ds
+  if config.data.use_splits:
+    # Training a single model on a combination of data splits.
+    included_splits_idx = [int(i) for i in config.data.included_splits_idx]
+    new_train_ds = data.gather_data_splits(included_splits_idx,
+                                           dataloader.train_splits)
+    val_ds = data.gather_data_splits(included_splits_idx, dataloader.val_splits)
+  elif config.data.use_filtering:
+    # Use filter tables to generate subsets.
+    # This allows a better control over the number of trained models that.
+    # The number of models is independent of the odd ratio. E.g., 10 splits with
+    # an odd ratio 0f 0.5 trains 252 models and with an ood ratio of 0.1 only
+    # 10. Using filitering we can train 50 models for both of these ood ratios.
+    new_train_ds = data.filter_set(
+        dataloader=dataloader,
+        initial_sample_proportion=config.data.initial_sample_proportion,
+        initial_sample_seed=config.data.initial_sample_seed,
+        split_proportion=config.data.split_proportion,
+        split_id=config.data.split_id,
+        split_seed=config.data.split_seed,
+        training=True
+    )
+    val_ds = data.filter_set(
+                dataloader=dataloader,
+        initial_sample_proportion=config.data.initial_sample_proportion,
+        initial_sample_seed=config.data.initial_sample_seed,
+        split_proportion=config.data.split_proportion,
+        split_id=config.data.split_id,
+        split_seed=config.data.split_seed,
+        training=False
+    )
+  else:
+    raise ValueError(
+        'In `config.data`, one of `(use_splits, use_filtering)` must be True.')
+
+  dataloader.train_ds = new_train_ds
   dataloader.eval_ds['val'] = val_ds
   experiment_name = 'stage_2' if config.train_bias else 'stage_1'
+
+  if config.save_train_ids:
+    table_name = 'training_ids_table'
+    ids = data.get_ids_from_dataset(dataloader.train_ds)
+    dict_values = {'example_id': ids}
+    df = pd.DataFrame(dict_values)
+    df.to_csv(os.path.join(output_dir, table_name + '.csv'), index=False)
+  # Apply batching (must apply batching only after filtering)
+  dataloader = data.apply_batch(dataloader, config.data.batch_size)
 
   _ = train_tf_lib.train_and_evaluate(
       train_as_ensemble=config.train_stage_2_as_ensemble,

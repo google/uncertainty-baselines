@@ -44,17 +44,17 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 760.31396484375, 699.8519151475695, 0.78,
+      ('imagenet2012', 'token', 2, 760.31396, 699.8519151475695, 0.777777791023,
        False),
-      ('imagenet2012', 'token', 2, 760.31396484375, 699.8519151475695, 0.78,
+      ('imagenet2012', 'token', 2, 760.31396, 699.8519151475695, 0.777777791023,
        True),
-      ('imagenet2012', 'token', None, 604.2410278320312, 538.1849229600695,
-       1.11, False),
-      ('imagenet2012', 'gap', 2, 649.7745361328125, 631.788316514757, 0.67,
+      ('imagenet2012', 'token', None, 604.2411, 538.1849365234375, 1.0000000298,
        False),
-      ('imagenet2012', 'gap', None, 660.3692626953125, 638.4572075737847, 1.11,
+      ('imagenet2012', 'gap', 2, 649.77454, 631.788330078125, 0.666666686534881,
        False),
-      ('imagenet2012', 'gap', None, 660.3692626953125, 638.4572075737847, 1.11,
+      ('imagenet2012', 'gap', None, 660.36926, 638.4572482638889, 1.44444447755,
+       False),
+      ('imagenet2012', 'gap', None, 660.36926, 638.4572482638889, 1.44444447755,
        True),
   )
   @flagsaver.flagsaver
@@ -111,7 +111,7 @@ class HeteroscedasticTest(parameterized.TestCase, tf.test.TestCase):
                                rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 526.4393920898438, 425.47394476996527, 0.55,
+      ('imagenet2012', 'token', 2, 526.4394, 425.4739990234375, 0.6666666865348,
        'imagenet'),
   )
   @flagsaver.flagsaver

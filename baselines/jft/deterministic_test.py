@@ -45,12 +45,12 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
     self.data_dir = data_dir
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, .1, 591.4794, 519.432996961805, 0.89, False),
-      ('imagenet2012', 'token', 2, None, 590.62366, 518.052517361, 1.11, False),
-      ('imagenet2012', 'token', None, None, 494.419, 865.94246419, 1.22, False),
-      ('imagenet2012', 'gap', 2, None, 614.7483, 599.1426323784722, 0.8, False),
-      ('imagenet2012', 'gap', None, None, 572.8933, 583.924899631, 1.44, False),
-      ('imagenet2012', 'gap', None, None, 572.8933, 583.924899631, 1.44, True),
+      ('imagenet2012', 'token', 2, .1, 591.4794, 519.4329833984, 0.8888, False),
+      ('imagenet2012', 'token', 2, None, 590.62366, 518.0524902, 1.1111, False),
+      ('imagenet2012', 'token', None, None, 494.419, 865.942491, 1.2222, False),
+      ('imagenet2012', 'gap', 2, None, 614.7483, 599.1426323784, 0.8888, False),
+      ('imagenet2012', 'gap', None, None, 572.8932, 583.9248996, 1.4444, False),
+      ('imagenet2012', 'gap', None, None, 572.8933, 583.92489963, 1.4444, True),
   )
   @flagsaver.flagsaver
   def test_deterministic_script(self, dataset_name, classifier,
@@ -105,7 +105,7 @@ class DeterministicTest(parameterized.TestCase, tf.test.TestCase):
                                rtol=1e-06, atol=1e-06)
 
   @parameterized.parameters(
-      ('imagenet2012', 'token', 2, 569.38904, 521.6078152126, 0.56, 'imagenet'),
+      ('imagenet2012', 'token', 2, 569.38904, 521.60781521, 0.5555, 'imagenet'),
   )
   @flagsaver.flagsaver
   def test_loading_pretrained_model(self, dataset_name, classifier,

@@ -96,7 +96,7 @@ class BatchEnsembleTest(parameterized.TestCase, tf.test.TestCase):
       ('imagenet2012', 'token', 2, 693.64636, 614.0311584472656, True),
       ('imagenet2012', 'token', None, 693.64636, 573.0804138183594, False),
       ('imagenet2012', 'gap', 2, 693.64636, 632.758056640625, False),
-      ('imagenet2012', 'gap', None, 693.64636, 609.6657104492188, False),
+      ('imagenet2012', 'gap', None, 693.64636, 609.6657409667969, False),
   )
   @flagsaver.flagsaver
   def test_batchensemble_script(self, dataset_name, classifier,

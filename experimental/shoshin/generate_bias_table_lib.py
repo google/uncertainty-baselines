@@ -334,7 +334,8 @@ def get_example_id_to_predictions_table(
     has_bias: bool,
     split: Optional[str] = 'train',
     save_dir: Optional[str] = None,
-    save_table: Optional[bool] = True) -> pd.DataFrame:
+    save_table: Optional[bool] = True,
+    compute_tracin: Optional[bool] = False) -> pd.DataFrame:
   """Generates a lookup table mapping example ID to bias label.
 
   Args:
@@ -344,6 +345,8 @@ def get_example_id_to_predictions_table(
     split: Which split of the dataset to use ('train'/'val'/'test')
     save_dir: Directory in which predictions table will be saved as CSV.
     save_table: Boolean for whether or not to save table.
+    compute_tracin: Boolean whether or not to calculate the tracin values
+      with respect to the model predictions.
 
   Returns:
     A pandas dataframe mapping example ID to all label and bias predictions.
@@ -358,6 +361,7 @@ def get_example_id_to_predictions_table(
           lambda example: example['label']).as_numpy_iterator())
   labels = np.concatenate(labels)
   predictions_all = []
+  tracin_values_all = []
   if has_bias:
     bias_predictions_all = []
   for idx, model in enumerate(trained_models):
@@ -367,12 +371,19 @@ def get_example_id_to_predictions_table(
     predictions_all.append(predictions['main'][..., 1])
     if has_bias:
       bias_predictions_all.append(predictions['bias'][..., 1])
+    if compute_tracin:
+      _, tracin_values, _ = calculate_tracin_values(
+          ds, [model], has_bias=has_bias, use_prediction_gradient=True
+      )
+      tracin_values_all.append(tracin_values)
   example_ids = list(ds.map(
       lambda example: example['example_id']).as_numpy_iterator())
   example_ids = np.concatenate(example_ids)
   predictions_all = np.stack(predictions_all)
   if has_bias:
     bias_predictions_all = np.stack(bias_predictions_all)
+  if compute_tracin:
+    tracin_values_all = np.stack(tracin_values_all)
 
   logging.info('# of examples in prediction table is: %s', example_ids.shape[0])
 
@@ -381,6 +392,8 @@ def get_example_id_to_predictions_table(
     dict_values[f'predictions_label_{i}'] = predictions_all[i]
     if has_bias:
       dict_values[f'predictions_bias_{i}'] = bias_predictions_all[i]
+    if compute_tracin:
+      dict_values[f'predictions_tracin_{i}'] = tracin_values_all[i]
   df = pd.DataFrame(dict_values)
   if save_table:
     df.to_csv(os.path.join(save_dir, table_name + '.csv'), index=False)
@@ -460,6 +473,7 @@ def calculate_tracin_values(
     model_checkpoints: List[tf.keras.Model],
     included_layers: Optional[int] = -2,
     has_bias: Optional[bool] = False,
+    use_prediction_gradient: Optional[bool] = False
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
   """Calculates the tracin values for a given dataset [1].
 
@@ -475,6 +489,9 @@ def calculate_tracin_values(
       layers are included.
     has_bias:  Do the trained models have a bias prediction head. If yes, layers
       to predrict bias are ignored.
+    use_prediction_gradient: Calculate the Tracin values for the loss with
+    respect to the predicted labels (instead of true labels)
+      instead of loss
 
   Returns:
     An array of example_ids and a corresponding arrays of tracin values and
@@ -497,6 +514,7 @@ def calculate_tracin_values(
       checkpoints: List[tf.keras.Model],
       included_layers_start: int,
       included_layers_end: int,
+      use_prediction_gradient: Optional[bool] = False
   ) -> Tuple[tf.Tensor, Any, Any]:
     example_ids = batch['example_id']
     features = batch['input_feature']
@@ -508,12 +526,21 @@ def calculate_tracin_values(
         tape.watch(
             model.trainable_weights[included_layers_start:included_layers_end])
         probs = model(features)['main']
-        loss = tf.keras.losses.sparse_categorical_crossentropy(labels, probs)
-        grads = tape.jacobian(
-            loss,
-            model.trainable_weights[
-                included_layers_start:included_layers_end
-            ])
+        if use_prediction_gradient:
+          y_pred = tf.math.argmax(probs, axis=1)
+          loss = tf.keras.losses.sparse_categorical_crossentropy(y_pred, probs)
+          grads = tape.jacobian(
+              loss,
+              model.trainable_weights[
+                  included_layers_start:included_layers_end
+              ])
+        else:
+          loss = tf.keras.losses.sparse_categorical_crossentropy(labels, probs)
+          grads = tape.jacobian(
+              loss,
+              model.trainable_weights[
+                  included_layers_start:included_layers_end
+              ])
         scores = tf.add_n(
             [
                 tf.math.reduce_sum(
@@ -536,7 +563,8 @@ def calculate_tracin_values(
   logging.info('Checkpoints built.')
   for batch in dataset:
     example_ids, tracin_values, probs = run_self_influence(
-        batch, model_checkpoints, included_layers_start, included_layers_end)
+        batch, model_checkpoints, included_layers_start, included_layers_end,
+        use_prediction_gradient)
     example_ids_all.append(example_ids)
     tracin_values_all.append(tracin_values)
     probs_all.append(probs)
@@ -555,3 +583,6 @@ def filter_ids_fn(hash_table, value=1):
   def filter_fn(examples):
     return hash_table.lookup(examples['example_id']) == value
   return filter_fn
+
+
+

@@ -122,13 +122,15 @@ def main(_) -> None:
         combos_dir, model_params, ckpt_epoch=-1)
 
     # Generates table.
+    if_compute_tracin = config.active_sampling.sampling_score == 'tracin'
     _ = generate_bias_table_lib.get_example_id_to_predictions_table(
         dataloader=dataloader,
         trained_models=trained_models,
         has_bias=config.train_bias,
         split='train',
         save_dir=config.save_dir,
-        save_table=True)
+        save_table=True,
+        compute_tracin=if_compute_tracin)
     for split_name in config.eval_splits:
       _ = generate_bias_table_lib.get_example_id_to_predictions_table(
           dataloader=dataloader,
@@ -136,7 +138,9 @@ def main(_) -> None:
           has_bias=config.train_bias,
           split=split_name,
           save_dir=config.save_dir,
-          save_table=True)
+          save_table=True,
+          compute_tracin=if_compute_tracin)
+
 
 if __name__ == '__main__':
   app.run(main)

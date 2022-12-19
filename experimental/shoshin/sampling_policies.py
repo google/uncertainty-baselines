@@ -36,9 +36,11 @@ def compute_ids_to_sample(
 
   Args:
     sampling_score: Which score to use for sampling. Currently supported
-      options are 'ensemble_uncertainty', 'ensemble_margin', 'bias'
+      options are 'ensemble_uncertainty', 'ensemble_margin', 'bias', 'tracin',
+      'random'
     predictions_df: Dataframe with columns `example_ids` and
-      `predictions_label_{i}` `predictions_bias_{i}` for i in range(k)
+      `predictions_label_{i}` `predictions_bias_{i}` `predictions_tracin_{k}`
+      (only if predicted tracin scores are used) for i in range(k)
     num_samples: Number of samples
 
   Returns:
@@ -46,6 +48,9 @@ def compute_ids_to_sample(
   """
   prediction_label_cols = filter(lambda x: 'label' in x, predictions_df.columns)
   prediction_bias_cols = filter(lambda x: 'bias' in x, predictions_df.columns)
+  prediction_tracin_cols = filter(
+      lambda x: 'tracin' in x, predictions_df.columns
+  )
   if sampling_score == 'ensemble_uncertainty':
     sample_avg = predictions_df[prediction_label_cols].mean(axis=1).to_numpy()
     uncertainty = np.abs(sample_avg - .5)
@@ -56,6 +61,12 @@ def compute_ids_to_sample(
   elif sampling_score == 'bias':
     sample_avg = predictions_df[prediction_bias_cols].mean(axis=1).to_numpy()
     predictions_df['sampling_score'] = 1 - sample_avg
+  elif sampling_score == 'tracin':
+    sample_avg = predictions_df[prediction_tracin_cols].mean(axis=1).to_numpy()
+    predictions_df['sampling_score'] = 1 - sample_avg
+  elif sampling_score == 'random':
+    sample_avg = predictions_df[prediction_tracin_cols].mean(axis=1).to_numpy()
+    predictions_df['sampling_score'] = np.random.random(size=sample_avg.shape)
   predictions_df = predictions_df.sort_values(
       by='sampling_score', ascending=True)
   return predictions_df.head(num_samples)['example_id'].to_numpy()

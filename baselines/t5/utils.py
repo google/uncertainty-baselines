@@ -392,13 +392,16 @@ class TrainStateEnsembleInitializer(utils.TrainStateInitializer):
       restore_cfgs: Sequence[utils.RestoreCheckpointConfig],
       ds_iter: Optional[tf.data.Iterator] = None,
       init_rng: Optional[jnp.ndarray] = None,
-  ) -> Iterable[train_state_lib.TrainState]:
+  ) -> Iterable[Tuple[train_state_lib.TrainState, str]]:
     params_list = []
     last_train_state = None
-    for train_state in super().from_checkpoints(
-        restore_cfgs=restore_cfgs, ds_iter=ds_iter, init_rng=init_rng):
+    last_ckpt_path = None
+    for train_state, ckpt_path in super().from_checkpoints(
+        restore_cfgs=restore_cfgs, ds_iter=ds_iter, init_rng=init_rng
+    ):
       params_list.append(train_state.params)
       last_train_state = train_state
+      last_ckpt_path = ckpt_path
 
     if len(params_list) != len(self.train_state_axes.params):  # type: ignore
       raise ValueError(
@@ -406,4 +409,4 @@ class TrainStateEnsembleInitializer(utils.TrainStateInitializer):
 
     if params_list:
       train_state = last_train_state.replace_params(params_list)  # type: ignore
-      yield train_state
+      yield train_state, last_ckpt_path  # type: ignore

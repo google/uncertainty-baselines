@@ -89,7 +89,7 @@ def calibration(y, p_mean, num_bins=10):
   # Expected Calibration Error
   ece = np.average(
       np.absolute(mean_conf - acc_tab),
-      weights=nb_items_bin.astype(np.float) / np.sum(nb_items_bin))
+      weights=nb_items_bin.astype(float) / np.sum(nb_items_bin))
   # Maximum Calibration Error
   mce = np.max(np.absolute(mean_conf - acc_tab))
   return ece, mce

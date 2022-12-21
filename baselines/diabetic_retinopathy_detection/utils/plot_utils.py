@@ -739,7 +739,7 @@ def plot_total_versus_aleatoric_uncertainty(y_true,
                                             y_total_uncert,
                                             threshold=0.5,
                                             alpha=0.3):
-  label_pred = np.array(y_pred > threshold, dtype=np.int)
+  label_pred = np.array(y_pred > threshold, dtype=int)
   correct_index = np.nonzero(y_true == label_pred)[0]
   wrong_index = np.nonzero(y_true != label_pred)[0]
 

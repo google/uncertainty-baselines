@@ -681,7 +681,7 @@ def main(argv):
             # Here we parse batch_metric_args to compute uncertainty metrics.
             # (e.g., ECE or Calibration AUC).
             logits, labels, _, masks = batch_metric_args
-            masks = np.array(masks[0], dtype=np.bool)
+            masks = np.array(masks[0], dtype=bool)
             logits = np.array(logits[0])
             probs = jax.nn.softmax(logits)
             # From one-hot to integer labels, as required by ECE.

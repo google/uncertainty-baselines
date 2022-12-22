@@ -638,11 +638,23 @@ class SkaiDatasetConfig(tfds.core.BuilderConfig):
     use_post_disaster_only: Whether to use post-disaster imagery only rather
       than full 6-channel stacked image input.
   """
-  name: str = ''
   labeled_train_pattern: str = ''
   labeled_test_pattern: str = ''
   unlabeled_pattern: str = ''
   use_post_disaster_only: bool = False
+
+
+def _decode_and_resize_image(
+    image_bytes: tf.Tensor, size: int) -> tf.Tensor:
+  return tf.image.resize(
+      tf.io.decode_image(
+          image_bytes,
+          channels=3,
+          expand_animations=False,
+          dtype=tf.float32,
+      ),
+      [size, size],
+  )
 
 
 class SkaiDataset(tfds.core.GeneratorBasedBuilder):
@@ -667,20 +679,25 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
   VERSION = tfds.core.Version('1.0.0')
 
   def __init__(self,
-               subgroup_ids: List[str],
+               subgroup_ids: Optional[List[str]] = None,
                subgroup_proportions: Optional[List[float]] = None,
                include_train_sample: bool = True,
                **kwargs):
     super(SkaiDataset, self).__init__(**kwargs)
     self.subgroup_ids = subgroup_ids
     # Path to original TFRecords to sample data from.
-    self.include_train_sample = include_train_sample
-    if subgroup_proportions:
-      self.subgroup_proportions = subgroup_proportions
+    if self.subgroup_ids:
+      if subgroup_proportions:
+        self.subgroup_proportions = subgroup_proportions
+      else:
+        self.subgroup_proportions = [1.] * len(subgroup_ids)
     else:
-      self.subgroup_proportions = [1.] * len(subgroup_ids)
+      self.subgroup_proportions = None
+    self.include_train_sample = include_train_sample
 
   def _info(self):
+    # TODO(jihyeonlee): Change label and subgroup_label to
+    #   tfds.features.ClassLabel.
     return tfds.core.DatasetInfo(
         builder=self,
         description='Skai',
@@ -689,17 +706,11 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
                 tfds.features.Tensor(
                     shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3 if
                            self.builder_config.use_post_disaster_only else 6),
-                    dtype=tf.uint8),
+                    dtype=tf.float32),
             'example_id':
                 tfds.features.Text(),
             'coordinates':
                 tfds.features.Tensor(shape=(2,), dtype=tf.float32),
-            'encoded_coordinates':
-                tfds.features.Tensor(shape=(), dtype=tf.string),
-            'pre_image_png':
-                tfds.features.Tensor(shape=(64, 64, 3), dtype=tf.uint8),
-            'post_image_png':
-                tfds.features.Tensor(shape=(64, 64, 3), dtype=tf.uint8),
             'label':
                 tfds.features.Tensor(shape=(), dtype=tf.int64),
             'subgroup_label':
@@ -720,7 +731,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     return splits
 
   def _decode_record(self, record_bytes):
-    features = tf.io.parse_single_example(
+    example = tf.io.parse_single_example(
         record_bytes, {
             'coordinates': tf.io.FixedLenFeature([2], dtype=tf.float32),
             'encoded_coordinates': tf.io.FixedLenFeature([], dtype=tf.string),
@@ -728,28 +739,25 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
             'post_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
             'label': tf.io.FixedLenFeature([], dtype=tf.float32)
         })
-    example_id = tf.cast(features['encoded_coordinates'], tf.string)
-    features['pre_image_png'] = tf.io.decode_image(
-        features['pre_image_png'],
-        channels=3,
-        expand_animations=False,
-        dtype=tf.uint8)
-    features['post_image_png'] = tf.io.decode_image(
-        features['post_image_png'],
-        channels=3,
-        expand_animations=False,
-        dtype=tf.uint8)
+
+    features = {}
+    after_image = _decode_and_resize_image(
+        example['post_image_png'], RESNET_IMAGE_SIZE
+    )
     if self.builder_config.use_post_disaster_only:
-      image = features['post_image_png']
+      features['input_feature'] = after_image
     else:
-      image = tf.concat([features['pre_image_png'], features['post_image_png']],
-                        axis=-1)
-    features['input_feature'] = tf.image.convert_image_dtype(
-        tf.image.resize(image, [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE]),
-        tf.uint8)
+      before_image = _decode_and_resize_image(
+          example['pre_image_png'], RESNET_IMAGE_SIZE
+      )
+      features['input_feature'] = tf.concat(
+          [before_image, after_image], axis=-1)
+
+    example_id = tf.cast(example['encoded_coordinates'], tf.string)
     features['example_id'] = example_id
-    features['label'] = tf.cast(features['label'], tf.int64)
+    features['label'] = tf.cast(example['label'], tf.int64)
     features['subgroup_label'] = features['label']
+    features['coordinates'] = example['coordinates']
     return example_id, features
 
   def _generate_examples(self, pattern: str):
@@ -989,6 +997,7 @@ def get_skai_dataset(num_splits: int,
     combined training dataset, and a dictionary mapping evaluation dataset names
     to their respective combined datasets.
   """
+  # pylint: disable=unexpected-keyword-arg
   hurricane_ian_config = SkaiDatasetConfig(
       name='hurricane_ian',
       labeled_train_pattern=labeled_train_pattern,
@@ -996,6 +1005,7 @@ def get_skai_dataset(num_splits: int,
       unlabeled_pattern=unlabeled_train_pattern,
       use_post_disaster_only=use_post_disaster_only
   )
+  # pylint: enable=unexpected-keyword-arg
   split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
   reduced_datset_sz = int(100 * initial_sample_proportion)
   builder_kwargs = {

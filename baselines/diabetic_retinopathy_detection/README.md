@@ -27,11 +27,9 @@ Bayesian deep learning seeks to equip deep neural networks with the ability to p
 Set up and activate the Python environment by executing
 
 ```
-conda create -n ub python=3.8
+conda create -n ub python=3.10
 conda activate ub
 python3 -m pip install -e .[models,jax,tensorflow,torch,retinopathy]  # In uncertainty-baselines root directory
-pip install "git+https://github.com/google-research/robustness_metrics.git#egg=robustness_metrics"
-pip install 'git+https://github.com/google/edward2.git'
 ```
 
 ## Data Installation

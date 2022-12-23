@@ -207,10 +207,10 @@ def log_epoch_metrics(metrics, eval_results, use_tpu, dataset_splits):
     train_columns = ['Train Loss (NLL+L2)', 'Accuracy', 'AUPRC', 'AUROC']
     train_metrics = ['loss', 'accuracy', 'auprc', 'auroc']
     train_values = [
-        metrics['train/loss'].numpy().result(),
-        metrics['train/accuracy'].numpy().result() * 100,
-        metrics['train/auprc'].numpy().result() * 100,
-        metrics['train/auroc'].numpy().result() * 100
+        metrics['train/loss'].result().numpy(),
+        metrics['train/accuracy'].result().numpy() * 100,
+        metrics['train/auprc'].result().numpy() * 100,
+        metrics['train/auroc'].result().numpy() * 100
     ]
     if not use_tpu:
       train_columns.append('ECE')

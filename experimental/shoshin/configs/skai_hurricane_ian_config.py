@@ -13,7 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configuration file for experiment with SKAI data and ResNet model."""
+r"""Configuration file for experiment with SKAI data and ResNet model.
+
+"""
+
 
 import ml_collections
 from configs import base_config  # local file import from experimental.shoshin

@@ -59,6 +59,7 @@ class ModelTrainingParameters:
   l2_regularization_factor: float = 0.5
   optimizer: str = 'sgd'
   learning_rate: float = 1e-5
+  load_pretrained_weights: Optional[bool] = False
   worst_group_label: Optional[int] = 2
   hidden_sizes: Optional[List[int]] = None
   do_reweighting: Optional[bool] = False
@@ -118,7 +119,7 @@ class ResNet(tf.keras.Model):
 
     self.resnet_model = tf.keras.applications.resnet50.ResNet50(
         include_top=False,
-        weights=None,
+        weights='imagenet' if model_params.load_pretrained_weights else None,
         input_shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE,
                      model_params.num_channels),
         classes=model_params.num_classes,

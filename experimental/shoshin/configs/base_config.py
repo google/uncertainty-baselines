@@ -99,7 +99,7 @@ def get_data_config():
 def get_training_config():
   """Get training config."""
   config = ml_collections.ConfigDict()
-  config.num_epochs = 300
+  config.num_epochs = 60
   config.save_model_checkpoints = True
   # TODO(jihyeonlee): Allow user to specify early stopping patience.
   # When True, stops training when val AUC does not improve after 3 epochs.
@@ -123,6 +123,9 @@ def get_model_config():
   config.hidden_sizes = None
   config.num_channels = 3
   config.l2_regularization_factor = 0.5
+  # TODO(jihyeonlee): Debug why loading ImageNet weights causes model train/val
+  # acc to decrease rather than improving over time.
+  config.load_pretrained_weights = False
   return config
 
 

@@ -107,6 +107,7 @@ def main(_) -> None:
       l2_regularization_factor=config.model.l2_regularization_factor,
       optimizer=config.optimizer.type,
       learning_rate=config.optimizer.learning_rate,
+      load_pretrained_weights=config.model.load_pretrained_weights,
       hidden_sizes=config.model.hidden_sizes,
       do_reweighting=config.reweighting.do_reweighting,
       reweighting_lambda=config.reweighting.lambda_value,

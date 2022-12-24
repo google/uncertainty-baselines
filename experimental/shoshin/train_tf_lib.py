@@ -32,6 +32,7 @@ import data  # local file import from experimental.shoshin
 import models  # local file import from experimental.shoshin
 
 
+
 class TwoHeadedOutputModel(tf.keras.Model):
   """Defines a two-headed output model."""
 
@@ -317,7 +318,10 @@ def init_model(
 def create_callbacks(
     checkpoint_dir: str,
     save_model_checkpoints: bool = True,
-    early_stopping: bool = True) -> List[tf.keras.callbacks.Callback]:
+    early_stopping: bool = True,
+    batch_size: Optional[int] = 64,
+    num_train_examples: Optional[int] = None,
+) -> List[tf.keras.callbacks.Callback]:
   """Creates callbacks, such as saving model checkpoints, for training.
 
   Args:
@@ -325,6 +329,8 @@ def create_callbacks(
     save_model_checkpoints: Boolean for whether or not to save checkpoints.
     early_stopping: Boolean for whether or not to use early stopping during
       training.
+    batch_size: Optional integer for batch size.
+    num_train_examples: Optional integer for total number of training examples.
 
   Returns:
     List of callbacks.
@@ -809,8 +815,13 @@ def train_and_evaluate(
         ensemble_dir=ensemble_dir,
         example_id_to_bias_table=example_id_to_bias_table)
   else:
-    callbacks = create_callbacks(checkpoint_dir, save_model_checkpoints,
-                                 early_stopping)
+    callbacks = create_callbacks(
+        checkpoint_dir,
+        save_model_checkpoints,
+        early_stopping,
+        model_params.batch_size,
+        dataloader.num_train_examples)
+
     two_head_model = run_train(
         dataloader.train_ds,
         dataloader.eval_ds['val'],

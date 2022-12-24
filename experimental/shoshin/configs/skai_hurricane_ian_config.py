@@ -29,6 +29,7 @@ def get_config() -> ml_collections.ConfigDict:
   config.train_bias = False
   config.num_rounds = 1
   config.round_idx = 0
+  config.train_stage_2_as_ensemble = False
 
   data = config.data
   data.name = 'skai'

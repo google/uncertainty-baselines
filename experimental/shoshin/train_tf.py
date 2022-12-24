@@ -52,7 +52,7 @@ def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
 
-  if FLAGS.keep_logs:
+  if FLAGS.keep_logs and not config.training.log_to_xm:
     tf.io.gfile.makedirs(config.output_dir)
     stream = tf.io.gfile.GFile(os.path.join(config.output_dir, 'log'), mode='w')
     stream_handler = native_logging.StreamHandler(stream)
@@ -107,6 +107,7 @@ def main(_) -> None:
       l2_regularization_factor=config.model.l2_regularization_factor,
       optimizer=config.optimizer.type,
       learning_rate=config.optimizer.learning_rate,
+      batch_size=config.data.batch_size,
       load_pretrained_weights=config.model.load_pretrained_weights,
       hidden_sizes=config.model.hidden_sizes,
       do_reweighting=config.reweighting.do_reweighting,

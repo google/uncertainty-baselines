@@ -104,6 +104,7 @@ def get_training_config():
   # TODO(jihyeonlee): Allow user to specify early stopping patience.
   # When True, stops training when val AUC does not improve after 3 epochs.
   config.early_stopping = False
+  config.log_to_xm = True
   return config
 
 

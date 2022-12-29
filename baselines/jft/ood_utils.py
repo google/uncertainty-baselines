@@ -24,8 +24,11 @@ Referneces:
 
 """
 
+from typing import Tuple
+
 from absl import logging
 import jax
+import jax.numpy as jnp
 import numpy as np
 import scipy
 import sklearn.metrics
@@ -196,67 +199,93 @@ class OODMetric:
         targets_threshold=targets_threshold)
 
 
-def compute_mean_and_cov(embeds, labels):
-  """Computes class-specific means and shared covariance matrix of given embedding.
+@jax.jit
+def compute_mean_and_cov(
+    embeds: jnp.ndarray, labels: jnp.ndarray, class_ids: jnp.ndarray
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+  """Computes class-specific means and a shared covariance matrix.
 
   The computation follows Eq (1) in [1].
 
   Args:
-    embeds: An np.array of size [n_train_sample, n_dim], where n_train_sample is
-      the sample size of training set, n_dim is the dimension of the embedding.
-    labels: An np.array of size [n_train_sample, ]
+    embeds: A jnp.array of size (num_train_samples, dim), where
+      num_train_samples is the sample size of the training set, and dim is the
+      dimension of the embedding.
+    labels: A jnp.array of size (n_train_sample,).
+    class_ids: A jnp.array of size (num_classes,) containing the unique class
+      ids in `labels`.
 
   Returns:
-    mean_list: A list of len n_class, and the i-th element is an np.array of
-    size [n_dim, ] corresponding to the mean of the fitted Guassian distribution
-    for the i-th class.
-    cov: The shared covariance mmatrix of the size [n_dim, n_dim].
+    A tuple of (means, cov), where `means` is a jnp.array of size [num_classes,
+    dim] corresponding to the means of the fitted Gaussian distributions for all
+    classes, and `cov` is the shared covariance matrix of the size [dim, dim].
+
+  References:
+    1. Lee K, Lee K, Lee H, Shin J. A Simple Unified Framework for Detecting
+       Out-of-Distribution Samples and Adversarial Attacks. In: Advances in
+       Neural Information Processing Systems. 2018
   """
-  n_dim = embeds.shape[1]
-  class_ids = np.unique(labels)
-  mean_list = []
-  cov = np.zeros((n_dim, n_dim))
 
-  for class_id in class_ids:
-    data = embeds[labels == class_id]
-    data_mean = np.mean(data, axis=0)
-    cov += np.dot((data - data_mean).T, (data - data_mean))
-    mean_list.append(data_mean)
+  def f(cov, class_id):
+    mask = jnp.expand_dims(labels == class_id, axis=-1)
+    data = embeds * mask
+    mean = jnp.sum(data, axis=0) / jnp.sum(mask)
+    diff = (data - mean) * mask
+    cov += jnp.matmul(diff.T, diff)
+    return cov, mean
+
+  dim = embeds.shape[1]
+  cov, means = jax.lax.scan(f, jnp.zeros((dim, dim)), class_ids)
   cov = cov / len(labels)
-  return mean_list, cov
+  return means, cov
 
 
-def compute_mahalanobis_distance(embeds, mean_list, cov, epsilon=1e-20):
-  """Computes Mahalanobis distance between the input to the fitted Guassians.
+@jax.jit
+def compute_mahalanobis_distance(
+    embeds: jnp.ndarray, means: jnp.ndarray, cov: jnp.ndarray
+) -> jnp.ndarray:
+  """Computes Mahalanobis distance between the input and the fitted Gaussians.
 
-  The computation follows Eq.(2) in [1].
+  The Mahalanobis distance [1] is defined as
+
+      `distance(x, mu, sigma) = sqrt((x-mu)^T sigma^{-1} (x-mu))`,
+
+  where `x` is a vector, `mu` is the mean vector for a Gaussian, and `sigma` is
+  the covariance matrix.
+
+  For use in OOD detection [2], this function computes the (squared) distance
+  for all examples in `embeds`, and across all classes in `means`. Note that
+  using the squared Mahalanobis distance is consistent with Eq.(2) in [2].
 
   Args:
-    embeds: An np.array of size [n_test_sample, n_dim], where n_test_sample is
-      the sample size of the test set, n_dim is the size of the embeddings.
-    mean_list: A list of len n_class, and the i-th element is an np.array of
-      size [n_dim, ] corresponding to the mean of the fitted Guassian
-      distribution for the i-th class.
-    cov: The shared covariance mmatrix of the size [n_dim, n_dim].
-    epsilon: The small value added to the diagonal of the covariance matrix to
-      avoid singularity.
+    embeds: A jnp.array of size (num_train_samples, dim), where
+      num_train_samples is the sample size of the training set, and dim is the
+      dimension of the embedding.
+    means: A matrix of size [num_classes, dim], where the ith row corresponds to
+      the mean of the fitted Gaussian distribution for the i-th class.
+    cov: The shared covariance mmatrix of the size [dim, dim].
 
   Returns:
-    out: An np.array of size [n_test_sample, n_class] where the [i, j] element
-    corresponds to the Mahalanobis distance between i-th sample to the j-th
-    class Guassian.
+    A jnp.array of size (num_test_samples, num_classes) where the [i, j] element
+    corresponds to the (squared) Mahalanobis distance between i-th sample to the
+    j-th class Gaussian.
+
+  References:
+    1. On the Generalised Distance in Statistics. Proceedings of the National
+       Institute of Science of India. 1936 Apr 15
+    2. Lee K, Lee K, Lee H, Shin J. A Simple Unified Framework for Detecting
+       Out-of-Distribution Samples and Adversarial Attacks. In: Advances in
+       Neural Information Processing Systems. 2018
   """
-  n_sample = embeds.shape[0]
-  n_class = len(mean_list)
 
-  v = cov + np.eye(cov.shape[0], dtype=int) * epsilon  # avoid singularity
-  vi = np.linalg.inv(v)
-  means = np.array(mean_list)
+  def maha_dist(x, mean):
+    diff = x - mean
+    return jnp.dot(diff, jax.scipy.linalg.solve(cov, diff, assume_a='sym'))
 
-  out = np.zeros((n_sample, n_class))
-  for i in range(n_sample):
-    x = embeds[i]
-    out[i, :] = np.diag(np.dot(np.dot((x - means), vi), (x - means).T))
+  # Vectorize over all classes means, and map in a fast loop over examples.
+  # Given more memory, one could vectorize over examples as well.
+  maha_dist_all_classes_fn = jax.vmap(maha_dist, in_axes=(None, 0))
+  out = jax.lax.map(lambda x: maha_dist_all_classes_fn(x, means), embeds)
   return out
 
 
@@ -368,11 +397,11 @@ def eval_ood_metrics(ood_ds,
       ]
 
   output = {}
-  # Mean and cov of class conditional Guassian in Mahalanobis distance.
-  # Mean_background and cov_background for the unified Guassian model
+  # Mean and cov of class conditional Gaussian in Mahalanobis distance.
+  # Mean_background and cov_background for the unified Gaussian model
   # regardless of class labels for computing Relative Mahalanobis distance
-  mean_list, cov = None, None
-  mean_list_background, cov_background = None, None
+  means, cov = None, None
+  means_background, cov_background = None, None
   for ood_ds_name in ood_ds_names:
     # The dataset train_maha must come before ind and ood
     # because the train_maha will be used to esimate the class conditional
@@ -409,27 +438,31 @@ def eval_ood_metrics(ood_ds,
         pre_logits_list.append(embeds)
       else:
         # Computes Mahalanobis distance.
-        if mean_list is not None and cov is not None:
+        if means is not None and cov is not None:
           if not use_ens:
             batch_scores['dists'] = compute_mahalanobis_distance(
-                embeds, mean_list, cov)
+                embeds, means, cov
+            )
           else:
             dists_list = []
             for m in range(ens_size):
-              dists = compute_mahalanobis_distance(embeds[..., m], mean_list[m],
-                                                   cov[m])
+              dists = compute_mahalanobis_distance(
+                  embeds[..., m], means[m], cov[m]
+              )
               dists_list.append(dists)
             batch_scores['dists'] = dists_list
 
-        if mean_list_background is not None and cov_background is not None:
+        if means_background is not None and cov_background is not None:
           if not use_ens:
             batch_scores['dists_background'] = compute_mahalanobis_distance(
-                embeds, mean_list_background, cov_background)
+                embeds, means_background, cov_background
+            )
           else:
             dists_background_list = []
             for m in range(ens_size):
               dists_background = compute_mahalanobis_distance(
-                  embeds[..., m], mean_list_background[m], cov_background[m])
+                  embeds[..., m], means_background[m], cov_background[m]
+              )
               dists_background_list.append(dists_background)
             batch_scores['dists_background'] = dists_background_list
 
@@ -461,27 +494,35 @@ def eval_ood_metrics(ood_ds,
       # [batch_size, hidden_size]
       pre_logits_train = np.vstack(pre_logits_list)
       labels_train = np.argmax(np.vstack(labels_list), axis=-1)
+      class_ids = jnp.unique(labels_train)
 
       if not use_ens:
         # Single model
         # pre_logits_train shape [sample_size, hidden_size]
         # sample_size = num_batches*batch_size
-        mean_list, cov = compute_mean_and_cov(pre_logits_train, labels_train)
-        mean_list_background, cov_background = compute_mean_and_cov(
-            pre_logits_train, np.zeros_like(labels_train))
+        means, cov = compute_mean_and_cov(
+            pre_logits_train, labels_train, class_ids
+        )
+        means_background, cov_background = compute_mean_and_cov(
+            pre_logits_train, np.zeros_like(labels_train), jnp.array([0])
+        )
       else:
         # Multiple models
-        mean_list, cov = [], []
-        mean_list_background, cov_background = [], []
+        means, cov = [], []
+        means_background, cov_background = [], []
         # pre_logits_train shape [sample_size, hidden_size, ens_size]
         for m in range(ens_size):
-          mu, sigma = compute_mean_and_cov(pre_logits_train[..., m],
-                                           labels_train)
+          mu, sigma = compute_mean_and_cov(
+              pre_logits_train[..., m], labels_train, class_ids
+          )
           mu_background, sigma_background = compute_mean_and_cov(
-              pre_logits_train[..., m], np.zeros_like(labels_train))
-          mean_list.append(mu)
+              pre_logits_train[..., m],
+              np.zeros_like(labels_train),
+              jnp.array([0]),
+          )
+          means.append(mu)
           cov.append(sigma)
-          mean_list_background.append(mu_background)
+          means_background.append(mu_background)
           cov_background.append(sigma_background)
 
     elif ood_ds_name == 'ind':

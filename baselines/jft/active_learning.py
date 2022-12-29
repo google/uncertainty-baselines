@@ -332,6 +332,7 @@ def get_density_scores(*,
   # batch_size = num_cores * per_core_batch_size
   train_embeds = train_pre_logits[train_masks_bool]
   train_labels = np.argmax(train_labels[train_masks_bool], axis=-1).ravel()
+  class_ids = jnp.unique(train_labels)
 
   use_ens = False
   if len(train_embeds.shape) == 3:
@@ -343,14 +344,17 @@ def get_density_scores(*,
   if not use_ens:
     # Single model
     # train_embeds shape [batch_size, hidden_size]
-    mean_list, cov = ood_utils.compute_mean_and_cov(train_embeds, train_labels)
+    mean_list, cov = ood_utils.compute_mean_and_cov(
+        train_embeds, train_labels, class_ids
+    )
   else:
     # Ensemble models
     # train_embeds shape [batch_size, hidden_size, ens_size]
     mean_list, cov = [], []
     for m in range(ens_size):
-      mu, sigma = ood_utils.compute_mean_and_cov(train_embeds[..., m],
-                                                 train_labels)
+      mu, sigma = ood_utils.compute_mean_and_cov(
+          train_embeds[..., m], train_labels, class_ids
+      )
       mean_list.append(mu)
       cov.append(sigma)
 

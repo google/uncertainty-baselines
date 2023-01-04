@@ -34,82 +34,54 @@ python3 -m pip install -e .[models,jax,tensorflow,torch,retinopathy]  # In uncer
 
 ## Data Installation
 
-Because the data is distributed through Kaggle, we need to take a manual route to downloading.
+The below instructions will install and preprocess the data needed to train and evaluate models on the Country and Severity Shifts.
 
-1. Download from Kaggle: https://www.kaggle.com/c/diabetic-retinopathy-detection
+The EyePACS dataset (used in Country and Severity Shift) and the APTOS 2019 dataset (used in Country Shift) are distributed through Kaggle, which requires us to manually download the data and place it in the correct directory.
 
-2. Extract everything to ``$DATA_DIR/downloads/manual``; your directory should look like
+1. Download the raw datasets from Kaggle:
+   * [EyePACS](https://www.kaggle.com/c/diabetic-retinopathy-detection)
+   * [APTOS 2019](https://www.kaggle.com/c/aptos2019-blindness-detection)
 
-``sample/  sampleSubmission.csv  test/  train/  trainLabels.csv``
+2. Extract the EyePACS dataset to ``$DATA_DIR/downloads/manual``. The directory structure should look like this:
 
-3. Confirm successful download of files
+    ``sample/  sampleSubmission.csv  test/  train/  trainLabels.csv``
 
-You should have 35,126 training images and 53,576 test images, which should be located in manual/train and manual/test.
+3. Extract the APTOS dataset to ``$DATA_DIR/aptos/manual``. The directory structure should look like this:
 
-You may check this with the command 
+    ``sample_submission.csv  test.csv  test_images/  train.csv  train_images/``
 
-`ls -1 | wc -l`
+4. Confirm successful download of files. The following commands should print out the number of files in the directories:
+    ```
+    $ ls -1 $DATA_DIR/downloads/manual/train | wc -l
+    35126
+    $ ls -1 $DATA_DIR/downloads/manual/test | wc -l
+    53576
+    $ ls -1 $DATA_DIR/aptos/manual/train_images | wc -l
+    3662
+    $ ls -1 $DATA_DIR/aptos/manual/test_images | wc -l
+    1928
+    ```
 
-4. Manual loading -- this is not contained in standard execution of diabetic-retinopathy model execution (yet)
+5. Manual shuffling and packaging of TF dataset objects. I suggest using the following commands in a `tmux` or `screen` session, in case of network failure; they take a while. 
+    ```
+    conda activate ub
+    
+    # Standard EyePACS dataset
+    python baselines/diabetic_retinopathy_detection/data_load_scripts/load_ub_diabetic_retinopathy_detection.py --data_dir=$DATA_DIR
+    
+    # Country Shift: APTOS distributionally shifted validation and test sets
+    python baselines/diabetic_retinopathy_detection/data_load_scripts/load_aptos.py --data_dir=$DATA_DIR
+   
+    # Severity Shift splits as used in RETINA paper
+    python baselines/diabetic_retinopathy_detection/data_load_scripts/load_diabetic_retinopathy_severity_shift_mild.py --data_dir=$DATA_DIR
+    ```
 
-I suggest doing this loading in a `screen` session, in case it fails -- it takes a while. 
-
-I suggest doing this in an ipython shell!
-
-``$ ipython``
-
-**Train loading:**
-
-First, we initialize a DiabeticRetinopathyDetectionDataset object.
-
-```
-import uncertainty_baselines as ub
-
-data_dir = $DATA_DIR
-
-dataset_train_builder = ub.datasets.get(
-    "ub_diabetic_retinopathy_detection",
-    split='train',
-    data_dir=data_dir, download_data=True)
-```
-
-We then need to shuffle and package our data into TF objects:
-
-```
-dataset_train_builder._dataset_builder.download_and_prepare(download_dir=f'{data_dir}/downloads/')
-```
-
-Rinse and repeat for test data:
-
-```
-dataset_test_builder = ub.datasets.get(
-    "ub_diabetic_retinopathy_detection",
-    split='test',
-    data_dir=data_dir, download_data=True)
-dataset_test_builder._dataset_builder.download_and_prepare(download_dir=f'{data_dir}/downloads/')
-```
-
-**Install / Download for Severity and Country Shifts**
-
-Severity Shift depends on precisely the same data as the original Diabetic Retinopathy dataset, so we do not need to go back to step 1.
-
-We can package the Severity Shift splits into TF objects by substituting "ub_diabetic_retinopathy_detection" with "diabetic_retinopathy_severity_shift_mild", and using the following arguments for `split`:
- ```
-train
-in_domain_validation
-ood_validation
-in_domain_test
-ood_test
-```
-
-On the other hand, to download the (much smaller) APTOS dataset, we do need to repeat steps from step 1, downloading from https://www.kaggle.com/c/aptos2019-blindness-detection. Note that APTOS only includes "validation" and "test" splits.
-
-**Additional Splits for Exploration**
+### Additional Splits for Exploration
 
 There are several additional splits available for experimenting with other partitions of the severity levels into binary classification, and with other preprocessing configurations. 
 See the following files for details on available splits:
 *  [uncertainty_baselines/datasets/diabetic_retinopathy_detection.py](uncertainty_baselines/datasets/diabetic_retinopathy_detection.py): standard EyePACS dataset
-*  [uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_mild.py](uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_mild.py): Severity Shift with the binary decision threshold between no and mild DR, and {moderate, severe, proliferative} DR as out-of-distribution
+*  [uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_mild.py](uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_mild.py): Severity Shift with the binary decision threshold between no and mild DR, and {moderate, severe, proliferative} DR as out-of-distribution (used in the paper)
 *  [uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_moderate.py](uncertainty_baselines/datasets/diabetic_retinopathy_severity_shift_moderate.py): Severity Shift with the binary decision threshold between mild and moderate DR, and {severe, proliferative} DR as out-of-distribution
 *  [uncertainty_baselines/datasets/aptos.py](uncertainty_baselines/datasets/aptos.py): APTOS distributionally shifted evaluation dataset, partitioned into "validation" and "test" splits
 

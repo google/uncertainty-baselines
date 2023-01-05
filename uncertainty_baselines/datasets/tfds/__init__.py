@@ -15,4 +15,16 @@
 
 """Uncertainty baselines libraries for tensorflow_datasets."""
 
-from uncertainty_baselines.datasets.tfds.tfds_builder_from_sql_client_data import TFDSBuilderFromSQLClientData
+from absl import logging
+
+try:
+  from uncertainty_baselines.datasets.tfds.tfds_builder_from_sql_client_data import TFDSBuilderFromSQLClientData  # pylint: disable=g-import-not-at-top
+except ImportError:
+  logging.warning(
+      (
+          'Skipped importing the TFDSBuilderFromSQLClientData used when loading'
+          ' the CIFAR subpopulation dataset due to ImportError. Try installing'
+          ' uncertainty baselines with the `datasets` extras.'
+      ),
+      exc_info=True,
+  )

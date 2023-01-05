@@ -25,6 +25,7 @@ import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import augment_utils
 from uncertainty_baselines.datasets import augmix
 from uncertainty_baselines.datasets import base
+from uncertainty_baselines.datasets.privileged_information import AnnotatorPIMixin
 
 # We use the convention of using mean = np.mean(train_images, axis=(0,1,2))
 # and std = np.std(train_images, axis=(0,1,2)).
@@ -34,17 +35,120 @@ CIFAR10_STD = np.array([0.2470, 0.2435, 0.2616])
 # which gave std = tf.constant([0.2023, 0.1994, 0.2010], dtype=dtype), however
 # we change convention to use the std over the entire training set instead.
 
+# Useful constants related to the CIFAR-PI datasets. They include the number of
+# annotators in each dataset, the mean and std of the pi_features, as well as
+# values assigned to the pi_features of the adversarial annotators in
+# CIFAR10/100-N assuming they are very low performant. In general, the
+# adversarial value of a feature is set to 3 times the 90-percentile of that PI
+# feature across the dataset.
+CIFAR10N_NUM_ANNOTATORS = 746
+CIFAR10N_TIMES_MEAN = 46.6797
+CIFAR10N_TIMES_STD = 21.1822
+CIFAR10N_ADV_TIME = 231
+
+CIFAR100N_NUM_ANNOTATORS = 518
+CIFAR100N_TIMES_MEAN = 113.6694
+CIFAR100N_TIMES_STD = 78.1860
+CIFAR100N_ADV_TIME = 708
+
 
 
 def _tuple_dict_fn_converter(fn, *args):
+  """transform output tuple from process_batch_fn into a dictionary."""
 
   def dict_fn(batch_dict):
-    images, labels = fn(*args, batch_dict['features'], batch_dict['labels'])
-    return {'features': images, 'labels': labels}
+    if 'pi_features' in batch_dict.keys():
+      images, labels, mixup_weights, mixup_index = fn(
+          *args,
+          batch_dict['features'],
+          batch_dict['labels'],
+          return_weights=True)
+      batch_dict.update({
+          'features': images,
+          'labels': labels,
+          'clean_labels': labels,
+          'mixup_weights': mixup_weights,
+          'mixup_index': mixup_index
+      })
+      return batch_dict
+    else:
+      images, labels = fn(*args, batch_dict['features'], batch_dict['labels'])
+      batch_dict.update({
+          'features': images,
+          'labels': labels,
+      })
+      return batch_dict
 
   return dict_fn
 
 
+def _store_in_hash_table(dictionary, values_length, key_dtype, value_dtype):
+  """Stores the pairs of (key,values) in dictionary into a DenseHashTable.
+
+  Args:
+    dictionary: Dictionary with keys and values to store in the table.
+    values_length: The default length of the values.
+    key_dtype: The key dtype.
+    value_dtype: The value dtype.
+
+  Returns:
+    table: A DenseHashTable that stores keys and associated values.
+  """
+  table = tf.lookup.experimental.DenseHashTable(
+      key_dtype=key_dtype,
+      value_dtype=value_dtype,
+      default_value=-tf.ones(values_length, value_dtype)
+      if values_length is not None else -1,
+      empty_key='',
+      deleted_key='$')
+
+  for k, v in dictionary.items():
+    if values_length:
+      padding_length = max(0, values_length - len(v))
+      insert_value = v + [-1] * padding_length
+    else:
+      insert_value = v
+    table.insert(k, insert_value)
+  return table
+
+
+def _unpad_annotations(x):
+  """Removes padding from stored annotation."""
+  x_ragged = tf.RaggedTensor.from_tensor([x], padding=-1)
+  return x_ragged.to_tensor()[0]
+
+
+def _stack_worker_annotations(example, prefix, feature_length, suffix=''):
+  stacked_annotations = tf.expand_dims(
+      tf.stack([example[prefix + str(n) + suffix] for n in range(1, 4)],
+               axis=0),
+      axis=1)
+  return tf.reshape(stacked_annotations, [3, feature_length])
+
+
+def _normalize_pi_feature(pi_value, mean, std):
+  """Normalizes the values in pi_value using mean and std."""
+  return (pi_value - mean) / std
+
+
+def _is_derivative_of_split(split: Union[str, tfds.Split,
+                                         tfds.core.ReadInstruction],
+                            origin_split: str):
+  """Checks if `split` is the same or a derived version from `origin_split`."""
+  if isinstance(split, str):
+    return split == origin_split
+  elif isinstance(split, tfds.Split):
+    split_equivalences = {
+        tfds.Split.TRAIN: 'train',
+        tfds.Split.TEST: 'test',
+        tfds.Split.VALIDATION: 'validation'
+    }
+    return split_equivalences[split] == origin_split
+  elif isinstance(split, tfds.core.ReadInstruction):
+    return split.split_name == origin_split
+  else:
+    raise ValueError(
+        'split must be of type string or tfds.core.ReadInstruction.')
 
 
 class _CifarDataset(base.BaseDataset):
@@ -212,6 +316,13 @@ class _CifarDataset(base.BaseDataset):
       else:
         parsed_example['labels'] = tf.cast(labels, tf.float32)
 
+      if self.name == 'cifar10_n':
+        parsed_example = self._prepare_parsed_example_cifar10n(
+            example, parsed_example)
+      elif self.name == 'cifar100_n':
+        parsed_example = self._prepare_parsed_example_cifar100n(
+            example, parsed_example)
+
       return parsed_example
 
     return _example_parser
@@ -290,3 +401,265 @@ class Cifar10CorruptedDataset(_CifarDataset):
         **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
 
 
+
+
+class _CifarNDataset(AnnotatorPIMixin, _CifarDataset):
+  """CIFAR-N dataset builder class."""
+
+  def __init__(self,
+               name,
+               normalize_pi_features=True,
+               reliability_estimation_batch_size=4096,
+               **kwargs):
+    """Create a CIFAR-N tf.data.Dataset builder.
+
+    Args:
+      name: Dataset name. Either 'cifar10_n' or 'cifar100_n'.
+      normalize_pi_features: Whether the annotator_features, i.e.,
+        annotator_times and trial_idx, are normalized based on their global mean
+        and std.
+      reliability_estimation_batch_size: Number of examples that are loaded in
+        parallel when estimating the reliability of the dataset.
+      **kwargs: Additional keyword arguments.
+    """
+
+    split = kwargs.get('split', 'train')
+    if not _is_derivative_of_split(split, 'train'):
+      raise ValueError('Cifar-N is only defined on the test set.')
+
+    self._normalize_pi_features = normalize_pi_features
+
+    super().__init__(  # pylint: disable=unexpected-keyword-arg
+        name=name,
+        fingerprint_key='id',
+        reliability_estimation_batch_size=reliability_estimation_batch_size,
+        **kwargs)
+
+  @property
+  def pi_feature_length(self):
+    feature_length_dict = {
+        'annotator_ids': 1,
+        'annotator_labels': self.info.num_classes
+                            if self._should_onehot else 1,  # type: ignore
+        'annotator_times': 1,
+    }
+    if self._random_pi_length is not None:
+      if self._random_pi_length <= 0:
+        raise ValueError('random_pi_length must be greater than 0.')
+      feature_length_dict.update({'random_pi': self._random_pi_length})
+    return feature_length_dict
+
+  def _set_adversarial_pi_features(self, example, per_example_seed):
+    # In Cifar-N the adversarial annotators are assumed to be low performant,
+    # taking much longer to annotate the examples, than a real annotator.
+
+    adversarial_labels = tf.random.stateless_categorical(
+        tf.ones((self._num_adversarial_annotators_per_example,
+                 self.info.num_classes)),
+        num_samples=1,
+        seed=per_example_seed)
+    if self._should_onehot:  # type: ignore
+      adversarial_labels = tf.one_hot(
+          adversarial_labels, self.info.num_classes, dtype=tf.float32)
+      # Remove extra dummy label dimension:
+      # adversarial_labels: (num_annotators, 1, num_classes)
+      #                  -> (num_annotators, num_classes).
+      adversarial_labels = tf.squeeze(adversarial_labels, axis=1)
+    else:
+      adversarial_labels = tf.cast(adversarial_labels, tf.float32)
+
+    adv_time_constant = (
+        CIFAR10N_ADV_TIME if self.name == 'cifar10_n' else CIFAR100N_ADV_TIME
+    )
+    adversarial_times = tf.reshape(
+        tf.ones((self._num_adversarial_annotators_per_example, 1),
+                dtype=tf.float32) * adv_time_constant,
+        [self._num_adversarial_annotators_per_example, 1])
+
+    if self._normalize_pi_features:
+      time_mean = (
+          CIFAR10N_TIMES_MEAN if self.name == 'cifar10_n'
+          else CIFAR100N_TIMES_MEAN
+      )
+      time_std = (
+          CIFAR10N_TIMES_STD if self.name == 'cifar10_n'
+          else CIFAR100N_TIMES_STD
+      )
+      adversarial_times = _normalize_pi_feature(adversarial_times, time_mean,
+                                                time_std)
+
+    return {
+        'annotator_labels': adversarial_labels,
+        'annotator_times': adversarial_times,
+    }
+
+  def _hash_fingerprint_int(self, fingerprint: Any) -> int:
+    return tf.strings.to_hash_bucket_fast(fingerprint, self.num_examples)
+
+
+class Cifar10NDataset(_CifarNDataset):
+  """CIFAR10-N dataset builder class."""
+
+  def __init__(self,
+               supervised_label='aggre_labels',
+               num_annotators_per_example=3,
+               reliability_estimation_batch_size=4096,
+               normalize_pi_features=True,
+               **kwargs):
+    """Create a CIFAR-10N tf.data.Dataset builder.
+
+    Args:
+      supervised_label: Key of the field to use as label for the supervision. To
+        select from ('aggre_labels', 'worse_labels', 'clean_labels').
+      num_annotators_per_example: Number of annotators loaded per example.
+      reliability_estimation_batch_size: Number of examples that are loaded in
+        parallel when estimating the reliability of the dataset.
+      normalize_pi_features: Whether the annotator_features, i.e.,
+        annotator_times, are normalized based on their global mean and std.
+      **kwargs: Additional keyword arguments.
+    """
+
+    self._supervised_label = supervised_label
+    super().__init__(  # pylint: disable=unexpected-keyword-arg
+        name='cifar10_n',
+        normalize_pi_features=normalize_pi_features,
+        num_annotators_per_example=num_annotators_per_example,
+        **kwargs)
+
+  def _process_pi_features_and_labels(self, example, unprocessed_example=None):
+    """Loads 'annotator_ids', 'annotator_labels', 'annotator_times', and sets 'clean_labels' and 'labels'."""
+
+    # Copy only the required fields.
+    parsed_example = {
+        'labels': example['labels'],
+        'features': example['features'],
+        'aggre_labels': example['aggre_labels'],
+        'worse_labels': example['worse_labels'],
+    }
+    parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
+    if self._add_fingerprint_key:
+      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
+
+    # Save clean label.
+    parsed_example['clean_labels'] = example['labels']
+
+    # Relabel with label_key.
+    parsed_example['labels'] = parsed_example[self._supervised_label]
+
+    annotator_times = _stack_worker_annotations(
+        example,
+        prefix='worker',
+        suffix='_time',
+        feature_length=self.pi_feature_length['annotator_times'])
+    if self._normalize_pi_features:
+      annotator_times = _normalize_pi_feature(annotator_times,
+                                              CIFAR10N_TIMES_MEAN,
+                                              CIFAR10N_TIMES_STD)
+
+    parsed_example['pi_features'] = {
+        'annotator_labels':
+            _stack_worker_annotations(
+                example,
+                prefix='random_label',
+                feature_length=self.pi_feature_length['annotator_labels']),
+        'annotator_ids':
+            _stack_worker_annotations(
+                example,
+                prefix='worker',
+                suffix='_id',
+                feature_length=self.pi_feature_length['annotator_ids']),
+        'annotator_times':
+            annotator_times,
+    }
+
+    return parsed_example
+
+  @property
+  def num_dataset_annotators(self):
+    return CIFAR10N_NUM_ANNOTATORS
+
+  @property
+  def _max_annotators_per_example(self):
+    return 3
+
+
+class Cifar100NDataset(_CifarNDataset):
+  """CIFAR100-N dataset builder class."""
+
+  def __init__(self,
+               reliability_estimation_batch_size=4096,
+               normalize_pi_features=True,
+               **kwargs):
+    """Create a CIFAR-100N tf.data.Dataset builder.
+
+    Args:
+      reliability_estimation_batch_size: Number of examples that are loaded in
+        parallel when estimating the reliability of the dataset.
+      normalize_pi_features: Whether the annotator_features, i.e.,
+        annotator_times, are normalized based on their global mean and std.
+      **kwargs: Additional keyword arguments.
+    """
+
+    if 'num_annotators_per_example' in kwargs.keys():
+      del kwargs['num_annotators_per_example']
+      logging.warning(
+          'Cifar-100N does only support loading one annotator per example.'
+          ' Ignoring provided argument and setting'
+          ' num_annotators_per_example=1.'
+      )
+    if 'num_annotators_per_example_and_step' in kwargs.keys():
+      del kwargs['num_annotators_per_example_and_step']
+      logging.warning(
+          'Cifar-100N does only support loading one annotator per example.'
+          ' Ignoring provided argument and setting'
+          ' num_annotators_per_example_and_step=1.'
+      )
+
+    super().__init__(  # pylint: disable=unexpected-keyword-arg
+        name='cifar100_n',
+        normalize_pi_features=normalize_pi_features,
+        num_annotators_per_example=1,
+        num_annotators_per_example_and_step=1,
+        **kwargs)
+
+  def _process_pi_features_and_labels(self, example, unprocessed_example=None):
+    """Loads 'annotator_ids', 'annotator_labels', 'annotator_times', and sets 'clean_labels'."""
+
+    # Copy only the required fields.
+    parsed_example = {
+        'labels': example['labels'],
+        'features': example['features'],
+    }
+    parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
+    if self._add_fingerprint_key:
+      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
+
+    # Save clean label.
+    parsed_example['clean_labels'] = example['labels']
+
+    # Add pi_features including annotator axis with dimension 1.
+    # num_annotators_per_example=1 always in CIFAR100-N.
+    annotator_times = tf.reshape(example['worker_times'], [1, 1])
+    if self._normalize_pi_features:
+      annotator_times = _normalize_pi_feature(annotator_times,
+                                              CIFAR100N_TIMES_MEAN,
+                                              CIFAR100N_TIMES_STD)
+    parsed_example['pi_features'] = {
+        'annotator_labels':
+            tf.reshape(example['noise_labels'],
+                       [1, self.pi_feature_length['annotator_labels']]),
+        'annotator_ids':
+            tf.reshape(example['worker_ids'], [1, 1]),
+        'annotator_times':
+            annotator_times,
+    }
+
+    return parsed_example
+
+  @property
+  def num_dataset_annotators(self):
+    return CIFAR100N_NUM_ANNOTATORS
+
+  @property
+  def _max_annotators_per_example(self):
+    return 1

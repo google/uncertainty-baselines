@@ -71,6 +71,117 @@ class CifarDatasetTest(ub.datasets.DatasetTest, parameterized.TestCase):
         tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
 
 
+  @parameterized.parameters(
+      (3, 'clean_labels', 0., (None,), (None, 3, 1), (None, 3, 1),
+       (None, 3, 1)),
+      (1, 'aggre_labels', 0.5, (3, 10), (None, 1, 1), (None, 1, 1),
+       (None, 1, 10)),
+  )
+  @mock.patch.object(ub.datasets.Cifar10NDataset, '_setup_annotator_tables',
+                     lambda _: None)
+  @mock.patch.object(
+      ub.datasets.Cifar10NDataset,
+      'average_annotator_load',
+      new_callable=mock.PropertyMock,
+      return_value=1)
+  @mock.patch.object(
+      ub.datasets.Cifar10NDataset,
+      'num_effective_annotators',
+      new_callable=mock.PropertyMock,
+      return_value=1)
+  def test_expected_cifar10n_features(self, num_annotators_per_example,
+                                      supervised_label, mixup_alpha,
+                                      expected_label_shape,
+                                      expected_times_shape, expected_ids_shape,
+                                      expected_annotator_labels_shape,
+                                      *unused_mocks):
+    builder = ub.datasets.Cifar10NDataset(
+        split='train',
+        num_annotators_per_example=num_annotators_per_example,
+        aug_params={
+            'mixup_alpha': mixup_alpha,
+            'same_mix_weight_per_batch': True
+        },
+        supervised_label=supervised_label)
+    dataset = builder.load(batch_size=3)
+    if mixup_alpha > 0:
+      self.assertEqual(
+          list(dataset.element_spec.keys()), [
+              'labels', 'features', 'aggre_labels', 'worse_labels',
+              '_enumerate_added_per_step_id', 'clean_labels', 'pi_features',
+              'mixup_weights', 'mixup_index'
+          ])
+    else:
+      self.assertEqual(
+          list(dataset.element_spec.keys()), [
+              'labels', 'features', 'aggre_labels', 'worse_labels',
+              '_enumerate_added_per_step_id', 'clean_labels', 'pi_features'
+          ])
+    self.assertEqual(
+        list(dataset.element_spec['pi_features'].keys()),
+        ['annotator_labels', 'annotator_ids', 'annotator_times'])
+    self.assertEqual(
+        dataset.element_spec['labels'],
+        tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
+    self.assertEqual(dataset.element_spec['pi_features']['annotator_ids'],
+                     tf.TensorSpec(shape=expected_ids_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['pi_features']['annotator_times'],
+        tf.TensorSpec(shape=expected_times_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['pi_features']['annotator_labels'],
+        tf.TensorSpec(shape=expected_annotator_labels_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['clean_labels'],
+        tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
+
+  @parameterized.parameters(
+      (0., (None,), (None, 1, 1), (None, 1, 1), (None, 1, 1)),
+      (0.5, (None, 100), (None, 1, 1), (None, 1, 1), (None, 1, 100)),
+  )
+  @mock.patch.object(ub.datasets.Cifar100NDataset, '_setup_annotator_tables',
+                     lambda _: None)
+  @mock.patch.object(
+      ub.datasets.Cifar100NDataset,
+      'average_annotator_load',
+      new_callable=mock.PropertyMock,
+      return_value=1)
+  @mock.patch.object(
+      ub.datasets.Cifar100NDataset,
+      'num_effective_annotators',
+      new_callable=mock.PropertyMock,
+      return_value=1)
+  def test_expected_cifar100n_features(self, label_smoothing,
+                                       expected_label_shape,
+                                       expected_times_shape, expected_ids_shape,
+                                       expected_annotator_labels_shape,
+                                       *unused_mocks):
+    builder = ub.datasets.Cifar100NDataset(
+        split='train', aug_params={'label_smoothing': label_smoothing})
+    dataset = builder.load(batch_size=3)
+    self.assertEqual(
+        list(dataset.element_spec.keys()), [
+            'labels', 'features', '_enumerate_added_per_step_id',
+            'clean_labels', 'pi_features'
+        ])
+    self.assertEqual(
+        list(dataset.element_spec['pi_features'].keys()),
+        ['annotator_labels', 'annotator_ids', 'annotator_times'])
+    self.assertEqual(
+        dataset.element_spec['labels'],
+        tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
+    self.assertEqual(dataset.element_spec['pi_features']['annotator_ids'],
+                     tf.TensorSpec(shape=expected_ids_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['pi_features']['annotator_times'],
+        tf.TensorSpec(shape=expected_times_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['pi_features']['annotator_labels'],
+        tf.TensorSpec(shape=expected_annotator_labels_shape, dtype=tf.float32))
+    self.assertEqual(
+        dataset.element_spec['clean_labels'],
+        tf.TensorSpec(shape=expected_label_shape, dtype=tf.float32))
+
 
 if __name__ == '__main__':
   tf.test.main()

@@ -153,16 +153,18 @@ def _parse_hyperparameters(l2: float, hps: Dict[str, float]):
     return {k: l2 for k in _HP_KEYS}
 
 
-def wide_resnet(
+def wide_resnet_tram(
     input_shape: Iterable[int],
+    pi_input_shape: Iterable[int],
     depth: int,
-    width_multiplier: float,
+    width_multiplier: int,
     num_classes: int,
     l2: float,
+    pi_tower_width: int = 128,
     version: int = 2,
     seed: int = 42,
     hps: Optional[Dict[str, float]] = None) -> tf.keras.models.Model:
-  """Builds Wide ResNet.
+  """Builds Wide ResNet with a TRAM head.
 
   Following Zagoruyko and Komodakis (2016), it accepts a width multiplier on the
   number of filters. Using three groups of residual blocks, the network maps
@@ -170,6 +172,8 @@ def wide_resnet(
 
   Args:
     input_shape: tf.Tensor.
+    pi_input_shape: Shape tuple of privileged information input excluding batch
+      dimension and including the annotator axis.
     depth: Total number of convolutional layers. "n" in WRN-n-k. It differs from
       He et al. (2015)'s notation which uses the maximum depth of the network
       counting non-conv layers like dense.
@@ -177,6 +181,7 @@ def wide_resnet(
       in WRN-n-k.
     num_classes: Number of output classes.
     l2: L2 regularization coefficient.
+    pi_tower_width: Width of the hidden layers in the PI tower.
     version: 1, indicating the original ordering from He et al. (2015); or 2,
       indicating the preactivation ordering from He et al. (2016).
     seed: random seed used for initialization.
@@ -192,7 +197,11 @@ def wide_resnet(
   if (depth - 4) % 6 != 0:
     raise ValueError('depth should be 6n+4 (e.g., 16, 22, 28, 40).')
   num_blocks = (depth - 4) // 6
+
   inputs = tf.keras.layers.Input(shape=input_shape)
+  pi_inputs = tf.keras.Input(shape=pi_input_shape, name='pi_inputs')
+  num_pi_annotations = pi_input_shape[0]  # type: ignore
+
   x = Conv2D(
       16,
       strides=1,
@@ -240,13 +249,32 @@ def wide_resnet(
     x = tf.keras.layers.Activation('relu')(x)
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
   x = tf.keras.layers.Flatten()(x)
-  x = tf.keras.layers.Dense(
+  x = tf.tile(tf.expand_dims(x, 1), [1, num_pi_annotations, 1])
+
+  # Privileged information head.
+  pi_fc = tf.keras.layers.Dense(pi_tower_width, activation='relu')
+  joint_features_fc = tf.keras.layers.Dense(pi_tower_width, activation='relu')
+  logits_pi_fc = tf.keras.layers.Dense(
+      num_classes,
+      kernel_initializer=tf.keras.initializers.HeNormal(seed=seeds[4]),
+      kernel_regularizer=l2_reg(hps['dense_kernel_l2']),
+      bias_regularizer=l2_reg(hps['dense_bias_l2']))
+
+  pi_in_joint_feature_space = pi_fc(tf.cast(pi_inputs, x.dtype))
+  joint_feature_space = tf.concat([x, pi_in_joint_feature_space], axis=-1)
+  joint_feature_space = joint_features_fc(joint_feature_space)
+  joint_feature_space += pi_in_joint_feature_space
+  joint_feature_space = tf.concat([x, joint_feature_space], axis=-1)
+  logits_pi = logits_pi_fc(joint_feature_space)
+
+  logits = tf.keras.layers.Dense(
       num_classes,
       kernel_initializer=tf.keras.initializers.HeNormal(seed=seeds[4]),
       kernel_regularizer=l2_reg(hps['dense_kernel_l2']),
       bias_regularizer=l2_reg(hps['dense_bias_l2']))(
-          x)
+          tf.stop_gradient(x))
   return tf.keras.Model(
-      inputs=inputs,
-      outputs=x,
-      name='wide_resnet-{}-{}'.format(depth, width_multiplier))
+      inputs=(inputs, pi_inputs),
+      outputs=(logits, logits_pi),
+      name='wide_resnet-{}-{}-{}-tram'.format(depth, width_multiplier,
+                                              pi_tower_width))

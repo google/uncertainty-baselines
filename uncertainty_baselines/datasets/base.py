@@ -180,8 +180,9 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
         is_training = split in ['train', tfds.Split.TRAIN]
       else:
         raise ValueError(
-            'Received ambiguous split {}, must set is_training for splits other '
-            'than "train", "validation", "test".'.format(split))
+            'Received ambiguous split {}, must set is_training for splits other'
+            ' than "train", "validation", "test".'.format(split)
+        )
 
     self._is_training = is_training
     # TODO(znado): properly parse the number of train/validation/test examples
@@ -267,6 +268,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
   def _load(self,
             *,
             preprocess_fn: Optional[PreProcessFn] = None,
+            process_batch_fn: Optional[PreProcessFn] = None,
             batch_size: int = -1) -> tf.data.Dataset:
     """Transforms the dataset from builder.as_dataset() to batch, repeat, etc.
 
@@ -278,6 +280,9 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       preprocess_fn: an optional preprocessing function, if not provided then a
         subclass must define _create_process_example_fn() which will be used to
         preprocess the data.
+      process_batch_fn: an optional processing batch function. If not
+        provided then _create_process_batch_fn() will be used to generate the
+        function that will process a batch of data.
       batch_size: the batch size to use.
 
     Returns:
@@ -372,7 +377,8 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     else:
       dataset = dataset.batch(batch_size, drop_remainder=self._drop_remainder)
 
-    process_batch_fn = self._create_process_batch_fn(batch_size)  # pylint: disable=assignment-from-none
+    if process_batch_fn is None:
+      process_batch_fn = self._create_process_batch_fn(batch_size)  # pylint: disable=assignment-from-none
     if process_batch_fn:
       dataset = dataset.map(
           process_batch_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
@@ -406,6 +412,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       self,
       *,
       preprocess_fn: Optional[PreProcessFn] = None,
+      process_batch_fn: Optional[PreProcessFn] = None,
       batch_size: int = -1,
       strategy: Optional[tf.distribute.Strategy] = None) -> tf.data.Dataset:
     """Function definition to support multi-host dataset sharding.
@@ -431,11 +438,13 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
 
     Args:
       preprocess_fn: see `load()`.
+      process_batch_fn: see `load()`.
       batch_size: the *global* batch size to use. This should equal
         `per_replica_batch_size * num_replica_in_sync`.
       strategy: the DistributionStrategy used to shard the dataset. Note that
         this is only required if TensorFlow for training, otherwise it can be
         ignored.
+
     Returns:
       A sharded dataset, with its seed combined with the per-host id.
     """
@@ -445,11 +454,15 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
             self._seed, ctx.input_pipeline_id)
         per_replica_batch_size = ctx.get_per_replica_batch_size(batch_size)
         return self._load(
-            preprocess_fn=preprocess_fn, batch_size=per_replica_batch_size)
+            preprocess_fn=preprocess_fn,
+            process_batch_fn=process_batch_fn,
+            batch_size=per_replica_batch_size)
 
       return strategy.distribute_datasets_from_function(_load_distributed)
     else:
-      return self._load(preprocess_fn=preprocess_fn, batch_size=batch_size)
+      return self._load(preprocess_fn=preprocess_fn,
+                        process_batch_fn=process_batch_fn,
+                        batch_size=batch_size)
 
 
 _BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]

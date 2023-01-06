@@ -22,6 +22,9 @@ from typing import Callable, Tuple
 from absl import logging
 import numpy as np
 import tensorflow as tf
+import preprocess_utils  # local file import from baselines.jft
+
+Features = preprocess_utils.Features
 
 
 def _load_cifar10h_labels(data_dir=None):
@@ -143,11 +146,11 @@ def _load_imagenet_real_labels() -> Tuple[
   return id_mappings, tf.cast(weights, tf.float32), tf.cast(probs, tf.float32)
 
 
-def create_imagenet_to_real_fn() -> Callable[[tf.Tensor], tf.Tensor]:
+def create_imagenet_to_real_fn()-> Callable[[Features], Features]:
   """Creates a function that maps ImageNet labels to ReaL labels."""
   idx_map, real_weights, real_probs = _load_imagenet_real_labels()
 
-  def convert(example: tf.Tensor) -> tf.Tensor:
+  def convert(example: Features) -> Features:
     idx = idx_map.lookup(example['file_name'])
     if idx == -1:
       logging.warn('Index -1 encountered in the ImageNet real dataset.')

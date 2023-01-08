@@ -142,7 +142,7 @@ class _KeyValueStore(object):
       self._lookup_tables[value_name] = table
 
   def lookup(self, keys: tf.Tensor,
-             value_names: Sequence[str]) -> dict[str, tf.Tensor]:
+             value_names: Sequence[str]) -> Dict[str, tf.Tensor]:
     """Searchs values of `value_names` by `keys`."""
     return {
         value_name: self._lookup_tables[value_name].lookup(keys)

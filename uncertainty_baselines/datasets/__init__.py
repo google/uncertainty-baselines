@@ -27,6 +27,8 @@ from uncertainty_baselines.datasets.base import make_ood_dataset
 from uncertainty_baselines.datasets.cifar import Cifar100Dataset
 from uncertainty_baselines.datasets.cifar import Cifar10CorruptedDataset
 from uncertainty_baselines.datasets.cifar import Cifar10Dataset
+from uncertainty_baselines.datasets.cifar import Cifar10NDataset
+from uncertainty_baselines.datasets.cifar import Cifar100NDataset
 from uncertainty_baselines.datasets.cifar100_corrupted import Cifar100CorruptedDataset
 from uncertainty_baselines.datasets.cityscapes import CityscapesDataset
 from uncertainty_baselines.datasets.cityscapes_corrupted import CityscapesCorruptedDataset

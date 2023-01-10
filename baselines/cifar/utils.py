@@ -40,7 +40,8 @@ flags.DEFINE_integer(
     'Number of epochs between evaluating on the corrupted '
     'test data. Use -1 to never evaluate.')
 flags.DEFINE_enum('dataset', 'cifar10',
-                  enum_values=['cifar10', 'cifar100'],
+                  enum_values=['cifar10', 'cifar100', 'cifar10n',
+                               'cifar100n'],
                   help='Dataset.')
 
 flags.DEFINE_string(

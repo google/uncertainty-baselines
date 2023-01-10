@@ -230,9 +230,6 @@ def main(argv):
       'augmix_depth': FLAGS.augmix_depth,
       'augmix_prob_coeff': FLAGS.augmix_prob_coeff,
       'augmix_width': FLAGS.augmix_width,
-      'same_mix_weight_per_batch': FLAGS.same_mix_weight_per_batch,
-      'use_random_shuffling': FLAGS.use_random_shuffling,
-      'use_truncated_beta': FLAGS.use_truncated_beta
   }
 
   # Note that stateless_{fold_in,split} may incur a performance cost, but a

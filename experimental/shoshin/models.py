@@ -63,6 +63,7 @@ class ModelTrainingParameters:
   load_pretrained_weights: Optional[bool] = False
   worst_group_label: Optional[int] = 2
   hidden_sizes: Optional[List[int]] = None
+  use_pytorch_style_resnet: Optional[bool] = False
   do_reweighting: Optional[bool] = False
   reweighting_signal: Optional[str] = 'bias'
   reweighting_lambda: Optional[float] = 0.5
@@ -132,13 +133,14 @@ class ResNet(tf.keras.Model):
         l2=model_params.l2_regularization_factor)
     for layer in self.resnet_model.layers:
       layer.trainable = True
-      if hasattr(layer, 'kernel_regularizer'):
-        setattr(layer, 'kernel_regularizer', regularizer)
-      if isinstance(layer, tf.keras.layers.Conv2D):
-        layer.use_bias = False
-        layer.kernel_initializer = 'he_normal'
-      if isinstance(layer, tf.keras.layers.BatchNormalization):
-        layer.momentum = 0.9
+      if model_params.use_pytorch_style_resnet:
+        if hasattr(layer, 'kernel_regularizer'):
+          setattr(layer, 'kernel_regularizer', regularizer)
+        if isinstance(layer, tf.keras.layers.Conv2D):
+          layer.use_bias = False
+          layer.kernel_initializer = 'he_normal'
+        if isinstance(layer, tf.keras.layers.BatchNormalization):
+          layer.momentum = 0.9
 
     self.output_main = tf.keras.layers.Dense(
         2,

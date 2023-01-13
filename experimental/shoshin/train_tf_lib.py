@@ -258,23 +258,24 @@ def evaluate_model(model: tf.keras.Model,
     checkpoint_dir: Path to directory where checkpoints are stored.
     eval_ds: Dictionary mapping evaluation dataset name to the dataset.
   """
-  best_latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
-  load_status = model.load_weights(best_latest_checkpoint)
-  load_status.assert_consumed()
-  for ds_name in eval_ds.keys():
-    results = model.evaluate(
-        eval_ds[ds_name], return_dict=True)
-    logging.info('Evaluation Dataset Name: %s', ds_name)
-    logging.info('Main Acc: %f', results['main_acc'])
-    logging.info('Main AUC: %f', results['main_auc'])
-    if model.train_bias:
-      logging.info('Bias Acc: %f', results['bias_acc'])
-      logging.info('Bias Acc: %f', results['bias_auc'])
-    if model.num_subgroups > 1:
-      for i in range(model.num_subgroups):
-        logging.info('Subgroup %d Acc: %f', i,
-                     results[f'subgroup_{i}_main_acc'])
-      logging.info('Average Acc: %f', results['avg_acc'])
+  if tf.io.gfile.isdir(checkpoint_dir) and tf.io.gfile.listdir(checkpoint_dir):
+    best_latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
+    load_status = model.load_weights(best_latest_checkpoint)
+    load_status.assert_consumed()
+    for ds_name in eval_ds.keys():
+      results = model.evaluate(
+          eval_ds[ds_name], return_dict=True)
+      logging.info('Evaluation Dataset Name: %s', ds_name)
+      logging.info('Main Acc: %f', results['main_acc'])
+      logging.info('Main AUC: %f', results['main_auc'])
+      if model.train_bias:
+        logging.info('Bias Acc: %f', results['bias_acc'])
+        logging.info('Bias Acc: %f', results['bias_auc'])
+      if model.num_subgroups > 1:
+        for i in range(model.num_subgroups):
+          logging.info('Subgroup %d Acc: %f', i,
+                       results[f'subgroup_{i}_main_acc'])
+        logging.info('Average Acc: %f', results['avg_acc'])
 
 
 def init_model(

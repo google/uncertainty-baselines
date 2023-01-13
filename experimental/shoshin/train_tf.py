@@ -53,8 +53,11 @@ def main(_) -> None:
   base_config.check_flags(config)
 
   if FLAGS.keep_logs and not config.training.log_to_xm:
-    tf.io.gfile.makedirs(config.output_dir)
-    stream = tf.io.gfile.GFile(os.path.join(config.output_dir, 'log'), mode='w')
+    if not tf.io.gfile.exists(config.output_dir):
+      tf.io.gfile.makedirs(config.output_dir)
+    stream = tf.io.gfile.GFile(
+        os.path.join(config.output_dir, 'log'), mode='w'
+    )
     stream_handler = native_logging.StreamHandler(stream)
     logging.get_absl_logger().addHandler(stream_handler)
 
@@ -110,6 +113,7 @@ def main(_) -> None:
       batch_size=config.data.batch_size,
       load_pretrained_weights=config.model.load_pretrained_weights,
       hidden_sizes=config.model.hidden_sizes,
+      use_pytorch_style_resnet=config.model.use_pytorch_style_resnet,
       do_reweighting=config.reweighting.do_reweighting,
       reweighting_lambda=config.reweighting.lambda_value,
       reweighting_signal=config.reweighting.signal

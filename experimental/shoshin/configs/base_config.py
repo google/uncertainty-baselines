@@ -127,6 +127,10 @@ def get_model_config():
   # TODO(jihyeonlee): Debug why loading ImageNet weights causes model train/val
   # acc to decrease rather than improving over time.
   config.load_pretrained_weights = False
+  # If ResNet, use config.use_pytorch_style_resnet will make adjustments to the
+  # TF ResNet model to match the PyTorch implementation, such as using He normal
+  # initialization for convolution layers.
+  config.use_pytorch_style_resnet = True
   return config
 
 

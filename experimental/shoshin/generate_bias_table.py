@@ -53,6 +53,7 @@ def main(_) -> None:
       train_bias=config.train_bias,
       num_classes=config.data.num_classes,
       num_subgroups=0,
+      subgroup_sizes={},
       num_epochs=config.training.num_epochs,
       learning_rate=config.optimizer.learning_rate,
       hidden_sizes=config.model.hidden_sizes,

@@ -39,6 +39,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
   def __init__(self,
                model: tf.keras.Model,
                num_subgroups: int,
+               subgroup_sizes: Dict[int, int],
                train_bias: bool,
                name: str,
                worst_group_label: Optional[int] = 2,
@@ -62,6 +63,8 @@ class TwoHeadedOutputModel(tf.keras.Model):
     self.num_subgroups = num_subgroups
     if self.num_subgroups > 1:
       self.avg_acc = tf.keras.metrics.Mean(name='avg_acc')
+      self.weighted_avg_acc = tf.keras.metrics.Sum(name='weighted_avg_acc')
+      self.subgroup_sizes = subgroup_sizes
       self.worst_group_label = worst_group_label
 
   def call(self, inputs):
@@ -70,17 +73,36 @@ class TwoHeadedOutputModel(tf.keras.Model):
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table
 
-  def _compute_average_metrics(self,
-                               metrics) -> Dict[str, tf.keras.metrics.Metric]:
-    """Computes metrics as average of all subgroups."""
+  def _compute_average_metrics(
+      self, metrics: List[tf.keras.metrics.Metric]
+  ) -> Dict[str, tf.keras.metrics.Metric]:
+    """Computes metrics as an average or weighted average of all subgroups.
+
+    For the weighted metric, the subgroups are weighed by their proportionality.
+
+    Args:
+      metrics: List of metrics to be parsed.
+
+    Returns:
+      Dictionary mapping metric name to result.
+    """
     accs = []
+    total_size = sum(self.subgroup_sizes.values())
+    weighted_accs = []
     for m in metrics:
       if 'subgroup' in m.name and 'main' in m.name:
         accs.append(m.result())
+        subgroup_label = int(m.name.split('_')[1])
+        weighted_accs.append(
+            m.result() * float(self.subgroup_sizes[subgroup_label]) / total_size
+        )
     self.avg_acc.reset_state()
     self.avg_acc.update_state(accs)
+    self.weighted_avg_acc.reset_state()
+    self.weighted_avg_acc.update_state(weighted_accs)
     return {
-        self.avg_acc.name: self.avg_acc.result()
+        self.avg_acc.name: self.avg_acc.result(),
+        self.weighted_avg_acc.name: self.weighted_avg_acc.result(),
     }
 
   def train_step(self, inputs):
@@ -276,6 +298,7 @@ def evaluate_model(model: tf.keras.Model,
           logging.info('Subgroup %d Acc: %f', i,
                        results[f'subgroup_{i}_main_acc'])
         logging.info('Average Acc: %f', results['avg_acc'])
+        logging.info('Average Acc: %f', results['weighted_avg_acc'])
 
 
 def init_model(
@@ -299,6 +322,7 @@ def init_model(
   two_head_model = TwoHeadedOutputModel(
       model=base_model,
       num_subgroups=model_params.num_subgroups,
+      subgroup_sizes=model_params.subgroup_sizes,
       worst_group_label=model_params.worst_group_label,
       train_bias=model_params.train_bias,
       name=experiment_name,

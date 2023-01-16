@@ -22,6 +22,7 @@ feature will vary depending on the type of data (feature vector, image, etc.),
 and the label is specific to the main task.
 """
 
+import collections
 import dataclasses
 import json
 import os
@@ -82,6 +83,7 @@ def get_dataset(name: str):
 @dataclasses.dataclass
 class Dataloader:
   num_subgroups: int  # Number of subgroups in data.
+  subgroup_sizes: Dict[int, int]  # Number of examples by subgroup.
   train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
@@ -91,6 +93,15 @@ class Dataloader:
   eval_ds: Optional[Dict[
       str,
       tf.data.Dataset]] = None  # Validation and any additional test datasets.
+
+
+def get_subgroup_sizes(dataloader: tf.data.Dataset) -> Dict[int, int]:
+  """Gets the number examples of each subgroup."""
+  return dict(
+      collections.Counter(
+          dataloader.map(lambda x: x['subgroup_label']).as_numpy_iterator()
+      )
+  )
 
 
 def apply_batch(dataloader, batch_size):
@@ -243,6 +254,8 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
                 tfds.features.Tensor(shape=(1024,), dtype=tf.int64),
             'label':
                 tfds.features.ClassLabel(num_classes=2),
+            'subgroup_label':
+                tfds.features.ClassLabel(num_classes=2),
         }),
         supervised_keys=('input_feature', 'label', 'example_id'),
     )
@@ -280,7 +293,8 @@ class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
       yield key, {
           'example_id': molecule_id,
           'input_feature': x[molecule_id],
-          'label': y[molecule_id]
+          'label': y[molecule_id],
+          'subgroup_label': y[molecule_id],
       }
 
 
@@ -352,7 +366,13 @@ def get_cardiotoxicity_dataset(
   val_ds = gather_data_splits(list(range(num_splits)), val_splits)
   eval_datasets = {'val': val_ds, 'test': test_ds, 'test2': test2_ds}
   return Dataloader(
-      1, train_splits, val_splits, train_ds, eval_ds=eval_datasets)
+      1,
+      get_subgroup_sizes(train_ds),
+      train_splits,
+      val_splits,
+      train_ds,
+      eval_ds=eval_datasets,
+  )
 
 
 class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
@@ -851,10 +871,11 @@ def get_waterbirds_dataset(num_splits: int,
   }
   return Dataloader(
       _WATERBIRDS_NUM_SUBGROUP,
+      get_subgroup_sizes(train_ds),
       train_splits,
       val_splits,
       train_ds,
-      num_train_examples=4795,
+      num_train_examples=_WATERBIRDS_TRAIN_SIZE,
       worst_group_label=2,  # 1_0, waterbirds on land.
       train_sample_ds=train_sample,
       eval_ds=eval_datasets)
@@ -955,6 +976,7 @@ def get_celeba_dataset(
   }
   return Dataloader(
       _CELEB_A_NUM_SUBGROUP,
+      get_subgroup_sizes(train_ds),
       train_splits,
       val_splits,
       train_ds,
@@ -1057,6 +1079,7 @@ def get_skai_dataset(num_splits: int,
   }
   return Dataloader(
       2,
+      get_subgroup_sizes(train_ds),
       train_splits,
       val_splits,
       train_ds,

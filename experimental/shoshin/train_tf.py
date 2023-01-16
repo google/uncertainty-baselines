@@ -104,6 +104,7 @@ def main(_) -> None:
       train_bias=config.train_bias,
       num_classes=config.data.num_classes,
       num_subgroups=dataloader.num_subgroups,
+      subgroup_sizes=dataloader.subgroup_sizes,
       worst_group_label=dataloader.worst_group_label,
       num_epochs=config.training.num_epochs,
       num_channels=config.model.num_channels,

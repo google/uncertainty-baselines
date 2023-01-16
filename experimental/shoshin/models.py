@@ -21,7 +21,7 @@ serve as the base model trained in Introspective Active Sampling.
 """
 
 import dataclasses
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import tensorflow as tf
 
@@ -54,6 +54,7 @@ class ModelTrainingParameters:
   train_bias: bool
   num_classes: int
   num_subgroups: int
+  subgroup_sizes: Dict[int, int]
   num_epochs: int
   num_channels: int = 3
   l2_regularization_factor: float = 0.5

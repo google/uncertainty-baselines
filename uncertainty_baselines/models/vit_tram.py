@@ -300,11 +300,18 @@ class VisionTransformerTRAM(nn.Module):
       x = jax.lax.stop_gradient(x)
 
     preprocessed_pi_x = jnp.concatenate([preprocessed_pi, x], axis=1)
-    residual = preprocessed_pi_x
-    preprocessed_pi_x = MlpBlock(**jn_mlp_kwargs)(
-        preprocessed_pi_x, deterministic=not train)
-    # We apply a residual connection.
-    preprocessed_pi_x = preprocessed_pi_x + residual
+
+    pi_tower = self.pi_tower or {}
+    depth = pi_tower.get('depth', 2)
+    # By default, depth=2 and we add a single MLP, which makes a total of two
+    # MLPs counting the first one dedicated to the input preprocessing.
+    for _ in range(1, depth):
+      residual = preprocessed_pi_x
+      preprocessed_pi_x = MlpBlock(**jn_mlp_kwargs)(
+          preprocessed_pi_x, deterministic=not train)
+      # We apply a residual connection.
+      preprocessed_pi_x = preprocessed_pi_x + residual
+
     preprocessed_pi_x = jnp.concatenate([preprocessed_pi_x, x], axis=1)
 
     x = nn.Dense(

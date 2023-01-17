@@ -352,11 +352,13 @@ def main(argv):
         tf.cast(labels, dtype=tf.int32), num_classes, dtype=tf.float32)
 
   def clean_labels_encoding(example):
+    # pytype: disable=attribute-error
     return pi_utils.clean_labels_encoding_fn(
         example=example,
-        num_annotators_per_example=train_builder  # pytype: disable=attribute-error
+        num_annotators_per_example=train_builder
         .num_annotators_per_example_and_step,
         label_encoding_fn=label_encoding_fn)
+    # pytype: enable=attribute-error
 
   def is_annotator_incorrect_encoding(example):
     return pi_utils.find_noisy_annotators(example, flatten_annotators=False)
@@ -366,10 +368,11 @@ def main(argv):
         example=example, label_encoding_fn=label_encoding_fn)
 
   def annotator_ids_encoding(example):
+    # pytype: disable=attribute-error
     return pi_utils.annotator_ids_encoding_fn(
         example=example,
-        num_dataset_annotators=train_builder  # pytype: disable=attribute-error
-        .num_dataset_annotators)
+        num_dataset_annotators=train_builder.num_dataset_annotators)
+    # pytype: enable=attribute-error
 
   def annotator_labels_encoding(example):
     return label_encoding_fn(example['pi_features']['annotator_labels'])
@@ -526,10 +529,12 @@ def main(argv):
         labels = tf.gather(labels, non_empty_indices)
       else:
         labels = inputs['clean_labels']
+        # pytype: disable=attribute-error
         labels = pi_utils.repeat_across_annotators(
             labels,
-            num_annotators_per_example=train_builder  # pytype: disable=attribute-error
+            num_annotators_per_example=train_builder
             .num_annotators_per_example_and_step)
+        # pytype: enable=attribute-error
         labels = pi_utils.flatten_annotator_axis(labels)
 
       privileged_information = privileged_information_fn(inputs)
@@ -646,10 +651,12 @@ def main(argv):
         labels = tf.gather(labels, non_empty_indices)
       else:
         labels = inputs['clean_labels']
+        # pytype: disable=attribute-error
         labels = pi_utils.repeat_across_annotators(
             labels,
-            num_annotators_per_example=train_builder  # pytype: disable=attribute-error
+            num_annotators_per_example=train_builder
             .num_annotators_per_example_and_step)
+        # pytype: enable=attribute-error
         labels = pi_utils.flatten_annotator_axis(labels)
 
       # NOTE: The TRAM model expects some pi_input even if we ignore it during

@@ -455,7 +455,7 @@ def main(config, output_dir):
   @functools.partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, images, labels, mask, rng):
     # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
+    mask *= (labels.max(axis=1) > 0).astype(labels.dtype)
     label_indices = config.get('label_indices')
     logging.info('mask %s, label_indices %s', mask, label_indices)
 

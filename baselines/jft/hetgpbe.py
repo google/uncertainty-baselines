@@ -317,7 +317,7 @@ def main(config, output_dir):
   @functools.partial(jax.pmap, axis_name='batch')
   def evaluation_fn(params, states, images, labels, mask):
     # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
+    mask *= (labels.max(axis=1) > 0).astype(labels.dtype)
     logits, out = model.apply(
         {'params': flax.core.freeze(params), **states},
         images,

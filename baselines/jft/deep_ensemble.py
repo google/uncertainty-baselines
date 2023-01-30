@@ -278,7 +278,7 @@ def main(config, output_dir):
     # params is a dict of the form:
     #   {'model_1': params_model_1, 'model_2': params_model_2, ...}
     # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
+    mask *= (labels.max(axis=1) > 0).astype(labels.dtype)
     loss_as_str = config.get('loss', 'sigmoid_xent')
     ens_logits, ens_prelogits = ensemble_pred_fn(params, images, loss_as_str)
 

@@ -285,7 +285,7 @@ def main(config, output_dir):
   def evaluation_fn(params, images, labels, mask):
     """Copy to deterministic_utils.py whenever changes are made!"""
     # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
+    mask *= (labels.max(axis=1) > 0).astype(labels.dtype)
     logits, out = model.apply({'params': flax.core.freeze(params)},
                               images,
                               train=False)

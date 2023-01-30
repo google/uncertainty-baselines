@@ -347,7 +347,7 @@ def main(config, output_dir):
     labels = _reshape_from_pmap_shape(labels)
     mask = _reshape_from_pmap_shape(mask)
     # Ignore the entries with all zero labels for evaluation.
-    mask *= labels.max(axis=1)
+    mask *= (labels.max(axis=1) > 0).astype(labels.dtype)
     loss_as_str = config.get('loss', 'sigmoid_xent')
     logits, prelogits = pred_fn(params, images, loss_as_str)
     label_indices = config.get('label_indices')

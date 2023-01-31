@@ -150,6 +150,48 @@ class DataLoaderTest(googletest.TestCase):
     np.testing.assert_equal(input_feature[:, :, :3], 0.0)
     np.testing.assert_equal(input_feature[:, :, 3:], 1.0)
 
+  def test_upsample_subgroup(self):
+    dataset_builder = data.get_dataset('skai')
+
+    kwargs = {
+        'labeled_train_pattern': self.labeled_train_path,
+        'unlabeled_train_pattern': self.unlabeled_path,
+        'validation_pattern': self.labeled_test_path,
+        'use_post_disaster_only': False,
+        'data_dir': _make_temp_dir(),
+    }
+
+    dataloader = dataset_builder(
+        1,
+        initial_sample_proportion=1,
+        subgroup_ids=(),
+        subgroup_proportions=(),
+        **kwargs)
+    ds = dataloader.train_ds
+    subgroup_sizes = data.get_subgroup_sizes(ds)
+    self.assertEqual(subgroup_sizes[0], 2)
+    self.assertEqual(subgroup_sizes[1], 1)
+    lambda_value = 10
+    upsampled_ds = data.upsample_subgroup(
+        ds, lambda_value, 'subgroup_label', subgroup_sizes
+    )
+    self.assertLen(
+        list(
+            upsampled_ds.filter(
+                lambda x: tf.math.equal(x['subgroup_label'], 0)
+            ).as_numpy_iterator()
+        ),
+        2,
+    )
+    self.assertLen(
+        list(
+            upsampled_ds.filter(
+                lambda x: tf.math.equal(x['subgroup_label'], 1)
+            ).as_numpy_iterator()
+        ),
+        1 * lambda_value,
+    )
+
 
 if __name__ == '__main__':
   googletest.main()

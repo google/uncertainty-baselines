@@ -104,6 +104,66 @@ def get_subgroup_sizes(dataloader: tf.data.Dataset) -> Dict[int, int]:
   )
 
 
+def upsample_subgroup(
+    dataset: tf.data.Dataset,
+    lambda_value: int = 60,
+    signal: str = 'subgroup_label',
+    subgroup_sizes: Optional[Dict[int, int]] = None,
+) -> tf.data.Dataset:
+  """Creates dataset that has upsampled subgroup.
+
+  Args:
+    dataset: Dataset to be transformed.
+    lambda_value: Number of times each example of the underrepresented group
+      should be repeated in dataset.
+    signal: String for the value that determines whether or not an example
+      belongs to an underrepresented group.
+    subgroup_sizes: Dictionary mapping subgroup index to size.
+
+  Returns:
+    Transformed dataset.
+  """
+  if signal != 'subgroup_label':
+    raise ValueError(
+        'Upsampling with signals other than subgroup_label is not supported.'
+    )
+  # In this case, we assume that the data has ground-truth subgroup labels.
+  # Identify the group that is smallest and upsample it.
+  if not subgroup_sizes:
+    raise ValueError(
+        'When using ground-truth subgroup label as upsampling signal,'
+        ' dictionary of subgroup sizes must be available.'
+    )
+  examples_by_subgroup = {}
+  smallest_subgroup_label = -1
+  smallest_subgroup_size = -1
+  for subgroup_label in subgroup_sizes.keys():
+    def filter_subgroup(x, label=subgroup_label):
+      return tf.math.equal(x['subgroup_label'], label)
+    examples_by_subgroup[subgroup_label] = dataset.filter(filter_subgroup)
+    if smallest_subgroup_size == -1:
+      smallest_subgroup_label = subgroup_label
+      smallest_subgroup_size = subgroup_sizes[subgroup_label]
+    elif subgroup_sizes[subgroup_label] < smallest_subgroup_size:
+      smallest_subgroup_label = subgroup_label
+      smallest_subgroup_size = subgroup_sizes[subgroup_label]
+  examples_by_subgroup[smallest_subgroup_label] = examples_by_subgroup[
+      smallest_subgroup_label
+  ].repeat(lambda_value)
+  subgroup_sizes[smallest_subgroup_label] *= lambda_value
+  dataset_size = sum(subgroup_sizes.values())
+  weights = [
+      float(subgroup_sizes[subgroup_label]) / dataset_size
+      for subgroup_label in subgroup_sizes
+  ]
+  upsampled_dataset = tf.data.Dataset.sample_from_datasets(
+      examples_by_subgroup.values(),
+      weights=weights,
+      stop_on_empty_dataset=False,
+  )
+  return upsampled_dataset
+
+
 def apply_batch(dataloader, batch_size):
   """Apply batching to dataloader."""
   dataloader.train_splits = [
@@ -304,6 +364,8 @@ def get_cardiotoxicity_dataset(
     initial_sample_proportion: float,
     subgroup_ids: Optional[List[str]] = None,
     subgroup_proportions: Optional[List[float]] = None,
+    upsampling_lambda: int = 1,
+    upsampling_signal: str = 'subgroup_label',
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -314,6 +376,9 @@ def get_cardiotoxicity_dataset(
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
+    upsampling_lambda: Number of times subgroup examples should be repeated.
+    upsampling_signal: Signal to use to determine subgroup to upsample.
+
   Returns:if subgroup_proportions: self.subgroup_proportions =
     subgroup_proportions
     else: self.subgroup_proportions = [1.] * len(subgroup_ids) A tuple
@@ -365,9 +430,14 @@ def get_cardiotoxicity_dataset(
   train_ds = gather_data_splits(list(range(num_splits)), train_splits)
   val_ds = gather_data_splits(list(range(num_splits)), val_splits)
   eval_datasets = {'val': val_ds, 'test': test_ds, 'test2': test2_ds}
+  subgroup_sizes = get_subgroup_sizes(train_ds)
+  if upsampling_lambda > 1:
+    train_ds = upsample_subgroup(
+        train_ds, upsampling_lambda, upsampling_signal, subgroup_sizes
+    )
   return Dataloader(
       1,
-      get_subgroup_sizes(train_ds),
+      subgroup_sizes,
       train_splits,
       val_splits,
       train_ds,
@@ -797,6 +867,8 @@ def get_waterbirds_dataset(num_splits: int,
                            tfds_dataset_name: str = 'waterbirds_dataset',
                            include_train_sample: bool = True,
                            data_dir: str = DATA_DIR,
+                           upsampling_lambda: int = 1,
+                           upsampling_signal: str = 'subgroup_label',
                            **additional_builder_kwargs) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -810,6 +882,8 @@ def get_waterbirds_dataset(num_splits: int,
     tfds_dataset_name: The name of the tfd dataset to load from.
     include_train_sample: Whether to include the `train_sample` split.
     data_dir: Default data directory to store the sampled waterbirds data.
+    upsampling_lambda: Number of times subgroup examples should be repeated.
+    upsampling_signal: Signal to use to determine subgroup to upsample.
     **additional_builder_kwargs: Additional keyword arguments to data builder.
 
   Returns:
@@ -869,9 +943,15 @@ def get_waterbirds_dataset(num_splits: int,
       'val': val_ds,
       'test': test_ds,
   }
+  subgroup_sizes = get_subgroup_sizes(train_ds)
+  if upsampling_lambda > 1:
+    train_ds = upsample_subgroup(
+        train_ds, upsampling_lambda, upsampling_signal, subgroup_sizes
+    )
+
   return Dataloader(
       _WATERBIRDS_NUM_SUBGROUP,
-      get_subgroup_sizes(train_ds),
+      subgroup_sizes,
       train_splits,
       val_splits,
       train_ds,
@@ -882,12 +962,16 @@ def get_waterbirds_dataset(num_splits: int,
 
 
 @register_dataset('waterbirds10k')
-def get_waterbirds10k_dataset(num_splits: int,
-                              initial_sample_proportion: float,
-                              subgroup_ids: List[str],
-                              subgroup_proportions: List[float],
-                              corr_strength: float = 0.95,
-                              data_dir: str = DATA_DIR) -> Dataloader:
+def get_waterbirds10k_dataset(
+    num_splits: int,
+    initial_sample_proportion: float,
+    subgroup_ids: List[str],
+    subgroup_proportions: List[float],
+    corr_strength: float = 0.95,
+    data_dir: str = DATA_DIR,
+    upsampling_lambda: int = 1,
+    upsampling_signal: str = 'subgroup_label',
+) -> Dataloader:
   """Returns datasets for Waterbirds 10K."""
   # Create unique `waterbirds10k` directory for each correlation strength.
   data_folder_name = int(corr_strength * 100)
@@ -902,7 +986,9 @@ def get_waterbirds10k_dataset(num_splits: int,
       tfds_dataset_name='waterbirds10k_dataset',
       include_train_sample=False,
       corr_strength=corr_strength,
-      data_dir=data_dir)
+      data_dir=data_dir,
+      upsampling_lambda=upsampling_lambda,
+      upsampling_signal=upsampling_signal)
 
 
 @register_dataset('celeb_a')
@@ -911,6 +997,8 @@ def get_celeba_dataset(
     initial_sample_proportion: float,
     subgroup_ids: List[str],
     subgroup_proportions: List[float],
+    upsampling_lambda: int = 1,
+    upsampling_signal: str = 'subgroup_label',
 ) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -921,6 +1009,8 @@ def get_celeba_dataset(
     subgroup_ids: List of strings of IDs indicating subgroups.
     subgroup_proportions: List of floats indicating proportion that each
       subgroup should take in initial training dataset.
+    upsampling_lambda: Number of times subgroup examples should be repeated.
+    upsampling_signal: Signal to use to determine subgroup to upsample.
 
   Returns:
     A tuple containing the split training data, split validation data, the
@@ -974,9 +1064,15 @@ def get_celeba_dataset(
       'val': val_ds,
       'test': test_ds,
   }
+  subgroup_sizes = get_subgroup_sizes(train_ds)
+  if upsampling_lambda > 1:
+    train_ds = upsample_subgroup(
+        train_ds, upsampling_lambda, upsampling_signal, subgroup_sizes
+    )
+
   return Dataloader(
       _CELEB_A_NUM_SUBGROUP,
-      get_subgroup_sizes(train_ds),
+      subgroup_sizes,
       train_splits,
       val_splits,
       train_ds,
@@ -996,6 +1092,8 @@ def get_skai_dataset(num_splits: int,
                      unlabeled_train_pattern: str = '',
                      validation_pattern: str = '',
                      use_post_disaster_only: Optional[bool] = False,
+                     upsampling_lambda: int = 1,
+                     upsampling_signal: str = 'subgroup_label',
                      **additional_builder_kwargs) -> Dataloader:
   """Returns datasets for training, validation, and possibly test sets.
 
@@ -1014,6 +1112,8 @@ def get_skai_dataset(num_splits: int,
     validation_pattern: File pattern for validation data.
     use_post_disaster_only: Whether to use post-disaster imagery only rather
       than full 6-channel stacked image input.
+    upsampling_lambda: Number of times subgroup examples should be repeated.
+    upsampling_signal: Signal to use to determine subgroup to upsample.
     **additional_builder_kwargs: Additional keyword arguments to data builder.
 
   Returns:
@@ -1077,9 +1177,14 @@ def get_skai_dataset(num_splits: int,
       'val': val_ds,
       'test': test_ds,
   }
+  subgroup_sizes = get_subgroup_sizes(train_ds)
+  if upsampling_lambda > 1:
+    train_ds = upsample_subgroup(
+        train_ds, upsampling_lambda, upsampling_signal, subgroup_sizes
+    )
   return Dataloader(
       2,
-      get_subgroup_sizes(train_ds),
+      subgroup_sizes,
       train_splits,
       val_splits,
       train_ds,

@@ -74,6 +74,11 @@ def main(_) -> None:
     }
     if config.data.use_post_disaster_only:
       config.model.num_channels = 3
+  if config.upsampling.do_upsampling:
+    ds_kwargs.update({
+        'upsampling_lambda': config.upsampling.lambda_value,
+        'upsampling_signal': config.upsampling.signal
+    })
 
   logging.info('Running Round %d of Training.', config.round_idx)
   get_split_config = lambda x: x if config.data.use_splits else 1

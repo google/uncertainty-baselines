@@ -153,6 +153,18 @@ def get_reweighting_config():
   return config
 
 
+def get_upsampling_config():
+  """Get config for performing upsampling during training."""
+  config = ml_collections.ConfigDict()
+  config.do_upsampling = False
+  # TODO(jihyeonlee): Add support for upsampling signal being bias or error.
+  config.signal = 'subgroup_label'
+  # Lambda determines how much each example of the group to be upsampled is
+  # repeated in the dataset.
+  config.lambda_value = 60
+  return config
+
+
 def get_evaluation_config():
   """Get config for performing introspection signal computation."""
   config = ml_collections.ConfigDict()
@@ -218,5 +230,6 @@ def get_config() -> ml_collections.ConfigDict:
   config.model = get_model_config()
   config.active_sampling = get_active_sampling_config()
   config.reweighting = get_reweighting_config()
+  config.upsampling = get_upsampling_config()
   config.eval = get_evaluation_config()
   return config

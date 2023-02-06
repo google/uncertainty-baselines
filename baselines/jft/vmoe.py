@@ -324,15 +324,15 @@ def main(config, output_dir):
       unpartitioned_params)
   in_axis_resources = (
       variables_partition_spec,  # params.
-      pjit.PartitionSpec(('expert', 'replica')),  # inputs.
-      pjit.PartitionSpec(('expert', 'replica')),  # labels.
-      pjit.PartitionSpec(('expert', 'replica')),  # masks.
+      jax.sharding.PartitionSpec(('expert', 'replica')),  # inputs.
+      jax.sharding.PartitionSpec(('expert', 'replica')),  # labels.
+      jax.sharding.PartitionSpec(('expert', 'replica')),  # masks.
   )
   params = {}
   for model_key, model_params in unpartitioned_params.items():
     pjit_partition_params_fn = pjit.pjit(
         fun=lambda x: x,
-        in_axis_resources=(jax.tree_map(lambda _: pjit.PartitionSpec(),
+        in_axis_resources=(jax.tree_map(lambda _: jax.sharding.PartitionSpec(),
                                         model_params),),
         out_axis_resources=variables_partition_spec[model_key])
     with mesh:

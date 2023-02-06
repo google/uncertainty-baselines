@@ -19,7 +19,6 @@ from absl.testing import absltest
 from absl.testing import parameterized
 import flax
 import jax
-from jax.experimental import pjit
 import jax.numpy as jnp
 import ml_collections
 import numpy as np
@@ -37,10 +36,10 @@ class VmoeUtilsTest(parameterized.TestCase):
     expected_partition_spec = {
         'my_model': {
             'Moe': {
-                'Mlp': pjit.PartitionSpec(('expert',)),
-                'mlp': pjit.PartitionSpec(),
+                'Mlp': jax.sharding.PartitionSpec(('expert',)),
+                'mlp': jax.sharding.PartitionSpec(),
             },
-            'self-attention': pjit.PartitionSpec(),
+            'self-attention': jax.sharding.PartitionSpec(),
         }
     }
     jax.tree_map(np.testing.assert_equal, expected_partition_spec,

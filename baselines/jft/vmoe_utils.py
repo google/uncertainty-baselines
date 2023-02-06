@@ -25,7 +25,9 @@ import ml_collections
 
 def get_pjit_eval_fn_with_mesh(eval_fn, mesh, in_axis_resources, num_outputs):
   """Makes eval_fn a pjit function distributed according to the mesh."""
-  out_axis_resources = tuple([pjit.PartitionSpec() for _ in range(num_outputs)])
+  out_axis_resources = tuple(
+      [jax.sharding.PartitionSpec() for _ in range(num_outputs)]
+  )
 
   pjit_eval_fn = pjit.pjit(
       fun=eval_fn,
@@ -49,9 +51,9 @@ def get_variables_partition_spec(oss_params):
   variables_partition_spec = {}
   for name in flax.traverse_util.flatten_dict(oss_params):
     if 'Moe/Mlp' in '/'.join(name):
-      variables_partition_spec[name] = pjit.PartitionSpec(('expert',))
+      variables_partition_spec[name] = jax.sharding.PartitionSpec(('expert',))
     else:
-      variables_partition_spec[name] = pjit.PartitionSpec()
+      variables_partition_spec[name] = jax.sharding.PartitionSpec()
   variables_partition_spec = flax.core.freeze(
       flax.traverse_util.unflatten_dict(variables_partition_spec))
   return variables_partition_spec

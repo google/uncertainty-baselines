@@ -31,8 +31,9 @@ def get_pjit_eval_fn_with_mesh(eval_fn, mesh, in_axis_resources, num_outputs):
 
   pjit_eval_fn = pjit.pjit(
       fun=eval_fn,
-      in_axis_resources=in_axis_resources,
-      out_axis_resources=out_axis_resources)
+      in_shardings=in_axis_resources,
+      out_shardings=out_axis_resources,
+  )
 
   def eval_fn_with_mesh(params, images, labels, mask):
     with mesh:

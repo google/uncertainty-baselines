@@ -32,25 +32,26 @@ def _create_fake_signals(dataset_name, is_train_signals):
   is_train_signals = is_train_signals[:5]
   is_train_signals += [0] * (5 - len(is_train_signals))
   fake_signals = {
-      'civil_comments_identities':
-          pd.DataFrame({
-              'id': [b'876617', b'688889', b'5769682', b'4997434', b'5489660'],
-              'is_train': is_train_signals
-          }),
-      'civil_comments':
-          pd.DataFrame({
-              'id': [b'634903', b'5977874', b'5390534', b'871483', b'825427'],
-              'is_train': is_train_signals
-          }),
-      'wikipedia_toxicity':
-          pd.DataFrame({
-              'id': [
-                  b'ee9697785fe41ff8', b'29fec512f2ee929e', b'88944b29dde50648',
-                  b'c7bf1f59096102f3', b'7d71ee0e8ea0794a'
-              ],
-              'is_train': is_train_signals
-          })
+      'civil_comments_identities': pd.DataFrame({
+          'id': [b'876617', b'688889', b'5769682', b'4997434', b'5489660'],
+          'is_train': is_train_signals,
+      }).set_index('id'),
+      'civil_comments': pd.DataFrame({
+          'id': [b'634903', b'5977874', b'5390534', b'871483', b'825427'],
+          'is_train': is_train_signals,
+      }).set_index('id'),
+      'wikipedia_toxicity': pd.DataFrame({
+          'id': [
+              b'ee9697785fe41ff8',
+              b'29fec512f2ee929e',
+              b'88944b29dde50648',
+              b'c7bf1f59096102f3',
+              b'7d71ee0e8ea0794a',
+          ],
+          'is_train': is_train_signals,
+      }).set_index('id'),
   }
+
   return fake_signals[dataset_name]
 
 
@@ -169,10 +170,34 @@ class ToxicCommentsDatasetTest(tf.test.TestCase, parameterized.TestCase):
     element = next(iter(dataset))
 
     self.assertEqual(dataset_builder.num_examples, sum(is_train_signals))
-    expected_is_train_ids = signals[signals['is_train'] ==
-                                    1]['id'].values.tolist()
+    expected_is_train_ids = signals[signals['is_train'] == 1].index.tolist()
     self.assertEqual(element['id'].numpy().tolist(),
                      expected_is_train_ids[:batch_size])
+
+  @parameterized.named_parameters(
+      ('civil_comments', CCDataClass),
+      (
+          'civil_comments_identities',
+          CCIdentitiesDataClass,
+      ),
+      ('wikipedia_toxicity', WTDataClass),
+  )
+  def testFilterByCreatedDateRegex(self, dataset_class):
+    """Test if toxicity subtype is available from the example."""
+    batch_size = 9
+    created_date_regex = r'.*-01-.*'
+
+    dataset_builder = dataset_class(
+        split=tfds.Split.TRAIN,
+        dataset_type='tfds',
+        shuffle_buffer_size=20,
+        created_date_regex=created_date_regex,
+    )
+    dataset = dataset_builder.load(batch_size=batch_size).take(1)
+    element = next(iter(dataset))
+    if 'created_date' in element:
+      for created_date in element['created_date'].numpy().tolist():
+        self.assertRegex(created_date.decode('ascii'), created_date_regex)
 
 
 if __name__ == '__main__':

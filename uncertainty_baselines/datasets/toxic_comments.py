@@ -17,7 +17,7 @@
 
 import json
 import os
-from typing import Any, Collection, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Mapping, Collection, Dict, Optional, Sequence, Tuple, Union
 
 from absl import logging
 import pandas as pd
@@ -73,6 +73,43 @@ _SIGNAL_NAMES = [
     'binary_error',
 ]
 
+NUM_EXAMPLES_PER_YEAR = {
+    'civil_comments/CivilCommentsIdentities': {
+        2015: {
+            'train': 80,
+            'validation': 21,
+            'test': 22,
+        },
+        2016: {
+            'train': 96363,
+            'validation': 5252,
+            'test': 5295,
+        },
+        2017: {
+            'train': 308687,
+            'validation': 16020,
+            'test': 16260,
+        },
+    },
+    'civil_comments': {
+        2015: {
+            'train': 651,
+            'validation': 171,
+            'test': 150,
+        },
+        2016: {
+            'train': 433954,
+            'validation': 24003,
+            'test': 24104,
+        },
+        2017: {
+            'train': 1370269,
+            'validation': 73146,
+            'test': 73066,
+        },
+    },
+}
+
 
 def _build_tfrecord_dataset(glob_dir: str,
                             is_training: bool) -> tf.data.Dataset:
@@ -99,17 +136,24 @@ def _build_csv_dataset(glob_dir: str, is_training: bool) -> tf.data.Dataset:
 
 def _make_features_spec(
     max_seq_length: int,
-    additional_labels: Tuple[str]) -> Dict[str, tf.io.FixedLenFeature]:
+    additional_labels: Tuple[str],
+    int_id_type: bool = True,
+    has_features: bool = True,
+    has_created_date: bool = False,
+) -> Dict[str, tf.io.FixedLenFeature]:
   """Makes a specification dictionary for reading / writing TF Examples."""
   features_spec_dict = {
-      'id': tf.io.FixedLenFeature([], tf.int64),
+      'id': tf.io.FixedLenFeature([], tf.int64 if int_id_type else tf.string),
       'input_ids': tf.io.FixedLenFeature([max_seq_length], tf.int64),
       'input_mask': tf.io.FixedLenFeature([max_seq_length], tf.int64),
       'segment_ids': tf.io.FixedLenFeature([max_seq_length], tf.int64),
-      'features': tf.io.FixedLenFeature([], tf.string),
       'labels': tf.io.FixedLenFeature([], tf.float32),
   }
 
+  if has_features:
+    features_spec_dict['features'] = tf.io.FixedLenFeature([], tf.string)
+  if has_created_date:
+    features_spec_dict['created_date'] = tf.io.FixedLenFeature([], tf.string)
   for subtype in additional_labels:
     features_spec_dict.update({subtype: tf.io.FixedLenFeature([], tf.float32)})
 
@@ -125,16 +169,14 @@ def _load_signals(data_path: str) -> pd.DataFrame:
 class _KeyValueStore(object):
   """Storing key-(multi-)value pairs."""
 
-  def __init__(self, data: pd.DataFrame, key_name: str):
+  def __init__(self, data: pd.DataFrame):
     """Initializes multiple key-value lookup tables based on the data."""
 
     self._data = data
-    self._key_name = key_name
-    self._value_names = set(
-        column for column in self._data.columns if column != self._key_name)
+    self._value_names = set(self._data.columns)
 
     self._lookup_tables = {}
-    keys = tf.convert_to_tensor(self._data[self._key_name], dtype=tf.string)
+    keys = tf.convert_to_tensor(self._data.index, dtype=tf.string)
     for value_name in self._value_names:
       values = tf.convert_to_tensor(self._data[value_name], dtype=tf.float32)
       table = tf.lookup.StaticHashTable(
@@ -275,30 +317,47 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
     return info
 
 
+def _make_created_date_filter_fn(match_regex: str):
+  """Creates the created_date filter function."""
+
+  def _filter_fn(x: Mapping[str, tf.Tensor]) -> bool:
+    if 'created_date' not in x:
+      return True
+    return tf.strings.regex_full_match(x['created_date'], match_regex)
+
+  return _filter_fn
+
+
 class _JigsawToxicityDataset(base.BaseDataset):
   """Dataset builder abstract class."""
 
-  def __init__(self,
-               name: str,
-               split: str,
-               additional_labels: Tuple[str] = (),
-               multi_task_labels: Optional[str] = None,
-               multi_task_label_threshold: float = -1.,
-               validation_percent: float = 0.0,
-               shuffle_buffer_size: Optional[int] = None,
-               max_seq_length: Optional[int] = 512,
-               num_parallel_parser_calls: int = 64,
-               drop_remainder: bool = False,
-               try_gcs: bool = False,
-               download_data: bool = False,
-               data_dir: Optional[str] = None,
-               dataset_type: str = 'tfrecord',
-               is_training: Optional[bool] = None,
-               tf_hub_preprocessor_url: Optional[str] = None,
-               signals: Optional[pd.DataFrame] = None,
-               only_keep_train_examples: bool = False,
-               shard: Optional[int] = None,
-               **kwargs):  # pytype: disable=annotation-type-mismatch
+  def __init__(
+      self,
+      name: str,
+      split: str,
+      additional_labels: Tuple[str] = (),
+      multi_task_labels: Optional[str] = None,
+      multi_task_label_threshold: float = -1.0,
+      validation_percent: float = 0.0,
+      shuffle_buffer_size: Optional[int] = None,
+      max_seq_length: Optional[int] = 512,
+      num_parallel_parser_calls: int = 64,
+      drop_remainder: bool = False,
+      try_gcs: bool = False,
+      download_data: bool = False,
+      data_dir: Optional[str] = None,
+      dataset_type: str = 'tfrecord',
+      is_training: Optional[bool] = None,
+      tf_hub_preprocessor_url: Optional[str] = None,
+      signals: Optional[pd.DataFrame] = None,
+      only_keep_train_examples: bool = False,
+      int_id_type: bool = True,
+      has_features: bool = True,
+      has_created_date: bool = False,
+      created_date_regex: Optional[str] = None,
+      shard: Optional[int] = None,
+      **kwargs,
+  ):  # pytype: disable=annotation-type-mismatch
     """Create a tf.data.Dataset builder.
 
     Args:
@@ -338,6 +397,15 @@ class _JigsawToxicityDataset(base.BaseDataset):
       signals: The Pandas DataFrame storing signals for each example id.
       only_keep_train_examples: whether to filter examples by signal
         `{_IS_TRAIN_NAME}`.
+      int_id_type: Whether field `id` is of integer or string. Only used when
+        `dataset_type` is 'tfrecord'. This is to be compatiable with some
+        existing data. It's preferred to use string for the future created data.
+      has_features: Whether `features` exists. Only used when `dataset_type` is
+        'tfrecord'.
+      has_created_date: Whether `created_date` exists. Only used when
+        `dataset_type` is 'tfrecord'.
+      created_date_regex: The regex pattern used to filter examples by
+        `created_date`. If None (by default), not filter by it.
       shard: the specific tfrecord shard to be read.
       **kwargs: arguments to be passed to the base class.
     """
@@ -351,17 +419,34 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
     self._shard = shard
     dataset_builder = _JigsawToxicityDatasetBuilder(
-        tfds.builder(name, try_gcs=try_gcs), max_seq_length, data_dir,
-        dataset_type, self._shard)
+        tfds.builder(
+            name,
+            try_gcs=try_gcs,
+        ),
+        max_seq_length,
+        data_dir,
+        dataset_type,
+        self._shard,
+    )
     self.tf_hub_preprocessor_url = tf_hub_preprocessor_url
     self.additional_labels = additional_labels
     self.multi_task_labels = multi_task_labels
     self.multi_task_label_threshold = multi_task_label_threshold
 
-    self.feature_spec = _make_features_spec(max_seq_length, additional_labels)
+    self._int_id_type = int_id_type
+    self._has_created_date = has_created_date
+    self._has_features = has_features
+    self.feature_spec = _make_features_spec(
+        max_seq_length,
+        additional_labels,
+        self._int_id_type,
+        self._has_features,
+        self._has_created_date,
+    )
     self.split_names = DATA_SPLIT_NAMES
     self._data_dir = data_dir
     self._dataset_type = dataset_type
+    self._created_date_regex = created_date_regex
 
     if self.tf_hub_preprocessor_url:
       preprocessor = hub.load(self.tf_hub_preprocessor_url)
@@ -386,9 +471,18 @@ class _JigsawToxicityDataset(base.BaseDataset):
     else:
       filter_fn = None
 
+    if self._created_date_regex is not None:
+      created_date_filter_fn = _make_created_date_filter_fn(
+          self._created_date_regex
+      )
+      if filter_fn:
+        filter_fn = lambda x: filter_fn(x) and created_date_filter_fn(x)
+      else:
+        filter_fn = created_date_filter_fn
+
     self._signals = signals
     if self._signals is not None:
-      self._signal_db = _KeyValueStore(self._signals, key_name=_ID_NAME)
+      self._signal_db = _KeyValueStore(self._signals)
     else:
       self._signal_db = None
 
@@ -440,6 +534,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
                                              self.feature_spec)
         feature_id = parsed_example['id']
       else:
+        created_date = None
         # Load example depending on dataset type.
         if self._dataset_type == 'csv':
           (feature_id, feature, label, noise, bias, uncertainty,
@@ -454,13 +549,18 @@ class _JigsawToxicityDataset(base.BaseDataset):
           label = example['toxicity']
           feature = example['text']
           feature_id = example['id']
+          if 'created_date' in example:
+            created_date = example['created_date']
 
         # Read in sentences.
         parsed_example = {
             'id': feature_id,
             'features': feature,
-            'labels': label
+            'labels': label,
         }
+
+        if created_date is not None:
+          parsed_example.update({'created_date': created_date})
 
       if self._signal_db is not None:
         signals = self._signal_db.lookup(feature_id, _SIGNAL_NAMES)
@@ -505,14 +605,19 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
   @property
   def num_examples(self):
+    if self._created_date_regex is not None:
+      raise ValueError(
+          'Created date filter has been applied, `num_examples` is not accurate'
+          ' any more.'
+      )
+    if self._only_keep_train_examples:
+      return self._signals[_IS_TRAIN_NAME].sum()
     if (self._dataset_type == 'tfrecord' and
         'num_examples' in self.tfds_info.metadata):
       key = (
           self._split
           if self._shard is None else f'{self._split}-{self._shard}')
       return self.tfds_info.metadata['num_examples'][key]
-    if self._only_keep_train_examples:
-      return self._signals[_IS_TRAIN_NAME].sum()
     return super().num_examples
 
 
@@ -539,14 +644,14 @@ class WikipediaToxicityDataset(_JigsawToxicityDataset):
 class CivilCommentsDataset(_JigsawToxicityDataset):
   """Data loader for Civil Comments datasets."""
 
-  def __init__(self, **kwargs):
+  def __init__(self, has_created_date=True, **kwargs):
     super().__init__(name='civil_comments', **kwargs)
 
 
 class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
   """Data loader for Civil Comments Identities datasets."""
 
-  def __init__(self, **kwargs):
+  def __init__(self, has_created_date=True, **kwargs):
     super().__init__(  # pytype: disable=wrong-arg-types
         name='civil_comments/CivilCommentsIdentities',
         additional_labels=_TOXICITY_SUBTYPE_NAMES + _IDENTITY_LABELS,

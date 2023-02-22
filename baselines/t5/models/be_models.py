@@ -63,7 +63,7 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
       sequence_scores, intermediates = sequence_scores
     if ens_size > 1:
       sequence_scores = jnp.reshape(sequence_scores,
-                                    (ens_size, -1) + sequence_scores.shape[1:])
+                                    (ens_size, -1) + sequence_scores.shape[1:])  # pytype: disable=attribute-error  # jax-ndarray
       if ensemble_probs:
         # Computes log(mean(exp(logits))) along the first dimension.
         sequence_scores = (

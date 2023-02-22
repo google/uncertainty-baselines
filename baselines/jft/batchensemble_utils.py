@@ -195,7 +195,7 @@ def update_fn_be(opt: flax.optim.Optimizer, rng: jnp.ndarray, lr: jnp.ndarray,
   opt = opt.apply_gradient(grads, learning_rate=lr)
 
   if weight_decay_fn:
-    params = weight_decay_fn(opt.target, lr)
+    params = weight_decay_fn(opt.target, lr)  # pytype: disable=wrong-arg-types  # jax-ndarray
     opt = opt.replace(target=params)
 
   aux['learning_rate'] = lr

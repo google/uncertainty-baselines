@@ -283,7 +283,7 @@ class BitResNetHeteroscedastic(nn.Module):
 
     representations['temperature'] = output_layer.get_temperature()
     representations['logits'] = x
-    return x, representations
+    return x, representations  # pytype: disable=bad-return-type  # jax-ndarray
 
 
 # A dictionary mapping the number of layers in a resnet to the number of

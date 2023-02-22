@@ -165,7 +165,7 @@ def _build_dataset(dataset: Union[str, tfds.core.DatasetBuilder],
   dataset_options.experimental_threading.private_threadpool_size = 48
   dataset_options.experimental_threading.max_intra_op_parallelism = 1
 
-  read_config = tfds.ReadConfig(
+  read_config = tfds.ReadConfig(  # pytype: disable=wrong-arg-types  # jax-ndarray
       shuffle_seed=file_shuffle_seed, options=dataset_options)
 
   process_split = _get_process_split(

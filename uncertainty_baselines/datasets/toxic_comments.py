@@ -645,7 +645,9 @@ class CivilCommentsDataset(_JigsawToxicityDataset):
   """Data loader for Civil Comments datasets."""
 
   def __init__(self, has_created_date=True, **kwargs):
-    super().__init__(name='civil_comments', **kwargs)
+    super().__init__(
+        name='civil_comments', has_created_date=has_created_date, **kwargs
+    )
 
 
 class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
@@ -655,4 +657,6 @@ class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
     super().__init__(  # pytype: disable=wrong-arg-types
         name='civil_comments/CivilCommentsIdentities',
         additional_labels=_TOXICITY_SUBTYPE_NAMES + _IDENTITY_LABELS,
-        **kwargs)
+        has_created_date=has_created_date,
+        **kwargs,
+    )

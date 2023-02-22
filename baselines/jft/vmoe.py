@@ -332,9 +332,11 @@ def main(config, output_dir):
   for model_key, model_params in unpartitioned_params.items():
     pjit_partition_params_fn = pjit.pjit(
         fun=lambda x: x,
-        in_axis_resources=(jax.tree_map(lambda _: jax.sharding.PartitionSpec(),
-                                        model_params),),
-        out_axis_resources=variables_partition_spec[model_key])
+        in_shardings=(
+            jax.tree_map(lambda _: jax.sharding.PartitionSpec(), model_params),
+        ),
+        out_shardings=variables_partition_spec[model_key],
+    )
     with mesh:
       params[model_key] = pjit_partition_params_fn(model_params)
   del unpartitioned_params

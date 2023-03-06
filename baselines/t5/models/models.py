@@ -28,7 +28,7 @@ import t5x.models as t5x_models
 import decoding  # local file import from baselines.t5
 
 INT_CLASSES = (int, jnp.integer)
-
+PyTree = Any
 
 def _cache_concatenate(
     caches: Mapping[str, jnp.ndarray]) -> Mapping[str, jnp.ndarray]:
@@ -157,7 +157,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
 
   def _compute_argmax_score(
       self,
-      params: t5x_models.PyTreeDef,
+      params: PyTree,
       batch: Mapping[str, jnp.ndarray],
       return_intermediates: bool = False,
       dropout_rng: Optional[jnp.ndarray] = None,
@@ -266,7 +266,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
 
   def score_batch(
       self,
-      params: t5x_models.PyTreeDef,
+      params: PyTree,
       batch: Mapping[str, jnp.ndarray],
       return_intermediates: bool = False,
       return_beam_predictions: bool = False,
@@ -452,7 +452,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
 
   def predict_batch_with_aux(
       self,
-      params: t5x_models.PyTreeDef,
+      params: PyTree,
       batch: Mapping[str, jnp.ndarray],
       rng: Optional[jax.random.KeyArray] = None,
       decoder_params: Optional[MutableMapping[str, Any]] = None,
@@ -623,7 +623,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
 
   def predict_batch(
       self,
-      params: t5x_models.PyTreeDef,
+      params: PyTree,
       batch: Mapping[str, jnp.ndarray],
       rng: Optional[jnp.ndarray] = None,
       *,
@@ -665,7 +665,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
 
   def predict_batch_with_aux(
       self,
-      params: t5x_models.PyTreeDef,
+      params: PyTree,
       batch: Mapping[str, jnp.ndarray],
       rng: Optional[jax.random.KeyArray] = None,
       decoder_params: Optional[MutableMapping[str, Any]] = None,
@@ -712,7 +712,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
 
   def score_batch(
       self,
-      params: t5x_models.PyTreeDef,
+      params: PyTree,
       batch: Mapping[str, jnp.ndarray],
       return_intermediates: bool = False,
       *,
@@ -806,7 +806,7 @@ class DecoderOnlyBeamScoreModel(t5x_models.DecoderOnlyModel):
 
   def predict_batch(
       self,
-      params: t5x_models.PyTreeDef,
+      params: PyTree,
       batch: Mapping[str, jnp.ndarray],
       rng: Optional[jnp.ndarray] = None,
       *,

@@ -21,7 +21,7 @@ and their token-level probabilities.
 """
 import functools
 
-from typing import Callable, Mapping, Optional, Tuple, Union
+from typing import Any, Callable, Mapping, Optional, Tuple, Union
 import flax
 import jax
 from jax import lax
@@ -561,7 +561,7 @@ class BeamState:
   finished_flags: jnp.DeviceArray  # bool: [batch_size, beam_size]
   # The current state of the autoregressive decoding caches.
   # Any pytree of arrays, e.g. flax attention Cache object
-  cache: t5x_decoding.PyTreeDef
+  cache: Any
 
 
 def beam_init(batch_size: int,

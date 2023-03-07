@@ -52,6 +52,8 @@ class EncoderDecoderHeteroscedasticClassifierModel(
         params_axes_names_override=[
             ('decoder/heteroscedastic_head/.*bias', ('vocab',)),
             ('decoder/heteroscedastic_head/.*kernel', ('mlp', 'vocab')),
+            # Additional parameter for the automatic tuning of the temperature.
+            ('decoder/heteroscedastic_head/pre_sigmoid_temperature', ('mlp',))
         ])
 
 

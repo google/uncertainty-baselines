@@ -674,7 +674,7 @@ def beam_search(
 
     # If we're not at the max decode length, and the search hasn't terminated,
     # continue looping.
-    return not_at_end & (~search_terminated)
+    return not_at_end & (~search_terminated)  # pytype: disable=bad-return-type  # jax-devicearray
 
   def beam_search_loop_body_fn(state: BeamState) -> BeamState:
     """Beam search loop state update function."""
@@ -784,7 +784,7 @@ def beam_search(
 
     # Update FINISHED (reached end of sentence) sequences:
     # Calculate new seq scores from log probabilities.
-    new_scores = topk_log_probs / brevity_penalty(alpha, state.cur_index + 1)
+    new_scores = topk_log_probs / brevity_penalty(alpha, state.cur_index + 1)  # pytype: disable=wrong-arg-types  # jax-devicearray
     # Mask out the still unfinished sequences by adding large negative value.
     # --> [batch, 2*beams]
     new_scores += (~newly_finished) * NEG_INF

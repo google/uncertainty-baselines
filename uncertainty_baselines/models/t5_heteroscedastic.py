@@ -43,6 +43,7 @@ class HeteroscedasticDecoder(nn.Module):
   temperature_lower_bound: Optional[float] = None
   temperature_upper_bound: Optional[float] = None
   latent_dim: Optional[int] = None
+  cov_layer_kernel_init_scale: Optional[float] = None
 
   def setup(self):
     if self.config.logits_via_embedding:
@@ -63,6 +64,7 @@ class HeteroscedasticDecoder(nn.Module):
         temperature_lower_bound=self.temperature_lower_bound,
         temperature_upper_bound=self.temperature_upper_bound,
         latent_dim=self.latent_dim,
+        cov_layer_kernel_init_scale=self.cov_layer_kernel_init_scale,
         name='heteroscedastic_head')
 
   @nn.compact
@@ -137,6 +139,7 @@ class TransformerHeteroscedastic(t5_network.Transformer):
   temperature_lower_bound: Optional[float] = None
   temperature_upper_bound: Optional[float] = None
   latent_dim: Optional[int] = None
+  cov_layer_kernel_init_scale: Optional[float] = None
 
   def setup(self):
     cfg = self.config
@@ -164,6 +167,7 @@ class TransformerHeteroscedastic(t5_network.Transformer):
         temperature_lower_bound=self.temperature_lower_bound,
         temperature_upper_bound=self.temperature_upper_bound,
         latent_dim=self.latent_dim,
+        cov_layer_kernel_init_scale=self.cov_layer_kernel_init_scale,
     )
 
   @staticmethod

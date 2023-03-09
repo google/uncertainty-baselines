@@ -15,7 +15,7 @@
 
 """EncoderDecoder model for Heteroscedastic Transformer."""
 
-from typing import Mapping, Optional
+from typing import List, Mapping, Optional, Tuple
 from flax.core import scope as flax_scope
 import jax.numpy as jnp
 from t5x import utils
@@ -23,6 +23,7 @@ import t5x.models as t5x_models
 from models import models as ub_models  # local file import from baselines.t5
 
 Array = t5x_models.Array
+AssignmentMap = List[Tuple[str, Optional[str]]]
 
 
 class EncoderDecoderHeteroscedasticClassifierModel(
@@ -70,3 +71,33 @@ class EncoderDecoderHeteroscedasticBeamScoreModel(
   ) -> flax_scope.FrozenVariableDict:
     return EncoderDecoderHeteroscedasticClassifierModel.get_initial_variables(
         self, rng=rng, input_shapes=input_shapes, input_types=input_types)
+
+
+def get_assignment_map(use_pretrained_head: bool) -> AssignmentMap:
+  """Defines the assignment map that controls the checkpoint restoring logic.
+
+  Args:
+    use_pretrained_head: Whether to reuse the head of the pretrained model for
+      the location parameter (=mean) of the heteroscedastic layer. Note that
+      only the kernel is transferred since the T5 head comes with no bias term.
+
+  Returns:
+    The `assignment_map` to be passed to utils.RestoreCheckpointConfig.
+  """
+  if not use_pretrained_head:
+    return []
+
+  assignment_map = [
+      (
+          r'(.*)decoder/heteroscedastic_head/loc_layer/kernel(.*)',
+          r'\1decoder/logits_dense/kernel\2',
+      ),
+      # No map for the bias term since not present in the T5 head: See
+      #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/network.py#L356
+      #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/layers.py#L405
+      (r'(.*)decoder/heteroscedastic_head/diag_layer(.*)', None),
+      # This covers `scale_layer` as well as `scale_layer_homoscedastic` and
+      # `scale_layer_heteroscedastic` in the parameter-efficient case.
+      (r'(.*)decoder/heteroscedastic_head/scale_layer(.*)', None),
+  ]
+  return assignment_map

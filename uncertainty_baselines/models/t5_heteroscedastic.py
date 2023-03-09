@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Random-feature Gaussian Process model with T5 backbone."""
-from typing import Any
+"""Heteroscedastic model with T5 backbone."""
+from typing import Any, Optional
 
 import edward2.jax as ed
 import flax.linen as nn
@@ -38,12 +38,18 @@ class HeteroscedasticDecoder(nn.Module):
   num_factors: int = 0
   param_efficient: bool = False
   return_locs: bool = False
+  share_samples_across_batch: bool = False
+  tune_temperature: bool = False
+  temperature_lower_bound: Optional[float] = None
+  temperature_upper_bound: Optional[float] = None
+  latent_dim: Optional[int] = None
 
   def setup(self):
     if self.config.logits_via_embedding:
       raise ValueError('Sharing the embedding weights in the decoder output '
                        'layer is not supported in the heteroscedastic decoder.')
-    self.heteroscedastic_layer = ed.nn.MCSoftmaxDenseFA(
+    softmax_het_layer = ed.nn.MCSoftmaxDenseFA
+    self.heteroscedastic_layer = softmax_het_layer(
         self.config.vocab_size,
         self.num_factors,
         self.temperature,
@@ -52,6 +58,11 @@ class HeteroscedasticDecoder(nn.Module):
         self.mc_samples,
         logits_only=True,
         return_locs=self.return_locs,
+        share_samples_across_batch=self.share_samples_across_batch,
+        tune_temperature=self.tune_temperature,
+        temperature_lower_bound=self.temperature_lower_bound,
+        temperature_upper_bound=self.temperature_upper_bound,
+        latent_dim=self.latent_dim,
         name='heteroscedastic_head')
 
   @nn.compact
@@ -104,7 +115,7 @@ class HeteroscedasticDecoder(nn.Module):
     # NOTE: This is the place that will be different from the T5 transformer.
     # [batch, length, emb_dim] -> [batch, length, vocab_size]
     assert y.ndim == 3
-    batch, length = y.shape[:2]
+    batch, length = y.shape[:2]  # pylint: disable=unreachable
     logits = self.heteroscedastic_layer(y.reshape((batch * length, -1)))
     logits = logits.reshape((batch, length, -1))
 
@@ -121,6 +132,11 @@ class TransformerHeteroscedastic(t5_network.Transformer):
   param_efficient: bool = False
   return_locs: bool = False
   eval_rng_seed: int = 0
+  share_samples_across_batch: bool = False
+  tune_temperature: bool = False
+  temperature_lower_bound: Optional[float] = None
+  temperature_upper_bound: Optional[float] = None
+  latent_dim: Optional[int] = None
 
   def setup(self):
     cfg = self.config
@@ -142,7 +158,13 @@ class TransformerHeteroscedastic(t5_network.Transformer):
         mc_samples=self.mc_samples,
         num_factors=self.num_factors,
         param_efficient=self.param_efficient,
-        return_locs=self.return_locs)
+        return_locs=self.return_locs,
+        share_samples_across_batch=self.share_samples_across_batch,
+        tune_temperature=self.tune_temperature,
+        temperature_lower_bound=self.temperature_lower_bound,
+        temperature_upper_bound=self.temperature_upper_bound,
+        latent_dim=self.latent_dim,
+    )
 
   @staticmethod
   def modify_rngs(eval_rng_seed, rngs):

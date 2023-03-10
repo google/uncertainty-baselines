@@ -33,7 +33,7 @@ from t5x import utils
 import tensorflow as tf
 from tensorflow.io import gfile
 
-_DeviceArray = jnp.DeviceArray
+_DeviceArray = jax.Array
 _BeamPrediction = List[int]
 _BeamScore = List[float]
 

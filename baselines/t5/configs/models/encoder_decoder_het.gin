@@ -39,7 +39,7 @@ adafactor.Adafactor:
   decay_rate = 0.8
   step_offset = 0
 
-# Vocabulary (shared by encoder and decoder)
+# Vocabulary (shared by encoder and decoder). Its size is 32100.
 VOCABULARY = @seqio.SentencePieceVocabulary()
 seqio.SentencePieceVocabulary.sentencepiece_model_file = "/bigstore/t5-data/vocabs/cc_all.32000.100extra/sentencepiece.model"
 NUM_EMBEDDINGS = 32128  # vocab size rounded to a multiple of 128 for TPU efficiency
@@ -65,6 +65,10 @@ TEMPERATURE = 1.0
 MC_SAMPLES = 1000
 NUM_FACTORS = 0
 PARAM_EFFICIENT = False
+TUNE_TEMPERATURE = False
+LATENT_DIM = None
+INIT_COV_SCALE = 1.0
+
 EVAL_RNG_SEED = 0
 t5_heteroscedastic.TransformerHeteroscedastic:
   config = @network.T5Config()
@@ -73,6 +77,9 @@ t5_heteroscedastic.TransformerHeteroscedastic:
   num_factors = %NUM_FACTORS
   param_efficient = %PARAM_EFFICIENT
   eval_rng_seed = %EVAL_RNG_SEED
+  tune_temperature = %TUNE_TEMPERATURE
+  latent_dim = %LATENT_DIM
+  cov_layer_kernel_init_scale = %INIT_COV_SCALE
 
 # Decoding override to write Top-K beams and scores to output.
 NUM_DECODES = 5

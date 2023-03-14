@@ -162,8 +162,8 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
     del read_config
     del shuffle_files
     if split == tfds.Split.TEST:
-      filename = (f'{self._builder_config.corruption}-'
-                  f'{self._builder_config.severity}.tfrecords')
+      filename = (f'{self._builder_config.corruption}-'  # pytype: disable=attribute-error  # always-use-return-annotations
+                  f'{self._builder_config.severity}.tfrecords')  # pytype: disable=attribute-error  # always-use-return-annotations
       filepath = os.path.join(self._data_dir, filename)
       dataset = tf.data.TFRecordDataset(filepath, buffer_size=16 * 1000 * 1000)
       return dataset

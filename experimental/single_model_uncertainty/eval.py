@@ -191,7 +191,7 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
     ood_dataset = strategy.experimental_distribute_dataset(ood_dataset)
     ood_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'ood'))
-    num_ood_steps = ood_dataset_builder.num_examples() // batch_size
+    num_ood_steps = ood_dataset_builder.num_examples() // batch_size  # pytype: disable=not-callable  # always-use-return-annotations
 
     ood_fn = eval_step_fn(
         model,

@@ -73,13 +73,18 @@ class EncoderDecoderHeteroscedasticBeamScoreModel(
         self, rng=rng, input_shapes=input_shapes, input_types=input_types)
 
 
-def get_assignment_map(use_pretrained_head: bool) -> AssignmentMap:
+def get_assignment_map(
+    use_pretrained_head: bool, num_factors: int
+) -> AssignmentMap:
   """Defines the assignment map that controls the checkpoint restoring logic.
 
   Args:
     use_pretrained_head: Whether to reuse the head of the pretrained model for
       the location parameter (=mean) of the heteroscedastic layer. Note that
       only the kernel is transferred since the T5 head comes with no bias term.
+    num_factors: Number of factors used in the low-rank parametrisation of the
+      covariance in the heteroscedastic layer. When it is <= 0, only a diagonal
+      parametrisation is used.
 
   Returns:
     The `assignment_map` to be passed to utils.RestoreCheckpointConfig.
@@ -96,8 +101,11 @@ def get_assignment_map(use_pretrained_head: bool) -> AssignmentMap:
       #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/network.py#L356
       #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/layers.py#L405
       (r'(.*)decoder/heteroscedastic_head/diag_layer(.*)', None),
-      # This covers `scale_layer` as well as `scale_layer_homoscedastic` and
-      # `scale_layer_heteroscedastic` in the parameter-efficient case.
-      (r'(.*)decoder/heteroscedastic_head/scale_layer(.*)', None),
   ]
+  if num_factors > 0:
+    assignment_map += [
+        # This covers `scale_layer` as well as `scale_layer_homoscedastic` and
+        # `scale_layer_heteroscedastic` in the parameter-efficient case.
+        (r'(.*)decoder/heteroscedastic_head/scale_layer(.*)', None),
+    ]
   return assignment_map

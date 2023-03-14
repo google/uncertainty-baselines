@@ -293,7 +293,8 @@ class AdafactorGP(adafactor.Adafactor):
 
 def latest_checkpoint_paths(model_sweep_dir: str,
                             ckpt_pattern: str = r'checkpoint_\d+$',
-                            ckpt_type: str = 'first'):
+                            ckpt_type: str = 'first',
+                            ignored_model_dir: str = r'mldash'):
   r"""Returns a list of paths to the latest checkpoints.
 
   This function assumes the checkpoints are stored under paths of the format
@@ -318,11 +319,15 @@ def latest_checkpoint_paths(model_sweep_dir: str,
       `t5x.checkpoints.SaveBestCheckpointer`, which will save the best
       checkpoint (as its best checkpoint), the second-to-last checkpoint,
       and the latest checkpoint.
+    ignored_model_dir: String of regex pattern to ignore certain directories
+      that could otherwise be mistakenly considered as model directories. For
+      example, a directory that stores tensorboard-related files.
 
   Returns:
     A list of paths to the latest checkpoints.
   """
   ckpt_pattern_regex = re.compile(ckpt_pattern)
+  ignored_model_dir_regex = re.compile(ignored_model_dir)
 
   ckpt_paths = []
 
@@ -331,6 +336,10 @@ def latest_checkpoint_paths(model_sweep_dir: str,
 
     # Skips if the path is not a directory.
     if not gfile.isdir(model_path):
+      continue
+
+    # Invalid directory to skip.
+    if ignored_model_dir_regex.match(model_dir):
       continue
 
     # Finds all checkpoints under `model_path` that matches `ckpt_pattern`.

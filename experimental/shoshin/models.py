@@ -144,7 +144,7 @@ class ResNet(tf.keras.Model):
           layer.momentum = 0.9
 
     self.output_main = tf.keras.layers.Dense(
-        2,
+        model_params.num_classes,
         activation='softmax',
         name='main',
         kernel_regularizer=regularizer)

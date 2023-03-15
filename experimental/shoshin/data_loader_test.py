@@ -24,6 +24,8 @@ import tensorflow as tf
 import data  # local file import from experimental.shoshin
 from google3.testing.pybase import googletest
 
+RESNET_IMAGE_SIZE = 224
+
 
 def _make_temp_dir() -> str:
   return tempfile.mkdtemp(dir=os.environ.get('TEST_TMPDIR'))
@@ -35,23 +37,43 @@ def _make_serialized_image(size: int, pixel_value: int) -> bytes:
 
 
 def _make_example(
+    example_id: str,
     longitude: float,
     latitude: float,
     encoded_coordinates: str,
     label: float,
+    string_label: float,
     patch_size: int,
+    large_patch_size: int,
     before_pixel_value: int,
-    after_pixel_value: int) -> tf.train.Example:
+    after_pixel_value: int,
+) -> tf.train.Example:
   example = tf.train.Example()
+  example.features.feature['example_id'].bytes_list.value.append(
+      example_id.encode()
+  )
   example.features.feature['coordinates'].float_list.value.extend(
-      (longitude, latitude))
+      (longitude, latitude)
+  )
   example.features.feature['encoded_coordinates'].bytes_list.value.append(
-      encoded_coordinates.encode())
+      encoded_coordinates.encode()
+  )
   example.features.feature['label'].float_list.value.append(label)
+  example.features.feature['string_label'].bytes_list.value.append(
+      string_label.encode()
+  )
   example.features.feature['pre_image_png'].bytes_list.value.append(
-      _make_serialized_image(patch_size, before_pixel_value))
+      _make_serialized_image(patch_size, before_pixel_value)
+  )
   example.features.feature['post_image_png'].bytes_list.value.append(
-      _make_serialized_image(patch_size, after_pixel_value))
+      _make_serialized_image(patch_size, after_pixel_value)
+  )
+  example.features.feature['pre_image_png_large'].bytes_list.value.append(
+      _make_serialized_image(large_patch_size, before_pixel_value)
+  )
+  example.features.feature['post_image_png_large'].bytes_list.value.append(
+      _make_serialized_image(large_patch_size, after_pixel_value)
+  )
   return example
 
 
@@ -71,20 +93,20 @@ def _create_test_data():
       examples_dir, 'unlabeled_examples.tfrecord')
 
   _write_tfrecord([
-      _make_example(0, 0, 'A0', 0, 64, 0, 255),
-      _make_example(0, 1, 'A1', 0, 64, 0, 255),
-      _make_example(0, 2, 'A2', 1, 64, 0, 255),
+      _make_example('1st', 0, 0, 'A0', 0, 'no_damage', 64, 256, 0, 255),
+      _make_example('2nd', 0, 1, 'A1', 0, 'no_damage', 64, 256, 0, 255),
+      _make_example('3rd', 0, 2, 'A2', 1, 'major_damage', 64, 256, 0, 255),
   ], labeled_train_path)
 
   _write_tfrecord([
-      _make_example(1, 0, 'B0', 0, 64, 0, 255),
+      _make_example('4th', 1, 0, 'B0', 0, 'no_damage', 64, 256, 0, 255),
   ], labeled_test_path)
 
   _write_tfrecord([
-      _make_example(2, 0, 'C0', -1, 64, 0, 255),
-      _make_example(2, 1, 'C1', -1, 64, 0, 255),
-      _make_example(2, 2, 'C2', -1, 64, 0, 255),
-      _make_example(2, 3, 'C3', -1, 64, 0, 255),
+      _make_example('5th', 2, 0, 'C0', -1, 'bad_example', 64, 256, 0, 255),
+      _make_example('6th', 2, 1, 'C1', -1, 'bad_example', 64, 256, 0, 255),
+      _make_example('7th', 2, 2, 'C2', -1, 'bad_example', 64, 256, 0, 255),
+      _make_example('8th', 2, 3, 'C3', -1, 'bad_example', 64, 256, 0, 255),
   ], unlabeled_path)
 
   return labeled_train_path, labeled_test_path, unlabeled_path
@@ -115,12 +137,15 @@ class DataLoaderTest(googletest.TestCase):
         initial_sample_proportion=1,
         subgroup_ids=(),
         subgroup_proportions=(),
-        **kwargs)
+        **kwargs
+    )
     ds = dataloader.train_ds
     features = next(ds.as_numpy_iterator())
     self.assertIn('input_feature', features)
     input_feature = features['input_feature']
-    self.assertEqual(input_feature.shape, (224, 224, 3))
+    self.assertEqual(
+        input_feature.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3)
+    )
     self.assertEqual(input_feature.dtype, np.float32)
     np.testing.assert_equal(input_feature, 1.0)
 
@@ -140,12 +165,15 @@ class DataLoaderTest(googletest.TestCase):
         initial_sample_proportion=1,
         subgroup_ids=(),
         subgroup_proportions=(),
-        **kwargs)
+        **kwargs
+    )
     ds = dataloader.train_ds
     features = next(ds.as_numpy_iterator())
     self.assertIn('input_feature', features)
     input_feature = features['input_feature']
-    self.assertEqual(input_feature.shape, (224, 224, 6))
+    self.assertEqual(
+        input_feature.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
     self.assertEqual(input_feature.dtype, np.float32)
     np.testing.assert_equal(input_feature[:, :, :3], 0.0)
     np.testing.assert_equal(input_feature[:, :, 3:], 1.0)

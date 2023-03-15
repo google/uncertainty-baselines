@@ -793,60 +793,73 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
         builder=self,
         description='Skai',
         features=tfds.features.FeaturesDict({
-            'input_feature':
-                tfds.features.Tensor(
-                    shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3 if
-                           self.builder_config.use_post_disaster_only else 6),
-                    dtype=tf.float32),
-            'example_id':
-                tfds.features.Text(),
-            'coordinates':
-                tfds.features.Tensor(shape=(2,), dtype=tf.float32),
-            'label':
-                tfds.features.Tensor(shape=(), dtype=tf.int64),
-            'subgroup_label':
-                tfds.features.Tensor(shape=(), dtype=tf.int64),
-        }))
+            'input_feature': tfds.features.Tensor(
+                shape=(
+                    RESNET_IMAGE_SIZE,
+                    RESNET_IMAGE_SIZE,
+                    3 if self.builder_config.use_post_disaster_only else 6,
+                ),
+                dtype=tf.float32,
+            ),
+            'example_id': tfds.features.Text(),
+            'coordinates': tfds.features.Tensor(shape=(2,), dtype=tf.float32),
+            'label': tfds.features.Tensor(shape=(), dtype=tf.int64),
+            'subgroup_label': tfds.features.Tensor(shape=(), dtype=tf.int64),
+        }),
+    )
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     splits = {}
     if self.builder_config.labeled_train_pattern:
       splits['labeled_train'] = self._generate_examples(
-          self.builder_config.labeled_train_pattern)
+          self.builder_config.labeled_train_pattern
+      )
     if self.builder_config.labeled_test_pattern:
       splits['labeled_test'] = self._generate_examples(
-          self.builder_config.labeled_test_pattern)
+          self.builder_config.labeled_test_pattern
+      )
     if self.builder_config.unlabeled_pattern:
       splits['unlabeled'] = self._generate_examples(
-          self.builder_config.unlabeled_pattern)
+          self.builder_config.unlabeled_pattern
+      )
     return splits
 
   def _decode_record(self, record_bytes):
     example = tf.io.parse_single_example(
-        record_bytes, {
+        record_bytes,
+        {
             'coordinates': tf.io.FixedLenFeature([2], dtype=tf.float32),
             'encoded_coordinates': tf.io.FixedLenFeature([], dtype=tf.string),
-            'pre_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
-            'post_image_png': tf.io.FixedLenFeature([], dtype=tf.string),
-            'label': tf.io.FixedLenFeature([], dtype=tf.float32)
-        })
+            'example_id': tf.io.FixedLenFeature([], dtype=tf.string),
+            'pre_image_png_large': tf.io.FixedLenFeature([], dtype=tf.string),
+            'post_image_png_large': tf.io.FixedLenFeature([], dtype=tf.string),
+            'label': tf.io.FixedLenFeature([], dtype=tf.float32),
+            'string_label': tf.io.FixedLenFeature(
+                [], dtype=tf.string, default_value='no_string_label'
+            ),
+        },
+    )
 
     features = {}
     after_image = _decode_and_resize_image(
-        example['post_image_png'], RESNET_IMAGE_SIZE
+        example['post_image_png_large'], RESNET_IMAGE_SIZE
     )
     if self.builder_config.use_post_disaster_only:
       features['input_feature'] = after_image
     else:
       before_image = _decode_and_resize_image(
-          example['pre_image_png'], RESNET_IMAGE_SIZE
+          example['pre_image_png_large'], RESNET_IMAGE_SIZE
       )
       features['input_feature'] = tf.concat(
-          [before_image, after_image], axis=-1)
+          [before_image, after_image], axis=-1
+      )
 
-    example_id = tf.cast(example['encoded_coordinates'], tf.string)
-    features['example_id'] = example_id
+    example_id = tf.strings.join(
+        [example['example_id'], example['string_label']],
+        separator='_'
+    )
     features['label'] = tf.cast(example['label'], tf.int64)
+    features['example_id'] = example_id
     features['subgroup_label'] = features['label']
     features['coordinates'] = example['coordinates']
     return example_id, features
@@ -1123,7 +1136,7 @@ def get_skai_dataset(num_splits: int,
   """
   # pylint: disable=unexpected-keyword-arg
   hurricane_ian_config = SkaiDatasetConfig(
-      name='hurricane_ian',
+      name='skai_dataset',
       labeled_train_pattern=labeled_train_pattern,
       labeled_test_pattern=validation_pattern,
       unlabeled_pattern=unlabeled_train_pattern,

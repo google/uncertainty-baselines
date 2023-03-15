@@ -1,0 +1,38 @@
+name: deterministic_street_hazards_hparam
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.use_wandb:
+    value: true
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+  config.batch_size:
+    value: 16
+  config.lr_configs.base_learning_rate:
+    values: [0.0001, 0.00001, 0.0003]
+  config.num_training_epochs:
+    values: [50, 100]
+
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "configs/street_hazards/deterministic.py"
+  - "--output_dir"
+  - "gs://ub-ekb/segmenter/street_hazards/deterministic"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

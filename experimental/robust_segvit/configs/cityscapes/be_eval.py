@@ -14,14 +14,14 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Train segmenter model on cityscapes dataset.
-
-Compare performance from deterministic upstream checkpoints.
+r"""Evaluate segmenter_be model on cityscapes dataset.
 
 """
 # pylint: enable=line-too-long
 
 import ml_collections
+import os
+import datetime
 
 _CITYSCAPES_TRAIN_SIZE = 2975
 _CITYSCAPES_TRAIN_SIZE_SPLIT = 146
@@ -33,12 +33,12 @@ STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
 target_size = (768, 768)
-EXPERIMENTID = '43838585-16'
+EXPERIMENTID = '45338505-1'
 
 # Upstream
 CHECKPOINT_PATHS = {
-    ('ub', 'L', 16, None, 'token', '43838585-16'):
-        'gs://ub-ekb/checkpoints_to_upload/cityscapes/43838585-16',
+    ('ub', 'L', 16, None, 'token', '45338505-1'):
+        'gs://ub-checkpoints/45338505-cityscapes_segmenter_be/1',
 }
 
 
@@ -66,11 +66,15 @@ def get_config(runlocal=''):
   config.experiment_name = 'cityscapes_segmenter_be_eval'
 
   # Dataset.
-  config.dataset_name = 'cityscapes'
+  config.dataset_name = 'robust_segvit_segmentation'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = (1024, 2048)
   config.dataset_configs.train_split = 'train'
-  config.dataset_configs.dataset_name = ''  # name of ood dataset to evaluate
+  config.dataset_configs.name = 'cityscapes'  # name of dataset to evaluate
+  config.dataset_configs.train_target_size = config.dataset_configs.get_ref(
+      'target_size')
+  config.dataset_configs.denoise = None
+  config.dataset_configs.use_timestep = 0
 
   # Model.
   config.model_name = 'segvit'
@@ -143,8 +147,7 @@ def get_config(runlocal=''):
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'segmm'
   config.eval_configs.window_stride = 512
-  config.eval_covariate_shift = True
-  config.eval_label_shift = True
+  config.eval_configs.store_logits = False
   config.model.input_shape = target_size
 
   # Eval parameters for robustness
@@ -152,8 +155,25 @@ def get_config(runlocal=''):
   config.eval_covariate_shift = True
   config.eval_robustness_configs = ml_collections.ConfigDict()
   config.eval_robustness_configs.auc_online = True
-  config.eval_robustness_configs.method_name = 'msp'
-  config.eval_robustness_configs.num_top_k = 5
+  config.eval_robustness_configs.method_name = 'nmlogit'
+  config.eval_robustness_configs.num_top_k = 1
+
+  # Load checkpoint
+  config.checkpoint_configs = ml_collections.ConfigDict()
+  config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
+  config.checkpoint_configs.checkpoint_path = CHECKPOINT_PATH
+  config.checkpoint_configs.classifier = 'token'
+
+  # wandb.ai configurations.
+  config.use_wandb = False
+  config.wandb_dir = 'wandb'
+  config.wandb_project = 'rdl-debug'
+  config.wandb_entity = 'ekellbuch'
+  config.wandb_exp_name = None  # Give experiment a name.
+  config.wandb_exp_name = (
+          os.path.splitext(os.path.basename(__file__))[0] + '_' +
+          datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
+  config.wandb_exp_group = None  # Give experiment a group name.
 
   if runlocal:
     config.count_flops = False
@@ -164,12 +184,6 @@ def get_config(runlocal=''):
     config.dataset_configs.train_split = 'train[:5%]'
     config.steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.get_ref(
         'batch_size')
-  else:
-    # Load checkpoint
-    config.checkpoint_configs = ml_collections.ConfigDict()
-    config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
-    config.checkpoint_configs.checkpoint_path = CHECKPOINT_PATH
-    config.checkpoint_configs.classifier = 'token'
 
   return config
 

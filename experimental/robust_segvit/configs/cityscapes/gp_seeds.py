@@ -16,7 +16,7 @@
 # pylint: disable=line-too-long
 r"""Train segmenter model on cityscapes dataset.
 
-Compare performance from deterministic upstream checkpoints.
+Compare performance across seeds.
 
 """
 # pylint: enable=line-too-long
@@ -71,14 +71,18 @@ def get_config(runlocal=''):
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'cityscapes_segmenter_be'
+  config.experiment_name = 'cityscapes_segmenter_gp_seeds'
 
   # Dataset.
-  config.dataset_name = 'cityscapes'
+  config.dataset_name = 'robust_segvit_segmentation'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
   config.dataset_configs.train_split = 'train'
-  config.dataset_configs.dataset_name = ''  # name of ood dataset to evaluate
+  config.dataset_configs.name = 'cityscapes'  # name of dataset to evaluate
+  config.dataset_configs.train_target_size = config.dataset_configs.get_ref(
+      'target_size')
+  config.dataset_configs.denoise = None
+  config.dataset_configs.use_timestep = 0
 
   # Model.
   config.model_name = 'segvit'
@@ -88,7 +92,7 @@ def get_config(runlocal=''):
   config.model.patches.size = (STRIDE, STRIDE)
 
   config.model.backbone = ml_collections.ConfigDict()
-  config.model.backbone.type = 'vit_be'
+  config.model.backbone.type = 'vit'
   config.model.backbone.mlp_dim = mlp_dim
   config.model.backbone.num_heads = num_heads
   config.model.backbone.num_layers = num_layers
@@ -99,13 +103,20 @@ def get_config(runlocal=''):
 
   # Decoder
   config.model.decoder = ml_collections.ConfigDict()
-  config.model.decoder.type = 'linear_be'
+  config.model.decoder.type = 'gp'
 
-  # BE variables
-  config.model.backbone.ens_size = 3
-  config.model.backbone.random_sign_init = -0.5
-  config.model.backbone.be_layers = (22, 23)
-  config.fast_weight_lr_multiplier = 1.0
+  # GP layer params
+  config.model.decoder.gp_layer = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.covmat_kwargs.ridge_penalty = 1.
+  # Disable momentum in order to use exact covariance update for finetuning.
+  # Disable to allow exact cov update.
+  config.model.decoder.gp_layer.covmat_kwargs.momentum = 0.99
+  config.model.decoder.mean_field_factor = 3.
+  # Additional params
+  config.model.decoder.gp_layer.normalize_input = True
+  config.model.decoder.gp_layer.hidden_kwargs = ml_collections.ConfigDict()
+  config.model.decoder.gp_layer.hidden_kwargs.feature_scale = 1.
 
   # Training.
   config.trainer_name = 'segvit_trainer'
@@ -165,7 +176,7 @@ def get_config(runlocal=''):
 
   config.eval_robustness_configs = ml_collections.ConfigDict()
   config.eval_robustness_configs.auc_online = True
-  config.eval_robustness_configs.method_name = 'msp'
+  config.eval_robustness_configs.method_name = 'mlogit'
 
   # wandb.ai configurations.
   config.use_wandb = False
@@ -177,7 +188,6 @@ def get_config(runlocal=''):
           os.path.splitext(os.path.basename(__file__))[0] + '_' +
           datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   config.wandb_exp_group = None  # Give experiment a group name.
-
 
   if runlocal:
     config.count_flops = False
@@ -236,12 +246,15 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
 
 
 def get_sweep(hyper):
-  """Defines the hyper-parameters sweeps for grid search."""
+  """Defines the hyper-parameters sweeps for doing grid search."""
 
-  random_sign_init = hyper.sweep('config.model.backbone.random_sign_init',
-                                 [-0.5, 0.5])
-  fast_weight_lr_multiplier = hyper.sweep('config.fast_weight_lr_multiplier',
-                                          [0.5, 1.0, 2.0])
+  parameters = [
+      hyper.sweep('config.model.decoder.gp_layer.normalize_input',
+                  [True, False]),
+      hyper.sweep('config.model.decoder.mean_field_factor',
+                  hyper.discrete(range(1, 10))),
+      hyper.sweep('config.model.decoder.gp_layer.hidden_kwargs.feature_scale',
+                  [1.0, 2.0]),
+  ]
 
-  return hyper.product([random_sign_init, fast_weight_lr_multiplier])
-
+  return hyper.product(parameters)

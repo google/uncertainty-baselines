@@ -1,0 +1,37 @@
+name: be_street_hazards_hparam
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.use_wandb:
+    value: true
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+  config.batch_size:
+    value: 24
+  config.model.backbone.random_sign_init:
+    values: [-0.5, -0.25, 0.25, 0.5]
+  config.fast_weight_lr_multiplier:
+    values: [0.5, 1.0, 2.0]
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "configs/street_hazards/be.py"
+  - "--output_dir"
+  - "gs://ub-ekb/segmenter/street_hazards/be"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

@@ -1,0 +1,35 @@
+name: het_street_hazards_hparam
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.use_wandb:
+    value: true
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+  config.batch_size:
+    value: 24
+  config.model.decoder.temperature:
+    values: [0.15, 0.3, 1, 1.5, 2.0]
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "configs/street_hazards/het.py"
+  - "--output_dir"
+  - "gs://ub-ekb/segmenter/street_hazards/het"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

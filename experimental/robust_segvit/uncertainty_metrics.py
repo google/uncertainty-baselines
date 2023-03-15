@@ -15,11 +15,10 @@
 
 """Calculate uncertainty metrics for segmentation tasks."""
 from typing import Optional, Tuple
+import jax
 from jax import lax
 import jax.numpy as jnp
-from scenic.model_lib.base_models.model_utils import apply_weights
-
-# TODO(kellybuchanan): reconcile cases where mask is 0.
+from scenic.model_lib.layers import nn_ops
 
 
 def calculate_num_patches_binary_maps(
@@ -29,7 +28,7 @@ def calculate_num_patches_binary_maps(
 
   Args:
     binary_acc_map : binary accuracy map
-    binary_unc_map : binary uncertainty map
+    binary_unc_map : binary uncertainty map (1=certain, 0=uncertain)
 
   Returns:
     metrics to calculate uncertainty scores
@@ -37,24 +36,24 @@ def calculate_num_patches_binary_maps(
   # number of patches that are accurate and certain
   n_ac = jnp.sum(
       jnp.logical_and(
-          jnp.equal(binary_acc_map, 1), jnp.equal(binary_unc_map, 0)),
+          jnp.equal(binary_acc_map, 1), jnp.equal(binary_unc_map, 1)),
       axis=(-1, -2))
 
   # number of patches that are inaccurate and certain
   n_ic = jnp.sum(
       jnp.logical_and(
-          jnp.equal(binary_acc_map, 0), jnp.equal(binary_unc_map, 0)),
+          jnp.equal(binary_acc_map, 0), jnp.equal(binary_unc_map, 1)),
       axis=(-1, -2))
   # number of patches that are inaccurate and uncertain
   n_iu = jnp.sum(
       jnp.logical_and(
-          jnp.equal(binary_acc_map, 0), jnp.equal(binary_unc_map, 1)),
+          jnp.equal(binary_acc_map, 0), jnp.equal(binary_unc_map, 0)),
       axis=(-1, -2))
 
   # number of patches that are accurate and uncertain
   n_au = jnp.sum(
       jnp.logical_and(
-          jnp.equal(binary_acc_map, 1), jnp.equal(binary_unc_map, 1)),
+          jnp.equal(binary_acc_map, 1), jnp.equal(binary_unc_map, 0)),
       axis=(-1, -2))
 
   unc_confusion_matrix = jnp.stack((n_ac, n_ic, n_iu, n_au), axis=-1)
@@ -86,16 +85,17 @@ def get_pavpu(unc_confusion_matrix):
 
 
 def get_uncertainty_confusion_matrix(
+    *,
     logits: jnp.ndarray,
     labels: jnp.ndarray,
+    uncertainty_measure: str = 'softmax',
+    accuracy_measure : str = 'predictive_accuracy',
     weights: Optional[jnp.ndarray] = None,
     accuracy_th: Optional[float] = 0.5,
     uncertainty_th: Optional[float] = 0.5,
-    window_size: Optional[int] = 2
+    window_size: Optional[int] = 2,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   """Calculate counts of patches accurate/inacurate and certain/uncertain.
-
-  TODO(kellybuchanan): include weights for entropy calculation.
 
   Args:
     logits: predicted logits
@@ -118,29 +118,43 @@ def get_uncertainty_confusion_matrix(
   preds = jnp.argmax(logits, axis=-1)
 
   # calculate binary accuracy map
-  correct = jnp.equal(preds, targets)
+  correct = jnp.equal(preds, targets).astype(jnp.float32)
 
-  # batch masking
-  if weights is not None:
-    correct = apply_weights(correct, weights)
+  if weights is None:
+    weights = jnp.ones(correct.shape)
 
-  correct = correct.astype(jnp.float32)
+  weights = weights.astype(jnp.float32)
+
+  if accuracy_measure == 'predictive_accuracy':
+    accuracy_map = correct
+  else:
+    raise NotImplementedError('Accuracy measure not implemented.')
 
   # A given patch is accurate if its acc > accuracy_threshold
-  binary_acc_map = reduce_2dmap(correct, window_size,
-                                accuracy_th).astype(jnp.float32)
+  binary_acc_map = reduce_2dmap_weighted(accuracy_map,
+                                         weights,
+                                         window_size=window_size,
+                                          threshold=accuracy_th).astype(jnp.float32)
 
-  # Calculate uncertainty map
-  entropy = get_entropy_from_logits(logits)
+  # Calculate uncertainty map:
+  if uncertainty_measure == 'softmax':
+    uncertainty_map = jnp.max(jax.nn.softmax(logits, -1), -1)
+  elif uncertainty_measure == 'entropy':
+    uncertainty_map = get_entropy_from_logits(logits)
+  else:
+    raise NotImplementedError(f'Uncertainty measure {uncertainty_measure} not implemented.')
 
-  # A given patch is uncertain if its uncertainty > uncertainty_th
-  binary_unc_map = reduce_2dmap(entropy, window_size,
-                                uncertainty_th).astype(jnp.float32)
+  # A given patch is certain if its uncertainty > uncertainty_th
+  binary_unc_map = reduce_2dmap_weighted(uncertainty_map,
+                                         weights,
+                                         window_size=window_size,
+                                          threshold=uncertainty_th).astype(jnp.float32)
 
   # number of patches that are accurate and certain
   unc_confusion_matrix = calculate_num_patches_binary_maps(
       binary_acc_map, binary_unc_map)
 
+  unc_confusion_matrix = unc_confusion_matrix[jnp.newaxis, ...]  # Dummy batch dim.
   return unc_confusion_matrix
 
 
@@ -159,14 +173,14 @@ def reduce_2dmap(
   """Given a map, apply a 2d spatial strided convolution to avg adjacent values.
 
   Args:
-    array_map: array to be split.
+    array_map: array to be split.  3-D Tensor;  With shape `[batch, in_rows, in_cols].
     window_size: size of window.
     threshold: threshold for binarization.
 
   Returns:
     binary_map: binary map.
   """
-  # Expand dimension to match filter C dimension.
+  # Expand dimension for dummy depth dimension 
   array_map = jnp.expand_dims(array_map, -1)
 
   # Create a kernel
@@ -188,6 +202,45 @@ def reduce_2dmap(
   # binarize_map according to threshold
   binary_map = jnp.greater(out, threshold)
 
+  binary_map = jnp.squeeze(binary_map, -1)
+
+  return binary_map.astype(jnp.int32)
+
+
+def reduce_2dmap_weighted(
+    array_map: jnp.ndarray,
+    weights: jnp.ndarray,
+    window_size: int = 4,
+    threshold: float = 0.5,
+) -> jnp.ndarray:
+  """Given a map, apply a pooling operation to avg adjacent values.
+
+  Args:
+    array_map: array to be split.  3-D Tensor;  With shape `[batch, in_rows, in_cols].
+    weights: array of weights.   3-D Tensor;  With shape `[batch, in_rows, in_cols].
+    window_size: size of window.
+    threshold: threshold for binarization.
+    data_format: str; The format of the `lhs`. Must be either `'NHWC'` or `'NCHW'`.
+
+  Returns:
+    binary_map: binary map.
+  """
+  # Expand dimension for dummy feature dimension
+  array_map = jnp.expand_dims(array_map, -1)
+
+  window_shape = (window_size, window_size)
+
+  outputs = nn_ops.weighted_avg_pool(
+    array_map,
+    weights,
+    window_shape=window_shape,
+    strides=window_shape,
+    padding='VALID')
+
+  # Binarize_map according to threshold
+  binary_map = jnp.greater_equal(outputs, threshold)
+
+  # Squeeze dummy feature dimension
   binary_map = jnp.squeeze(binary_map, -1)
 
   return binary_map.astype(jnp.int32)

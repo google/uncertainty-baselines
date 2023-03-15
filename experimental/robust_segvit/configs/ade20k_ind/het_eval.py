@@ -22,6 +22,8 @@ Compare performance from deterministic upstream checkpoints.
 # pylint: enable=line-too-long
 
 import ml_collections
+import datetime
+import os
 
 _CITYSCAPES_FINE_TRAIN_SIZE = 2975
 _CITYSCAPES_COARSE_TRAIN_SIZE = 19998
@@ -44,14 +46,14 @@ VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
-EXPERIMENTID = '43838062-14'
+EXPERIMENTID = '45350817-1'
 
 target_size = (640, 640)
 
 # Upstream
 CHECKPOINT_PATHS = {
-    ('ub', 'L', 16, None, 'token', '43838062-14'):
-        'gs://ub-ekb/checkpoints_to_upload/ade20k/43838062-14',
+    ('ub', 'L', 16, None, 'token', '45350817-1'):
+        'gs://ub-checkpoints/45350817-ade20k_ind_segmenter_het_hyper/1',
 }
 
 
@@ -116,12 +118,12 @@ def get_config(runlocal=''):
 
   # Het layer params
   # temp: wide sweep [0.15, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]
-  config.model.decoder.temperature = 2.0
+  config.model.decoder.temperature = 1.0
   # efficient low rank approx ~ FxK where K is the classes. False for K<20.
   config.model.decoder.param_efficient = False
   # F as a low rank approx of KxK matrix has num_factors:
   # imagenet~15, jft~50, cifar~6, cityscapes~sweep(5-10).
-  config.model.decoder.num_factors = 10
+  config.model.decoder.num_factors = 5
   # mc_samples: use as much as can be afforded, ideally > 10.
   config.model.decoder.mc_samples = 1000
   config.model.decoder.return_locs = False
@@ -172,17 +174,34 @@ def get_config(runlocal=''):
   config.eval_mode = True
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
-  config.eval_covariate_shift = True
-  config.eval_label_shift = True
   config.model.input_shape = target_size
+  config.eval_configs.store_logits = False
 
   # Eval parameters for robustness
   config.eval_label_shift = True
   config.eval_covariate_shift = True
   config.eval_robustness_configs = ml_collections.ConfigDict()
   config.eval_robustness_configs.auc_online = True
-  config.eval_robustness_configs.method_name = 'msp'
-  config.eval_robustness_configs.num_top_k = 5
+  config.eval_robustness_configs.method_name = 'nmlogit'
+  config.eval_robustness_configs.num_top_k = 1
+
+  # Load checkpoint
+  config.checkpoint_configs = ml_collections.ConfigDict()
+  config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
+  config.checkpoint_configs.checkpoint_path = CHECKPOINT_PATH
+  config.checkpoint_configs.classifier = 'token'
+
+  # wandb.ai configurations.
+  config.use_wandb = False
+  config.wandb_dir = 'wandb'
+  config.wandb_project = 'rdl-debug'
+  config.wandb_entity = 'ekellbuch'
+  config.wandb_exp_name = None  # Give experiment a name.
+  config.wandb_exp_name = (
+          os.path.splitext(os.path.basename(__file__))[0] + '_' +
+          datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
+  config.wandb_exp_group = None  # Give experiment a group name.
+
 
   if runlocal:
     config.count_flops = False
@@ -193,12 +212,6 @@ def get_config(runlocal=''):
     config.dataset_configs.train_split = f'train[:{TRAIN_SAMPLES}]'
     config.dataset_configs.validation_split = f'validation[:{TRAIN_SAMPLES}]'
     config.num_train_examples = TRAIN_SAMPLES
-  else:
-    # Load checkpoint
-    config.checkpoint_configs = ml_collections.ConfigDict()
-    config.checkpoint_configs.checkpoint_format = CHECKPOINT_ORIGIN
-    config.checkpoint_configs.checkpoint_path = CHECKPOINT_PATH
-    config.checkpoint_configs.classifier = 'token'
   return config
 
 

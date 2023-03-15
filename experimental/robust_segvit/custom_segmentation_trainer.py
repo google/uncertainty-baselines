@@ -44,12 +44,18 @@ import eval_utils  # local file import from experimental.robust_segvit
 from ensemble_utils import log_average_softmax_probs  # local file import from experimental.robust_segvit
 from inference import process_batch  # local file import from experimental.robust_segvit
 from ood_metrics import get_ood_metrics  # local file import from experimental.robust_segvit
-from ood_metrics import get_ood_score  # local file import from experimental.robust_segvit
 from pretrainer_utils import convert_torch_to_jax_checkpoint  # local file import from experimental.robust_segvit
+from pretrainer_utils import convert_vision_transformer_to_scenic  # local file import from experimental.robust_segvit
 from uncertainty_metrics import get_uncertainty_confusion_matrix  # local file import from experimental.robust_segvit
-
+from checkpoint_utils import load_checkpoints_eval
+from checkpoint_utils import load_checkpoints_backbone
+import h5py
+import os
 import resource
 import sys
+import robustness_metrics as rm
+from metrics_multihost import ComputeOODAUCMetric
+from metrics_multihost import host_all_gather_metrics
 
 Batch = Dict[str, jnp.ndarray]
 MetricFn = Callable[[jnp.ndarray, Dict[str, jnp.ndarray]],
@@ -126,6 +132,7 @@ def evaluate(train_state: train_utils.TrainState,
              global_metrics_fn: Any,
              global_unc_metrics_fn: Optional[Any],
              prefix: str = 'valid',
+             workdir: str = '',
              ) -> Dict[str, Any]:
   """Model evaluator.
 
@@ -160,16 +167,53 @@ def evaluate(train_state: train_utils.TrainState,
   # Evaluate global metrics on one of the hosts (lead_host), but given
   # intermediate values collected from all hosts.
 
-  for _ in range(steps_per_eval):
+  # setup calibration evaluation
+  ece_num_bins = config.get('ece_num_bins', 15)
+  ece_metric = rm.metrics.ExpectedCalibrationError(num_bins=ece_num_bins)._metric
+  calib_auc = rm.metrics.CalibrationAUC(correct_pred_as_pos_label=False)._metric
+
+  # store logits
+  store_logits = config.eval_configs.get('store_logits', False)
+
+  if store_logits:
+    store_logits_fname = os.path.join(workdir, "{}_{}_val.h5py".format(prefix,"logits"))
+    f = h5py.File(store_logits_fname, 'w', libver='latest')
+    f.swmr_mode = True  # single write multi-read
+    input_shape = dataset.meta_data['input_shape'][1:3]
+    num_classes = dataset.meta_data['num_classes']
+    num_eval_examples = int(steps_per_eval * config.batch_size)
+    logits_out = f.create_dataset('logits', (num_eval_examples,) + input_shape + (num_classes,))
+    inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
+    labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
+
+  for step_ in range(steps_per_eval):
     eval_batch = next(dataset.valid_iter)
     e_batch, e_logits, e_metrics, confusion_matrix, unc_confusion_matrix = eval_step_pmapped(
         train_state=train_state, batch=eval_batch)
     eval_metrics.append(train_utils.unreplicate_and_get(e_metrics))
+
+    probs = jax.nn.softmax(e_logits, axis=-1)
+    # updates on each host separately
+    ece_metric.update_state(labels=e_batch['label'], probabilities=probs, sample_weight=e_batch['batch_mask'])
+    y_pred = jnp.argmax(probs, axis=-1)  # predicted label indices
+    confidence = jnp.max(probs, axis=-1)  # confidence score for predicted labels
+    calib_auc.update_state(y_true=e_batch['label'], y_pred=y_pred, confidence=confidence, sample_weight=e_batch['batch_mask'])
+
     if lead_host and global_metrics_fn is not None:
       # Collect data to be sent for computing global metrics.
       eval_all_confusion_mats.append(to_cpu(confusion_matrix, all_gather=True))
       eval_all_unc_confusion_mats.append(
           to_cpu(unc_confusion_matrix, all_gather=True))
+
+      if store_logits:
+        start_idx = step_ * config.batch_size
+        end_idx = start_idx + config.batch_size
+        logits_out[start_idx:end_idx] = e_logits
+        inputs_out[start_idx:end_idx] = e_batch['inputs']
+        labels_out[start_idx:end_idx] = e_batch['label']
+
+  if store_logits:
+    f.close()
 
   # Compute global metrics
   eval_global_metrics_summary = {}
@@ -190,6 +234,17 @@ def evaluate(train_state: train_utils.TrainState,
       prefix=prefix,
       )
 
+  del e_metrics, eval_batch, eval_metrics, eval_global_metrics_summary
+  del eval_all_confusion_mats
+  del eval_all_unc_confusion_mats
+
+  # Gather uncertainty metrics from all hosts and write value:
+  ece_metric = host_all_gather_metrics(ece_metric)
+  calib_auc = host_all_gather_metrics(calib_auc)
+  writer.write_scalars(step=step, scalars={'{}_ece'.format(prefix): ece_metric.result(),
+                                           '{}_calib_auc'.format(prefix): calib_auc.result(),
+                                           } )
+
   # Visualize val predictions for one batch:
   if lead_host:
     # in eval_step we do not use all_gather in batch or logits
@@ -206,10 +261,7 @@ def evaluate(train_state: train_utils.TrainState,
   writer.flush()
 
   # Free some memory
-  del eval_metrics
-  del eval_global_metrics_summary
-  del eval_all_confusion_mats
-  del eval_all_unc_confusion_mats
+  del example_viz, images, e_batch, e_predictions, e_logits, logits
   return eval_summary
 
 
@@ -222,6 +274,7 @@ def evaluate_ood(
     writer: metric_writers.MetricWriter,
     lead_host: Any,
     prefix: str = 'valid',
+    workdir: str ='',
     **kwargs,
 ) -> Dict[str, Any]:
   """Model evaluator.
@@ -250,89 +303,55 @@ def evaluate_ood(
 
   auc_online = kwargs.pop('auc_online', False)
 
+  # store logits
+  store_logits = config.eval_configs.get('store_logits', False)
+
+  if store_logits:
+    store_logits_fname = os.path.join(workdir, "{}_{}_val.h5py".format(prefix,"logits"))
+    f = h5py.File(store_logits_fname, 'w', libver='latest')
+    f.swmr_mode = True  # single write multi-read
+    input_shape = dataset.meta_data['input_shape'][1:3]
+    num_classes = dataset.meta_data['num_classes']
+    num_eval_examples = int(steps_per_eval * config.batch_size)
+    logits_out = f.create_dataset('logits', (num_eval_examples,) + input_shape + (num_classes,))
+    inputs_out = f.create_dataset('inputs', (num_eval_examples,) + input_shape + (3,))
+    labels_out = f.create_dataset('labels', (num_eval_examples,) + input_shape)
+
   if auc_online:
     # TODO(kellybuchanan): check split of data across devices.
     # initialize metrics: ideally in each device in each host/process/machine
-    # keras initializes one metric in each host because it runs in cpu
-    # so we need to convert to jax to run metrics in each device in each host
-
-    auc_pr = tf.keras.metrics.AUC(curve='PR')
-    auc_roc = tf.keras.metrics.AUC(curve='ROC')
+    # keras initializes one metric in each host because it runs in cpu.
+    # so we need to convert the function to run metrics in each device/host.
+    auc_pr = ComputeOODAUCMetric(curve='PR', num_thresholds=100)
+    auc_roc = ComputeOODAUCMetric(curve='ROC', num_thresholds=100)
 
     # Loop through each machine:
-    for _ in range(steps_per_eval):
+    for step_ in range(steps_per_eval):
       eval_batch = next(dataset.valid_iter)
       e_batch, e_logits = eval_step_pmapped(
           train_state=train_state, batch=eval_batch)
 
-      # In eval_step_pmapped we have not used all gather, so each metric is in
-      # each device and we should be able to compute devices separately
+      if store_logits:
+        start_idx = step_ * config.batch_size
+        end_idx = start_idx + config.batch_size
+        logits_out[start_idx:end_idx] = e_logits
+        inputs_out[start_idx:end_idx] = e_batch['inputs']
+        labels_out[start_idx:end_idx] = e_batch['labels']
 
-      ood_score = get_ood_score(e_logits, **kwargs)
+      # In eval_step_pmapped we have not used all gather, so each metric is in each device
+      # and we should be able to compute metrics in devices separately.
+      auc_pr.calculate_and_update_scores(logits=e_logits, label=e_batch['label'],
+                                         sample_weight=e_batch['batch_mask'], **kwargs)
+      auc_roc.calculate_and_update_scores(logits=e_logits, label=e_batch['label'],
+                                         sample_weight=e_batch['batch_mask'], **kwargs)
 
-      auc_roc.update_state(
-          e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
-      auc_pr.update_state(
-          e_batch['label'], ood_score, sample_weight=e_batch['batch_mask'])
+    if store_logits:
+      f.close()
 
-    # How to communicate metrics across hosts?
-    # Ideally we can collect auc_metrics per host, merge them, compute result.
-    # However, we cannot pass arbitraty class.
-    # jax which doesn't work with arbitrary objects
-    # Here we write a custom merge_state as in tf.keras.metrics
-    # by pulling states from tf.keras obj, combining them and putting them back
-    # into a keras object using list of host's auc_roc objects.
-
-    def keras_auc_to_arrays(keras_auc_object):
-      """Pull out arrays from keras roc object."""
-      # The thresholds used are determinisitc, so we need not store them.
-      tp = jnp.asarray(keras_auc_object.true_positives)
-      fp = jnp.asarray(keras_auc_object.false_positives)
-      tn = jnp.asarray(keras_auc_object.true_negatives)
-      fn = jnp.asarray(keras_auc_object.false_negatives)
-      return tp, fp, tn, fn
-
-    def arrays_to_keras_auc(tp, fp, tn, fn, keras_auc_object):
-      """Assign confusion matrix arrays to a keras_auc_object."""
-      keras_auc_object.true_positives.assign(tp)
-      keras_auc_object.false_positives.assign(fp)
-      keras_auc_object.true_negatives.assign(tn)
-      keras_auc_object.false_negatives.assign(fn)
-      return keras_auc_object
-
-    auc_roc_state = keras_auc_to_arrays(auc_roc)
-    auc_pr_state = keras_auc_to_arrays(auc_pr)
-
-    def combine_states(all_auc_states):
-      # jax can take in trees of arrays, tuple is considered a tree so we can
-      # unpack it here.
-      # each array here has dimensions #host x shape
-
-      all_tp, all_fp, all_tn, all_fn = all_auc_states
-
-      assert all_tp.shape == (jax.process_count(), 200)
-      assert all_fp.shape == (jax.process_count(), 200)
-      assert all_tn.shape == (jax.process_count(), 200)
-      assert all_fn.shape == (jax.process_count(), 200)
-
-      tp = jnp.sum(all_tp, 0)
-      fp = jnp.sum(all_fp, 0)
-      tn = jnp.sum(all_tn, 0)
-      fn = jnp.sum(all_fn, 0)
-
-      return tp, fp, tn, fn
-
-    # Gather the data across all hosts.
-    all_auc_roc_states = multihost_utils.process_allgather(auc_roc_state)
-    all_auc_pr_states = multihost_utils.process_allgather(auc_pr_state)
-
-    # Below we pick the first device.
-    auc_roc = arrays_to_keras_auc(*combine_states(all_auc_roc_states), auc_roc)
-    auc_pr = arrays_to_keras_auc(*combine_states(all_auc_pr_states), auc_pr)
-
-    eval_summary = {'auroc': float(auc_roc.result().numpy()),
-                    'auprc': float(auc_pr.result().numpy()),
+    eval_summary = {'auroc': auc_roc.gather_metrics(),
+                    'auprc': auc_pr.gather_metrics(),
                     }
+
   else:
     eval_logits = []
     eval_ood_masks = []
@@ -344,7 +363,7 @@ def evaluate_ood(
       e_batch, e_logits = eval_step_pmapped(
           train_state=train_state, batch=eval_batch)
 
-      # Store all logits in cpu
+      # Store all logits in cpu:
       if lead_host:
         e_batch = to_cpu(e_batch, all_gather=False)
         e_logits = to_cpu(e_logits, all_gather=False)
@@ -363,6 +382,7 @@ def evaluate_ood(
         ood_mask=eval_ood_labels,
         weights=eval_ood_masks,
         **kwargs)
+
   ############### LOG EVAL SUMMARY ###############
   writer.write_scalars(
       step, {
@@ -498,12 +518,14 @@ def train_step(
         logits)  # batch_size x h x w x num_classes
 
   metrics = metrics_fn(logits, batch)
-  new_train_state = train_state.replace(  # pytype: disable=attribute-error
+  logits = jnp.argmax(logits, axis=-1)
+
+  train_state = train_state.replace(  # pytype: disable=attribute-error
       global_step=step + 1,
       optimizer=new_optimizer,
       model_state=new_model_state,
       rng=new_rng)
-  return new_train_state, metrics, lr, jnp.argmax(logits, axis=-1)
+  return train_state, metrics, lr, logits
 
 
 def eval_step(
@@ -588,10 +610,12 @@ def eval_step(
   # Collect predictions and batches from all hosts.
   # use all_gather to copy and replicate across all hosts
   # we skip doing this for batch and logits to save memory
+  # unless we want to store the logits
   # predictions = jnp.argmax(logits, axis=-1)
   # predictions = jax.lax.all_gather(predictions, 'batch')
-  # logits = jax.lax.all_gather(logits, 'batch')
-  # batch = jax.lax.all_gather(batch, 'batch')
+  if config.eval_configs.get('store_logits', False):
+    logits = jax.lax.all_gather(logits, 'batch')
+    batch = jax.lax.all_gather(batch, 'batch')
   confusion_matrix = jax.lax.all_gather(confusion_matrix, 'batch')
   unc_confusion_matrix = jax.lax.all_gather(unc_confusion_matrix, 'batch')
 
@@ -656,9 +680,10 @@ def eval_step_baseline(
   # Collect predictions and batches from all hosts.
   # use all_gather to copy and replicate across all hosts
   # we can skip doing this for batch and logits to save memory
-  # is the OOM in tpu or cpu?
-  # batch = jax.lax.all_gather(batch, 'batch')
-  # logits = jax.lax.all_gather(logits, 'batch')
+  # jis the OOM in tpu or cpu?
+  if config.eval_configs.get('store_logits', False):
+    batch = jax.lax.all_gather(batch, 'batch')
+    logits = jax.lax.all_gather(logits, 'batch')
 
   return batch, logits
 
@@ -741,28 +766,7 @@ def train(
 
   # Load pretrained backbone
   if start_step == 0 and config.get('load_pretrained_backbone', False):
-    # TODO(kellybuchanan): check out partial loader in
-    # https://github.com/google/uncertainty-baselines/commit/083b1dcc52bb1964f8917d15552ece8848d582ae#
-    restored_model_cfg = config.get('pretrained_backbone_configs')
-
-    # Loader from scenic
-    if restored_model_cfg.checkpoint_format in ('ub', 'big_vision', 'scenic'):
-      # load params from checkpoint
-      bb_train_state = pretrain_utils.convert_big_vision_to_scenic_checkpoint(
-          checkpoint_path=restored_model_cfg.checkpoint_path,
-          convert_to_linen=False)
-
-      train_state = model.init_backbone_from_train_state(
-          train_state,
-          bb_train_state,
-          config,
-          restored_model_cfg,
-          model_prefix_path=['backbone'])
-      # Free unnecessary memory.
-      del bb_train_state
-    else:
-      raise NotImplementedError('')
-
+    train_state = load_checkpoints_backbone(config, model, train_state, workdir)
   elif start_step == 0:
     logging.info('Not restoring from any pretrained_backbone.')
 
@@ -816,7 +820,7 @@ def train(
   checkpoint_steps = config.get('checkpoint_steps') or log_eval_steps
 
   train_metrics, extra_training_logs = [], []
-  train_summary, eval_summary = None, None
+  train_summary, eval_summary = {}, {}
   global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
   global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
 
@@ -883,12 +887,13 @@ def train(
 
       train_summary = train_utils.log_train_summary(
           step=step,
-          train_metrics=jax.tree_map(train_utils.unreplicate_and_get,
+          train_metrics=jax.tree_util.tree_map(train_utils.unreplicate_and_get,
                                      train_metrics),
-          extra_training_logs=jax.tree_map(train_utils.unreplicate_and_get,
+          extra_training_logs=jax.tree_util.tree_map(train_utils.unreplicate_and_get,
                                            extra_training_logs),
           writer=writer)
 
+      del example_viz, train_metrics, extra_training_logs
       # Reset metric accumulation for next evaluation cycle.
       train_metrics, extra_training_logs = [], []
 
@@ -908,6 +913,7 @@ def train(
                                 lead_host=lead_host,
                                 global_metrics_fn=global_metrics_fn,
                                 global_unc_metrics_fn=global_unc_metrics_fn,
+                                workdir=workdir,
                                 )
 
         # check accuracy for early stopping.
@@ -1047,26 +1053,7 @@ def eval_ckpt(
   checkpoint_configs = config.get('checkpoint_configs', False)
 
   if checkpoint_configs:
-    # Load torch weights
-    if 'torch' in checkpoint_configs.checkpoint_format:
-
-      bb_train_state = convert_torch_to_jax_checkpoint(
-          checkpoint_path=checkpoint_configs.checkpoint_path,
-          config=checkpoint_configs)
-
-      train_state = model.init_backbone_from_train_state(
-          train_state,
-          bb_train_state,
-          config,
-          checkpoint_configs
-          )
-      del bb_train_state
-
-    # Load weights in checkpoint_path or workdir
-    else:
-      checkpoint_path = checkpoint_configs.get('checkpoint_path', workdir)
-      train_state, _ = train_utils.restore_checkpoint(
-          checkpoint_path, train_state)
+    train_state = load_checkpoints_eval(config, model, train_state, workdir)
   else:
     logging.info('Not loading any checkpoints')
 
@@ -1103,6 +1090,7 @@ def eval_ckpt(
                           global_metrics_fn=global_metrics_fn,
                           global_unc_metrics_fn=global_unc_metrics_fn,
                           prefix=prefix,
+                          workdir=workdir,
                           )
 
   # Wait until computations are done before running robustness evaluator.
@@ -1111,6 +1099,7 @@ def eval_ckpt(
 
   # ----------------------------------------------------------------------------
   # Evaluate OOD datasets
+  logging.info('Evaluating OOD datasets')
   eval_summary_ood = evaluate_ood_step(
       train_state=train_state,
       config=config,
@@ -1153,7 +1142,7 @@ def evaluate_ood_step(
   Returns:
     eval_summary: summary evaluation
   """
-  del workdir
+  eval_summary = {}
 
   if config.get('eval_covariate_shift', False):
 
@@ -1168,12 +1157,13 @@ def evaluate_ood_step(
         # We can donate the eval_batch's buffer.
     )
 
-    eval_summary = None
     global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
     global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
 
     eval_ood_covariate = {'cityscapes_c': evaluate_cityscapes_c,
-                          'ade20k_ind_c': evaluate_ade20k_corrupted,}
+                          'ade20k_ind_c': evaluate_ade20k_corrupted,
+                          'street_hazards_c': evaluate_street_hazards_corrupted,
+                          }
 
     # TODO(kellybuchanan): merge data sources.
     # The form of the ind dataset name depends on the source of the data.
@@ -1189,22 +1179,28 @@ def evaluate_ood_step(
     elif any('ade20k' in ind_name for ind_name in ind_names):
       logging.info('Loading Ade20k_ind_c')
       ood_dataset = 'ade20k_ind_c'
+    elif any('street' in ind_name for ind_name in ind_names):
+      logging.info('Loading street_hazards_c')
+      ood_dataset = 'street_hazards_c'
     else:
       logging.info('OOD Covariate shift dataset is not implemented')
+      ood_dataset = None
 
-    eval_summary = eval_ood_covariate[ood_dataset](
-        train_state=train_state,
-        config=config,
-        rng=rng,
-        eval_step_pmapped=eval_step_pmapped,
-        writer=writer,
-        lead_host=lead_host,
-        global_metrics_fn=global_metrics_fn,
-        global_unc_metrics_fn=global_unc_metrics_fn,
-    )
+    if ood_dataset:
+      eval_summary = eval_ood_covariate[ood_dataset](
+          train_state=train_state,
+          config=config,
+          rng=rng,
+          eval_step_pmapped=eval_step_pmapped,
+          writer=writer,
+          lead_host=lead_host,
+          global_metrics_fn=global_metrics_fn,
+          global_unc_metrics_fn=global_unc_metrics_fn,
+          workdir=workdir,
+      )
 
-    # Wait until computations are done before exiting.
-    jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
+      # Wait until computations are done before exiting.
+      jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
 
   # ----------------------------------------------------------------------------
   if config.get('eval_label_shift', False):
@@ -1221,7 +1217,8 @@ def evaluate_ood_step(
 
     eval_label_shift = {
         'fishyscapes': evaluate_fishyscapes,
-        'ade20k_ood_open': evaluate_ade20k_ood_open
+        'ade20k_ood_open': evaluate_ade20k_ood_open,
+        'street_hazards_ood_open': evaluate_street_hazards_ood_open,
     }
 
     # The form of the ind dataset name depends on the source of the data.
@@ -1234,25 +1231,29 @@ def evaluate_ood_step(
     if any('cityscapes' in ind_name for ind_name in ind_names):
       logging.info('Loading Fishyscapes...')
       ood_dataset = 'fishyscapes'
-
-    if any('ade20k' in ind_name for ind_name in ind_names):
+    elif any('ade20k' in ind_name for ind_name in ind_names):
       logging.info('Loading ADE20k OOD OPEN...')
       ood_dataset = 'ade20k_ood_open'
-
+    elif any('street_hazards' in ind_name for ind_name in ind_names):
+      logging.info('Loading StreetHazards OPEN...')
+      ood_dataset = 'street_hazards_ood_open'
     else:
       logging.info('OOD Label shift dataset is not implemented')
+      ood_dataset = None
 
-    eval_summary = eval_label_shift[ood_dataset](
-        train_state=train_state,
-        config=config,
-        rng=rng,
-        eval_step_pmapped=eval_step_ood_pmapped,
-        writer=writer,
-        lead_host=lead_host,
-    )
+    if ood_dataset:
+      eval_summary = eval_label_shift[ood_dataset](
+          train_state=train_state,
+          config=config,
+          rng=rng,
+          eval_step_pmapped=eval_step_ood_pmapped,
+          writer=writer,
+          lead_host=lead_host,
+          workdir=workdir,
+      )
 
-    # Wait until computations are done before exiting.
-    jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
+      # Wait until computations are done before exiting.
+      jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
   return eval_summary
 
 
@@ -1265,6 +1266,7 @@ def evaluate_cityscapes_c(
     lead_host: Any,
     global_metrics_fn: Any,
     global_unc_metrics_fn: Any,
+    workdir: str = None,
 ) -> Dict[str, Any]:
   """Evaluate cityscapes-c dataset.
 
@@ -1291,21 +1293,21 @@ def evaluate_cityscapes_c(
   # update config:
   ood_config = ml_collections.ConfigDict()
   ood_config.update(**config)
-  ood_config.update({'dataset_name': 'cityscapes_variants'})
+  ood_config.update({'dataset_name': 'robust_segvit_variants'})
 
   accuracy_per_corruption = {}
-  prefix = 'citycvalid'
-  for corruption in cityscapes_variants.CITYSCAPES_C_CORRUPTIONS:
+  prefix = 'cityc'
+  for corruption in datasets_info.CITYSCAPES_C_CORRUPTIONS:
     local_list = []  # list to compute macro average per corruption
-    for severity in cityscapes_variants.CITYSCAPES_C_SEVERITIES:
+    for severity in datasets_info.CITYSCAPES_C_SEVERITIES:
 
       with ood_config.unlocked():
-        ood_config.dataset_configs.dataset_name = f'cityscapes_corrupted/semantic_segmentation_{corruption}_{severity}'
+        ood_config.dataset_configs.name = f'cityscapes_c_{corruption}_{severity}'
 
       rng, data_rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)
       dataset.meta_data['dataset_name'] = 'cityscapes_c'
-      dataset.meta_data['prefix'] = prefix + f'_{corruption}_{severity}'
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}/{severity}/valid'
 
       eval_summary = evaluate(
           train_state=train_state,
@@ -1318,6 +1320,7 @@ def evaluate_cityscapes_c(
           global_metrics_fn=global_metrics_fn,
           global_unc_metrics_fn=global_unc_metrics_fn,
           prefix=dataset.meta_data['prefix'],
+          workdir=workdir,
       )
 
       local_list.append(eval_summary)
@@ -1331,7 +1334,7 @@ def evaluate_cityscapes_c(
   # append name to metrics
   key_separator = '_'
   avg_cityscapes_c_metrics = {
-      key_separator.join((prefix, key)): val
+      key_separator.join((prefix + '/valid', key)): val
       for key, val in cityscapes_c_metrics.items()
   }
   # update metrics
@@ -1348,6 +1351,7 @@ def evaluate_fishyscapes(
     eval_step_pmapped: Any,
     writer: metric_writers.MetricWriter,
     lead_host: Any,
+    workdir: str = '',
 ) -> Dict[str, Any]:
   """Evaluate Fishyscapes dataset.
 
@@ -1372,21 +1376,21 @@ def evaluate_fishyscapes(
   # update config:
   ood_config = ml_collections.ConfigDict()
   ood_config.update(**config)
-  ood_config.update({'dataset_name': 'cityscapes_variants'})
+  ood_config.update({'dataset_name': 'robust_segvit_variants'})
 
   device_count = jax.device_count()
   accuracy_per_corruption = {}
-  prefix = 'fishyvalid'
-  for corruption in cityscapes_variants.FISHYSCAPES_CORRUPTIONS:
+  prefix = 'fishyscapes'
+  for corruption in datasets_info.FISHYSCAPES_CORRUPTIONS:
 
     with ood_config.unlocked():
-      ood_config.dataset_configs.dataset_name = f'fishyscapes/{corruption}'
+      ood_config.dataset_configs.name = f'fishyscapes/{corruption}'
       ood_config.batch_size = device_count
 
     data_rng, rng = jax.random.split(rng)
     dataset = train_utils.get_dataset(ood_config, data_rng)
     dataset.meta_data['dataset_name'] = 'fishyscapes'
-    dataset.meta_data['prefix'] = prefix + f'_{corruption}'
+    dataset.meta_data['prefix'] = prefix + f'/{corruption}/valid'
 
     eval_summary = evaluate_ood(
         train_state=train_state,
@@ -1397,6 +1401,7 @@ def evaluate_fishyscapes(
         writer=writer,
         lead_host=lead_host,
         prefix=dataset.meta_data['prefix'],
+        workdir=workdir,
         **config.get('eval_robustness_configs', {}),
     )
 
@@ -1408,7 +1413,7 @@ def evaluate_fishyscapes(
   # append name to metrics
   key_separator = '_'
   avg_fishyscapes_metrics = {
-      key_separator.join((prefix, key)): val
+      key_separator.join((prefix +'/valid', key)): val
       for key, val in fishyscapes_metrics.items()
   }
   # update metrics
@@ -1425,6 +1430,7 @@ def evaluate_ade20k_ood_open(
     eval_step_pmapped: Any,
     writer: metric_writers.MetricWriter,
     lead_host: Any,
+    workdir: str = '',
 ) -> Dict[str, Any]:
   """Evaluate ADE20k OOD dataset.
 
@@ -1452,7 +1458,7 @@ def evaluate_ade20k_ood_open(
   ood_config.update({'dataset_name': 'robust_segvit_segmentation'})
 
   device_count = jax.device_count()
-  prefix = 'ade20k_ood_open'
+  prefix = 'ade20k_ood_open/valid'
 
   with ood_config.unlocked():
     ood_config.dataset_configs.name = 'ade20k_ood_open'
@@ -1471,10 +1477,11 @@ def evaluate_ade20k_ood_open(
       writer=writer,
       lead_host=lead_host,
       prefix=dataset.meta_data['prefix'],
+      workdir=workdir,
       **config.get('eval_robustness_configs', {}),
   )
 
-  # append name to metrics
+  # append name to metrics:
   key_separator = '_'
   avg_open_set_metrics = {
       key_separator.join((prefix, key)): val
@@ -1497,6 +1504,7 @@ def evaluate_ade20k_corrupted(
     lead_host: Any,
     global_metrics_fn: Any,
     global_unc_metrics_fn: Any,
+    workdir : str,
 ) -> Dict[str, Any]:
   """Evaluate Ade20k-C dataset.
 
@@ -1530,14 +1538,14 @@ def evaluate_ade20k_corrupted(
   prefix = 'ade20k_ind_c'
   for corruption in datasets_info.ADE20K_C_CORRUPTIONS:
     local_list = []  # list to compute macro average per corruption
-    for severity in range(1, 6):
+    for severity in datasets_info.ADE20K_C_SEVERITIES:
 
       with ood_config.unlocked():
         ood_config.dataset_configs.name = f'ade20k_ind_c_{corruption}_{severity}'
 
       data_rng, rng = jax.random.split(rng)
       dataset = train_utils.get_dataset(ood_config, data_rng)
-      dataset.meta_data['prefix'] = prefix + f'_{corruption}_{severity}'
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}/{severity}/valid'
 
       eval_summary = evaluate(
           train_state=train_state,
@@ -1550,6 +1558,7 @@ def evaluate_ade20k_corrupted(
           global_metrics_fn=global_metrics_fn,
           global_unc_metrics_fn=global_unc_metrics_fn,
           prefix=dataset.meta_data['prefix'],
+          workdir=workdir,
       )
 
       local_list.append(eval_summary)
@@ -1563,7 +1572,7 @@ def evaluate_ade20k_corrupted(
   # append name to metrics
   key_separator = '_'
   avg_corrupted_metrics = {
-      key_separator.join((prefix, key)): val
+      key_separator.join((prefix + '/valid', key)): val
       for key, val in ade20k_c_metrics.items()
   }
   # update metrics
@@ -1571,3 +1580,163 @@ def evaluate_ade20k_corrupted(
   writer.write_scalars(0, avg_corrupted_metrics)
   writer.flush()
   return eval_summary
+
+
+def evaluate_street_hazards_corrupted(
+    train_state: train_utils.TrainState,
+    config: ml_collections.ConfigDict,
+    rng: Any,
+    eval_step_pmapped: Any,
+    writer: metric_writers.MetricWriter,
+    lead_host: Any,
+    global_metrics_fn: Any,
+    global_unc_metrics_fn: Any,
+    workdir : str,
+) -> Dict[str, Any]:
+  """Evaluate StreetHazards-C dataset.
+
+  Args:
+    train_state: train state.
+    config: experiment configuration.
+    rng: jax rng.
+    eval_step_pmapped: eval state
+    writer: CLU metrics writer instance.
+    lead_host: Evaluate global metrics on one of the hosts (lead_host) given
+      intermediate values collected from all hosts.
+    global_metrics_fn: global metrics to evaluate.
+    global_unc_metrics_fn: global uncertainty metrics to evaluate.
+  Returns:
+    eval_summary: summary evaluation
+  """
+  # Load dataset
+  # set resource limit to debug in mac osx
+  # (see https://github.com/tensorflow/datasets/issues/1441)
+  if jax.process_index() == 0 and sys.platform == 'darwin':
+   low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
+   resource.setrlimit(resource.RLIMIT_NOFILE, (low, high))
+
+  # update config:
+  ood_config = ml_collections.ConfigDict()
+  ood_config.update(**config)
+  ood_config.update({'dataset_name': 'robust_segvit_variants'})
+
+  # Calculate metrics per corruption.
+  accuracy_per_corruption = {}
+  prefix = 'street_hazards_c'
+  for corruption in datasets_info.STREETHAZARDS_C_CORRUPTIONS:
+    local_list = []  # list to compute macro average per corruption
+    for severity in datasets_info.STREETHAZARDS_C_SEVERITIES:
+
+      with ood_config.unlocked():
+        ood_config.dataset_configs.name = f'street_hazards_c_{corruption}_{severity}'
+
+      data_rng, rng = jax.random.split(rng)
+      dataset = train_utils.get_dataset(ood_config, data_rng)
+      dataset.meta_data['prefix'] = prefix + f'/{corruption}/{severity}/valid'
+
+      eval_summary = evaluate(
+          train_state=train_state,
+          dataset=dataset,
+          config=ood_config,
+          step=0,
+          eval_step_pmapped=eval_step_pmapped,
+          writer=writer,
+          lead_host=lead_host,
+          global_metrics_fn=global_metrics_fn,
+          global_unc_metrics_fn=global_unc_metrics_fn,
+          prefix=dataset.meta_data['prefix'],
+          workdir=workdir,
+      )
+
+      local_list.append(eval_summary)
+
+    accuracy_per_corruption[corruption] = eval_utils.average_list_of_dicts(
+        local_list)
+
+  ade20k_c_metrics = eval_utils.average_list_of_dicts(
+      accuracy_per_corruption.values())
+
+  # append name to metrics
+  key_separator = '_'
+  avg_corrupted_metrics = {
+      key_separator.join((prefix + '/valid', key)): val
+      for key, val in ade20k_c_metrics.items()
+  }
+  # update metrics
+  eval_summary.update(avg_corrupted_metrics)
+  writer.write_scalars(0, avg_corrupted_metrics)
+  writer.flush()
+  return eval_summary
+
+
+def evaluate_street_hazards_ood_open(
+    train_state: train_utils.TrainState,
+    config: ml_collections.ConfigDict,
+    rng: Any,
+    eval_step_pmapped: Any,
+    writer: metric_writers.MetricWriter,
+    lead_host: Any,
+    workdir: str,
+) -> Dict[str, Any]:
+  """Evaluate StreetHazards OOD dataset.
+
+  Args:
+    train_state: train state.
+    config: experiment configuration.
+    rng: jax rng.
+    eval_step_pmapped: eval state
+    writer: CLU metrics writer instance.
+    lead_host: Evaluate global metrics on one of the hosts (lead_host) given
+      intermediate values collected from all hosts.
+
+  Returns:
+    eval_summary: summary evaluation
+  """
+  # set resource limit to debug in mac osx
+  # (see https://github.com/tensorflow/datasets/issues/1441)
+  if jax.process_index() == 0 and sys.platform == 'darwin':
+   low, high = resource.getrlimit(resource.RLIMIT_NOFILE)
+   resource.setrlimit(resource.RLIMIT_NOFILE, (low, high))
+
+  # update config:
+  ood_config = ml_collections.ConfigDict()
+  ood_config.update(**config)
+  ood_config.update({'dataset_name': 'robust_segvit_segmentation'})
+
+  device_count = jax.device_count()
+  prefix = 'street_hazards_open/valid'
+
+  with ood_config.unlocked():
+    ood_config.dataset_configs.name = 'street_hazards_open'
+    ood_config.batch_size = device_count
+
+  data_rng, rng = jax.random.split(rng)
+  dataset = train_utils.get_dataset(ood_config, data_rng)
+  dataset.meta_data['prefix'] = prefix
+
+  eval_summary = evaluate_ood(
+      train_state=train_state,
+      dataset=dataset,
+      config=ood_config,
+      step=0,
+      eval_step_pmapped=eval_step_pmapped,
+      writer=writer,
+      lead_host=lead_host,
+      prefix=dataset.meta_data['prefix'],
+      workdir=workdir,
+      **config.get('eval_robustness_configs', {}),
+  )
+
+  # append name to metrics
+  key_separator = '_'
+  avg_open_set_metrics = {
+      key_separator.join((prefix, key)): val
+      for key, val in eval_summary.items()
+  }
+  # update metrics
+  eval_summary.update(avg_open_set_metrics)
+  writer.write_scalars(0, avg_open_set_metrics)
+  writer.flush()
+
+  return eval_summary
+

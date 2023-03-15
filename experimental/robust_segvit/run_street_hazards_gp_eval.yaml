@@ -1,0 +1,39 @@
+name: street_hazards_gp_eval
+program: deterministic.py
+method: grid
+project: rdl-debug
+entity: ekellbuch
+
+metric:
+  name: valid_loss
+  goal: minimize
+parameters:
+  config.use_wandb:
+    value: true
+  config.wandb_project :
+    value: ${{project}}
+  config.wandb_entity :
+    value: ${{entity}}
+  config.batch_size:
+    value: 8
+  config.eval_configs.store_logits:
+    value: false
+  config.eval_covariate_shift:
+    value: false
+  config.eval_robustness_configs.method_name:
+    value: 'msp'
+
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - "--config"
+  - "configs/street_hazards/gp_eval.py"
+  - "--output_dir"
+  - "gs://ub-ekb/segmenter/street_hazards/gp_eval"
+  - "--num_cores"
+  - "8"
+  - "--tpu"
+  - "local"
+  - ${args}

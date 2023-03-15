@@ -22,6 +22,8 @@ Compare performance from deterministic upstream checkpoints.
 # pylint: enable=line-too-long
 
 import ml_collections
+import os
+import datetime
 
 _CITYSCAPES_FINE_TRAIN_SIZE = 2975
 _CITYSCAPES_COARSE_TRAIN_SIZE = 19998
@@ -40,21 +42,23 @@ TRAIN_SIZES = {
 
 # Model specs.
 LOAD_PRETRAINED_BACKBONE = True
-BACKBONE_ORIGIN = 'big_vision'
+BACKBONE_ORIGIN = 'vision_transformer'
 VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
 target_size = (640, 640)
-UPSTREAM_TASK = 'i21k+imagenet2012'
+UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
 
 
 # Upstream
 MODEL_PATHS = {
 
     # Imagenet 21k + finetune in imagenet2012 with perf 0.85 adap_res 384
-    ('big_vision', 'L', 16, None, 'token', 'i21k+imagenet2012'):
-        'gs://vit_models/imagenet21k%2Bimagenet2012/ViT-L_16.npz',
+    ('vision_transformer', 'L', 16, None, 'token', 'i21k+imagenet2012'):
+        'gs://vit_models/imagenet21k+imagenet2012/ViT-L_16.npz',
+    ('vision_transformer', 'L', 16, None, 'token', 'augreg+i21k+imagenet2012'):
+        'gs://vit_models/augreg/L_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.1-sd_0.1--imagenet2012-steps_20k-lr_0.01-res_384.npz',
 }
 
 
@@ -187,9 +191,25 @@ def get_config(runlocal=''):
   config.eval_label_shift = False
   config.model.input_shape = target_size
 
+  config.eval_robustness_configs = ml_collections.ConfigDict()
+  config.eval_robustness_configs.auc_online = True
+  config.eval_robustness_configs.method_name = 'msp'
+
+  # wandb.ai configurations.
+  config.use_wandb = False
+  config.wandb_dir = 'wandb'
+  config.wandb_project = 'rdl-debug'
+  config.wandb_entity = 'ekellbuch'
+  config.wandb_exp_name = None  # Give experiment a name.
+  config.wandb_exp_name = (
+          os.path.splitext(os.path.basename(__file__))[0] + '_' +
+          datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
+  config.wandb_exp_group = None  # Give experiment a group name.
+
   if runlocal:
     config.count_flops = False
     config.dataset_configs.train_target_size = (128, 128)
+    config.model.input_shape = config.dataset_configs.train_target_size
     config.batch_size = 8
     config.num_training_epochs = 5
     config.warmup_steps = 0

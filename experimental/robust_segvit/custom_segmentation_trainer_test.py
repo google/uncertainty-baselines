@@ -34,7 +34,7 @@ from scenic.train_lib_deprecated import train_utils
 from sklearn import metrics as sk_metrics
 import tensorflow as tf
 import custom_segmentation_trainer  # local file import from experimental.robust_segvit
-
+import custom_models
 
 class SegmentationTrainerTest(parameterized.TestCase):
   """Tests the default trainer on single device setup."""
@@ -225,6 +225,61 @@ class SegmentationTrainerTest(parameterized.TestCase):
         sample_weight=batch_np['batch_mask'].ravel())
 
     self.assertAlmostEqual(metrics_dict['mean_iou'], miou_np, places=4)
+
+  @parameterized.parameters([(0, 0.0), (1, 0.01), (2, 0.5), (3, 0.99), (4, 1)])
+  def test_unc_confusion_matrix(self, seed, masked_fraction):
+    """Test computation of mIoU metric."""
+    np.random.seed(seed)
+
+    # Create test data:
+    num_classes = 3
+    input_shape = [8, 1, 224, 224]
+    logits_shape = input_shape + [num_classes]
+    logits_np = np.random.rand(*logits_shape)
+    logits = jnp.array(logits_np)
+
+    # when the uncertainty threshold is 100% or = 0
+    # all labels are certain, and pavpu is the fraction of patches that are accurate.
+    uncertainty_th = 0.0
+    window_size = 1
+
+    # Note: We include label -1, which indicates excluded pixels:
+    label = np.random.randint(0, num_classes, size=input_shape)
+    label[:4] = np.argmax(logits_np[:4], axis=-1)  # Set half to correct.
+
+    batch_np = {
+        'label':
+            label,
+        'batch_mask':
+            (np.random.rand(*input_shape) > masked_fraction) & (label != -1),
+    }
+    batch = {
+        'label': jnp.array(batch_np['label']),
+        'batch_mask': jnp.array(batch_np['batch_mask']),
+    }
+
+    cm_pmapped = jax.pmap(
+      functools.partial(
+        custom_segmentation_trainer.get_uncertainty_confusion_matrix,
+        uncertainty_th=uncertainty_th,
+        window_size=window_size,
+        uncertainty_measure='softmax',
+      ), axis_name='batch')
+
+    unc_confusion_matrix = [
+        cm_pmapped(labels=labels, logits=logits_, weights=masks)
+        for labels, logits_, masks in
+        zip(batch['label'], logits, batch['batch_mask'])]
+    unc_confusion_matrix = jax.device_get(jax_utils.unreplicate(unc_confusion_matrix))
+    metrics_dict = custom_models.global_unc_metrics_fn(
+        unc_confusion_matrix)
+    labels_negative_ignored = np.maximum(batch_np['label'], 0)
+    y_pred = np.argmax(logits_np, axis=-1)
+    weights = batch_np['batch_mask']
+    accurate = labels_negative_ignored == y_pred
+    pavpu = np.sum(accurate * weights) / np.sum(weights)
+    # all labels are certain, pavpu = fraction of patches that are accurate
+    self.assertAlmostEqual(metrics_dict['pacc_cert'], jnp.nan_to_num(pavpu), places=2)
 
 
 if __name__ == '__main__':

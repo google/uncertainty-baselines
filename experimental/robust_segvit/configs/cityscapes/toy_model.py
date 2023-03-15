@@ -20,7 +20,8 @@ r"""Train toy segmenter model on cityscapes.
 # pylint: enable=line-too-long
 
 import ml_collections
-
+import os
+import datetime
 
 batch_size = 128
 _CITYSCAPES_TRAIN_SIZE_SPLIT = 146
@@ -43,11 +44,15 @@ def get_config(runlocal=''):
   config.experiment_name = 'cityscapes_segmenter_toy_model'
 
   # Dataset.
-  config.dataset_name = 'cityscapes'
+  config.dataset_name = 'robust_segvit_segmentation'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
   config.dataset_configs.train_split = 'train[:5%]'
-  config.dataset_configs.dataset_name = ''  # name of ood dataset to evaluate
+  config.dataset_configs.name = 'cityscapes'  # name of dataset to evaluate
+  config.dataset_configs.train_target_size = config.dataset_configs.get_ref(
+      'target_size')
+  config.dataset_configs.denoise = None
+  config.dataset_configs.use_timestep = 0
 
   # Model.
   config.model_name = 'segvit'
@@ -117,6 +122,21 @@ def get_config(runlocal=''):
   config.eval_configs.mode = 'standard'
   config.eval_covariate_shift = True
   config.eval_label_shift = True
+
+  config.eval_robustness_configs = ml_collections.ConfigDict()
+  config.eval_robustness_configs.auc_online = True
+  config.eval_robustness_configs.method_name = 'mlogit'
+
+  # wandb.ai configurations.
+  config.use_wandb = False
+  config.wandb_dir = 'wandb'
+  config.wandb_project = 'rdl-debug'
+  config.wandb_entity = 'ekellbuch'
+  config.wandb_exp_name = None  # Give experiment a name.
+  config.wandb_exp_name = (
+          os.path.splitext(os.path.basename(__file__))[0] + '_' +
+          datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
+  config.wandb_exp_group = None  # Give experiment a group name.
 
   if runlocal:
     config.count_flops = False

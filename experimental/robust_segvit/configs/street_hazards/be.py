@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # pylint: disable=line-too-long
-r"""Train segmenter model on cityscapes dataset.
+r"""Train segmenter model on street_hazards.
 
 Compare performance from deterministic upstream checkpoints.
 
@@ -25,8 +25,23 @@ import ml_collections
 import os
 import datetime
 
-_CITYSCAPES_TRAIN_SIZE = 2975
-_CITYSCAPES_TRAIN_SIZE_SPLIT = 146
+_CITYSCAPES_FINE_TRAIN_SIZE = 2975
+_CITYSCAPES_COARSE_TRAIN_SIZE = 19998
+
+_ADE20K_TRAIN_SIZE = 20210
+_PASCAL_VOC_TRAIN_SIZE = 10582
+_PASCAL_CONTEXT_TRAIN_SIZE = 4998
+_STREET_HAZARDS_TRAIN_SIZE = 5125
+
+TRAIN_SIZES = {
+    'cityscapes': _CITYSCAPES_FINE_TRAIN_SIZE,
+    'ade20k': _ADE20K_TRAIN_SIZE,
+    'ade20k_ind': _ADE20K_TRAIN_SIZE,
+    'pascal_voc': _PASCAL_VOC_TRAIN_SIZE,
+    'pascal_context': _PASCAL_CONTEXT_TRAIN_SIZE,
+    'street_hazards': _STREET_HAZARDS_TRAIN_SIZE,
+
+}
 
 # Model specs.
 LOAD_PRETRAINED_BACKBONE = True
@@ -35,7 +50,7 @@ VIT_SIZE = 'L'
 STRIDE = 16
 RESNET_SIZE = None
 CLASSIFIER = 'token'
-target_size = (768, 768)
+target_size = (720, 720)
 UPSTREAM_TASK = 'augreg+i21k+imagenet2012'
 
 
@@ -46,7 +61,8 @@ MODEL_PATHS = {
     ('vision_transformer', 'L', 16, None, 'token', 'i21k+imagenet2012'):
         'gs://vit_models/imagenet21k+imagenet2012/ViT-L_16.npz',
     ('vision_transformer', 'L', 16, None, 'token', 'augreg+i21k+imagenet2012'):
-        'gs://vit_models/augreg/L_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.1-sd_0.1--imagenet2012-steps_20k-lr_0.01-res_384.npz',
+        'gs://vit_models/augreg/L_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.1-sd_0.1--imagenet2012-steps_20k-lr_0.01-res_384.npz',  # pylint: disable=g-long-lambda
+
 }
 
 
@@ -64,21 +80,29 @@ elif VIT_SIZE == 'L':
   num_layers = 24
   hidden_size = 1024
 
+TRAIN_SAMPLES = 32
+
 
 def get_config(runlocal=''):
-  """Returns the configuration for Cityscapes segmentation."""
+  """Returns the configuration for street hazards segmentation."""
 
   runlocal = bool(runlocal)
 
   config = ml_collections.ConfigDict()
-  config.experiment_name = 'cityscapes_segmenter_be'
+  config.experiment_name = 'street_hazards_segmenter_be'
 
   # Dataset.
-  config.dataset_name = 'cityscapes'
+  config.dataset_name = 'robust_segvit_segmentation'
   config.dataset_configs = ml_collections.ConfigDict()
   config.dataset_configs.target_size = target_size
+  config.dataset_configs.train_target_size = config.dataset_configs.get_ref(
+      'target_size')
+  config.dataset_configs.denoise = None
+  config.dataset_configs.use_timestep = 0
+
   config.dataset_configs.train_split = 'train'
-  config.dataset_configs.dataset_name = ''  # name of ood dataset to evaluate
+  config.dataset_configs.name = 'street_hazards'
+  config.dataset_configs.dataset_name = ''  # ood name flag to write in eval.
 
   # Model.
   config.model_name = 'segvit'
@@ -115,13 +139,14 @@ def get_config(runlocal=''):
   config.max_grad_norm = 1.0
   config.label_smoothing = None
   config.num_training_epochs = ml_collections.FieldReference(100)
-  config.batch_size = 64
+  config.batch_size = 32
   config.rng_seed = 0
   config.focal_loss_gamma = 0.0
 
   # Learning rate.
-  config.steps_per_epoch = _CITYSCAPES_TRAIN_SIZE // config.get_ref(
-      'batch_size')
+  config.num_train_examples = TRAIN_SIZES.get(config.dataset_configs.name)
+  config.steps_per_epoch = config.get_ref(
+      'num_train_examples') // config.get_ref('batch_size')
   # setting 'steps_per_cycle' to total_steps basically means non-cycling cosine.
   config.lr_configs = ml_collections.ConfigDict()
   config.lr_configs.learning_rate_schedule = 'compound'
@@ -156,9 +181,9 @@ def get_config(runlocal=''):
   config.log_eval_steps = 1 * config.get_ref('steps_per_epoch')
 
   # Evaluation.
-  config.eval_mode = False
   config.eval_configs = ml_collections.ConfigDict()
   config.eval_configs.mode = 'standard'
+  config.eval_mode = False
   config.eval_covariate_shift = True
   config.eval_label_shift = True
   config.model.input_shape = target_size
@@ -178,16 +203,16 @@ def get_config(runlocal=''):
           datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'))
   config.wandb_exp_group = None  # Give experiment a group name.
 
-
   if runlocal:
     config.count_flops = False
-    config.target_size = (128, 128)
+    config.dataset_configs.train_target_size = (128, 128)
+    config.model.input_shape = config.dataset_configs.train_target_size
     config.batch_size = 8
     config.num_training_epochs = 5
     config.warmup_steps = 0
-    config.dataset_configs.train_split = 'train[:5%]'
-    config.steps_per_epoch = _CITYSCAPES_TRAIN_SIZE_SPLIT // config.get_ref(
-        'batch_size')
+    config.dataset_configs.train_split = f'train[:{TRAIN_SAMPLES}]'
+    config.dataset_configs.validation_split = f'validation[:{TRAIN_SAMPLES}]'
+    config.num_train_examples = TRAIN_SAMPLES
 
   return config
 
@@ -200,26 +225,20 @@ def checkpoint(hyper, backbone_origin, vit_size, stride, resnet_size,
     raise NotImplementedError('')
   else:
     overwrites.append(
-        hyper.sweep('config.model.patches', [{'size': (stride, stride)}]))
+        hyper.sweep('config.model.patches', [{
+            'size': (stride, stride)
+        }]))
 
   if vit_size == 'B':
-    overwrites.append(
-        hyper.sweep('config.model.backbone.mlp_dim', [3072]))
-    overwrites.append(
-        hyper.sweep('config.model.backbone.num_heads', [12]))
-    overwrites.append(
-        hyper.sweep('config.model.backbone.num_layers', [12]))
-    overwrites.append(
-        hyper.sweep('config.model.backbone.hidden_size', [768]))
+    overwrites.append(hyper.sweep('config.model.backbone.mlp_dim', [3072]))
+    overwrites.append(hyper.sweep('config.model.backbone.num_heads', [12]))
+    overwrites.append(hyper.sweep('config.model.backbone.num_layers', [12]))
+    overwrites.append(hyper.sweep('config.model.backbone.hidden_size', [768]))
   elif vit_size == 'L':
-    overwrites.append(
-        hyper.sweep('config.model.backbone.mlp_dim', [4096]))
-    overwrites.append(
-        hyper.sweep('config.model.backbone.num_heads', [16]))
-    overwrites.append(
-        hyper.sweep('config.model.backbone.num_layers', [24]))
-    overwrites.append(
-        hyper.sweep('config.model.backbone.hidden_size', [1024]))
+    overwrites.append(hyper.sweep('config.model.backbone.mlp_dim', [4096]))
+    overwrites.append(hyper.sweep('config.model.backbone.num_heads', [16]))
+    overwrites.append(hyper.sweep('config.model.backbone.num_layers', [24]))
+    overwrites.append(hyper.sweep('config.model.backbone.hidden_size', [1024]))
   else:
     raise NotImplementedError('')
 
@@ -244,4 +263,3 @@ def get_sweep(hyper):
                                           [0.5, 1.0, 2.0])
 
   return hyper.product([random_sign_init, fast_weight_lr_multiplier])
-

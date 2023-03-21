@@ -45,8 +45,8 @@ class BatchEnsembleMlpBlock(nn.Module):
   out_dim: Optional[int] = None
   dropout_rate: float = 0.0
   deterministic: Optional[bool] = None
-  kernel_init: InitializeFn = nn.initializers.xavier_uniform()
-  bias_init: InitializeFn = nn.initializers.normal(stddev=1e-6)
+  kernel_init: InitializeFn = nn.initializers.xavier_uniform()  # pytype: disable=annotation-type-mismatch  # jax-types
+  bias_init: InitializeFn = nn.initializers.normal(stddev=1e-6)  # pytype: disable=annotation-type-mismatch  # jax-types
 
   @nn.compact
   def __call__(self,

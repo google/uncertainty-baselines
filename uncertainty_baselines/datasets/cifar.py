@@ -51,6 +51,12 @@ CIFAR100N_TIMES_MEAN = 113.6694
 CIFAR100N_TIMES_STD = 78.1860
 CIFAR100N_ADV_TIME = 708
 
+CIFAR10H_TIMES_MEAN = 1917.9472
+CIFAR10H_TIMES_STD = 11348.22427
+CIFAR10H_TRIALS_MEAN = 104.4998
+CIFAR10H_ADV_TIME = 8535
+CIFAR10H_TRIALS_STD = 60.6211
+CIFAR10H_ADV_TRIAL = 0  # Smallest possible value of trial_idx.
 
 
 def _tuple_dict_fn_converter(fn, *args):
@@ -401,6 +407,250 @@ class Cifar10CorruptedDataset(_CifarDataset):
         **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
 
 
+class Cifar10HDataset(AnnotatorPIMixin, _CifarDataset):
+  """CIFAR10H dataset builder class."""
+
+  def __init__(self,
+               annotations_path='/path/to/cifar10h-raw.csv',
+               num_annotators_per_example=None,
+               normalize_pi_features=True,
+               **kwargs):
+    """Create a CIFAR10-H tf.data.Dataset builder.
+
+
+    Args:
+      annotations_path: Path to CIFAR10-H annotations CSV file which can be
+        downloaded from:
+        github.com/jcpeterson/cifar-10h/blob/master/data/cifar10h-raw.zip.
+      num_annotators_per_example: Number of annotators loaded per example. If
+        None, it loads the maximum number of annotators available per example,
+        padding with -1 if necessary.
+      normalize_pi_features: Whether the annotator_features, i.e.,
+        annotator_times and trial_idx, are normalized based on their global mean
+        and std.
+      **kwargs: Additional keyword arguments.
+    """
+    split = kwargs.get('split', 'test')
+    if not _is_derivative_of_split(split, 'test'):
+      raise ValueError('Cifar-10H is only defined on the test set.')
+
+    self._annotations_path = annotations_path
+    self._cifar10h_annotations = self._get_cifar10h_annotations()
+    self._normalize_pi_features = normalize_pi_features
+    super().__init__(  # pylint: disable=unexpected-keyword-arg
+        name='cifar10',
+        fingerprint_key='id',
+        num_annotators_per_example=num_annotators_per_example,
+        **kwargs)
+
+  def _get_cifar10h_annotations(self):
+    """Load the CIFAR10-H dataset."""
+    with tf.io.gfile.GFile(self._annotations_path, 'r') as f:
+      # Read from CIFAR10-H annotations file as described in
+      # https://github.com/jcpeterson/cifar-10h/blob/master/data/cifar10h-raw.zip
+      csv_reader = f.readlines()[1:]
+
+      annotations = {
+          'annotator_labels': {},
+          'trial_idx': {},
+          'annotator_times': {},
+          'annotator_ids': {},
+          'count': {},
+      }
+      annotators = []
+      max_count = 0
+      for row in csv_reader:
+        split_row = row.split(',')
+        annotator_id = int(split_row[0])
+        trial_idx = int(split_row[1])
+        chosen_label = int(split_row[6])
+        test_idx = split_row[8]
+        annotator_times = float(split_row[11])
+        if test_idx != '-99999':
+          test_id = 'test_' + '0' * (5 - len(test_idx)) + test_idx
+          if test_id not in annotations['count']:
+            annotations['annotator_labels'][test_id] = [chosen_label]
+            annotations['trial_idx'][test_id] = [trial_idx]
+            annotations['annotator_times'][test_id] = [annotator_times]
+            annotations['annotator_ids'][test_id] = [annotator_id]
+            annotations['count'][test_id] = 1
+          else:
+            annotations['annotator_labels'][test_id].append(chosen_label)
+            annotations['trial_idx'][test_id].append(trial_idx)
+            annotations['annotator_times'][test_id].append(annotator_times)
+            annotations['annotator_ids'][test_id].append(annotator_id)
+            annotations['count'][test_id] += 1
+
+          if annotations['count'][test_id] > max_count:
+            max_count = annotations['count'][test_id]
+
+          annotators.append(annotator_id)
+
+      self._num_dataset_annotators = len(list(set(annotators)))
+      self._max_annotator_count = max_count
+
+    annotations_tables = {}
+    for key in annotations:
+      if key != 'count':
+        annotations_tables[key] = _store_in_hash_table(
+            dictionary=annotations[key],
+            values_length=self._max_annotator_count,
+            key_dtype=tf.string,
+            value_dtype=tf.float32)
+
+    return annotations_tables
+
+  def _process_pi_features_and_labels(self, example, unprocessed_example):
+    """Loads 'annotator_ids', 'annotator_labels', 'annotator_times', and 'trial_idx', and sets 'clean_labels' and 'labels'.
+
+    In CIFAR10-H the `labels` field is popoulated with the average label of its
+    annotators.
+
+    Args:
+      example: Example to which the pi_features are appended.
+      unprocessed_example: Example fields prior to before being processed by
+        `_example_parser`.
+
+    Returns:
+      The example with its processed pi_features.
+    """
+
+    # Copy only the required fields.
+    parsed_example = {
+        'labels': example['labels'],
+        'features': example['features'],
+    }
+
+    example_id = unprocessed_example['id']
+    parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
+    if self._add_fingerprint_key:
+      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
+
+    # Save clean label.
+    parsed_example['clean_labels'] = example['labels']
+
+    # Relabel with average label.
+    annotator_labels = _unpad_annotations(
+        self._cifar10h_annotations['annotator_labels'][example_id])
+    annotator_labels_one_hot = tf.one_hot(
+        tf.cast(annotator_labels, dtype=tf.int32), 10, dtype=tf.float32)
+
+    # Set `labels` to the average over the `annotator_labels`.
+    parsed_example['labels'] = tf.reshape(
+        tf.reduce_mean(annotator_labels_one_hot, axis=0), [10])
+
+    if self._should_onehot:
+      annotator_labels = annotator_labels_one_hot
+    else:
+      annotator_labels = tf.expand_dims(
+          tf.cast(annotator_labels, tf.float32), axis=1)
+
+    def reshape_pi_feature(pi_feature):
+      return tf.expand_dims(
+          tf.cast(_unpad_annotations(pi_feature), tf.float32), axis=1)
+
+    annotator_times = reshape_pi_feature(
+        self._cifar10h_annotations['annotator_times'][example_id])
+    trial_idx = reshape_pi_feature(
+        self._cifar10h_annotations['trial_idx'][example_id])
+    if self._normalize_pi_features:
+      annotator_times = _normalize_pi_feature(annotator_times,
+                                              CIFAR10H_TIMES_MEAN,
+                                              CIFAR10H_TIMES_STD)
+      trial_idx = _normalize_pi_feature(trial_idx, CIFAR10H_TRIALS_MEAN,
+                                        CIFAR10H_TRIALS_STD)
+
+    parsed_example['pi_features'] = {
+        'annotator_labels':
+            annotator_labels,
+        'annotator_ids':
+            reshape_pi_feature(
+                self._cifar10h_annotations['annotator_ids'][example_id]),
+        'annotator_times':
+            annotator_times,
+        'trial_idx':
+            trial_idx,
+    }
+
+    return parsed_example
+
+  def _hash_fingerprint_int(self, fingerprint: Any) -> int:
+    return tf.strings.to_hash_bucket_fast(fingerprint, self.num_examples)
+
+  @property
+  def num_dataset_annotators(self):
+    return self._num_dataset_annotators
+
+  @property
+  def pi_feature_length(self):
+    feature_length_dict = {
+        'annotator_ids': 1,
+        'annotator_labels': 10 if self._should_onehot else 1,  # type: ignore
+        'annotator_times': 1,
+        'trial_idx': 1,
+    }
+    if self._random_pi_length is not None:
+      if self._random_pi_length <= 0:
+        raise ValueError('random_pi_length must be greater than 0.')
+      feature_length_dict.update({'random_pi': self._random_pi_length})
+    return feature_length_dict
+
+  def _set_adversarial_pi_features(self, example, per_example_seed):
+
+    # The adversarial annotators are assummed to be extremely low perfomant. In
+    # this regard, we set their annotator_time to be really high in comparison
+    # to the average annotator_time of the dataset.
+    adversarial_labels = tf.random.stateless_categorical(
+        tf.ones((self._num_adversarial_annotators_per_example, 10)),
+        num_samples=1,
+        seed=per_example_seed)
+    if self._should_onehot:
+      adversarial_labels = tf.one_hot(
+          adversarial_labels, self.info.num_classes, dtype=tf.float32)
+      # Remove extra dummy label dimension:
+      # adversarial_labels: (num_annotators, 1, 100) -> (num_annotators, 100)
+      adversarial_labels = tf.reshape(
+          adversarial_labels,
+          [self._num_adversarial_annotators_per_example, self.info.num_classes])
+    else:
+      adversarial_labels = tf.cast(adversarial_labels, tf.float32)
+
+    adversarial_ids = tf.reshape(
+        tf.range(
+            self.num_dataset_annotators,
+            self.num_dataset_annotators +
+            self._num_adversarial_annotators_per_example,
+            dtype=tf.float32),
+        [self._num_adversarial_annotators_per_example, 1])
+
+    adversarial_times = tf.reshape(
+        tf.ones((self._num_adversarial_annotators_per_example, 1),
+                dtype=tf.float32) * CIFAR10H_ADV_TIME,
+        [self._num_adversarial_annotators_per_example, 1])
+
+    adversarial_trial_idx = tf.reshape(
+        tf.ones((self._num_adversarial_annotators_per_example, 1),
+                dtype=tf.float32) * CIFAR10H_ADV_TRIAL,
+        [self._num_adversarial_annotators_per_example, 1])
+
+    if self._normalize_pi_features:
+      adversarial_times = _normalize_pi_feature(adversarial_times,
+                                                CIFAR10H_TIMES_MEAN,
+                                                CIFAR10H_TIMES_STD)
+      adversarial_trial_idx = _normalize_pi_feature(adversarial_trial_idx,
+                                                    CIFAR10H_TRIALS_MEAN,
+                                                    CIFAR10H_TRIALS_STD)
+
+    return {
+        'annotator_labels': adversarial_labels,
+        'annotator_ids': adversarial_ids,
+        'annotator_times': adversarial_times,
+        'trial_idx': adversarial_trial_idx,
+    }
+
+  @property
+  def _max_annotators_per_example(self):
+    return self._max_annotator_count
 
 
 class _CifarNDataset(AnnotatorPIMixin, _CifarDataset):

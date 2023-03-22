@@ -52,7 +52,7 @@ class DenseBatchEnsemble(nn.Module):
   features: int
   kernel_axes: Tuple[str, str]
   dtype: DType = jnp.float32
-  kernel_init: Initializer = nn.initializers.lecun_normal()
+  kernel_init: Initializer = nn.initializers.lecun_normal()  # pytype: disable=annotation-type-mismatch  # jax-types
   alpha_init: Initializer = nn.initializers.ones
   gamma_init: Initializer = nn.initializers.ones
 
@@ -114,7 +114,7 @@ class BEMlpBlock(nn.Module):
   random_sign_init: float
   intermediate_dim: int = 2048
   activations: Sequence[Union[str, Activation]] = ('relu',)
-  kernel_init: Initializer = nn.initializers.xavier_uniform()
+  kernel_init: Initializer = nn.initializers.xavier_uniform()  # pytype: disable=annotation-type-mismatch  # jax-types
   intermediate_dropout_rate: float = 0.1
   dtype: Any = jnp.float32
 

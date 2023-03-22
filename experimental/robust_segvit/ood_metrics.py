@@ -105,7 +105,7 @@ def get_ood_score(
   else:
     raise NotImplementedError(
         f'Missing method {method_name} to calculate OOD score.')
-  return ood_score
+  return ood_score  # pytype: disable=bad-return-type  # jax-types
 
 
 def get_ood_metrics(

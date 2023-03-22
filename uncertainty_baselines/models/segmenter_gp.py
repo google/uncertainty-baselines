@@ -42,7 +42,7 @@ class SegVitGP(nn.Module):
   patches: ml_collections.ConfigDict
   backbone_configs: ml_collections.ConfigDict
   decoder_configs: ml_collections.ConfigDict
-  head_kernel_init: InitializeFn = nn.initializers.variance_scaling(
+  head_kernel_init: InitializeFn = nn.initializers.variance_scaling(  # pytype: disable=annotation-type-mismatch  # jax-types
       0.02, 'fan_in', 'truncated_normal')
 
   @nn.compact

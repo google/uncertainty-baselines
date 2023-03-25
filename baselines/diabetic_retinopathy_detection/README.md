@@ -42,7 +42,7 @@ The EyePACS dataset (used in Country and Severity Shift) and the APTOS 2019 data
    * [EyePACS](https://www.kaggle.com/c/diabetic-retinopathy-detection)
    * [APTOS 2019](https://www.kaggle.com/c/aptos2019-blindness-detection)
 
-2. Extract the EyePACS dataset to ``$DATA_DIR/downloads/manual``. The directory structure should look like this:
+2. Extract the EyePACS dataset to ``$DATA_DIR/ub_diabetic_retinopathy_detection/manual``. The directory structure should look like this:
 
     ``sample/  sampleSubmission.csv  test/  train/  trainLabels.csv``
 
@@ -52,9 +52,9 @@ The EyePACS dataset (used in Country and Severity Shift) and the APTOS 2019 data
 
 4. Confirm successful download of files. The following commands should print out the number of files in the directories:
     ```
-    $ ls -1 $DATA_DIR/downloads/manual/train | wc -l
+    $ ls -1 $DATA_DIR/ub_diabetic_retinopathy_detection/manual/train | wc -l
     35126
-    $ ls -1 $DATA_DIR/downloads/manual/test | wc -l
+    $ ls -1 $DATA_DIR/ub_diabetic_retinopathy_detection/manual/test | wc -l
     53576
     $ ls -1 $DATA_DIR/aptos/manual/train_images | wc -l
     3662
@@ -62,7 +62,7 @@ The EyePACS dataset (used in Country and Severity Shift) and the APTOS 2019 data
     1928
     ```
 
-5. Manual shuffling and packaging of TF dataset objects. I suggest using the following commands in a `tmux` or `screen` session, in case of network failure; they take a while. 
+5. Manual shuffling and packaging of TF dataset objects. Consider running the following commands in a `tmux` or `screen` session, in case of a network failure. They take a while. 
     ```
     conda activate ub
     

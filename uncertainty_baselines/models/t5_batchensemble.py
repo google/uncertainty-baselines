@@ -17,7 +17,7 @@
 
 import functools
 import operator
-from typing import Any, Callable, Iterable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
 import edward2.jax as ed
 import flax.linen as nn
@@ -33,7 +33,7 @@ with_sharding_constraint = nn_partitioning.with_sharding_constraint
 Array = jnp.ndarray
 DType = jnp.dtype
 PRNGKey = jnp.ndarray
-Shape = Iterable[int]
+Shape = Sequence[int]
 Activation = Callable[..., Array]
 # Parameter initializers.
 Initializer = Callable[[PRNGKey, Shape, DType], Array]
@@ -52,7 +52,7 @@ class DenseBatchEnsemble(nn.Module):
   features: int
   kernel_axes: Tuple[str, str]
   dtype: DType = jnp.float32
-  kernel_init: Initializer = nn.initializers.lecun_normal()  # pytype: disable=annotation-type-mismatch  # jax-types
+  kernel_init: Initializer = nn.initializers.lecun_normal()
   alpha_init: Initializer = nn.initializers.ones
   gamma_init: Initializer = nn.initializers.ones
 
@@ -114,7 +114,7 @@ class BEMlpBlock(nn.Module):
   random_sign_init: float
   intermediate_dim: int = 2048
   activations: Sequence[Union[str, Activation]] = ('relu',)
-  kernel_init: Initializer = nn.initializers.xavier_uniform()  # pytype: disable=annotation-type-mismatch  # jax-types
+  kernel_init: Initializer = nn.initializers.xavier_uniform()
   intermediate_dropout_rate: float = 0.1
   dtype: Any = jnp.float32
 

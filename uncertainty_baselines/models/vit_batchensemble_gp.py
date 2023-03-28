@@ -16,7 +16,7 @@
 """Patch Transformerm similar to Gshard paper with BatchEnsemble MLPs."""
 import dataclasses
 
-from typing import Any, Callable, Iterable, Mapping, Optional, Tuple
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
 
 import edward2.jax as ed
 import flax.linen as nn
@@ -26,7 +26,7 @@ from uncertainty_baselines.models import vit
 from uncertainty_baselines.models import vit_batchensemble
 
 DType = type(jnp.float32)
-InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
+InitializeFn = Callable[[jnp.ndarray, Sequence[int], DType], jnp.ndarray]
 Params = Mapping[str, Any]
 
 default_kwarg_dict = lambda: dataclasses.field(default_factory=dict)

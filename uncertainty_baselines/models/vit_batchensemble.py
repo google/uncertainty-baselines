@@ -15,7 +15,7 @@
 
 """BatchEnsemble Vision Transformer (ViT) model."""
 
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
 
 import edward2.jax as ed
 import flax.linen as nn
@@ -24,7 +24,7 @@ import jax.numpy as jnp
 from uncertainty_baselines.models import vit
 
 DType = type(jnp.float32)
-InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
+InitializeFn = Callable[[jnp.ndarray, Sequence[int], DType], jnp.ndarray]
 Params = Mapping[str, Any]
 
 
@@ -45,8 +45,8 @@ class BatchEnsembleMlpBlock(nn.Module):
   out_dim: Optional[int] = None
   dropout_rate: float = 0.0
   deterministic: Optional[bool] = None
-  kernel_init: InitializeFn = nn.initializers.xavier_uniform()  # pytype: disable=annotation-type-mismatch  # jax-types
-  bias_init: InitializeFn = nn.initializers.normal(stddev=1e-6)  # pytype: disable=annotation-type-mismatch  # jax-types
+  kernel_init: InitializeFn = nn.initializers.xavier_uniform()
+  bias_init: InitializeFn = nn.initializers.normal(stddev=1e-6)
 
   @nn.compact
   def __call__(self,

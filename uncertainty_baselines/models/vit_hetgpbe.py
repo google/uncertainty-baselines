@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """Vision Transformer with Heteroskedastic, GP, and BatchEnsemble."""
-from typing import Any, Callable, Iterable, Mapping, Optional, Tuple
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
 
 import edward2.jax as ed
 import flax.linen as nn
@@ -26,7 +26,7 @@ import uncertainty_baselines.models.vit_batchensemble as vit_batchensemble
 # Jax data types
 Array = Any
 DType = type(jnp.float32)
-InitializeFn = Callable[[jnp.ndarray, Iterable[int], DType], jnp.ndarray]
+InitializeFn = Callable[[jnp.ndarray, Sequence[int], DType], jnp.ndarray]
 
 
 # TODO(dusenberrymw,zmariet): Clean up and generalize these log marginal probs.

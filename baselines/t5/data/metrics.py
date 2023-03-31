@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2022 The Uncertainty Baselines Authors.
+# Copyright 2023 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 
 """Metrics for Seq2Seq parsing."""
 import collections
-from typing import Any, Dict, List, Optional, Sequence, Text, Tuple, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Text, Tuple, Union
 
 from absl import logging
 
@@ -32,6 +32,7 @@ import tensorflow as tf
 from data import metrics_utils  # local file import from baselines.t5
 from data.deepbank import graph_utils  # local file import from baselines.t5
 from data.deepbank import penman_utils  # local file import from baselines.t5
+from google3.nlp.grounding_evaluation.end_to_end_nli.t5x import metrics as nli_metrics
 
 
 NEG_INF = t5x_decoding.NEG_INF
@@ -39,9 +40,19 @@ tf_metrics = tf.keras.metrics
 
 DEFAULT_VOCAB = t5.data.get_default_vocabulary()
 
+Metrics = Mapping[str, Any]
+DefaultMetricFn = Callable[[Sequence[str], Sequence[str]], Metrics]
+WrappedMetricFn = Callable[
+    [Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]], Metrics
+]
+
 GreedyScore = float
 TopkPrediction = Sequence[int]
 TopkScore = Union[Sequence[float], Sequence[Sequence[float]]]
+# TODO(polinaz): Make this bns path configurable.
+_SERVER_ADDRESS = (
+    '/bns/lu/borg/lu/bns/michalyarom/michalyarom_group_53538137.1.server/0:rpc')
+
 
 BeamScore = Tuple[GreedyScore, TopkPrediction, TopkScore]
 
@@ -83,11 +94,46 @@ def seq2seq_metrics(targets: List[Text],
   return dict(sequence_accuracy=_safe_divide(num_correct, num_total))
 
 
-def _seq2seq_uncertainty_metrics(targets: List[Text],
-                                 predictions: List[Text],
-                                 log_probs: np.ndarray,
-                                 num_ece_bins: int = 15,
-                                 metric_prefix: str = '') -> Dict[Text, float]:
+def nli_metric(
+    targets: Sequence[str],
+    predictions: Sequence[Mapping[str, Any]],
+    server_address=_SERVER_ADDRESS
+) -> dict[str, tf.Tensor]:
+  """Wrapper around NLI prediction service metric to fix bns server path."""
+
+  return nli_metrics.prediction_service_metric(
+      targets,
+      predictions,
+      server_address=server_address,
+      prompt_function=nli_metrics.summarization_formatter,
+      request_batch_size=2,
+  )
+
+
+def wrapped_seq2seq_uncertainty_metrics(
+    targets: Sequence[Mapping[str, Any]],
+    predictions: Sequence[Mapping[str, Any]],
+    aux_values: Dict[Text, Any],
+    vocab: seqio.SentencePieceVocabulary = DEFAULT_VOCAB,
+    num_ece_bins: int = 15,
+) -> Dict[Text, float]:
+  """Wraps a `uncertainty_metrics` to be used with nli metric postprocessing."""
+  return seq2seq_uncertainty_metrics(
+      [target['target'] for target in targets],
+      [prediction['prediction'] for prediction in predictions],
+      aux_values,
+      vocab,
+      num_ece_bins,
+  )
+
+
+def _seq2seq_uncertainty_metrics(
+    targets: List[Text],
+    predictions: List[Text],
+    log_probs: np.ndarray,
+    num_ece_bins: int = 15,
+    metric_prefix: str = '',
+) -> Dict[Text, float]:
   """Returns uncertainty metrics for seq2seq tasks."""
 
   # Convert to numpy.

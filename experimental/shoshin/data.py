@@ -27,6 +27,7 @@ import dataclasses
 import json
 import os
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+import uuid
 
 import numpy as np
 import tensorflow as tf
@@ -733,6 +734,8 @@ class SkaiDatasetConfig(tfds.core.BuilderConfig):
   labeled_test_pattern: str = ''
   unlabeled_pattern: str = ''
   use_post_disaster_only: bool = False
+  image_size: int = RESNET_IMAGE_SIZE
+  max_examples: int = 0
 
 
 def _decode_and_resize_image(
@@ -769,6 +772,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
 
   VERSION = tfds.core.Version('1.0.0')
 
+
   def __init__(self,
                subgroup_ids: Optional[List[str]] = None,
                subgroup_proportions: Optional[List[float]] = None,
@@ -789,21 +793,20 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
   def _info(self):
     # TODO(jihyeonlee): Change label and subgroup_label to
     #   tfds.features.ClassLabel.
+    num_channels = 3 if self.builder_config.use_post_disaster_only else 6
+    input_shape = (self.builder_config.image_size,
+                   self.builder_config.image_size,
+                   num_channels)
     return tfds.core.DatasetInfo(
         builder=self,
         description='Skai',
         features=tfds.features.FeaturesDict({
             'input_feature': tfds.features.Tensor(
-                shape=(
-                    RESNET_IMAGE_SIZE,
-                    RESNET_IMAGE_SIZE,
-                    3 if self.builder_config.use_post_disaster_only else 6,
-                ),
-                dtype=tf.float32,
-            ),
+                shape=input_shape, dtype=tf.float32),
             'example_id': tfds.features.Text(),
             'coordinates': tfds.features.Tensor(shape=(2,), dtype=tf.float32),
             'label': tfds.features.Tensor(shape=(), dtype=tf.int64),
+            'string_label': tfds.features.Text(),
             'subgroup_label': tfds.features.Tensor(shape=(), dtype=tf.int64),
         }),
     )
@@ -835,41 +838,42 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
             'post_image_png_large': tf.io.FixedLenFeature([], dtype=tf.string),
             'label': tf.io.FixedLenFeature([], dtype=tf.float32),
             'string_label': tf.io.FixedLenFeature(
-                [], dtype=tf.string, default_value='no_string_label'
+                [], dtype=tf.string, default_value=''
             ),
         },
     )
 
     features = {}
     after_image = _decode_and_resize_image(
-        example['post_image_png_large'], RESNET_IMAGE_SIZE
+        example['post_image_png_large'], self.builder_config.image_size
     )
     if self.builder_config.use_post_disaster_only:
       features['input_feature'] = after_image
     else:
       before_image = _decode_and_resize_image(
-          example['pre_image_png_large'], RESNET_IMAGE_SIZE
+          example['pre_image_png_large'], self.builder_config.image_size
       )
       features['input_feature'] = tf.concat(
           [before_image, after_image], axis=-1
       )
 
-    example_id = tf.strings.join(
-        [example['example_id'], example['string_label']],
-        separator='_'
-    )
     features['label'] = tf.cast(example['label'], tf.int64)
-    features['example_id'] = example_id
+    features['example_id'] = example['example_id']
     features['subgroup_label'] = features['label']
     features['coordinates'] = example['coordinates']
-    return example_id, features
+    features['string_label'] = example['string_label']
+    return features
 
   def _generate_examples(self, pattern: str):
     if not pattern:
       return
     paths = tf.io.gfile.glob(pattern)
-    ds = tf.data.TFRecordDataset(paths).map(self._decode_record)
-    return ds.as_numpy_iterator()
+    ds = tf.data.TFRecordDataset(paths).map(
+        self._decode_record, num_parallel_calls=tf.data.AUTOTUNE)
+    if self.builder_config.max_examples:
+      ds = ds.take(self.builder_config.max_examples)
+    for features in ds.as_numpy_iterator():
+      yield uuid.uuid4().hex, features
 
 
 @register_dataset('waterbirds')

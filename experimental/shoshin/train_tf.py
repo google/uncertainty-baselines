@@ -66,12 +66,14 @@ def main(_) -> None:
   if config.data.name == 'waterbirds10k':
     ds_kwargs = {'corr_strength': config.data.corr_strength}
   elif config.data.name == 'skai':
-    ds_kwargs = {
+    ds_kwargs.update({
+        'tfds_dataset_name': config.data.tfds_dataset_name,
+        'data_dir': config.data.tfds_data_dir,
         'labeled_train_pattern': config.data.labeled_train_pattern,
         'unlabeled_train_pattern': config.data.unlabeled_train_pattern,
         'validation_pattern': config.data.validation_pattern,
         'use_post_disaster_only': config.data.use_post_disaster_only
-    }
+    })
     if config.data.use_post_disaster_only:
       config.model.num_channels = 3
   if config.upsampling.do_upsampling:

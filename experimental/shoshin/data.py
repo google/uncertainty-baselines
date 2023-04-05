@@ -1138,24 +1138,26 @@ def get_skai_dataset(num_splits: int,
     combined training dataset, and a dictionary mapping evaluation dataset names
     to their respective combined datasets.
   """
-  # pylint: disable=unexpected-keyword-arg
-  hurricane_ian_config = SkaiDatasetConfig(
-      name='skai_dataset',
-      labeled_train_pattern=labeled_train_pattern,
-      labeled_test_pattern=validation_pattern,
-      unlabeled_pattern=unlabeled_train_pattern,
-      use_post_disaster_only=use_post_disaster_only
-  )
-  # pylint: enable=unexpected-keyword-arg
-  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
-  reduced_datset_sz = int(100 * initial_sample_proportion)
+
   builder_kwargs = {
-      'config': hurricane_ian_config,
       'subgroup_ids': subgroup_ids,
       'subgroup_proportions': subgroup_proportions,
       'include_train_sample': include_train_sample,
       **additional_builder_kwargs
   }
+  if '/' not in tfds_dataset_name:
+    # No named config variant specified, so provide the config explicitly.
+    # pylint: disable=unexpected-keyword-arg
+    builder_kwargs['config'] = SkaiDatasetConfig(
+        name='skai_dataset',
+        labeled_train_pattern=labeled_train_pattern,
+        labeled_test_pattern=validation_pattern,
+        unlabeled_pattern=unlabeled_train_pattern,
+        use_post_disaster_only=use_post_disaster_only
+    )
+    # pylint: enable=unexpected-keyword-arg
+  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
+  reduced_datset_sz = int(100 * initial_sample_proportion)
 
   val_splits = tfds.load(
       tfds_dataset_name,

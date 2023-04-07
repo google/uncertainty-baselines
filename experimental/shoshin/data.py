@@ -84,7 +84,7 @@ def get_dataset(name: str):
 @dataclasses.dataclass
 class Dataloader:
   num_subgroups: int  # Number of subgroups in data.
-  subgroup_sizes: Dict[int, int]  # Number of examples by subgroup.
+  subgroup_sizes: Dict[str, int]  # Number of examples by subgroup.
   train_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   val_splits: tf.data.Dataset  # Result of tfds.load with 'split' arg.
   train_ds: tf.data.Dataset  # Dataset with all the train splits combined.
@@ -96,20 +96,26 @@ class Dataloader:
       tf.data.Dataset]] = None  # Validation and any additional test datasets.
 
 
-def get_subgroup_sizes(dataloader: tf.data.Dataset) -> Dict[int, int]:
+def get_subgroup_sizes(dataloader: tf.data.Dataset) -> Dict[str, int]:
   """Gets the number examples of each subgroup."""
-  return dict(
+  # return dict(
+  #     collections.Counter(
+  #         dataloader.map(lambda x: x['subgroup_label']).as_numpy_iterator()
+  #     )
+  # )
+  subgroup_sizes = dict(
       collections.Counter(
           dataloader.map(lambda x: x['subgroup_label']).as_numpy_iterator()
       )
   )
+  return {str(key): val for key, val in subgroup_sizes.items()}
 
 
 def upsample_subgroup(
     dataset: tf.data.Dataset,
     lambda_value: int = 60,
     signal: str = 'subgroup_label',
-    subgroup_sizes: Optional[Dict[int, int]] = None,
+    subgroup_sizes: Optional[Dict[str, int]] = None,
 ) -> tf.data.Dataset:
   """Creates dataset that has upsampled subgroup.
 
@@ -136,11 +142,15 @@ def upsample_subgroup(
         ' dictionary of subgroup sizes must be available.'
     )
   examples_by_subgroup = {}
-  smallest_subgroup_label = -1
+  smallest_subgroup_label = ''
   smallest_subgroup_size = -1
   for subgroup_label in subgroup_sizes.keys():
+
     def filter_subgroup(x, label=subgroup_label):
-      return tf.math.equal(x['subgroup_label'], label)
+      return tf.math.equal(
+          x['subgroup_label'], tf.strings.to_number(label, tf.int64)
+      )
+
     examples_by_subgroup[subgroup_label] = dataset.filter(filter_subgroup)
     if smallest_subgroup_size == -1:
       smallest_subgroup_label = subgroup_label

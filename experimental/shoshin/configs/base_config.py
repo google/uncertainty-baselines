@@ -100,7 +100,8 @@ def get_training_config():
   """Get training config."""
   config = ml_collections.ConfigDict()
   config.num_epochs = 60
-  config.save_model_checkpoints = True
+  config.save_model_checkpoints = False
+  config.save_best_model = True
   # TODO(jihyeonlee): Allow user to specify early stopping patience.
   # When True, stops training when val AUC does not improve after 3 epochs.
   config.early_stopping = False

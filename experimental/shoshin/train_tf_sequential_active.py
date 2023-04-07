@@ -35,10 +35,6 @@ import train_tf_lib  # local file import from experimental.shoshin
 from configs import base_config  # local file import from experimental.shoshin
 
 
-# Subdirectory for checkpoints in FLAGS.output_dir.
-CHECKPOINTS_SUBDIR = 'checkpoints'
-
-
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file('config')
 flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
@@ -167,9 +163,10 @@ def main(_) -> None:
         model_params=model_params,
         num_splits=config.data.num_splits,
         ood_ratio=config.data.ood_ratio,
-        checkpoint_dir=os.path.join(output_dir, CHECKPOINTS_SUBDIR),
+        output_dir=output_dir,
         experiment_name='stage_2',
         save_model_checkpoints=config.training.save_model_checkpoints,
+        save_best_model=config.training.save_best_model,
         early_stopping=config.training.early_stopping,
         ensemble_dir=FLAGS.ensemble_dir,
         example_id_to_bias_table=example_id_to_bias_table)

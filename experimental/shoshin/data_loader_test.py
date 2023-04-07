@@ -197,8 +197,8 @@ class DataLoaderTest(googletest.TestCase):
         **kwargs)
     ds = dataloader.train_ds
     subgroup_sizes = data.get_subgroup_sizes(ds)
-    self.assertEqual(subgroup_sizes[0], 2)
-    self.assertEqual(subgroup_sizes[1], 1)
+    self.assertEqual(subgroup_sizes['0'], 2)
+    self.assertEqual(subgroup_sizes['1'], 1)
     lambda_value = 10
     upsampled_ds = data.upsample_subgroup(
         ds, lambda_value, 'subgroup_label', subgroup_sizes

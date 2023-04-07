@@ -54,7 +54,7 @@ class ModelTrainingParameters:
   train_bias: bool
   num_classes: int
   num_subgroups: int
-  subgroup_sizes: Dict[int, int]
+  subgroup_sizes: Dict[str, int]
   num_epochs: int
   num_channels: int = 3
   l2_regularization_factor: float = 0.5
@@ -69,6 +69,13 @@ class ModelTrainingParameters:
   reweighting_signal: Optional[str] = 'bias'
   reweighting_lambda: Optional[float] = 0.5
   reweighting_error_percentile_threshold: Optional[float] = 0.2
+
+  def asdict(self):
+    return dataclasses.asdict(self)
+
+  @classmethod
+  def from_dict(cls, kwargs):
+    return ModelTrainingParameters(**kwargs)
 
 
 @register_model('mlp')
@@ -109,6 +116,7 @@ class MLP(tf.keras.Model):
 
 
 @register_model('resnet')
+@tf.keras.saving.register_keras_serializable('resnet')
 class ResNet(tf.keras.Model):
   """Defines a MLP model class with two output heads.
 
@@ -120,6 +128,7 @@ class ResNet(tf.keras.Model):
                model_params: ModelTrainingParameters):
     super(ResNet, self).__init__(name=model_params.model_name)
 
+    self.model_params = model_params
     self.resnet_model = tf.keras.applications.resnet50.ResNet50(
         include_top=False,
         weights='imagenet' if model_params.load_pretrained_weights else None,
@@ -139,7 +148,8 @@ class ResNet(tf.keras.Model):
           setattr(layer, 'kernel_regularizer', regularizer)
         if isinstance(layer, tf.keras.layers.Conv2D):
           layer.use_bias = False
-          layer.kernel_initializer = 'he_normal'
+          initializer = tf.keras.initializers.HeNormal()
+          layer.kernel_initializer = initializer
         if isinstance(layer, tf.keras.layers.BatchNormalization):
           layer.momentum = 0.9
 
@@ -155,6 +165,18 @@ class ResNet(tf.keras.Model):
         activation='softmax',
         name='bias',
         kernel_regularizer=regularizer)
+
+  def get_config(self):
+    config = super(ResNet, self).get_config()
+    config.update({'model_params': self.model_params.asdict(),
+                   'resnet_model': self.resnet_model,
+                   'output_main': self.output_main,
+                   'output_bias': self.output_bias})
+    return config
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(ModelTrainingParameters.from_dict(config['model_params']))
 
   def call(self, inputs):
     x = self.resnet_model(inputs)

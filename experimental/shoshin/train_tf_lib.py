@@ -33,13 +33,14 @@ import models  # local file import from experimental.shoshin
 
 
 
+@tf.keras.saving.register_keras_serializable('two_headed_output_model')
 class TwoHeadedOutputModel(tf.keras.Model):
   """Defines a two-headed output model."""
 
   def __init__(self,
                model: tf.keras.Model,
                num_subgroups: int,
-               subgroup_sizes: Dict[int, int],
+               subgroup_sizes: Dict[str, int],
                train_bias: bool,
                name: str,
                worst_group_label: Optional[int] = 2,
@@ -67,6 +68,18 @@ class TwoHeadedOutputModel(tf.keras.Model):
       self.subgroup_sizes = subgroup_sizes
       self.worst_group_label = worst_group_label
 
+  def get_config(self):
+    config = super().get_config()
+    config.update({
+        'model': self.model,
+        'num_subgroups': self.num_subgroups,
+        'subgroup_sizes': self.subgroup_sizes,
+        'train_bias': self.train_bias,
+        'name': self.name,
+        'worst_group_label': self.worst_group_label
+    })
+    return config
+
   def call(self, inputs):
     return self.model(inputs)
 
@@ -92,7 +105,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     for m in metrics:
       if 'subgroup' in m.name and 'main' in m.name:
         accs.append(m.result())
-        subgroup_label = int(m.name.split('_')[1])
+        subgroup_label = m.name.split('_')[1]
         weighted_accs.append(
             m.result() * float(self.subgroup_sizes[subgroup_label]) / total_size
         )
@@ -213,74 +226,80 @@ class TwoHeadedOutputModel(tf.keras.Model):
     return results
 
 
-def compute_loss_main(y_true_main: tf.Tensor, y_pred_main: tf.Tensor):
-  """Defines loss function for main classification task."""
-  loss_func = tf.keras.losses.CategoricalCrossentropy(from_logits=False)
-  return loss_func(y_true_main, y_pred_main)
-
-
-def compute_loss_bias(y_true_bias: tf.Tensor, y_pred_bias: tf.Tensor):
-  """Defines loss function for bias classification task."""
-  loss_func = tf.keras.losses.CategoricalCrossentropy(from_logits=False)
-  return loss_func(y_true_bias, y_pred_bias)
-
-
-def compile_model(model: tf.keras.Model,
-                  model_params: models.ModelTrainingParameters):
+def compile_model(
+    model: tf.keras.Model, model_params: models.ModelTrainingParameters
+):
   """Compiles model with optimizer, custom loss functions, and metrics."""
   if model_params.optimizer == 'adam':
     optimizer = tf.keras.optimizers.Adam(
-        learning_rate=model_params.learning_rate)
+        learning_rate=model_params.learning_rate
+    )
   else:  # sgd
     optimizer = tf.keras.optimizers.SGD(
-        learning_rate=model_params.learning_rate, momentum=0.9)
-  loss = {'main': compute_loss_main}
+        learning_rate=model_params.learning_rate, momentum=0.9
+    )
+  loss = {
+      'main': tf.keras.losses.CategoricalCrossentropy(
+          from_logits=False, name='main'
+      )
+  }
   loss_weights = {'main': 1}
   metrics = {
       'main': [
           tf.keras.metrics.CategoricalAccuracy(name='acc'),
-          tf.keras.metrics.AUC(name='auc')
+          tf.keras.metrics.AUC(name='auc'),
       ]
   }
-  if model.train_bias:
+  if model_params.train_bias:
     metrics['bias'] = [
         tf.keras.metrics.CategoricalAccuracy(name='acc'),
-        tf.keras.metrics.AUC(name='auc')
+        tf.keras.metrics.AUC(name='auc'),
     ]
-    loss['bias'] = compute_loss_bias
+    loss['bias'] = tf.keras.losses.CategoricalCrossentropy(
+        from_logits=False, name='bias'
+    )
     loss_weights['bias'] = 1
   for i in range(model_params.num_subgroups):
-    metrics.update({
-        '_'.join(['subgroup', str(i), 'main']): [
-            tf.keras.metrics.CategoricalAccuracy(name='acc'),
-        ]
-    })
+    metrics.update(
+        {
+            '_'.join(['subgroup', str(i), 'main']): [
+                tf.keras.metrics.CategoricalAccuracy(name='acc'),
+            ]
+        }
+    )
     if model.train_bias:
-      metrics.update({
-          '_'.join(['subgroup', str(i), 'bias']): [
-              tf.keras.metrics.CategoricalAccuracy(name='acc'),
-              tf.keras.metrics.AUC(name='auc')
-          ]
-      })
+      metrics.update(
+          {
+              '_'.join(['subgroup', str(i), 'bias']): [
+                  tf.keras.metrics.CategoricalAccuracy(name='acc'),
+                  tf.keras.metrics.AUC(name='auc'),
+              ]
+          }
+      )
   model.compile(
-      optimizer=optimizer,
-      loss=loss,
-      loss_weights=loss_weights,
-      metrics=metrics)
+      optimizer=optimizer, loss=loss, loss_weights=loss_weights, metrics=metrics
+  )
   return model
 
 
-def evaluate_model(model: tf.keras.Model,
-                   checkpoint_dir: str,
-                   eval_ds: Dict[str, tf.data.Dataset]):
+def evaluate_model(
+    model: tf.keras.Model,
+    output_dir: str,
+    eval_ds: Dict[str, tf.data.Dataset],
+    save_model_checkpoints: bool = False,
+    save_best_model: bool = True,
+):
   """Evaluates model on given validation and/or test datasets.
 
   Args:
     model: Keras model to be evaluated.
-    checkpoint_dir: Path to directory where checkpoints are stored.
+    output_dir: Path to directory where model is saved.
     eval_ds: Dictionary mapping evaluation dataset name to the dataset.
+    save_model_checkpoints: Boolean for saving checkpoints during training.
+    save_best_model: Boolean for saving best model during training.
   """
-  if tf.io.gfile.isdir(checkpoint_dir) and tf.io.gfile.listdir(checkpoint_dir):
+  checkpoint_dir = os.path.join(output_dir, 'checkpoints')
+  if save_model_checkpoints and tf.io.gfile.listdir(checkpoint_dir):
     best_latest_checkpoint = tf.train.latest_checkpoint(checkpoint_dir)
     load_status = model.load_weights(best_latest_checkpoint)
     load_status.assert_consumed()
@@ -299,14 +318,26 @@ def evaluate_model(model: tf.keras.Model,
                        results[f'subgroup_{i}_main_acc'])
         logging.info('Average Acc: %f', results['avg_acc'])
         logging.info('Average Acc: %f', results['weighted_avg_acc'])
+  if save_best_model:
+    model_dir = os.path.join(output_dir, 'model')
+    loaded_model = tf.keras.models.load_model(model_dir)
+    compiled_model = compile_model(
+        loaded_model, loaded_model.model.model_params
+    )
+    results = compiled_model.evaluate(
+        eval_ds['val'],
+        return_dict=True,
+    )
+    logging.info(results)
 
 
 def init_model(
     model_params: models.ModelTrainingParameters,
     experiment_name: str,
-    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None
+    example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None,
 ) -> tf.keras.Model:
   """Initializes an TwoHeadedOutputModel with a base model.
+
 
   Args:
     model_params: Dataclass object containing model and training parameters.
@@ -341,8 +372,9 @@ def init_model(
 
 
 def create_callbacks(
-    checkpoint_dir: str,
-    save_model_checkpoints: bool = True,
+    output_dir: str,
+    save_model_checkpoints: bool = False,
+    save_best_model: bool = True,
     early_stopping: bool = True,
     batch_size: Optional[int] = 64,
     num_train_examples: Optional[int] = None,
@@ -350,8 +382,9 @@ def create_callbacks(
   """Creates callbacks, such as saving model checkpoints, for training.
 
   Args:
-    checkpoint_dir: Directory where checkpoints will be saved.
+    output_dir: Directory where model will be saved.
     save_model_checkpoints: Boolean for whether or not to save checkpoints.
+    save_best_model: Boolean for whether or not to save best model.
     early_stopping: Boolean for whether or not to use early stopping during
       training.
     batch_size: Optional integer for batch size.
@@ -364,13 +397,26 @@ def create_callbacks(
   if save_model_checkpoints:
     checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
-            checkpoint_dir,
+            os.path.join(output_dir, 'checkpoints'),
             'epoch-{epoch:02d}-val_auc-{val_main_auc:.2f}.ckpt'),
         monitor='val_main_auc',
         mode='max',
         save_weights_only=True,
         save_best_only=True)
     callbacks.append(checkpoint_callback)
+  if save_best_model:
+    model_dir = os.path.join(output_dir, 'model')
+    # TODO(jihyeonlee,melfatih): Update to AUPRC.
+    model_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath=os.path.join(
+            model_dir,
+            'avg_acc-{val_avg_acc:.2f}'),
+        monitor='val_avg_acc',
+        mode='max',
+        save_weights_only=False,
+        save_best_only=True,
+        save_traces=True)
+    callbacks.append(model_callback)
   if early_stopping:
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(
         monitor='val_main_auc',
@@ -802,9 +848,10 @@ def train_and_evaluate(
     model_params: models.ModelTrainingParameters,
     num_splits: int,
     ood_ratio: float,
-    checkpoint_dir: str,
+    output_dir: str,
     experiment_name: str,
     save_model_checkpoints: bool,
+    save_best_model: bool,
     early_stopping: bool,
     ensemble_dir: Optional[str] = '',
     example_id_to_bias_table: Optional[tf.lookup.StaticHashTable] = None):
@@ -817,9 +864,10 @@ def train_and_evaluate(
     model_params: Dataclass object containing model parameters.
     num_splits: Integer for number of data splits.
     ood_ratio: Float for ratio of splits to consider as out-of-distribution.
-    checkpoint_dir: Path to directory where checkpoints will be written.
+    output_dir: Path to directory where model will be saved.
     experiment_name: String describing experiment.
     save_model_checkpoints: Boolean for saving checkpoints during training.
+    save_best_model: Boolean for saving best model during training.
     early_stopping: Boolean for early stopping during training.
     ensemble_dir: Optional string for a directory that stores trained model
       checkpoints. If specified, will load the models from directory.
@@ -834,15 +882,16 @@ def train_and_evaluate(
         model_params=model_params,
         num_splits=num_splits,
         ood_ratio=ood_ratio,
-        output_dir=checkpoint_dir,
+        output_dir=output_dir,
         save_model_checkpoints=save_model_checkpoints,
         early_stopping=early_stopping,
         ensemble_dir=ensemble_dir,
         example_id_to_bias_table=example_id_to_bias_table)
   else:
     callbacks = create_callbacks(
-        checkpoint_dir,
+        output_dir,
         save_model_checkpoints,
+        save_best_model,
         early_stopping,
         model_params.batch_size,
         dataloader.num_train_examples)
@@ -854,5 +903,6 @@ def train_and_evaluate(
         experiment_name=experiment_name,
         callbacks=callbacks,
         example_id_to_bias_table=example_id_to_bias_table)
-    evaluate_model(two_head_model, checkpoint_dir, dataloader.eval_ds)
+    evaluate_model(two_head_model, output_dir, dataloader.eval_ds,
+                   save_model_checkpoints, save_best_model)
     return two_head_model

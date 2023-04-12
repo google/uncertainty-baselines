@@ -244,12 +244,24 @@ def compile_model(
       )
   }
   loss_weights = {'main': 1}
-  metrics = {
-      'main': [
-          tf.keras.metrics.CategoricalAccuracy(name='acc'),
-          tf.keras.metrics.AUC(name='auc'),
-      ]
-  }
+
+  main_metrics = [
+      tf.keras.metrics.CategoricalAccuracy(name='acc'),
+      tf.keras.metrics.AUC(name='auc'),
+  ]
+  for i in range(model_params.num_classes):
+    main_metrics.append(
+        metrics_lib.OneVsRest(
+            tf.keras.metrics.AUC(name=f'auroc_{i}_vs_rest'), i
+        )
+    )
+    main_metrics.append(
+        metrics_lib.OneVsRest(
+            tf.keras.metrics.AUC(name=f'aucpr_{i}_vs_rest', curve='PR'),
+            i,
+        )
+    )
+  metrics = {'main': main_metrics}
   if model_params.train_bias:
     metrics['bias'] = [
         tf.keras.metrics.CategoricalAccuracy(name='acc'),

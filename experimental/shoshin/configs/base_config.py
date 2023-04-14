@@ -93,6 +93,8 @@ def get_data_config():
   # Correlation strength of the minority vs majority group. This is equivalent
   # to the proportion of majority group examples in the data.
   config.corr_strength = 0.95
+  # Specify whether to load small images or not.
+  config.load_small_images = True
   return config
 
 

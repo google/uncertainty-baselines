@@ -68,14 +68,15 @@ def main(_) -> None:
         'labeled_train_pattern': config.data.labeled_train_pattern,
         'unlabeled_train_pattern': config.data.unlabeled_train_pattern,
         'validation_pattern': config.data.validation_pattern,
-        'use_post_disaster_only': config.data.use_post_disaster_only
+        'use_post_disaster_only': config.data.use_post_disaster_only,
+        'load_small_images': config.data.load_small_images,
     })
     if config.data.use_post_disaster_only:
       config.model.num_channels = 3
   if config.upsampling.do_upsampling:
     ds_kwargs.update({
         'upsampling_lambda': config.upsampling.lambda_value,
-        'upsampling_signal': config.upsampling.signal
+        'upsampling_signal': config.upsampling.signal,
     })
 
   logging.info('Running Round %d of Training.', config.round_idx)

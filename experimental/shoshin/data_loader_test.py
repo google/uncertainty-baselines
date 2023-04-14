@@ -142,9 +142,11 @@ class DataLoaderTest(googletest.TestCase):
     ds = dataloader.train_ds
     features = next(ds.as_numpy_iterator())
     self.assertIn('input_feature', features)
-    input_feature = features['input_feature']
+    self.assertIn('large_image', features['input_feature'])
+    input_feature = features['input_feature']['large_image']
     self.assertEqual(
-        input_feature.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3)
+        input_feature.shape,
+        (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 3),
     )
     self.assertEqual(input_feature.dtype, np.float32)
     np.testing.assert_equal(input_feature, 1.0)
@@ -170,13 +172,54 @@ class DataLoaderTest(googletest.TestCase):
     ds = dataloader.train_ds
     features = next(ds.as_numpy_iterator())
     self.assertIn('input_feature', features)
-    input_feature = features['input_feature']
+    self.assertIn('large_image', features['input_feature'])
+    input_feature = features['input_feature']['large_image']
     self.assertEqual(
         input_feature.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
     )
     self.assertEqual(input_feature.dtype, np.float32)
     np.testing.assert_equal(input_feature[:, :, :3], 0.0)
     np.testing.assert_equal(input_feature[:, :, 3:], 1.0)
+
+  def test_get_skai_dataset_small_images(self):
+    dataset_builder = data.get_dataset('skai')
+
+    kwargs = {
+        'labeled_train_pattern': self.labeled_train_path,
+        'unlabeled_train_pattern': self.unlabeled_path,
+        'validation_pattern': self.labeled_test_path,
+        'use_post_disaster_only': False,
+        'data_dir': _make_temp_dir(),
+        'load_small_images': True,
+    }
+
+    dataloader = dataset_builder(
+        1,
+        initial_sample_proportion=1,
+        subgroup_ids=(),
+        subgroup_proportions=(),
+        **kwargs
+    )
+    ds = dataloader.train_ds
+    features = next(ds.as_numpy_iterator())
+    self.assertIn('input_feature', features)
+    self.assertIn('small_image', features['input_feature'])
+    self.assertIn('large_image', features['input_feature'])
+    small_image = features['input_feature']['small_image']
+    large_image = features['input_feature']['large_image']
+    self.assertEqual(
+        small_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(small_image[:, :, :3], 0.0)
+    np.testing.assert_equal(small_image[:, :, 3:], 1.0)
+
+    self.assertEqual(
+        large_image.shape, (RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE, 6)
+    )
+    self.assertEqual(small_image.dtype, np.float32)
+    np.testing.assert_equal(large_image[:, :, :3], 0.0)
+    np.testing.assert_equal(large_image[:, :, 3:], 1.0)
 
   def test_upsample_subgroup(self):
     dataset_builder = data.get_dataset('skai')

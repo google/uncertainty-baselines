@@ -106,7 +106,7 @@ class MLP(tf.keras.Model):
         name='bias')
 
   def call(self, inputs):
-    x = self.dense_layers(inputs)
+    x = self.dense_layers(inputs['large_image'])
     out_main = self.output_main(x)
     out_bias = self.output_bias(x)
     return {
@@ -179,7 +179,7 @@ class ResNet(tf.keras.Model):
     return cls(ModelTrainingParameters.from_dict(config['model_params']))
 
   def call(self, inputs):
-    x = self.resnet_model(inputs)
+    x = self.resnet_model(inputs['large_image'])
     out_main = self.output_main(x)
     out_bias = self.output_bias(x)
     return {

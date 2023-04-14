@@ -49,10 +49,6 @@ WrappedMetricFn = Callable[
 GreedyScore = float
 TopkPrediction = Sequence[int]
 TopkScore = Union[Sequence[float], Sequence[Sequence[float]]]
-# TODO(polinaz): Make this bns path configurable.
-_SERVER_ADDRESS = (
-    '/bns/lu/borg/lu/bns/michalyarom/michalyarom_group_53538137.1.server/0:rpc')
-
 
 BeamScore = Tuple[GreedyScore, TopkPrediction, TopkScore]
 
@@ -94,20 +90,6 @@ def seq2seq_metrics(targets: List[Text],
   return dict(sequence_accuracy=_safe_divide(num_correct, num_total))
 
 
-def nli_metric(
-    targets: Sequence[str],
-    predictions: Sequence[Mapping[str, Any]],
-    server_address=_SERVER_ADDRESS
-) -> dict[str, tf.Tensor]:
-  """Wrapper around NLI prediction service metric to fix bns server path."""
-
-  return nli_metrics.prediction_service_metric(
-      targets,
-      predictions,
-      server_address=server_address,
-      prompt_function=nli_metrics.summarization_formatter,
-      request_batch_size=2,
-  )
 
 
 def wrapped_seq2seq_uncertainty_metrics(

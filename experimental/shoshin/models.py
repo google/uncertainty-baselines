@@ -186,3 +186,84 @@ class ResNet(tf.keras.Model):
         'main': out_main,
         'bias': out_bias
     }
+
+
+@register_model('two_tower')
+@tf.keras.saving.register_keras_serializable('two_tower')
+class TwoTower(tf.keras.Model):
+  """Defines Two Tower class with two output heads.
+
+  One output head is for the main training task, while the other is an optional
+  head to train on bias labels. Inputs are feature vectors. 
+  """
+
+  def __init__(self,
+               model_params: ModelTrainingParameters):
+    super(TwoTower, self).__init__(name=model_params.model_name)
+
+    self.model_params = model_params
+    backbone = tf.keras.applications.resnet_v2.ResNet50V2(
+        include_top=False,
+        weights='imagenet' if model_params.load_pretrained_weights else None,
+        input_shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE,
+                     3),
+        classes=model_params.num_classes,
+        pooling='avg'
+        # TODO(jihyeonlee): Consider making pooling method a flag.
+    )
+
+    if model_params.load_pretrained_weights:
+      backbone.trainable = False
+
+    dense = tf.keras.Sequential([
+        # TODO(melfatih): Add a hyperparameter for dropout.
+        tf.keras.layers.Dropout(0.5),
+        # TODO(melfatih): Add a hyperparameter for embedding size.
+        tf.keras.layers.Dense(units=256, activation='relu'),
+        tf.keras.layers.Dropout(0.5),
+        tf.keras.layers.Dense(units=64, activation='relu'),
+        tf.keras.layers.Dropout(0.5),
+    ])
+    self.backbone = tf.keras.Sequential([backbone, dense])
+    self.output_main = (
+        tf.keras.layers.Dense(
+            units=model_params.num_classes, activation='sigmoid'
+        )
+    )
+    self.output_bias = tf.keras.layers.Dense(
+        model_params.num_classes,
+        trainable=model_params.train_bias,
+        activation='softmax',
+        name='bias',
+    )
+
+  def get_config(self):
+    config = super(TwoTower, self).get_config()
+    config.update({'model_params': self.model_params.asdict(),
+                   'backbone': self.backbone,
+                   'output_main': self.output_main,
+                   'output_bias': self.output_bias})
+    return config
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(ModelTrainingParameters.from_dict(config['model_params']))
+
+  def call(self, inputs):
+    large_image, small_image = inputs['large_image'], inputs['small_image']
+
+    if self.model_params.num_channels == 3:
+      after_embed = self.backbone(large_image)
+      after_crop_embed = self.backbone(small_image)
+      combined = tf.concat([after_embed, after_crop_embed], axis=-1)
+    elif self.model_params.num_channels == 6:
+      after_embed = self.backbone(large_image[:, :, :, 3:])
+      after_crop_embed = self.backbone(small_image[:, :, :, 3:])
+      before_embed = self.backbone(large_image[:, :, :, :3])
+      combined = tf.concat(
+          [before_embed, after_embed, after_crop_embed], axis=-1
+      )
+
+    out_main = self.output_main(combined)
+    out_bias = self.output_bias(combined)
+    return {'main': out_main, 'bias': out_bias}

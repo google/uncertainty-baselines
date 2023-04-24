@@ -37,7 +37,7 @@ def get_config() -> ml_collections.ConfigDict:
   data.initial_sample_proportion = 1.
 
   model = config.model
-  model.name = 'resnet'
+  model.name = 'resnet50v2'
 
   config.upsampling.do_upsampling = True
 

@@ -28,7 +28,7 @@ def get_config() -> ml_collections.ConfigDict:
   data.num_classes = 2
 
   model = config.model
-  model.name = 'resnet'
+  model.name = 'resnet50v2'
   model.dropout_rate = 0.2
 
   return config

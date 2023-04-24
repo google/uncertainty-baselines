@@ -115,10 +115,10 @@ class MLP(tf.keras.Model):
     }
 
 
-@register_model('resnet')
-@tf.keras.saving.register_keras_serializable('resnet')
-class ResNet(tf.keras.Model):
-  """Defines a MLP model class with two output heads.
+@register_model('resnet50v1')
+@tf.keras.saving.register_keras_serializable('resnet50v1')
+class ResNet50v1(tf.keras.Model):
+  """Defines a ResNet50v1 model class with two output heads.
 
   One output head is for the main training task, while the other is an optional
   head to train on bias labels. Inputs are feature vectors.
@@ -126,7 +126,7 @@ class ResNet(tf.keras.Model):
 
   def __init__(self,
                model_params: ModelTrainingParameters):
-    super(ResNet, self).__init__(name=model_params.model_name)
+    super(ResNet50v1, self).__init__(name=model_params.model_name)
 
     self.model_params = model_params
     self.resnet_model = tf.keras.applications.resnet50.ResNet50(
@@ -167,7 +167,80 @@ class ResNet(tf.keras.Model):
         kernel_regularizer=regularizer)
 
   def get_config(self):
-    config = super(ResNet, self).get_config()
+    config = super(ResNet50v1, self).get_config()
+    config.update({'model_params': self.model_params.asdict(),
+                   'resnet_model': self.resnet_model,
+                   'output_main': self.output_main,
+                   'output_bias': self.output_bias})
+    return config
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(ModelTrainingParameters.from_dict(config['model_params']))
+
+  def call(self, inputs):
+    x = self.resnet_model(inputs['large_image'])
+    out_main = self.output_main(x)
+    out_bias = self.output_bias(x)
+    return {
+        'main': out_main,
+        'bias': out_bias
+    }
+
+
+@register_model('resnet50v2')
+@tf.keras.saving.register_keras_serializable('resnet50v2')
+class ResNet50v2(tf.keras.Model):
+  """Defines a ResNet50v2 model class with two output heads.
+
+  One output head is for the main training task, while the other is an optional
+  head to train on bias labels. Inputs are feature vectors.
+  """
+
+  def __init__(self,
+               model_params: ModelTrainingParameters):
+    super(ResNet50v2, self).__init__(name=model_params.model_name)
+
+    self.model_params = model_params
+    self.resnet_model = tf.keras.applications.resnet_v2.ResNet50V2(
+        include_top=False,
+        weights='imagenet' if model_params.load_pretrained_weights else None,
+        input_shape=(RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE,
+                     model_params.num_channels),
+        classes=model_params.num_classes,
+        pooling='avg'
+        # TODO(jihyeonlee): Consider making pooling method a flag.
+    )
+
+    regularizer = tf.keras.regularizers.L2(
+        l2=model_params.l2_regularization_factor)
+    for layer in self.resnet_model.layers:
+      layer.trainable = True
+      if model_params.use_pytorch_style_resnet:
+        if hasattr(layer, 'kernel_regularizer'):
+          setattr(layer, 'kernel_regularizer', regularizer)
+        if isinstance(layer, tf.keras.layers.Conv2D):
+          layer.use_bias = False
+          initializer = tf.keras.initializers.HeNormal()
+          layer.kernel_initializer = initializer
+        if isinstance(layer, tf.keras.layers.BatchNormalization):
+          layer.momentum = 0.9
+
+    self.output_main = tf.keras.layers.Dense(
+        model_params.num_classes,
+        activation='softmax',
+        name='main',
+        kernel_regularizer=regularizer)
+
+    self.output_bias = tf.keras.layers.Dense(
+        model_params.num_classes,
+        trainable=model_params.train_bias,
+        activation='softmax',
+        name='bias',
+        kernel_regularizer=regularizer)
+
+  def get_config(self):
+    config = super(ResNet50v2, self).get_config()
     config.update({'model_params': self.model_params.asdict(),
                    'resnet_model': self.resnet_model,
                    'output_main': self.output_main,

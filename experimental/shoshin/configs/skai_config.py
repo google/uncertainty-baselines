@@ -48,7 +48,7 @@ def get_config() -> ml_collections.ConfigDict:
   data.use_post_disaster_only = False
 
   model = config.model
-  model.name = 'resnet'
+  model.name = 'resnet50v2'
   model.num_channels = 6
 
   return config

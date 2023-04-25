@@ -218,23 +218,23 @@ class SequenceClassificationBeamTest(test_utils.BaseMetricsTest,
     self.beam_predictions_str = [['G', 'C', 'A'], ['C', 'H', 'A']]
 
     self.greedy_scores = jnp.array([0, 0])  # Ignored by beam functions.
-    self.beam_predictions = [[[350], [205], [71]],
-                             [[205], [454], [71]]]
+    self.beam_predictions = np.array([[[350], [205], [71]],
+                                      [[205], [454], [71]]])
     self.beam_probs = np.array([[[.3], [.3], [.4]],
                                 [[.2], [.2], [.6]]])
 
     self.beam_scores = jnp.log(self.beam_probs)
 
-    self.scores = [
-        (self.greedy_scores[0], self.beam_predictions[0], self.beam_scores[0]),
-        (self.greedy_scores[1], self.beam_predictions[1], self.beam_scores[1]),
-    ]
+    self.scores = (self.greedy_scores, {
+        'beam_scores': self.beam_scores,
+        'beam_predictions': self.beam_predictions
+    })
 
   def test_extract_beam_results(self):
     beam_predictions, beam_scores = (
         metrics._extract_beam_results_from_scores(self.scores))
 
-    self.assertListEqual(beam_predictions, self.beam_predictions)
+    np.testing.assert_array_equal(beam_predictions, self.beam_predictions)
     np.testing.assert_array_equal(np.array(beam_scores),
                                   np.array(self.beam_scores))
 

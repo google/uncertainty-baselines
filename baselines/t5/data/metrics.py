@@ -50,7 +50,9 @@ GreedyScore = float
 TopkPrediction = Sequence[int]
 TopkScore = Union[Sequence[float], Sequence[Sequence[float]]]
 
-BeamScore = Tuple[GreedyScore, TopkPrediction, TopkScore]
+BeamScore = Tuple[
+    Sequence[GreedyScore],
+    Dict[Text, Union[Sequence[TopkPrediction], Sequence[TopkScore]]]]
 
 _SEQUENCE_BEAM_TYPES = ('all_beam', 'non_top1_beam', 'top1_beam')
 _SEQUENCE_UNCERTAINTY_TYPES = ('probability', 'margin', 'entropy')
@@ -782,7 +784,7 @@ def dataflow_uncertainty_metrics(
 
 def binary_classification(
     targets: Sequence[str],
-    scores: Sequence[Union[GreedyScore, BeamScore]],
+    scores: Union[Sequence[GreedyScore], BeamScore],
     label_tokens: Sequence[Union[str, int]],
     prediction_threshold: float = 0.5,
     num_ece_bins: int = 15,
@@ -797,12 +799,13 @@ def binary_classification(
     targets: A sequence of strings for predicted token ids. Shape (batch_size,).
     scores: A sequence of float. A nested array of logit scores for each
       possible labels. Shape (batch_size, output_len, num_classes).
-      Alternatively, it can be a sequence of 3-tuples, where the first element
-      is the logit scores described previously, and the second and third
-      elements are the top-k predictions (a sequence of strings with shape
-      (beam_size, )) and the associated token-level log probabilities (an array
-      of shape (beam_size, output_len)). They will be ignored in the score
-      computation for this function.
+      Alternatively, it can be a tuple of two elemets, where the first element
+      is an array of the logit scores described previously, and the second is a
+      dictionary of the top-k predictions (key is beam_prediction, value is
+      a sequence of strings with shape (beam_size, )) and the associated
+      token-level log probabilities (key is beam_scores, an array of shape
+      (beam_size, output_len)). They will be ignored in the score computation
+      for this function.
     label_tokens: A list of label tokens (e.g.,'<extra_id_0>') for the output
       classes. Shape (num_classes,).
     prediction_threshold: The numeric threshold to convert the predictive
@@ -823,12 +826,10 @@ def binary_classification(
     (ECE and Calibration AUC), and selective prediction metrics
     (Oracle Collaborative AUCs).
   """
-  if isinstance(scores[0], tuple):
-    # If input is a sequence of BeamScore (i.e., a tuple whose first element
-    # is the GreedyScore), convert it to List[GreedyScore].
-    scores = [beam_score[0] for beam_score in scores]
-
   if isinstance(scores, tuple):
+    # If input is BeamScore (i.e., a tuple whose first element
+    # is an array of GreedyScore), grab the first element, i.e., array of
+    # GreedyScore
     scores = scores[0]
 
   scores = np.array(scores, dtype=np.float32)
@@ -977,7 +978,7 @@ def _log_softmax(x, axis=-1):
 
 def sequence_classification(
     targets: Sequence[str],
-    scores: Sequence[Union[GreedyScore, BeamScore]],
+    scores: Union[Sequence[GreedyScore], BeamScore],
     label_tokens: Sequence[Union[str, int]],
     num_ece_bins: int = 15,
     uncertainty_type: str = 'conditional_entropy',
@@ -1031,12 +1032,13 @@ def sequence_classification(
       <token_3> ...'. Shape (batch_size,).
     scores: A sequence of float. A nested array of logit scores for each
       possible labels. Shape (batch_size, output_len, num_classes).
-      Alternatively, it can be a sequence of 3-tuples, where the first element
-      is the logit scores described previously, and the second and third
-      elements are the top-k predictions (a sequence of strings with shape
-      (beam_size, )) and the associated token-level log probabilities
-      (an array of shape (beam_size, output_len)). They will be ignored in the
-      score computation for this function.
+      Alternatively, it can be a tuple of two elemets, where the first element
+      is an array of the logit scores described previously, and the second is a
+      dictionary of the top-k predictions (key is beam_prediction, value is
+      a sequence of strings with shape (beam_size, )) and the associated
+      token-level log probabilities (key is beam_scores, an array of shape
+      (beam_size, output_len)). They will be ignored in the score computation
+      for this function.
     label_tokens: A list of label tokens for the output classes. Shape
       (num_classes,).
     num_ece_bins: The number of bins to be used for computing expected
@@ -1061,10 +1063,11 @@ def sequence_classification(
     (ECE and Calibration AUC), and selective prediction metrics
     (Oracle Collaborative AUCs).
   """
-  if isinstance(scores[0], tuple):
-    # If input is a sequence of BeamScore (i.e., a tuple whose first element
-    # is the GreedyScore), convert it to List[GreedyScore].
-    scores = [beam_score[0] for beam_score in scores]
+  if isinstance(scores, tuple):
+    # If input is BeamScore (i.e., a tuple whose first element
+    # is an array of GreedyScore), grab the first element, i.e., array of
+    # GreedyScore.
+    scores = scores[0]
 
   scores = np.array(scores, dtype=np.float32)
 
@@ -1207,7 +1210,7 @@ def sequence_classification(
 
 def sequence_classification_beam_metrics(
     targets: Sequence[str],
-    scores: Sequence[BeamScore],
+    scores: BeamScore,
     vocab: seqio.SentencePieceVocabulary,
     beam_type: str = 'all_beam',
     uncertainty_type: str = 'probability',
@@ -1228,14 +1231,14 @@ def sequence_classification_beam_metrics(
     targets: A sequence of strings for the target strings. In the case of
       sequence prediction, the string takes the form '<token_1> <token_2>
       <token_3> ...'. Shape (batch_size,).
-    scores: A sequence of 3-tuples (greedy_score, beam_prediction, beam_score).
+    scores: A tuple of two elements (greedy_score, beam_prediction, beam_score).
       The `greedy_score` is a nested array of logit scores for each possible
       labels, shape (batch_size, output_len, num_classes). The second element is
       the top-k predictions (a sequence of token ids with shape (batch_size,
-      beam_size)). The third element is the associated token-level log
-      probabilities (an array of shape (batch_size, beam_size, output_len)). For
-      more detail, see the `score_batch` function of
-      `models.EncoderDecoderClassifierModel`.
+      beam_size), and the associated token-level log
+      probabilities (key is beam_prediction, value is an array of shape 
+      (batch_size, beam_size, output_len)). For more detail, see the
+      `score_batch` function of `models.EncoderDecoderClassifierModel`.
     vocab: The SentencePieceVocabulary used for model training.
     beam_type: Type of beam prediction to compute metric for, must be one of
       ('all_beam', 'non_top1_beam', 'top1_beam').
@@ -1348,7 +1351,7 @@ def sequence_classification_beam_metrics(
 
 def topk_collaborative_accuracy(
     targets: Sequence[str],
-    scores: Sequence[BeamScore],
+    scores: BeamScore,
     vocab: seqio.SentencePieceVocabulary,
     beam_type: str = 'all_beam',
     uncertainty_type: str = 'probability') -> Dict[str, float]:
@@ -1383,14 +1386,14 @@ def topk_collaborative_accuracy(
     targets: A sequence of strings for the target strings. In the case of
       sequence prediction, the string takes the form '<token_1> <token_2>
       <token_3> ...'. Shape (batch_size,).
-    scores: A sequence of 3-tuples (greedy_score, beam_prediction, beam_score).
+    scores: A tuple of two elements (greedy_score, beam_prediction, beam_score).
       The `greedy_score` is a nested array of logit scores for each possible
       labels, shape (batch_size, output_len, num_classes). The second element is
       the top-k predictions (a sequence of token ids with shape (batch_size,
-      beam_size)). The third element is the associated token-level log
-      probabilities (an array of shape (batch_size, beam_size, output_len)). For
-      more detail, see the `score_batch` function of
-      `models.EncoderDecoderClassifierModel`.
+      beam_size), and the associated token-level log
+      probabilities (key is beam_prediction, value is an array of shape 
+      (batch_size, beam_size, output_len)). For more detail, see the
+      `score_batch` function of `models.EncoderDecoderClassifierModel`.
     vocab: The SentencePieceVocabulary used for model training.
     beam_type: Type of beam prediction to compute metric for, must be one of
       ('all_beam', 'non_top1_beam', 'top1_beam').
@@ -1481,16 +1484,19 @@ def topk_collaborative_accuracy(
 
 
 def _extract_beam_results_from_scores(
-    scores: Sequence[BeamScore]) -> Tuple[List[TopkPrediction], np.ndarray]:
+    scores: BeamScore) -> Tuple[Sequence[TopkPrediction], np.ndarray]:
   """Extracts Beam predictions and log probability from model scores.
 
   Args:
-    scores: A sequence of 3-tuples, where the first element is a nested array of
-      logit scores for each possible labels, and the second and third elements
-      are the top-k predictions (a sequence of strings with shape (beam_size, ))
-      and the associated token-level log probabilities (an array of shape
-      (beam_size, output_len)). They will be ignored in the score computation
-      for this function.
+    scores: A tuple of two elements (greedy_score, beam_prediction, beam_score).
+      The `greedy_score` is a nested array of logit scores for each possible
+      labels, shape (batch_size, output_len, num_classes). The second element is
+      the top-k predictions (a sequence of token ids with shape (batch_size,
+      beam_size), and the associated token-level log
+      probabilities (key is beam_prediction, value is an array of shape 
+      (batch_size, beam_size, output_len)). They will be ignored in the score
+      computation for this function. For more detail, see the
+      `score_batch` function of `models.EncoderDecoderClassifierModel`.
 
   Returns:
     beam_predictions: A list of token ids for top-K predictions, shape
@@ -1502,12 +1508,12 @@ def _extract_beam_results_from_scores(
     ValueError: If score's tuple element does not contain three elements.
   """
   # Verifies types and lengths of score elements.
-  if not isinstance(scores[0], tuple):
-    raise ValueError('`scores` must be a sequence of tuples. '
-                     f'But `type(scores[0])`={type(scores[0])}')
-  elif len(scores[0]) != 3:
-    raise ValueError('`scores` must be a sequence of 3-tuples. '
-                     f'But `len(scores[0])`={len(scores[0])}')
+  if not isinstance(scores, tuple):
+    raise ValueError('`scores` must be a tuple of two items '
+                     f'But `type(scores)`={type(scores)}')
+  elif len(scores) != 2:
+    raise ValueError('`scores` must be a sequence of 2-tuples. '
+                     f'But `len(scores)`={len(scores)}')
 
   # Parses `scores` into `beam_predictions` and `beam_scores`, with shapes
   # List[int32] with shape (batch_size, beam_size) and
@@ -1515,8 +1521,11 @@ def _extract_beam_results_from_scores(
   # Both scores and predictions are sorted in the increasing order of `scores`
   # (see t5x.decoding.beam_search for detail), and scores for null predictions
   # are set to NEG_INF.
-  beam_predictions = [beam_score[1] for beam_score in scores]
-  beam_scores = [beam_score[2] for beam_score in scores]
+  # BeamScore = Tuple[
+  #   Sequence[GreedyScore],
+  #   Dict[Text, Union[TopkPrediction, TopkScore]]]
+  beam_predictions = np.array(scores[1]['beam_predictions'], dtype=np.int32)
+  beam_scores = scores[1]['beam_scores']
   beam_scores = np.array(beam_scores, dtype=np.float32)
 
   if np.any(beam_scores > 0):
@@ -1532,9 +1541,9 @@ def _extract_beam_results_from_scores(
 
 
 def _process_beam_by_type(
-    beam_predictions: List[TopkPrediction],
+    beam_predictions: Sequence[TopkPrediction],
     beam_scores: Optional[np.ndarray] = None,
-    beam_type: str = 'all_beam') -> Tuple[List[TopkPrediction], np.ndarray]:
+    beam_type: str = 'all_beam') -> Tuple[Sequence[TopkPrediction], np.ndarray]:
   """Truncates beam predictions and scores according to desired beam type.
 
   If beam_type = 'all_beam', then returns original predictions and scores.
@@ -1579,7 +1588,7 @@ def _process_beam_by_type(
 
 
 def _compute_beam_correctness(targets: Sequence[str],
-                              beam_predictions: List[TopkPrediction],
+                              beam_predictions: Sequence[TopkPrediction],
                               vocab: seqio.SentencePieceVocabulary,
                               beam_type: str) -> np.ndarray:
   """Computes correctness of top-K beam predictions.
@@ -1614,7 +1623,7 @@ def _compute_beam_correctness(targets: Sequence[str],
   return np.array(correct_predictions, dtype=np.int32)
 
 
-def _compute_beam_uncertainty(beam_predictions: List[TopkPrediction],
+def _compute_beam_uncertainty(beam_predictions: Sequence[TopkPrediction],
                               beam_scores: np.ndarray, beam_type: str,
                               uncertainty_type: str) -> np.ndarray:
   """Computes the predictive uncertainty of top-K beam predictions.

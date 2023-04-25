@@ -161,8 +161,8 @@ class EnsembleEvalTest(absltest.TestCase):
         decode_fn=decode_fn)
 
     def extract_beam_results(scores):
-      beam_predictions = [beam_score[1] for beam_score in scores]
-      beam_scores = [beam_score[2] for beam_score in scores]
+      beam_predictions = scores[1]['beam_predictions']
+      beam_scores = scores[1]['beam_scores']
       beam_scores = jnp.array(beam_scores, dtype=jnp.float32)
       self.global_metrics['beam_predictions'] = jnp.array(beam_predictions)
       self.global_metrics['beam_scores'] = beam_scores

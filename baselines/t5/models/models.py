@@ -275,7 +275,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
       ensemble_probs: bool = True,
       intermediates_to_track: Optional[Sequence[str]] = None,
       num_decodes: int = 1,
-  ) -> Union[jnp.ndarray, Tuple[jnp.ndarray, Mapping[str, Any]]]:
+  ) -> Any:
     """Compute logit scores on a batch.
 
     Args:
@@ -319,21 +319,26 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
           return_all_decodes=True,
           dropout_rng=dropout_rng,
           ensemble_probs=ensemble_probs,
-          num_decodes=num_decodes)
+          num_decodes=num_decodes,
+      )
       beam_scores = beam_scores_dict['scores']
-      sequence_scores = (sequence_scores, beam_predictions, beam_scores)
+      sequence_scores = (
+          sequence_scores,
+          {'beam_predictions': beam_predictions, 'beam_scores': beam_scores},
+      )
 
     # Prepares output.
     if return_intermediates:
       if intermediates_to_track:
         if 'encoded_inputs' in intermediates_to_track:
           inputs = batch['encoder_input_tokens']
-          encoded_inputs = self.module.apply({'params': params},
-                                             inputs,
-                                             enable_dropout=dropout_rng
-                                             is not None,
-                                             rngs=dropout_rng,
-                                             method=self.module.encode)
+          encoded_inputs = self.module.apply(
+              {'params': params},
+              inputs,
+              enable_dropout=dropout_rng is not None,
+              rngs=dropout_rng,
+              method=self.module.encode,
+          )
           intermediates['encoded_inputs'] = encoded_inputs
 
         intermediates_flat = traverse_util.flatten_dict(intermediates)

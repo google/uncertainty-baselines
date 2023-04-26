@@ -187,7 +187,7 @@ class _DualRNN(tf.keras.Model):
   def build(self, input_shape):
     self.dropout = tf.keras.layers.Dropout(self._dropout)
 
-  def call(self, input_1, input_2, initial_state, **kwargs):
+  def call(self, input_1, input_2, initial_state, **kwargs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     embed_1 = self.embedding_layer(input_1)
     embed_2 = self.embedding_layer(input_2)
 

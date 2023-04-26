@@ -405,7 +405,7 @@ class EfficientNetModel(tf.keras.Model):
         self._num_classes,
         kernel_initializer=efficientnet_utils.dense_kernel_initializer)
 
-  def call(self, inputs, training=True):
+  def call(self, inputs, training=True):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     """Implementation of call().
 
     Args:

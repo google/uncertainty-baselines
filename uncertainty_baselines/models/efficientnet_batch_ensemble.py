@@ -430,7 +430,7 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
         ensemble_size=self._ensemble_size,
         kernel_initializer=efficientnet_utils.dense_kernel_initializer)
 
-  def call(self, inputs, training=True):
+  def call(self, inputs, training=True):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     """Implementation of call().
 
     Args:

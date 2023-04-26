@@ -99,7 +99,7 @@ class SubsetDatasetBuilder(DatasetBuilder):
     self.base_dataset_builder = base_dataset_builder
     self.info = base_dataset_builder.info
 
-  def as_dataset(self,
+  def as_dataset(self,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
                  split: Union[str, tfds.core.ReadInstruction],
                  *,
                  shuffle_files: bool = False,

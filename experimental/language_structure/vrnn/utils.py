@@ -204,7 +204,7 @@ class MLP(tf.keras.Model):
     if final_activation:
       self._layers.append(final_activation)
 
-  def call(self, inputs):
+  def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     outputs = inputs
     for layer in self._layers:
       outputs = layer(outputs)

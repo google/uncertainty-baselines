@@ -133,7 +133,7 @@ class EncoderDecoderBEGpClassifierModel(EncoderDecoderBEClassifierModel,
     return initial_variables
 
 
-class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,
+class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
                                      EncoderDecoderBEClassifierModel):
   """A wrapper of EncoderDecoderClassifierModel to support BatchEnsemble loss."""
 
@@ -178,7 +178,7 @@ class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,
         ensemble_probs=ensemble_probs)
 
 
-class EncoderDecoderBEGpBeamScoreModel(EncoderDecoderBEBeamScoreModel,
+class EncoderDecoderBEGpBeamScoreModel(EncoderDecoderBEBeamScoreModel,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
                                        EncoderDecoderBEGpClassifierModel):
   """A wrapper of EncoderDecoderBeamScoreModel for BatchEnsemble and GP."""
 

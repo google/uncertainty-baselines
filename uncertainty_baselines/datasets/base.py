@@ -408,7 +408,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     dataset = dataset.with_options(options)
     return dataset
 
-  def load(
+  def load(  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
       self,
       *,
       preprocess_fn: Optional[PreProcessFn] = None,

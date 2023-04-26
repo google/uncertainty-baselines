@@ -80,7 +80,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     })
     return config
 
-  def call(self, inputs):
+  def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     return self.model(inputs)
 
   def update_id_to_bias_table(self, table):

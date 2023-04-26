@@ -129,7 +129,7 @@ class _VRNN(tf.keras.Model):
         outputs[i][key] = value
     return outputs
 
-  def call(self, inputs: Sequence[Any]):
+  def call(self, inputs: Sequence[Any]):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2, state,
      sample, label, label_mask) = self._verify_and_prepare_inputs(inputs)
 

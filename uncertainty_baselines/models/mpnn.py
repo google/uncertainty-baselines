@@ -252,7 +252,7 @@ class MpnnModel(tf.keras.Model):
 
     self.softmax = tf.keras.layers.Softmax()
 
-  def call(self, inputs, training=False):
+  def call(self, inputs, training=False):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
 
     nodes, edges = inputs['atoms'], inputs['pairs']
     nodes_under_iter = nodes

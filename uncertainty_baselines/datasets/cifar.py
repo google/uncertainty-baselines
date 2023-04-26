@@ -500,7 +500,7 @@ class Cifar10HDataset(AnnotatorPIMixin, _CifarDataset):
 
     return annotations_tables
 
-  def _process_pi_features_and_labels(self, example, unprocessed_example):
+  def _process_pi_features_and_labels(self, example, unprocessed_example):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     """Loads 'annotator_ids', 'annotator_labels', 'annotator_times', and 'trial_idx', and sets 'clean_labels' and 'labels'.
 
     In CIFAR10-H the `labels` field is popoulated with the average label of its

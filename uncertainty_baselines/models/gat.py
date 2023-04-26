@@ -310,7 +310,7 @@ class GATModel(tf.keras.Model):
 
     return readout
 
-  def call(self, inputs, training=False):
+  def call(self, inputs, training=False):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     """Forward pass computation of the model.
 
     Args:

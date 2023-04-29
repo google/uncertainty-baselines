@@ -66,14 +66,8 @@ The EyePACS dataset (used in Country and Severity Shift) and the APTOS 2019 data
     ```
     conda activate ub
     
-    # Standard EyePACS dataset
-    python baselines/diabetic_retinopathy_detection/data_load_scripts/load_ub_diabetic_retinopathy_detection.py --data_dir=$DATA_DIR
-    
-    # Country Shift: APTOS distributionally shifted validation and test sets
-    python baselines/diabetic_retinopathy_detection/data_load_scripts/load_aptos.py --data_dir=$DATA_DIR
-   
-    # Severity Shift splits as used in RETINA paper
-    python baselines/diabetic_retinopathy_detection/data_load_scripts/load_diabetic_retinopathy_severity_shift_mild.py --data_dir=$DATA_DIR
+    # --prepare_mode=all will load the EyePACS, Country Shift (APTOS 2019), and Severity Shift datasets.
+    python baselines/diabetic_retinopathy_detection/prepare_retina_data.py --data_dir=$DATA_DIR --prepare_mode=all
     ```
 
 ### Additional Splits for Exploration

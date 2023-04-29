@@ -36,6 +36,13 @@ _SPLITS = {
     'ood_validation', 'in_domain_test', 'ood_test']
 }
 
+_DATASET_NAMES_BY_MODE = {
+  'all': list(_SPLITS.keys()),
+  'eyepacs': [_UB_DIABETIC_RETINOPATHY_DETECTION],
+  'aptos': [_APTOS],
+  'severity': [_DIABETIC_RETINOPATHY_SEVERITY_SHIFT_MILD]
+}
+
 def _download_and_prepare_dataset(
     dataset_name: str,
     split: str,
@@ -49,18 +56,7 @@ def _download_and_prepare_dataset(
 def main(argv):
   del argv  # unused arg
   data_dir = FLAGS.data_dir
-
-  if FLAGS.prepare_mode == 'all':
-    dataset_names = list(_SPLITS.keys())
-  elif FLAGS.prepare_mode == 'eyepacs':
-    dataset_names = [_UB_DIABETIC_RETINOPATHY_DETECTION]
-  elif FLAGS.prepare_mode == 'aptos':
-    dataset_names = [_APTOS]
-  elif FLAGS.prepare_mode == 'severity':
-    dataset_names = [_DIABETIC_RETINOPATHY_SEVERITY_SHIFT_MILD]
-  else:
-    raise ValueError(f'Unknown prepare_mode: {FLAGS.prepare_mode}')
-
+  dataset_names = _DATASET_NAMES_BY_MODE[FLAGS.prepare_mode]
   for dataset_name in dataset_names:
     for split in _SPLITS[dataset_name]:
       _download_and_prepare_dataset(

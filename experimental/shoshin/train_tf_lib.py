@@ -47,8 +47,10 @@ class TwoHeadedOutputModel(tf.keras.Model):
                do_reweighting: Optional[bool] = False,
                reweighting_signal: Optional[str] = 'bias',
                reweighting_lambda: Optional[float] = 0.5,
-               error_percentile_threshold: Optional[float] = 0.2):
+               error_percentile_threshold: Optional[float] = 0.2,
+               num_classes: Optional[int] = 2):
     super(TwoHeadedOutputModel, self).__init__(name=name)
+    self.num_classes = num_classes
     self.train_bias = train_bias
     if self.train_bias or do_reweighting:
       self.id_to_bias_table = None
@@ -124,7 +126,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     example_ids = inputs['example_id']
     subgroup_labels = inputs['subgroup_label']
 
-    y_true_main = tf.one_hot(labels, depth=2)
+    y_true_main = tf.one_hot(labels, depth=self.num_classes)
 
     with tf.GradientTape() as tape:
       y_pred = self(features, training=True)
@@ -373,7 +375,8 @@ def init_model(
       reweighting_signal=model_params.reweighting_signal,
       reweighting_lambda=model_params.reweighting_lambda,
       error_percentile_threshold=model_params
-      .reweighting_error_percentile_threshold)
+      .reweighting_error_percentile_threshold,
+      num_classes=model_params.num_classes)
 
   if model_params.train_bias or model_params.do_reweighting:
     if example_id_to_bias_table:

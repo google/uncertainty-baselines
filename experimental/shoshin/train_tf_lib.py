@@ -425,8 +425,8 @@ def create_callbacks(
     model_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(
             model_dir,
-            'avg_acc-{val_avg_acc:.2f}'),
-        monitor='val_avg_acc',
+            'aucpr-{val_main_aucpr_1_vs_rest:.2f}'),
+        monitor='val_main_aucpr_1_vs_rest',
         mode='max',
         save_weights_only=False,
         save_best_only=True,
@@ -434,7 +434,7 @@ def create_callbacks(
     callbacks.append(model_callback)
   if early_stopping:
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(
-        monitor='val_main_auc',
+        monitor='val_main_aucpr_1_vs_rest',
         min_delta=0.001,
         patience=30,
         verbose=1,

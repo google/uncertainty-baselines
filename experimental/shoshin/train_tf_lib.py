@@ -809,7 +809,7 @@ def eval_ensemble(
     logging.info('Main Acc: %f', result['main_acc'])
     logging.info('Main AUC: %f', result['main_auc'])
     # TODO(jihyeonlee): Bias labels are not calculated for other evaluation
-    # datasets beyond validation, e.g. 'test' or 'test2' for Cardiotox.
+    # datasets beyond validation, e.g. 'test' or 'test2'.
     # Provide way to save the predictions themselves.
     logging.info('Bias Acc: %f', result['bias_acc'])
     logging.info('Bias AUC: %f', result['bias_auc'])

@@ -117,7 +117,6 @@ def main(_) -> None:
       learning_rate=config.optimizer.learning_rate,
       batch_size=config.data.batch_size,
       load_pretrained_weights=config.model.load_pretrained_weights,
-      hidden_sizes=config.model.hidden_sizes,
       use_pytorch_style_resnet=config.model.use_pytorch_style_resnet,
       do_reweighting=config.reweighting.do_reweighting,
       reweighting_lambda=config.reweighting.lambda_value,

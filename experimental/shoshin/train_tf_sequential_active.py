@@ -100,7 +100,6 @@ def main(_) -> None:
         subgroup_sizes=dataloader.subgroup_sizes,
         num_epochs=config.training.num_epochs,
         learning_rate=config.optimizer.learning_rate,
-        hidden_sizes=config.model.hidden_sizes,
     )
     if not config.train_single_model:
       output_dir = os.path.join(config.output_dir, f'round_{round_idx}')

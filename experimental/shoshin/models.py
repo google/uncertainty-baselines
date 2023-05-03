@@ -21,7 +21,7 @@ serve as the base model trained in Introspective Active Sampling.
 """
 
 import dataclasses
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import tensorflow as tf
 
@@ -63,7 +63,6 @@ class ModelTrainingParameters:
   batch_size: int = 64
   load_pretrained_weights: Optional[bool] = False
   worst_group_label: Optional[int] = 2
-  hidden_sizes: Optional[List[int]] = None
   use_pytorch_style_resnet: Optional[bool] = False
   do_reweighting: Optional[bool] = False
   reweighting_signal: Optional[str] = 'bias'
@@ -76,43 +75,6 @@ class ModelTrainingParameters:
   @classmethod
   def from_dict(cls, kwargs):
     return ModelTrainingParameters(**kwargs)
-
-
-@register_model('mlp')
-class MLP(tf.keras.Model):
-  """Defines a MLP model class with two output heads.
-
-  One output head is for the main training task, while the other is an optional
-  head to train on bias labels. Inputs are feature vectors.
-  """
-
-  def __init__(self,
-               model_params: ModelTrainingParameters):
-    super(MLP, self).__init__(name=model_params.model_name)
-
-    self.dense_layers = tf.keras.models.Sequential(name='hidden')
-    for size in model_params.hidden_sizes:
-      self.dense_layers.add(tf.keras.layers.Dense(size,
-                                                  activation='relu',
-                                                  kernel_regularizer='l2'))
-      self.dense_layers.add(tf.keras.layers.Dropout(0.2))
-
-    self.output_main = tf.keras.layers.Dense(
-        model_params.num_classes, activation='softmax', name='main')
-    self.output_bias = tf.keras.layers.Dense(
-        model_params.num_classes,
-        trainable=model_params.train_bias,
-        activation='softmax',
-        name='bias')
-
-  def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
-    x = self.dense_layers(inputs['large_image'])
-    out_main = self.output_main(x)
-    out_bias = self.output_bias(x)
-    return {
-        'main': out_main,
-        'bias': out_bias
-    }
 
 
 @register_model('resnet50v1')

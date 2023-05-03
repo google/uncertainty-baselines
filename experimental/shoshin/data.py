@@ -24,7 +24,6 @@ and the label is specific to the main task.
 
 import collections
 import dataclasses
-import json
 import os
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 import uuid
@@ -35,14 +34,6 @@ import tensorflow_datasets as tfds
 
 DATASET_REGISTRY = {}
 DATA_DIR = '/tmp/data'
-_DEFAULT_PATH_CARDIOTOX_TRAIN_FEATURE = ''
-_DEFAULT_PATH_CARDIOTOX_TRAIN_LABEL = ''
-_DEFAULT_PATH_CARDIOTOX_VALIDATION_FEATURE = ''
-_DEFAULT_PATH_CARDIOTOX_VALIDATION_LABEL = ''
-_DEFAULT_PATH_CARDIOTOX_TEST_FEATURE = ''
-_DEFAULT_PATH_CARDIOTOX_TEST_LABEL = ''
-_DEFAULT_PATH_CARDIOTOX_TEST2_FEATURE = ''
-_DEFAULT_PATH_CARDIOTOX_TEST2_LABEL = ''
 _WATERBIRDS_DATA_DIR = ''
 _WATERBIRDS10K_DATA_DIR = ''
 _WATERBIRDS_TRAIN_PATTERN = ''
@@ -98,11 +89,6 @@ class Dataloader:
 
 def get_subgroup_sizes(dataloader: tf.data.Dataset) -> Dict[str, int]:
   """Gets the number examples of each subgroup."""
-  # return dict(
-  #     collections.Counter(
-  #         dataloader.map(lambda x: x['subgroup_label']).as_numpy_iterator()
-  #     )
-  # )
   subgroup_sizes = dict(
       collections.Counter(
           dataloader.map(lambda x: x['subgroup_label']).as_numpy_iterator()
@@ -303,156 +289,6 @@ def filter_set(
   )
   return dataloader.train_ds.filter(
       lambda datapoint: filter_table.lookup(datapoint['example_id']) == 1
-  )
-
-
-class CardiotoxFingerprintDataset(tfds.core.GeneratorBasedBuilder):
-  """DatasetBuilder for cardiotoxicity fingerprint dataset."""
-
-  VERSION = tfds.core.Version('1.0.0')
-  RELEASE_NOTES = {
-      '1.0.0': 'Initial release.',
-  }
-
-  def _info(self) -> tfds.core.DatasetInfo:
-    """Dataset metadata (homepage, citation,...)."""
-    return tfds.core.DatasetInfo(
-        builder=self,
-        features=tfds.features.FeaturesDict({
-            'example_id':
-                tfds.features.Text(),
-            'input_feature':
-                tfds.features.Tensor(shape=(1024,), dtype=tf.int64),
-            'label':
-                tfds.features.ClassLabel(num_classes=2),
-            'subgroup_label':
-                tfds.features.ClassLabel(num_classes=2),
-        }),
-        supervised_keys=('input_feature', 'label', 'example_id'),
-    )
-
-  def _split_generators(self, dl_manager: tfds.download.DownloadManager):
-    """Loads data and defines splits."""
-    return {
-        'train':
-            self._generate_examples(
-                features_path=_DEFAULT_PATH_CARDIOTOX_TRAIN_FEATURE,
-                label_path=_DEFAULT_PATH_CARDIOTOX_TRAIN_LABEL),
-        'validation':
-            self._generate_examples(
-                features_path=_DEFAULT_PATH_CARDIOTOX_VALIDATION_FEATURE,
-                label_path=_DEFAULT_PATH_CARDIOTOX_VALIDATION_LABEL),
-        'test':
-            self._generate_examples(
-                features_path=_DEFAULT_PATH_CARDIOTOX_TEST_FEATURE,
-                label_path=_DEFAULT_PATH_CARDIOTOX_TEST_LABEL),
-        'test2':
-            self._generate_examples(
-                features_path=_DEFAULT_PATH_CARDIOTOX_TEST2_FEATURE,
-                label_path=_DEFAULT_PATH_CARDIOTOX_TEST2_LABEL),
-    }
-
-  def _generate_examples(self, features_path,
-                         label_path) -> Iterator[Tuple[str, Dict[str, Any]]]:
-    """Generates examples for each split."""
-    with tf.io.gfile.GFile(features_path, 'r') as features_file:
-      x = json.load(features_file)
-    with tf.io.gfile.GFile(label_path, 'r') as label_file:
-      y = json.load(label_file)
-    for idx, molecule_id in enumerate(x):
-      key = '_'.join([molecule_id, str(idx)])
-      yield key, {
-          'example_id': molecule_id,
-          'input_feature': x[molecule_id],
-          'label': y[molecule_id],
-          'subgroup_label': y[molecule_id],
-      }
-
-
-@register_dataset('cardiotoxicity')
-def get_cardiotoxicity_dataset(
-    num_splits: int,
-    initial_sample_proportion: float,
-    subgroup_ids: Optional[List[str]] = None,
-    subgroup_proportions: Optional[List[float]] = None,
-    upsampling_lambda: int = 1,
-    upsampling_signal: str = 'subgroup_label',
-) -> Dataloader:
-  """Returns datasets for training, validation, and possibly test sets.
-
-  Args:
-    num_splits: Integer for number of slices of the dataset.
-    initial_sample_proportion: Float for proportion of entire training dataset
-      to sample initially before active sampling begins.
-    subgroup_ids: List of strings of IDs indicating subgroups.
-    subgroup_proportions: List of floats indicating proportion that each
-      subgroup should take in initial training dataset.
-    upsampling_lambda: Number of times subgroup examples should be repeated.
-    upsampling_signal: Signal to use to determine subgroup to upsample.
-
-  Returns:if subgroup_proportions: self.subgroup_proportions =
-    subgroup_proportions
-    else: self.subgroup_proportions = [1.] * len(subgroup_ids) A tuple
-      containing the split training data, split validation data, the combined
-      training dataset, and a dictionary mapping evaluation dataset names to
-      their respective combined datasets.
-  """
-  # No subgroups in this datset so ignored
-  del subgroup_ids, subgroup_proportions
-  split_size_in_pct = int(100 * initial_sample_proportion / num_splits)
-  val_splits = tfds.load(
-      'cardiotox_fingerprint_dataset',
-      split=[
-          f'validation[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, int(100 *
-                                initial_sample_proportion), split_size_in_pct)
-      ],
-      data_dir=DATA_DIR,
-      try_gcs=False,
-      as_supervised=True)
-
-  train_splits = tfds.load(
-      'cardiotox_fingerprint_dataset',
-      split=[
-          f'train[{k}%:{k+split_size_in_pct}%]'
-          for k in range(0, int(100 *
-                                initial_sample_proportion), split_size_in_pct)
-      ],
-      data_dir=DATA_DIR,
-      try_gcs=False,
-      as_supervised=True)
-
-  test_ds = tfds.load(
-      'cardiotox_fingerprint_dataset',
-      split='test',
-      data_dir=DATA_DIR,
-      try_gcs=False,
-      as_supervised=True,
-      with_info=False)
-
-  test2_ds = tfds.load(
-      'cardiotox_fingerprint_dataset',
-      split='test2',
-      data_dir=DATA_DIR,
-      try_gcs=False,
-      as_supervised=True,
-      with_info=False)
-
-  train_ds = gather_data_splits(list(range(num_splits)), train_splits)
-  val_ds = gather_data_splits(list(range(num_splits)), val_splits)
-  eval_datasets = {'val': val_ds, 'test': test_ds, 'test2': test2_ds}
-  subgroup_sizes = get_subgroup_sizes(train_ds)
-  if upsampling_lambda > 1:
-    train_ds = upsample_subgroup(
-        train_ds, upsampling_lambda, upsampling_signal, subgroup_sizes
-    )
-  return Dataloader(
-      1,
-      subgroup_sizes,
-      train_splits,
-      val_splits,
-      train_ds,
-      eval_ds=eval_datasets,
   )
 
 

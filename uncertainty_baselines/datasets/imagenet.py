@@ -31,12 +31,17 @@ from uncertainty_baselines.datasets import augmix
 from uncertainty_baselines.datasets import base
 from uncertainty_baselines.datasets import inception_preprocessing
 from uncertainty_baselines.datasets import resnet_preprocessing
+from uncertainty_baselines.datasets.privileged_information import AnnotatorPIMixin
 
 # ImageNet statistics. Used to normalize the input to Efficientnet. Note that
 # these do NOT have `* 255.` after them.
 IMAGENET_MEAN = np.array([[[0.485, 0.456, 0.406]]], dtype=np.float32)
 IMAGENET_STDDEV = np.array([[[0.229, 0.224, 0.225]]], dtype=np.float32)
 
+# Number of parameters (normalized by mean and std over the training set)
+# assigned to the adversarial annotators in ImageNet-PI. This value is much
+# lower than the typical values in the training set.
+ADVERSARIAL_NUM_PARAMS_NORMALIZED = -3
 
 
 def _tuple_dict_fn_converter(fn, *args):
@@ -46,6 +51,30 @@ def _tuple_dict_fn_converter(fn, *args):
     return {'features': images, 'labels': labels}
 
   return dict_fn
+
+
+def _store_in_hash_table(keys, values, values_length, key_dtype, value_dtype):
+  """Stores the pairs of (key, value) in a DenseHashTable for fast lookup.
+
+  Args:
+    keys: The set of keys to store.
+    values: The set of associated values to store.
+    values_length: The default length of the values.
+    key_dtype: The key dtype.
+    value_dtype: The value dtype.
+
+  Returns:
+    table: A DenseHashTable that stores keys and associated values.
+  """
+  table = tf.lookup.experimental.DenseHashTable(
+      key_dtype=key_dtype,
+      value_dtype=value_dtype,
+      default_value=tf.zeros(values_length, value_dtype),
+      empty_key='',
+      deleted_key='$')
+
+  table.insert(keys, values)
+  return table
 
 
 class _ImageNetDataset(base.BaseDataset):
@@ -145,12 +174,15 @@ class _ImageNetDataset(base.BaseDataset):
         mask_and_pad=mask_and_pad,
         fingerprint_key='file_name',
         download_data=download_data,
-        decoders=decoders)
+        decoders=decoders,
+    )
     self._preprocessing_type = preprocessing_type
     self._use_bfloat16 = use_bfloat16
     self._normalize_input = normalize_input
     self._image_size = image_size
-    self._resnet_preprocessing_resize_method = resnet_preprocessing_resize_method
+    self._resnet_preprocessing_resize_method = (
+        resnet_preprocessing_resize_method
+    )
     self._run_mixup = run_mixup
 
     self.ensemble_size = ensemble_size
@@ -262,6 +294,248 @@ class ImageNetDataset(_ImageNetDataset):
     super().__init__(name='imagenet2012', split=split, **kwargs)
 
 
+class ImageNetPIDataset(AnnotatorPIMixin, _ImageNetDataset):
+  """ImageNet dataset builder class with access to additional privileged information from a suite of model annotators."""
+
+  def __init__(self,
+               split: str,
+               annotations_path: str,
+               num_annotators_per_example: int = 16,
+               reliability_estimation_batch_size: int = 1024,
+               **kwargs):
+    """Create an ImageNet-PI tf.data.Dataset builder.
+
+    Args:
+      split: A dataset split, either a custom tfds.Split or one of the
+        tfds.Split enums [TRAIN, VALIDATION, TEST] or their lowercase string
+        names.
+      annotations_path: Path to the directory containing the labels/{split}.csv
+        (with annotator annotations for each example in {split}),
+        confidences/{split}.csv (with the confidence of each annotator in its
+        annotation) and annotator_features.csv (with meta-data about the
+        annotators themselves).
+      num_annotators_per_example: Number of annotators loaded per example.
+      reliability_estimation_batch_size: Number of examples that are loaded in
+        parallel when estimating the reliability of the dataset.
+      **kwargs: Additional keyword arguments.
+    """
+    if 'include_file_name' in kwargs:
+      logging.warn(
+          'ImageNet-PI requires to load the file_name for every example.'
+          " Ignoring the supplied 'include_file_name'"
+      )
+      del kwargs['include_file_name']
+
+    self._annotations_path = annotations_path
+    self._split_annotations_file = (
+        'validation.csv' if split in ['test', tfds.Split.TEST] else 'train.csv'
+    )
+
+    (
+        self._annotator_tables,
+        self._num_dataset_annotators,
+        self._annotator_feature_length,
+    ) = self._get_annotator_features_tables()
+    super().__init__(  # pylint: disable=unexpected-keyword-arg
+        name='imagenet2012',
+        split=split,
+        include_file_name=True,
+        num_annotators_per_example=num_annotators_per_example,
+        reliability_estimation_batch_size=reliability_estimation_batch_size,
+        **kwargs,
+    )
+
+  @property
+  def pi_feature_length(self) -> Dict[str, int]:
+    feature_length_dict = {
+        'annotator_ids': 1,
+        'annotator_labels': 1000 if self._one_hot else 1,
+        'annotator_features': self._annotator_feature_length,
+        'annotator_confidences': 1
+    }
+    if self._random_pi_length is not None:
+      if self._random_pi_length <= 0:
+        raise ValueError('random_pi_length must be greater than 0.')
+      feature_length_dict.update({'random_pi': self._random_pi_length})
+    return feature_length_dict
+
+  @property
+  def num_dataset_annotators(self):
+    return self._num_dataset_annotators
+
+  @property
+  def _max_annotators_per_example(self):
+    return self._num_dataset_annotators
+
+  def _set_adversarial_pi_features(self, example, per_example_seed):
+    # In ImageNet-PI the adversarial annotators have a confidence of 1/1000 and
+    # a neglible number parameters.
+
+    adversarial_labels = tf.random.stateless_categorical(
+        tf.ones((self._num_adversarial_annotators_per_example,
+                 self.info.num_classes)),
+        num_samples=1,
+        seed=per_example_seed)
+    if self._one_hot:
+      adversarial_labels = tf.one_hot(
+          adversarial_labels, self.info.num_classes, dtype=tf.float32)
+      # Remove extra dummy label dimension:
+      # adversarial_labels: (num_annotators, 1, 1000) -> (num_annotators, 1000)
+      adversarial_labels = tf.squeeze(adversarial_labels, axis=1)
+    else:
+      adversarial_labels = tf.cast(adversarial_labels, tf.float32)
+
+    adversarial_ids = tf.reshape(
+        tf.range(
+            self.num_dataset_annotators,
+            self.num_dataset_annotators +
+            self._num_adversarial_annotators_per_example,
+            dtype=tf.float32),
+        [self._num_adversarial_annotators_per_example, 1])
+
+    adversarial_confidences = tf.ones(
+        (self._num_adversarial_annotators_per_example, 1),
+        dtype=tf.float32) / self.info.num_classes
+
+    # NOTE: The num_params inside 'annotator_features' are encoded using
+    # (log(num_params) - mean(log(num_params))) / std(log(num_param)), so a
+    # value of -3 represents a very small num_params.
+    adversarial_num_params = tf.ones(
+        (self._num_adversarial_annotators_per_example, 1),
+        dtype=tf.float32) * ADVERSARIAL_NUM_PARAMS_NORMALIZED
+    adversarial_reliabilities = tf.ones(
+        (self._num_adversarial_annotators_per_example, 1),
+        dtype=tf.float32) * (1.0 / self.info.num_classes)
+    adversarial_features = tf.concat(
+        [adversarial_reliabilities, adversarial_num_params], axis=1)
+
+    return {
+        'annotator_labels': adversarial_labels,
+        'annotator_features': adversarial_features,
+        'annotator_confidences': adversarial_confidences,
+        'annotator_ids': adversarial_ids
+    }
+
+  def _process_pi_features_and_labels(self, example, unprocessed_example=None):
+    """Loads 'annotator_ids', 'annotator_labels', 'annotator_features', 'annotator_confidences' and sets 'clean_labels'."""
+
+    # Final parsed example should not include file_name.
+    parsed_example = {
+        'features': example['features'],
+        'labels': example['labels']
+    }
+
+    file_name = example['file_name']
+    # Store original label under new name.
+    parsed_example['clean_labels'] = example['labels']
+
+    annotators_meta_data = {}
+    annotators_meta_data['annotator_labels'] = self._annotator_tables[
+        'annotator_labels'][file_name]
+
+    def _cast_and_reshape(pi_feature, feature_length):
+      return tf.reshape(tf.cast(pi_feature, tf.float32), [-1, feature_length])
+
+    if self._one_hot:
+      annotators_meta_data['annotator_labels'] = tf.one_hot(
+          annotators_meta_data['annotator_labels'],
+          self.info.num_classes,
+          dtype=tf.float32)
+    else:
+      annotators_meta_data['annotator_labels'] = _cast_and_reshape(
+          annotators_meta_data['annotator_labels'], 1)
+
+    annotators_meta_data['annotator_ids'] = _cast_and_reshape(
+        tf.range(0, self.num_dataset_annotators), 1)
+    annotators_meta_data['annotator_features'] = _cast_and_reshape(
+        self._annotator_tables['annotator_features'],
+        self._annotator_feature_length)
+    annotators_meta_data['annotator_confidences'] = _cast_and_reshape(
+        self._annotator_tables['annotator_confidences'][file_name], 1)
+
+    parsed_example['pi_features'] = annotators_meta_data
+
+    return parsed_example
+
+  def _hash_fingerprint_int(self, fingerprint) -> int:
+    return tf.strings.to_hash_bucket_fast(fingerprint, self.num_examples)
+
+  def _get_annotator_features_tables(self):
+    """Loads the annotations in memory and stores them in several hash tables indexed by filename."""
+
+    filenames_label, filenames_confidence, annotator_features, annotator_labels, annotator_confidences = [], [], [], [], []
+    label_fname = f'{self._annotations_path}/labels/{self._split_annotations_file}'
+    feature_fname = f'{self._annotations_path}/annotator_features.csv'
+    confidence_fname = f'{self._annotations_path}/confidences/{self._split_annotations_file}'
+
+    with tf.io.gfile.GFile(feature_fname, 'r') as f:
+      # Read from annotator_features.csv file.
+      # Each row corresponds to one annotator and contains metadata about it.
+      # Rows are formatted following the convention:
+      # FEATURE_1, ..., FEATURE_N
+      # where FEATURE_{} is given as a float.
+      reader = csv.reader(f)
+
+      annotator_features = list(csv.reader(f))
+      annotator_feature_length = len(annotator_features[0])
+      num_annotators = len(annotator_features)
+
+    annotator_features = np.array(annotator_features)
+
+    with tf.io.gfile.GFile(label_fname, 'r') as f:
+      # Read from labels/{split}.csv file.
+      # Each row corresponds to one example and it is formatted following:
+      # FILENAME, RATER_LABEL_1, ..., RATER_LABEL_N
+      # where FILENAME points to the example filename
+      # and RATER_LABEL_{} is given as an integer
+      reader = csv.reader(f)
+
+      for line in reader:
+        # Load only the annotators specified in annotator_idx.
+        filename, label = line[0], np.array(line[1:])
+        filenames_label.append(filename)
+        annotator_labels.append(label)
+
+    with tf.io.gfile.GFile(confidence_fname, 'r') as f:
+      # Read from confidences/{split}.csv file.
+      # Each row corresponds to one example and it is formatted following:
+      # FILENAME, RATER_CONFIDENCE_1, ..., RATER_CONFIDENCE_N
+      # where FILENAME points to the example filename
+      # and RATER_CONFIDENCE_{} is given as a float
+      reader = csv.reader(f)
+
+      for line in reader:
+        filename, confidence = line[0], np.array(line[1:])
+        filenames_confidence.append(filename)
+        annotator_confidences.append(confidence)
+
+    filenames_label = tf.constant(filenames_label)
+    filenames_confidence = tf.constant(filenames_confidence)
+    annotator_features = tf.cast(
+        tf.strings.to_number(annotator_features), tf.float32)
+    annotator_labels = tf.cast(tf.strings.to_number(annotator_labels), tf.int32)
+    annotator_confidences = tf.cast(
+        tf.strings.to_number(annotator_confidences), tf.float32)
+
+    annotator_tables = {}
+
+    annotator_tables['annotator_labels'] = _store_in_hash_table(
+        keys=filenames_label,
+        values=annotator_labels,
+        values_length=num_annotators,
+        key_dtype=tf.string,
+        value_dtype=tf.int32)
+
+    annotator_tables['annotator_features'] = annotator_features
+
+    annotator_tables['annotator_confidences'] = _store_in_hash_table(
+        keys=filenames_confidence,
+        values=annotator_confidences,
+        values_length=num_annotators,
+        key_dtype=tf.string,
+        value_dtype=tf.float32)
+
+    return annotator_tables, num_annotators, annotator_feature_length
 
 
 # TODO(dusenberrymw): Create a helper function to load datasets for all

@@ -46,9 +46,11 @@ from uncertainty_baselines.models.resnet50_hetsngp import resnet50_hetsngp
 from uncertainty_baselines.models.resnet50_hetsngp import resnet50_hetsngp_add_last_layer
 from uncertainty_baselines.models.resnet50_radial import resnet50_radial
 from uncertainty_baselines.models.resnet50_rank1 import resnet50_rank1
+from uncertainty_baselines.models.resnet50_resizable_width import resnet50_resizable_width
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp
 from uncertainty_baselines.models.resnet50_sngp import resnet50_sngp_add_last_layer
 from uncertainty_baselines.models.resnet50_sngp_be import resnet50_sngp_be
+from uncertainty_baselines.models.resnet50_tram import resnet50_tram
 from uncertainty_baselines.models.resnet50_variational import resnet50_variational
 from uncertainty_baselines.models.textcnn import textcnn
 from uncertainty_baselines.models.unet import unet

@@ -68,6 +68,7 @@ class ModelTrainingParameters:
   reweighting_signal: Optional[str] = 'bias'
   reweighting_lambda: Optional[float] = 0.5
   reweighting_error_percentile_threshold: Optional[float] = 0.2
+  tpu_bns: Optional[str] = ''
 
   def asdict(self):
     return dataclasses.asdict(self)

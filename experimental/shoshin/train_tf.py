@@ -42,6 +42,8 @@ flags.DEFINE_bool('keep_logs', True, 'If True, creates a log file in output '
                   'directory. If False, only logs to console.')
 flags.DEFINE_string('ensemble_dir', '', 'If specified, loads the models at '
                     'this directory to consider the ensemble.')
+# The 'tpu' flag will be set by the `build_tpu_jobs` in the launch script.
+flags.DEFINE_string('tpu', '', 'The BNS address of the first TPU worker.')
 
 
 def main(_) -> None:
@@ -120,7 +122,8 @@ def main(_) -> None:
       use_pytorch_style_resnet=config.model.use_pytorch_style_resnet,
       do_reweighting=config.reweighting.do_reweighting,
       reweighting_lambda=config.reweighting.lambda_value,
-      reweighting_signal=config.reweighting.signal
+      reweighting_signal=config.reweighting.signal,
+      tpu_bns=FLAGS.tpu
   )
   model_params.train_bias = config.train_bias
   output_dir = config.output_dir

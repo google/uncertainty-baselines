@@ -97,7 +97,7 @@ def get_config():
   config.optim_name = 'Momentum'
   config.optim = ml_collections.ConfigDict()
   config.grad_clip_norm = 2.5
-  config.weight_decay = None
+  config.weight_decay = 0.
   config.loss = 'softmax_xent'
 
   config.lr = ml_collections.ConfigDict()

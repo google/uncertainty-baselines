@@ -120,7 +120,9 @@ def create_learning_rate_schedule(total_steps,
                                   base=0.,
                                   decay_type="linear",
                                   warmup_steps=0,
-                                  linear_end=1e-5):
+                                  cooldown_steps=0,
+                                  linear_end=1e-5,
+                                  timescale=10_000):
   """Creates a learning rate schedule.
 
   Currently only warmup + {linear,cosine} but will be a proper mini-language
@@ -131,7 +133,9 @@ def create_learning_rate_schedule(total_steps,
     base: The starting learning-rate (without warmup).
     decay_type: 'linear' or 'cosine'.
     warmup_steps: how many steps to warm up for.
-    linear_end: Minimum learning rate.
+    cooldown_steps: how many steps to cool down for.
+    linear_end: Minimum learning rate for linear learning rate schedule.
+    timescale: Timescale for rsqrt learning rate schedule.
 
   Returns:
     A function learning_rate(step): float -> {"learning_rate": float}.
@@ -147,11 +151,17 @@ def create_learning_rate_schedule(total_steps,
       lr = linear_end + (lr - linear_end) * (1.0 - progress)
     elif decay_type == "cosine":
       lr = lr * 0.5 * (1. + jnp.cos(jnp.pi * progress))
+    elif decay_type == "rsqrt":
+      shift = timescale - warmup_steps
+      lr = jnp.where(warmup_steps < step, lr / jnp.sqrt(
+          (step + shift) / timescale), lr)
     else:
       raise ValueError(f"Unknown lr type {decay_type}")
 
     if warmup_steps:
       lr = lr * jnp.minimum(1., step / warmup_steps)
+    if cooldown_steps:
+      lr = lr * jnp.minimum(1., (total_steps - step) / cooldown_steps)
 
     return jnp.asarray(lr, dtype=jnp.float32)
 
@@ -231,12 +241,12 @@ def checkpointing_timeout(writer, timeout):
   if writer is not None:
     try:
       writer.get(timeout=timeout)
-    except multiprocessing.TimeoutError:
+    except multiprocessing.TimeoutError as e:
       raise TimeoutError(
           "Checkpoint writing seems to be a bottleneck. Make sure you do "
           "not do something wrong, like writing checkpoints to a distant "
           "cell. In a case you are OK with checkpoint writing being a "
-          "bottleneck, you can configure `checkpoint_timeout` parameter")
+          "bottleneck, you can configure `checkpoint_timeout` parameter") from e
 
 
 def itstime(step,

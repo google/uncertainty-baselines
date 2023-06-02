@@ -586,7 +586,7 @@ def compute_score(df: pd.DataFrame,
   for metric in df.columns.levels[0]:
     categories[get_metric_category(metric).name].append(metric)
 
-  scores = df.mean(axis=1, skipna=False).to_frame(name='score')
+  scores = df.mean(axis=1, skipna=False).to_frame(name='score')  # pytype: disable=attribute-error  # pandas-15-upgrade
   for category, metrics in categories.items():
     # Don't compute scores for methods that don't report all metrics in the
     # current category, since this would make metrics such as ranking
@@ -797,7 +797,7 @@ def process_fewshot_for_moe_comparison(
   rows = []
   for model_name in ('MoE', '[Det]_4', '[MoE]_4'):
     # We average over the different seeds.
-    fewshot_dict = measurements_dict[model_name].mean(axis=0).to_dict()
+    fewshot_dict = measurements_dict[model_name].mean(axis=0).to_dict()  # pytype: disable=attribute-error  # pandas-15-upgrade
     # We format the names of the columns.
     column_names = {c: _parse_column(c) for c in fewshot_dict}
     fewshot_dict = {

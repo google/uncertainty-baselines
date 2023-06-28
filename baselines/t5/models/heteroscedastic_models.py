@@ -74,7 +74,7 @@ class EncoderDecoderHeteroscedasticBeamScoreModel(  # pytype: disable=signature-
 
 
 def get_assignment_map(
-    use_pretrained_head: bool, num_factors: int
+    use_pretrained_head: bool, num_factors: int, location_parameter_spec: str
 ) -> AssignmentMap:
   """Defines the assignment map that controls the checkpoint restoring logic.
 
@@ -85,21 +85,40 @@ def get_assignment_map(
     num_factors: Number of factors used in the low-rank parametrisation of the
       covariance in the heteroscedastic layer. When it is <= 0, only a diagonal
       parametrisation is used.
+    location_parameter_spec: String that specifies how the location parameters
+      are encoded in the heteroscedastic layer. They can be represented as a
+      nn.Dense ('layer') or as explicit (kernel, bias) parameters defined via
+      self.param ('param'). For context, location_parameter_spec makes it
+      possible to reuse embeddings in place of the weight matrix of the nn.Dense
+      layer producing the location parameters.
 
   Returns:
     The `assignment_map` to be passed to utils.RestoreCheckpointConfig.
   """
-  if not use_pretrained_head:
-    return []
+  assignment_map = []
 
-  assignment_map = [
-      (
-          r'(.*)decoder/heteroscedastic_head/loc_layer/kernel(.*)',
-          r'\1decoder/logits_dense/kernel\2',
-      ),
-      # No map for the bias term since not present in the T5 head: See
-      #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/network.py#L356
-      #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/layers.py#L405
+  if not use_pretrained_head:
+    return assignment_map
+
+  # No map for the bias term since not present in the T5 head: See
+  #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/network.py#L356
+  #  https://github.com/google-research/t5x/blob/main/t5x/examples/scalable_t5/layers.py#L405
+  assignment_map_head = []
+
+  if location_parameter_spec == 'layer':
+    assignment_map_head = [(
+        r'(.*)decoder/heteroscedastic_head/loc_layer/kernel(.*)',
+        r'\1decoder/logits_dense/kernel\2',
+    )]
+  elif location_parameter_spec == 'param':
+    assignment_map_head = [(
+        r'(.*)decoder/heteroscedastic_head/loc_layer_kernel(.*)',
+        r'\1decoder/logits_dense/kernel\2',
+    )]
+  # Else, we do not have explicit kernel parameter and we instead rely on some
+  # shared parameters such as the embeddings of the model.
+
+  assignment_map = assignment_map_head + [
       (r'(.*)decoder/heteroscedastic_head/diag_layer(.*)', None),
   ]
   if num_factors > 0:

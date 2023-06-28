@@ -25,6 +25,7 @@ import t5x.examples.t5.network as t5_network
 
 # Jax data types.
 Array = Any
+LocationParameterSpec = het_layer.LocationParameterSpec
 
 
 # This class follows `network.Decoder` implementation.
@@ -46,9 +47,6 @@ class HeteroscedasticDecoder(nn.Module):
   cov_layer_kernel_init_scale: Optional[float] = None
 
   def setup(self):
-    if self.config.logits_via_embedding:
-      raise ValueError('Sharing the embedding weights in the decoder output '
-                       'layer is not supported in the heteroscedastic decoder.')
     softmax_het_layer = ed.nn.MCSoftmaxDenseFA
     self.heteroscedastic_layer = softmax_het_layer(
         self.config.vocab_size,
@@ -65,7 +63,17 @@ class HeteroscedasticDecoder(nn.Module):
         temperature_upper_bound=self.temperature_upper_bound,
         latent_dim=self.latent_dim,
         cov_layer_kernel_init_scale=self.cov_layer_kernel_init_scale,
-        name='heteroscedastic_head')
+        name='heteroscedastic_head',
+    )
+
+    if (
+        self.config.logits_via_embedding
+        and softmax_het_layer == ed.nn.MCSoftmaxDenseFA
+    ):
+      raise ValueError(
+          'Sharing the embedding weights in the decoder output '
+          'layer is not supported in the heteroscedastic decoder.'
+      )
 
   @nn.compact
   def __call__(self,

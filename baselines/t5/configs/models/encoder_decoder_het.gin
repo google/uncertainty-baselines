@@ -23,6 +23,7 @@ import decoding  # local file import from baselines.t5
 from models import heteroscedastic_models  # local file import from baselines.t5
 from uncertainty_baselines.models import t5_heteroscedastic
 
+
 # Loss HParam defaults
 # NOTE: When fine-tuning the public T5 checkpoints (trained in T5 MeshTF)
 # the loss normalizing factor should be set to 1024 * 228 (pretraining
@@ -31,6 +32,7 @@ Z_LOSS = 0.0001
 LABEL_SMOOTHING = 0.0
 LOSS_NORMALIZING_FACTOR = 233472
 DROPOUT_RATE = 0.1
+LOGITS_VIA_EMBEDDING = False
 
 # Optimizer
 # `learning_rate` is set by `Trainer.learning_rate_fn`.
@@ -60,6 +62,7 @@ network.T5Config:
   dtype = 'bfloat16'
   head_dim = 64
   dropout_rate = %DROPOUT_RATE
+  logits_via_embedding = %LOGITS_VIA_EMBEDDING
 
 TEMPERATURE = 1.0
 MC_SAMPLES = 1000

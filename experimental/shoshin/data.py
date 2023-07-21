@@ -375,8 +375,7 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
     image = self._decode_and_center_crop(image_bytes)
     # No data augmentation, like in JTT paper.
     # image = tf.image.random_flip_left_right(image)
-    image = tf.image.resize([image], [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE],
-                            method='nearest')[0]
+    image = tf.image.resize([image], [RESNET_IMAGE_SIZE, RESNET_IMAGE_SIZE])[0]
     return image
 
   def _get_subgroup_label(self, label: tf.Tensor,

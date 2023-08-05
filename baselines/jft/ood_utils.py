@@ -468,8 +468,8 @@ def eval_ood_metrics(ood_ds,
 
         # Computes Maximum softmax probability (MSP)
         probs = jax.nn.softmax(logits[0], axis=-1)[masks_bool]
-        batch_scores['probs'] = probs
-        batch_scores['logits'] = logits[0][masks_bool]
+        batch_scores['probs'] = np.asarray(probs)
+        batch_scores['logits'] = np.asarray(logits)[0][masks_bool]
 
         # Compute Entropy
         batch_scores['entropy'] = np.array(

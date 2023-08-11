@@ -50,7 +50,7 @@ def sliding_window(x, flip, window_size, window_stride):
   """Slice image in windows.
 
   Args:
-    x: jnp.array, Image tensor.
+    x: jnp.ndarray, Image tensor.
     flip: boolean, to flip input.
     window_size: int,  size of windows in which to split im.
     window_stride: int, size of stride used to split im.

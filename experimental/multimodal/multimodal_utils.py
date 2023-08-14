@@ -34,7 +34,7 @@ def bidirectional_contrastive_loss(zimg, ztxt, mask=None, reduction=False):
     # under softmax (and argmax when calculating #correct).
     exclude = jnp.logical_not(mask)  # Now 1 if we don't want to keep.
     exclude = jnp.logical_or(exclude[:, None], exclude[None, :])
-    logits = jnp.where(exclude, jnp.NINF, logits)
+    logits = jnp.where(exclude, -jnp.inf, logits)
 
   # Note: assumed t is in a good range e.g. already passed through exp/softplus.
   l1 = -jnp.diag(jax.nn.log_softmax(logits, axis=1))  # NLL img->txt

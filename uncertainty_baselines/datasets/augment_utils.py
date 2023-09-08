@@ -17,7 +17,6 @@
 
 import math
 
-from keras.layers.preprocessing import image_preprocessing as image_ops
 import tensorflow as tf
 
 
@@ -155,13 +154,13 @@ def _convert_angles_to_transform(angles, image_width, image_height):
 
 
 def transform(image, transforms):
-  """Prepares input data for `image_ops.transform`."""
+  """Prepares input data for `image_preprocessing.transform`."""
   original_ndims = tf.rank(image)
   transforms = tf.convert_to_tensor(transforms, dtype=tf.float32)
   if len(tf.shape(transforms)) == 1:
     transforms = transforms[None]
   image = to_4d(image)
-  image = image_ops.transform(
+  image = tf._keras_internal.layers.preprocessing.image_preprocessing.transform(  # pylint:disable=protected-access
       images=image,
       transforms=transforms,
       interpolation='nearest')

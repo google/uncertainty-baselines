@@ -27,7 +27,7 @@ BIAS_CONSTANT = 100.0
 
 
 def create_run_steps_fn(
-    step_fn: tf.types.experimental.GenericFunction,
+    step_fn: tf.types.experimental.PolymorphicFunction,
     strategy: tf.distribute.Strategy,
     distributed: bool,
     output_dtypes: Optional[Sequence[tf.dtypes.DType]] = None,

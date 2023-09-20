@@ -49,6 +49,7 @@ flags.DEFINE_string('tpu', '', 'The BNS address of the first TPU worker.')
 def main(_) -> None:
   config = FLAGS.config
   base_config.check_flags(config)
+  strategy = train_tf_lib.create_strategy(tpu_bns=FLAGS.tpu)
 
   if FLAGS.keep_logs and not config.training.log_to_xm:
     if not tf.io.gfile.exists(config.output_dir):
@@ -192,19 +193,20 @@ def main(_) -> None:
   # Apply batching (must apply batching only after filtering)
   dataloader = data.apply_batch(dataloader, config.data.batch_size)
 
-  _ = train_tf_lib.train_and_evaluate(
-      train_as_ensemble=config.train_stage_2_as_ensemble,
-      dataloader=dataloader,
-      model_params=model_params,
-      num_splits=config.data.num_splits,
-      ood_ratio=config.data.ood_ratio,
-      output_dir=output_dir,
-      experiment_name=experiment_name,
-      save_model_checkpoints=config.training.save_model_checkpoints,
-      save_best_model=config.training.save_best_model,
-      early_stopping=config.training.early_stopping,
-      ensemble_dir=FLAGS.ensemble_dir,
-      example_id_to_bias_table=example_id_to_bias_table)
+  with strategy.scope():
+    _ = train_tf_lib.train_and_evaluate(
+        train_as_ensemble=config.train_stage_2_as_ensemble,
+        dataloader=dataloader,
+        model_params=model_params,
+        num_splits=config.data.num_splits,
+        ood_ratio=config.data.ood_ratio,
+        output_dir=output_dir,
+        experiment_name=experiment_name,
+        save_model_checkpoints=config.training.save_model_checkpoints,
+        save_best_model=config.training.save_best_model,
+        early_stopping=config.training.early_stopping,
+        ensemble_dir=FLAGS.ensemble_dir,
+        example_id_to_bias_table=example_id_to_bias_table)
 
 
 if __name__ == '__main__':

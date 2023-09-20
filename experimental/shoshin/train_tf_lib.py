@@ -352,20 +352,19 @@ def evaluate_model(
     logging.info(results)
 
 
-def _create_strategy(
+def create_strategy(
     tpu_bns: Optional[str] = '') -> tf.distribute.Strategy:
-  """Creates distribution strategy used in training.
+  """Creates distribution strategy based on machine available.
 
   Args:
-    tpu_bns: The bns address of the first TPU worker.
+    tpu_bns: A string of the Headless TPU Worker's BNS address.
 
   Returns:
     tf.distribute.Strategy
   """
-  use_tpu = False
-  if tpu_bns:  # Use tpu if tpu_bns is specified
-    use_tpu = True
-  else:  # Use tpu if tpu is available
+  # Set use_tpu as true if tpu bns is set or tpu is available.
+  use_tpu = bool(tpu_bns)
+  if not use_tpu:
     visible_devices = tf.config.get_visible_devices()
     for device in visible_devices:
       if device.device_type == 'TPU':
@@ -402,29 +401,27 @@ def init_model(
   Returns:
     Initialized TwoHeadedOutputModel model.
   """
-  strategy = _create_strategy(tpu_bns=model_params.tpu_bns)
-  with strategy.scope():
-    model_class = models.get_model(model_params.model_name)
-    base_model = model_class(model_params=model_params)
+  model_class = models.get_model(model_params.model_name)
+  base_model = model_class(model_params=model_params)
 
-    two_head_model = TwoHeadedOutputModel(
-        model=base_model,
-        num_subgroups=model_params.num_subgroups,
-        subgroup_sizes=model_params.subgroup_sizes,
-        worst_group_label=model_params.worst_group_label,
-        train_bias=model_params.train_bias,
-        name=experiment_name,
-        do_reweighting=model_params.do_reweighting,
-        reweighting_signal=model_params.reweighting_signal,
-        reweighting_lambda=model_params.reweighting_lambda,
-        error_percentile_threshold=model_params
-        .reweighting_error_percentile_threshold)
+  two_head_model = TwoHeadedOutputModel(
+      model=base_model,
+      num_subgroups=model_params.num_subgroups,
+      subgroup_sizes=model_params.subgroup_sizes,
+      worst_group_label=model_params.worst_group_label,
+      train_bias=model_params.train_bias,
+      name=experiment_name,
+      do_reweighting=model_params.do_reweighting,
+      reweighting_signal=model_params.reweighting_signal,
+      reweighting_lambda=model_params.reweighting_lambda,
+      error_percentile_threshold=model_params
+      .reweighting_error_percentile_threshold)
 
-    if model_params.train_bias or model_params.do_reweighting:
-      if example_id_to_bias_table:
-        two_head_model.update_id_to_bias_table(example_id_to_bias_table)
+  if model_params.train_bias or model_params.do_reweighting:
+    if example_id_to_bias_table:
+      two_head_model.update_id_to_bias_table(example_id_to_bias_table)
 
-    two_head_model = compile_model(two_head_model, model_params)
+  two_head_model = compile_model(two_head_model, model_params)
   return two_head_model
 
 

@@ -163,19 +163,21 @@ def upsample_subgroup(
 
 def apply_batch(dataloader, batch_size):
   """Apply batching to dataloader."""
+  # TODO(jihyeonlee): Support making splits divisible by batch_size
+  #                   so that a remainder is not dropped for every split
   dataloader.train_splits = [
       data.batch(batch_size) for data in dataloader.train_splits
   ]
   dataloader.val_splits = [
       data.batch(batch_size) for data in dataloader.val_splits
   ]
-  num_splits = len(dataloader.train_splits)
-  train_ds = gather_data_splits(
-      list(range(num_splits)), dataloader.train_splits)
-  val_ds = gather_data_splits(list(range(num_splits)), dataloader.val_splits)
-  dataloader.train_ds = train_ds
-  dataloader.eval_ds['val'] = val_ds
-  for (k, v) in dataloader.eval_ds.items():
+  dataloader.train_ds = dataloader.train_ds.batch(
+      batch_size, drop_remainder=True
+  )
+  dataloader.eval_ds['val'] = dataloader.eval_ds['val'].batch(
+      batch_size, drop_remainder=True
+  )
+  for k, v in dataloader.eval_ds.items():
     if k != 'val':
       dataloader.eval_ds[k] = v.batch(batch_size)
   return dataloader

@@ -294,10 +294,10 @@ def evaluate_ood(
 
     def arrays_to_keras_auc(tp, fp, tn, fn, keras_auc_object):
       """Assign confusion matrix arrays to a keras_auc_object."""
-      keras_auc_object.true_positives.assign(tp)
-      keras_auc_object.false_positives.assign(fp)
-      keras_auc_object.true_negatives.assign(tn)
-      keras_auc_object.false_negatives.assign(fn)
+      keras_auc_object.true_positives.assign(tp)  # pytype: disable=attribute-error  # jnp-type
+      keras_auc_object.false_positives.assign(fp)  # pytype: disable=attribute-error  # jnp-type
+      keras_auc_object.true_negatives.assign(tn)  # pytype: disable=attribute-error  # jnp-type
+      keras_auc_object.false_negatives.assign(fn)  # pytype: disable=attribute-error  # jnp-type
       return keras_auc_object
 
     auc_roc_state = keras_auc_to_arrays(auc_roc)
@@ -330,8 +330,8 @@ def evaluate_ood(
     auc_roc = arrays_to_keras_auc(*combine_states(all_auc_roc_states), auc_roc)
     auc_pr = arrays_to_keras_auc(*combine_states(all_auc_pr_states), auc_pr)
 
-    eval_summary = {'auroc': float(auc_roc.result().numpy()),
-                    'auprc': float(auc_pr.result().numpy()),
+    eval_summary = {'auroc': float(auc_roc.result().numpy()),  # pytype: disable=attribute-error  # jnp-type
+                    'auprc': float(auc_pr.result().numpy()),  # pytype: disable=attribute-error  # jnp-type
                     }
   else:
     eval_logits = []

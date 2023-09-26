@@ -59,27 +59,27 @@ def calculate_num_patches_binary_maps(
 
   unc_confusion_matrix = jnp.stack((n_ac, n_ic, n_iu, n_au), axis=-1)
 
-  return unc_confusion_matrix
+  return unc_confusion_matrix  # pytype: disable=bad-return-type  # jnp-type
 
 
 def get_pacc_cert(unc_confusion_matrix):
   """Calculate p(accurate | certain)."""
 
-  n_ac, n_ic, _, _ = jnp.split(unc_confusion_matrix, jnp.arange(1, 4), axis=-1)
+  n_ac, n_ic, _, _ = jnp.split(unc_confusion_matrix, jnp.arange(1, 4), axis=-1)  # pytype: disable=wrong-arg-types  # jnp-type
 
   return jnp.nan_to_num(n_ac / (n_ac + n_ic))
 
 
 def get_puncert_inacc(unc_confusion_matrix):
   """Calculate p(uncertain | inaccurate)."""
-  _, n_ic, n_iu, _ = jnp.split(unc_confusion_matrix, jnp.arange(1, 4), axis=-1)
+  _, n_ic, n_iu, _ = jnp.split(unc_confusion_matrix, jnp.arange(1, 4), axis=-1)  # pytype: disable=wrong-arg-types  # jnp-type
 
   return jnp.nan_to_num(n_iu / (n_ic + n_iu))
 
 
 def get_pavpu(unc_confusion_matrix):
   """Patch accuracy vs Patch uncertainty."""
-  n_ac, n_ic, n_iu, n_au = jnp.split(
+  n_ac, n_ic, n_iu, n_au = jnp.split(  # pytype: disable=wrong-arg-types  # jnp-type
       unc_confusion_matrix, jnp.arange(1, 4), axis=-1)
 
   return jnp.nan_to_num((n_ac + n_iu) / (n_ac + n_au + n_ic + n_iu))

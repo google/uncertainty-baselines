@@ -150,7 +150,9 @@ def get_ids_logits_masks(*,
     batch_output = compute_batch_outputs(opt_repl.target, batch['image'])
 
     # This moves the batch_output from TPU to CPU right away.
-    batch_output = jax.device_put(batch_output, jax.devices('cpu')[0])
+    batch_output = jax.device_put(
+        batch_output, jax.local_devices(backend='cpu')[0]
+    )
 
     # TODO(joost,andreas): if we run on multi host, we need to index
     # batch_outputs: batch_outputs[0]

@@ -126,7 +126,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
                artificial_id_increase_factor: Optional[int] = None,
                reliability_estimation_batch_size: int = 1,
                pi_seed: Optional[Union[int, tf.Tensor]] = None,
-               num_adversarial_annotators_per_example: Optional[int] = 0,
+               num_adversarial_annotators_per_example: int = 0,
                annotator_sampling_strategy: Optional[str] = 'uniform',
                random_pi_length: Optional[int] = None,
                disable_reliability_estimation: bool = False,
@@ -448,10 +448,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
   def num_global_adversarial_annotators(self):
     """Returns the number of adversarial annotators that are added to the global pool of annotators.
     """
-    if (
-        self._num_adversarial_annotators_per_example is None
-        or self._num_adversarial_annotators_per_example == 0
-    ):
+    if self._num_adversarial_annotators_per_example == 0:
       return 0
     else:
       return int(

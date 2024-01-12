@@ -112,8 +112,8 @@ def wrapped_seq2seq_uncertainty_metrics(
 
 
 def _seq2seq_uncertainty_metrics(
-    targets: List[Text],
-    predictions: List[Text],
+    targets: List[Text | int],
+    predictions: List[Text | int],
     log_probs: np.ndarray,
     num_ece_bins: int = 15,
     metric_prefix: str = '',

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The Uncertainty Baselines Authors.
+# Copyright 2024 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -131,8 +131,8 @@ class FewShotSamplePool(object):
     self._seed = seed
     self._rng = np.random.default_rng(seed=self._seed)
 
-    self._features = None
-    self._labels = None
+    self._features: np.ndarray = None
+    self._labels: np.ndarray = None
     self._class_indices = []
 
   def refresh(self, features: tf.Tensor, labels: tf.Tensor):

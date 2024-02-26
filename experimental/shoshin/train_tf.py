@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The Uncertainty Baselines Authors.
+# Copyright 2024 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -181,6 +181,8 @@ def main(_) -> None:
         'In `config.data`, one of `(use_splits, use_filtering)` must be True.')
 
   dataloader.train_ds = new_train_ds
+  if dataloader.eval_ds is None:
+    raise ValueError('Eval dataset is not defined from data loader.')
   dataloader.eval_ds['val'] = val_ds
   experiment_name = 'stage_2' if config.train_bias else 'stage_1'
 

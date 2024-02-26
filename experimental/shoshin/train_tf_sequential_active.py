@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The Uncertainty Baselines Authors.
+# Copyright 2024 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -154,6 +154,8 @@ def main(_) -> None:
       val_ds = data.gather_data_splits(included_splits_idx,
                                        dataloader.val_splits)
       dataloader.train_ds = train_ds
+      if dataloader.eval_ds is None:
+        raise ValueError('Eval dataset is not from data loader.')
       dataloader.eval_ds['val'] = val_ds
 
     trained_stagetwo_models = train_tf_lib.train_and_evaluate(

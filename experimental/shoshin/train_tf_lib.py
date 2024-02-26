@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 The Uncertainty Baselines Authors.
+# Copyright 2024 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -134,6 +134,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
       y_pred = self(features, training=True)
 
       y_true = {'main': y_true_main}
+      y_true_bias_original = None
       if self.train_bias or (self.do_reweighting and
                              self.reweighting_signal == 'bias'):
         if self.id_to_bias_table is None:
@@ -812,7 +813,7 @@ def eval_ensemble(
     ensemble: List of trained models.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
   """
-  for ds_name in dataloader.eval_ds.keys():
+  for ds_name in dataloader.eval_ds:
     test_examples = dataloader.eval_ds[ds_name]
     y_pred_main = []
     y_pred_bias = []

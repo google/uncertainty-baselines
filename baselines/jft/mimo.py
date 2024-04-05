@@ -96,11 +96,11 @@ def replicate_inputs_and_labels(inputs: jnp.ndarray,
   # Shuffle indices differently for each ensemble member so they don't train
   # with the same batch order. But keep some the same with input_rep_prob.
   num_distinct = int(batch_size * batch_repetitions * (1 - input_rep_prob))
-  repeated_indices = jax.random.shuffle(rngs[0], indices[num_distinct:])
+  repeated_indices = jax.random.permutation(rngs[0], indices[num_distinct:])
 
   # Shape: (E, B * R).
   indices = jnp.array([
-      jnp.concatenate((jax.random.shuffle(ens_rng, indices[:num_distinct]),
+      jnp.concatenate((jax.random.permutation(ens_rng, indices[:num_distinct]),
                        repeated_indices), axis=0)
       for ens_rng in rngs[1:]])
 

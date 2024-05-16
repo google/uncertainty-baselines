@@ -79,7 +79,7 @@ class VitTramTest(parameterized.TestCase):
     key = jax.random.PRNGKey(0)
     variables = model.init(key, inputs, pi_inputs, train=False)
 
-    param_count = sum(p.size for p in jax.tree_flatten(variables)[0])
+    param_count = sum(p.size for p in jax.tree.flatten(variables)[0])
     self.assertEqual(param_count, expected_param_count)
 
     logits, outputs = model.apply(variables, inputs, pi_inputs, train=False)

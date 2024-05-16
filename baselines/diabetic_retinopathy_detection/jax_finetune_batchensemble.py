@@ -253,7 +253,7 @@ def main(_):
   params_cpu = init(rng_init)
 
   if jax.process_index() == 0:
-    num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
+    num_params = sum(p.size for p in jax.tree.flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 

@@ -883,9 +883,9 @@ def train(
 
       train_summary = train_utils.log_train_summary(
           step=step,
-          train_metrics=jax.tree_map(train_utils.unreplicate_and_get,
+          train_metrics=jax.tree.map(train_utils.unreplicate_and_get,
                                      train_metrics),
-          extra_training_logs=jax.tree_map(train_utils.unreplicate_and_get,
+          extra_training_logs=jax.tree.map(train_utils.unreplicate_and_get,
                                            extra_training_logs),
           writer=writer)
 

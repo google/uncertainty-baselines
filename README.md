@@ -131,7 +131,7 @@ copy compared to `tensor._numpy()`.
 
 ```python
 for batch in iter(ds):
-  train_step(jax.tree_map(lambda y: y._numpy(), batch))
+  train_step(jax.tree.map(lambda y: y._numpy(), batch))
 ```
 
 ### Models

@@ -255,7 +255,7 @@ def main(argv):
   params_cpu = init(rng_init)
 
   if jax.process_index() == 0:
-    num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
+    num_params = sum(p.size for p in jax.tree.flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 
@@ -312,7 +312,7 @@ def main(argv):
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
     if config.get('grad_accum_steps', 1) == 1 or grad_clip_norm is not None:
-      grads, _ = jax.tree_flatten(g)
+      grads, _ = jax.tree.flatten(g)
       l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
       measurements['l2_grads'] = l2_g
 
@@ -336,7 +336,7 @@ def main(argv):
         target=train_utils.tree_map_with_regex(decay_fn, opt.target,
                                                decay_rules))
 
-    params, _ = jax.tree_flatten(opt.target)
+    params, _ = jax.tree.flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(
         sum([jnp.vdot(p, p) for p in params]))
 

@@ -254,7 +254,7 @@ def main(config, output_dir):
   params_cpu, states_cpu = init(rng_init)
 
   if jax.process_index() == 0:
-    num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
+    num_params = sum(p.size for p in jax.tree.flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 
@@ -385,7 +385,7 @@ def main(config, output_dir):
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
     if config.get('grad_accum_steps', 1) == 1 or config.get('grad_clip_norm'):
-      grads, _ = jax.tree_flatten(g)
+      grads, _ = jax.tree.flatten(g)
       l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
       measurements['l2_grads'] = l2_g
 
@@ -398,7 +398,7 @@ def main(config, output_dir):
 
     opt = opt.replace(target=weight_decay_fn(opt.target, lr))
 
-    params, _ = jax.tree_flatten(opt.target)
+    params, _ = jax.tree.flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
 
     top1_idx = jnp.argmax(logits, axis=1)
@@ -504,7 +504,7 @@ def main(config, output_dir):
       # alive while they'll be updated in a future step, creating hard to debug
       # memory errors (see b/160593526). Also, takes device 0's params only.
       opt_cpu = jax.tree_util.tree_map(lambda x: np.array(x[0]), opt_repl)
-      states_cpu = jax.tree_map(lambda x: np.array(x[0]), states_repl)
+      states_cpu = jax.tree.map(lambda x: np.array(x[0]), states_repl)
 
       # Check whether we want to keep a copy of the current checkpoint.
       copy_step = None

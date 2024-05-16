@@ -145,7 +145,7 @@ def write_beam_inferences_to_file(
         json_dict['score'] = _json_compat(predictions)
         # This is a section where we deviate from the original function.
         if aux_values:
-          json_dict['intermediates'] = jax.tree_map(_json_compat, aux_values)
+          json_dict['intermediates'] = jax.tree.map(_json_compat, aux_values)
       elif mode == 'predict_batch_with_aux':
         assert vocabulary is not None
         # This is a section where we deviate from the original function.
@@ -156,7 +156,7 @@ def write_beam_inferences_to_file(
         predict_dict = {k: _json_compat(v) for k, v in predict_dict.items()}
         json_dict.update(predict_dict)
 
-        json_dict['aux'] = jax.tree_map(_json_compat, aux_values)
+        json_dict['aux'] = jax.tree.map(_json_compat, aux_values)
       else:
         raise ValueError(f'Invalid mode: {mode}')
 

@@ -42,7 +42,7 @@ class VmoeUtilsTest(parameterized.TestCase):
             'self-attention': jax.sharding.PartitionSpec(),
         }
     }
-    jax.tree_map(np.testing.assert_equal, expected_partition_spec,
+    jax.tree.map(np.testing.assert_equal, expected_partition_spec,
                       partition_spec)
 
   def test_deep_ensemble_reshape_outputs(self):

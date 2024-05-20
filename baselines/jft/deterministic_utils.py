@@ -143,7 +143,7 @@ def create_update_fn(model, config):
     # Log the gradient norm only if we need to compute it anyways (clipping)
     # or if we don't use grad_accum_steps, as they interact badly.
     if config.get('grad_accum_steps', 1) == 1 or config.get('grad_clip_norm'):
-      grads, _ = jax.tree_flatten(g)
+      grads, _ = jax.tree.flatten(g)
       l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
       measurements['l2_grads'] = l2_g
     logging.info(msg=f'measurements = {measurements}')
@@ -157,7 +157,7 @@ def create_update_fn(model, config):
 
     opt = opt.replace(target=weight_decay_fn(opt.target, lr))
 
-    params, _ = jax.tree_flatten(opt.target)
+    params, _ = jax.tree.flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
 
     top1_idx = jnp.argmax(logits, axis=1)

@@ -312,7 +312,7 @@ def main(argv):
   params_cpu, states_cpu = init(rng_init)
 
   if jax.process_index() == 0:
-    num_params = sum(p.size for p in jax.tree_flatten(params_cpu)[0])
+    num_params = sum(p.size for p in jax.tree.flatten(params_cpu)[0])
     parameter_overview.log_parameter_overview(params_cpu)
     writer.write_scalars(step=0, scalars={'num_params': num_params})
 
@@ -463,7 +463,7 @@ def main(argv):
     # or if we don't use grad_accum_steps, as they interact badly.
     do_grad_clip = config.get('grad_clip_norm', -1.) > 0.
     if config.get('grad_accum_steps', 1) == 1 or do_grad_clip:
-      grads, _ = jax.tree_flatten(g)
+      grads, _ = jax.tree.flatten(g)
       l2_g = jnp.sqrt(sum([jnp.vdot(p, p) for p in grads]))
       measurements['l2_grads'] = l2_g
 
@@ -471,11 +471,11 @@ def main(argv):
     # useful in some cases across optimizers, hence it's in the main loop.
     if do_grad_clip:
       g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
-      g = jax.tree_map(lambda p: g_factor * p, g)
+      g = jax.tree.map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
     opt = opt.replace(target=weight_decay_fn(opt.target, lr))
 
-    params, _ = jax.tree_flatten(opt.target)
+    params, _ = jax.tree.flatten(opt.target)
     measurements['l2_params'] = jnp.sqrt(sum([jnp.vdot(p, p) for p in params]))
 
     return opt, s, l, rng, measurements
@@ -595,8 +595,8 @@ def main(argv):
       # (`states`). This is ok since `random features` are frozen throughout
       # pre-training, and `precision matrix` is a finetuning-specific parameters
       # that will be re-learned in the finetuning task.
-      opt_cpu = jax.tree_map(lambda x: np.array(x[0]), opt_repl)
-      states_cpu = jax.tree_map(lambda x: np.array(x[0]), states_repl)
+      opt_cpu = jax.tree.map(lambda x: np.array(x[0]), opt_repl)
+      states_cpu = jax.tree.map(lambda x: np.array(x[0]), states_repl)
 
       # Check whether we want to keep a copy of the current checkpoint.
       copy_step = None

@@ -361,7 +361,7 @@ def start_input_pipeline(dataset, n_prefetch, devices=None):
     # https://github.com/tensorflow/tensorflow/issues/33254#issuecomment-542379165
     return np.asarray(memoryview(x))
 
-  it = (jax.tree_map(_prepare, xs) for xs in it)
+  it = (jax.tree.map(_prepare, xs) for xs in it)
 
   if n_prefetch:
     it = flax.jax_utils.prefetch_to_device(it, n_prefetch, devices=devices)

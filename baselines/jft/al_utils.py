@@ -121,7 +121,7 @@ class SubsetDatasetBuilder(DatasetBuilder):
     element_spec = dataset.element_spec.copy()
     element_spec['id'] = tf.TensorSpec(shape=(), dtype=tf.int64, name=None)
     logging.info(msg=f'element_spec = {element_spec}; '
-                 f'type = {jax.tree_map(type, element_spec)}')
+                 f'type = {jax.tree.map(type, element_spec)}')
 
     dataset = tf.data.Dataset.from_generator(
         _subset_generator(

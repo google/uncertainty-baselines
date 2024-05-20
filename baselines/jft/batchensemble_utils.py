@@ -59,10 +59,10 @@ def log_average_sigmoid_probs(logits: jnp.ndarray) -> jnp.ndarray:
 
 def tree_clip_norm_global_pmax(tree, max_norm, axis_name):
   """Global norm clipping, with pmax of global norm before clipping."""
-  global_norm = jnp.sqrt(sum(jnp.vdot(x, x) for x in jax.tree_leaves(tree)))
+  global_norm = jnp.sqrt(sum(jnp.vdot(x, x) for x in jax.tree.leaves(tree)))
   global_norm = jax.lax.pmax(global_norm, axis_name=axis_name)
   factor = jnp.minimum(1.0, max_norm / global_norm)
-  return jax.tree_map(lambda x: factor * x, tree), global_norm
+  return jax.tree.map(lambda x: factor * x, tree), global_norm
 
 
 def _traverse_with_names(tree):
@@ -93,7 +93,7 @@ def tree_flatten_with_names(tree):
     A list of values with names: [(name, value), ...].
     A PyTreeDef tree definition object.
   """
-  vals, tree_def = jax.tree_flatten(tree)
+  vals, tree_def = jax.tree.flatten(tree)
 
   # "Fake" token tree that is use to track jax internal tree traversal and
   # adjust our custom tree traversal to be compatible with it.
@@ -111,7 +111,7 @@ def tree_flatten_with_names(tree):
 
 
 def tree_map_with_names(f, param_tree, match_name_fn=lambda name: True):
-  """Like jax.tree_map but with a filter on the leaf path name.
+  """Like jax.tree.map but with a filter on the leaf path name.
 
   Args:
     f: The function to be applied to each parameter in `param_tree`.
@@ -132,8 +132,8 @@ def tree_map_with_names(f, param_tree, match_name_fn=lambda name: True):
 
 def tree_rngs_split(rngs, num_splits=2):
   """Splits a PyTree of PRNGKeys into num_splits PyTrees."""
-  rngs = jax.tree_map(lambda rng: jax.random.split(rng, num_splits), rngs)
-  slice_rngs = lambda rngs, i: jax.tree_map(lambda rng: rng[i], rngs)
+  rngs = jax.tree.map(lambda rng: jax.random.split(rng, num_splits), rngs)
+  slice_rngs = lambda rngs, i: jax.tree.map(lambda rng: rng[i], rngs)
   return tuple(slice_rngs(rngs, i) for i in range(num_splits))
 
 

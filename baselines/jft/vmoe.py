@@ -333,7 +333,7 @@ def main(config, output_dir):
     pjit_partition_params_fn = pjit.pjit(
         fun=lambda x: x,
         in_shardings=(
-            jax.tree_map(lambda _: jax.sharding.PartitionSpec(), model_params),
+            jax.tree.map(lambda _: jax.sharding.PartitionSpec(), model_params),
         ),
         out_shardings=variables_partition_spec[model_key],
     )

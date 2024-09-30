@@ -205,7 +205,9 @@ class AugmentationUtilsTest(googletest.TestCase):
     else:
       # Dropped edge.
       features_of_dropped_edge = features[dropped_idx[0], dropped_idx[1]]
-      self.assertEqual(0, np.nonzero(features_of_dropped_edge)[0].shape[0])
+      self.assertEqual(
+          0, np.nonzero(np.atleast_1d(features_of_dropped_edge))[0].shape[0]
+      )
 
   def _check_nonzero_features_exist_for_edge(self, features: np.ndarray,
                                              added_edge_idx: np.ndarray):
@@ -216,7 +218,9 @@ class AugmentationUtilsTest(googletest.TestCase):
       added_edge_idx: Numpy array representing index of edge, e.g. [0, 1].
     """
     features_of_added_edges = features[added_edge_idx[0], added_edge_idx[1]]
-    self.assertGreater(np.nonzero(features_of_added_edges)[0].shape[0], 0)
+    self.assertGreater(
+        np.nonzero(np.atleast_1d(features_of_added_edges))[0].shape[0], 0
+    )
 
   def test_update_features_of_dropped_nodes(self):
     idx_drop = np.asarray([[0], [2], [3], [5], [7], [8]])

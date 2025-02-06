@@ -277,8 +277,7 @@ def main(argv):
   logging.info(pprint.pformat(hypers_dict))
 
   logging.info("*" * 100)
-  logging.info("Platform that is used by JAX: %s",
-               xla_bridge.get_backend().platform)
+  logging.info("Platform that is used by JAX: %s", jax.default_backend())
   logging.info("*" * 100)
 
   kh = initialize_random_keys(seed=FLAGS.seed)

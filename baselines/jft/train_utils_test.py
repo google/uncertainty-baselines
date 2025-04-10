@@ -21,6 +21,8 @@ import jax
 import numpy as np
 import train_utils  # local file import from baselines.jft
 
+jax.config.update("jax_threefry_partitionable", False)
+
 
 class TrainUtilsTest(parameterized.TestCase):
 

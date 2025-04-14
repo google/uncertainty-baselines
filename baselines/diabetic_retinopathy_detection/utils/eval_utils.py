@@ -542,8 +542,9 @@ def eval_model_numpy(datasets,
       np_input=np_input)
 
   if distribution_shift == 'aptos':
-    # TODO(nband): generalize
-    aptos_metadata_path = 'gs://ub-data/aptos/metadata.csv'
+    aptos_metadata_path = (
+      'gs://gresearch/reliable-deep-learning/data/baselines/'
+      'diabetic_retinopathy_detection/aptos_metadata.csv')
     eval_results['ood_test_balanced'] = compute_rebalanced_aptos_dataset(
         aptos_dataset=eval_results['ood_test'],
         aptos_metadata_path=aptos_metadata_path,

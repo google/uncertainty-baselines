@@ -20,6 +20,7 @@ https://github.com/google-research/vision_transformer.
 """
 
 import collections
+from concurrent.futures import thread
 import dataclasses
 import io
 from typing import Any, Iterable, MutableMapping, Optional
@@ -33,7 +34,7 @@ import jax.numpy as jnp
 import ml_collections
 import numpy as np
 import scipy
-import tensorflow as tf
+from tensorflow.io import gfile
 
 Params = MutableMapping[str, Any]
 
@@ -47,13 +48,13 @@ class CheckpointData:
   fixed_model_states: Optional[Params] = None
 
 
-def _convert_and_recover_bfloat16(x):
-  """Converts to JAX arrays, while correctly loading any bfloat16 arrays."""
+def _recover_bfloat16(x):
+  """Recovers the dtype of any bfloat16 array without making a copy."""
   if hasattr(x, "dtype") and x.dtype.type is np.void:
     assert x.itemsize == 2, "Unknown dtype!"
-    return jnp.array(x.view(jnp.bfloat16))
+    return x.view(jnp.bfloat16)
   else:
-    return jnp.array(x)
+    return x
 
 
 def _recover_tree(keys, values):
@@ -85,30 +86,80 @@ def _recover_tree(keys, values):
   return tree
 
 
-def load_checkpoint(tree, path):
+def _read_file(path: str, pool_size: int, buf_size: int) -> bytearray:
+  """Reads the contents of a file in parallel, if possible.
+
+  Args:
+    path: A path to a file.
+    pool_size: Number of threads to use to read chunks of the file in parallel,
+      if possible.
+    buf_size: The size of each file chunk to be read in parallel, if possible.
+      Defaults to 128M buffer sizes.
+
+  Returns:
+    The contents of the file.
+  """
+  with gfile.GFile(path, "rb") as f:
+    if f.seekable():
+      read_in_parallel = True
+      num_bufs = f.size() / buf_size
+      logging.debug("num_bufs: %d", num_bufs)
+      data = bytearray(f.size())  # Empty array, to be filled below.
+    else:
+      read_in_parallel = False
+      data = f.read()
+
+  if read_in_parallel:
+
+    # Chunked reading from flax.training.checkpoints.restore_checkpoint.
+    def read_chunk(i):
+      with gfile.GFile(path, "rb") as f:
+        f.seek(i * buf_size)
+        buf = f.read(buf_size)
+        if buf:
+          data[i * buf_size:i * buf_size + len(buf)] = buf
+        return len(buf) / buf_size
+
+    # Fill in the empty `data` array in parallel.
+    pool = thread.ThreadPoolExecutor(pool_size)
+    results = pool.map(read_chunk, range(int(num_bufs) + 1))
+    pool.shutdown(wait=False)
+    logging.debug("results: %s", list(results))
+  return data
+
+
+def load_checkpoint(tree: Optional[Params],
+                    path: str,
+                    pool_size: int = 32,
+                    buf_size: int = 128 << 20) -> Params:
   """Loads JAX pytrees that were stored on disk in a NumPy `.npz` file.
 
   Args:
     tree: Optional JAX pytree to be restored. If None, then the tree will be
       recovered from the naming scheme used within the checkpoint.
     path: A path to the checkpoint.
+    pool_size: Number of threads to use to read chunks of the checkpoint file in
+      parallel, if possible.
+    buf_size: The size of each file chunk to be read in parallel, if possible.
+      Defaults to 128M buffer sizes.
 
   Returns:
     A JAX pytree with the same structure as `tree`, but with the leaf values
     restored from the saved checkpoint.
   """
-  with tf.io.gfile.GFile(path, "rb") as f:
-    data = f.read()
+  data = _read_file(path, pool_size=pool_size, buf_size=buf_size)
   keys, values = zip(
       *list(np.load(io.BytesIO(data), allow_pickle=False).items()))
   # NOTE: NumPy loses any bfloat16 dtypes when saving, so we recover them here.
-  values = jax.tree_util.tree_map(_convert_and_recover_bfloat16, values)
+  values = jax.tree_util.tree_map(_recover_bfloat16, values)
   if tree:
     treedef = jax.tree_util.tree_structure(tree)
     tree = jax.tree_util.tree_unflatten(treedef, values)
   else:
     tree = _recover_tree(keys, values)
   return tree
+
+
 
 
 def _traverse_with_names(tree):
@@ -177,12 +228,12 @@ def save_checkpoint(tree: Params, path: str,
   # In order to be robust to interruptions during saving, we first save the
   # checkpoint to a temporary file, and then rename it to the actual path name.
   path_tmp = path + "-TEMPORARY"
-  with tf.io.gfile.GFile(path_tmp, "wb") as f:
+  with gfile.GFile(path_tmp, "wb") as f:
     f.write(io_buffer.getvalue())
-  tf.io.gfile.rename(path_tmp, path, overwrite=True)
+  gfile.rename(path_tmp, path, overwrite=True)
 
   if step_for_copy is not None:
-    tf.io.gfile.copy(path, f"{path}-{step_for_copy:09d}", overwrite=True)
+    gfile.copy(path, f"{path}-{step_for_copy:09d}", overwrite=True)
 
 
 def checkpoint_trained_model(
@@ -330,7 +381,7 @@ def restore_from_pretrained_params(init_params, loaded_params,
       zoom = (gs_new / gs_old, gs_new / gs_old, 1)
       posemb_grid = scipy.ndimage.zoom(posemb_grid, zoom, order=1)
       posemb_grid = posemb_grid.reshape(1, gs_new * gs_new, -1)
-      posemb = jnp.array(np.concatenate([posemb_tok, posemb_grid], axis=1))
+      posemb = np.concatenate([posemb_tok, posemb_grid], axis=1)
       restored_params["Transformer"]["posembed_input"]["pos_embedding"] = posemb
 
   return restored_params
@@ -394,8 +445,7 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
 
   # Parse config file to figure out which setting we are in.
   resume_from_checkpoint = (
-      (save_checkpoint_path is not None and
-       tf.io.gfile.exists(save_checkpoint_path))
+      (save_checkpoint_path is not None and gfile.exists(save_checkpoint_path))
       or config.get("resume") is not None)
   reinitialize_model = config.get(
       "model_init") is not None and not resume_from_checkpoint
@@ -403,7 +453,7 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
   if resume_from_checkpoint:
     logging.info("Resume training from checkpoint...")
     # Always prioritize loading from a checkpoint from the current training job.
-    if save_checkpoint_path and tf.io.gfile.exists(save_checkpoint_path):
+    if save_checkpoint_path and gfile.exists(save_checkpoint_path):
       resume_checkpoint_path = save_checkpoint_path
     # Otherwise, we reload from a previous checkpoint provided by the config.
     else:

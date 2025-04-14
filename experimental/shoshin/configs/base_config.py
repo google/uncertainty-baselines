@@ -114,9 +114,9 @@ def get_training_config():
 def get_optimizer_config():
   """Get optimizer config."""
   config = ml_collections.ConfigDict()
-  # With Adam, use lr 1e-4.
-  config.learning_rate = 1e-5
-  config.type = 'sgd'
+  # With SGD, use lr .0092.
+  config.learning_rate = .0002
+  config.type = 'adam'
   return config
 
 

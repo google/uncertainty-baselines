@@ -353,6 +353,7 @@ def main(config, output_dir):
     mask = jax.lax.all_gather(mask, 'batch')
     return representation, labels, mask
 
+  # TODO(dusenberrymw): Switch from the deprecated flax.optim to optax.
   # Load the optimizer from flax.
   opt_name = config.get('optim_name')
   write_note(f'Initializing {opt_name} optimizer...')

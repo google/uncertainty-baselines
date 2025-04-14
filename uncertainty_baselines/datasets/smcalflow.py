@@ -94,8 +94,7 @@ class _SMCalflowDatasetBuilder(tfds.core.DatasetBuilder):
     self._task = self._build_task(name, data_dir, vocabulary)
     self._feature_converter = feature_converter_cls()
 
-    super().__init__(
-        data_dir=data_dir, **unused_kwargs)
+    super().__init__(data_dir=data_dir, **unused_kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
     self._data_dir = data_dir
@@ -182,6 +181,8 @@ class _SMCalflowDatasetBuilder(tfds.core.DatasetBuilder):
               name=split,
               shard_lengths=[self._task.num_input_examples(split)],
               num_bytes=0,
+              filename_template=tfds.core.filename_template_for(
+                  builder=self, split=split),
           ))
     split_dict = tfds.core.SplitDict(split_infos, dataset_name=self.name)
     info.set_splits(split_dict)
@@ -254,13 +255,11 @@ class SMCalflowDataset(_SMCalflowDataset):
   """SMCalflow dataset builder class."""
 
   def __init__(self, data_dir: Optional[str] = None, **kwargs: Dict[str, Any]):
-    super().__init__(
-        name='smcalflow', data_dir=data_dir, **kwargs)
+    super().__init__(name='smcalflow', data_dir=data_dir, **kwargs)
 
 
 class MultiWoZDataset(_SMCalflowDataset):
   """MultiWoZ dataset builder class."""
 
   def __init__(self, data_dir: Optional[str] = None, **kwargs: Dict[str, Any]):
-    super().__init__(
-        name='multiwoz', data_dir=data_dir, **kwargs)
+    super().__init__(name='multiwoz', data_dir=data_dir, **kwargs)

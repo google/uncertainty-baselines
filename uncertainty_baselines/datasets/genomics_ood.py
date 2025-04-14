@@ -112,16 +112,22 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
             name=tfds.Split.VALIDATION,
             shard_lengths=[_NUM_VAL],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.VALIDATION),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TEST,
             shard_lengths=[_NUM_TEST],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TEST),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TRAIN,
             shard_lengths=[_NUM_TRAIN],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TRAIN),
         ),
     ]
     split_dict = tfds.core.SplitDict(

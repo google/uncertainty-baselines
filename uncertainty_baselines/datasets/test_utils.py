@@ -15,12 +15,11 @@
 
 """Utils for testing datasets."""
 
-from typing import Any, Dict, Sequence, Type, TypeVar, Union, Optional
+from typing import Any, Dict, Sequence, Type, TypeVar, Union, Optional, Iterable
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
-
 
 _SPLITS = (tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST)
 
@@ -28,13 +27,14 @@ _SPLITS = (tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST)
 class DatasetTest(tf.test.TestCase):
   """Utility class for testing dataset construction."""
 
-  def _testDatasetSize(
-      self,
-      dataset_class: Type[TypeVar('B', bound=base.BaseDataset)],
-      image_size: Sequence[int],
-      splits: Sequence[Union[float, str, tfds.Split]] = _SPLITS,
-      label_size: Optional[Sequence[int]] = None,
-      **kwargs: Dict[str, Any]):
+  def _testDatasetSize(self,
+                       dataset_class: Type[TypeVar('B',
+                                                   bound=base.BaseDataset)],
+                       image_size: Sequence[int],
+                       splits: Sequence[Union[float, str,
+                                              tfds.Split]] = _SPLITS,
+                       label_size: Optional[Sequence[int]] = None,
+                       **kwargs: Dict[str, Any]):
     batch_size_splits = {}
     for split in splits:
       if split in ['train', tfds.Split.TRAIN]:
@@ -43,9 +43,7 @@ class DatasetTest(tf.test.TestCase):
         batch_size_splits[split] = 5
     for split, bs in batch_size_splits.items():
       dataset_builder = dataset_class(
-          split=split,
-          shuffle_buffer_size=20,
-          **kwargs)
+          split=split, shuffle_buffer_size=20, **kwargs)
       dataset = dataset_builder.load(batch_size=bs).take(1)
       element = next(iter(dataset))
       features = element['features']
@@ -59,6 +57,8 @@ class DatasetTest(tf.test.TestCase):
         self.assertEqual(labels_shape, (bs,))
       else:
         self.assertEqual(labels_shape, tuple([bs] + list(label_size)))
+
+
 
 
 if __name__ == '__main__':

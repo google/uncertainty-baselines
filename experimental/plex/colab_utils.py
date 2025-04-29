@@ -535,7 +535,7 @@ def _drop_unused_measurements(
     df = df.drop(columns=cols_to_drop, level=0, errors='ignore')
   if datasets:
     df = df.drop(
-        columns=[c for c in df.columns.levels[1] if c not in datasets],
+        columns=[c for c in df.columns.levels[1] if c not in datasets],  # pytype: disable=unsupported-operands
         level=1)
 
   if drop_incomplete_measurements:

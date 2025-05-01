@@ -252,11 +252,14 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
     return self._tfds_dataset_builder._download_and_prepare(  # pylint: disable=protected-access
         dl_manager, download_config)
 
-  def _as_dataset(self,
-                  split: tfds.Split,
-                  decoders=None,
-                  read_config=None,
-                  shuffle_files=False) -> tf.data.Dataset:
+  def _as_dataset(
+      self,
+      split: tfds.Split,
+      decoders=None,
+      read_config=None,
+      shuffle_files=False,
+      file_format: str | tfds.core.FileFormat | None = None,
+  ) -> tf.data.Dataset:
     raise NotImplementedError
 
   # Note that we override `as_dataset` instead of `_as_dataset` to avoid any

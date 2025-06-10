@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2024 The Uncertainty Baselines Authors.
+# Copyright 2025 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -922,7 +922,7 @@ def precompute_metric_arrs(results, compute_open_set_recognition=False):
   # Compute PR curve
   # try:
   results['precision_arr'], results['recall_arr'], _ = precision_recall_curve(
-      y_true=y_true, probas_pred=y_pred)
+      y_true=y_true, y_score=y_pred)
   # except:
   #   pass
 
@@ -932,7 +932,7 @@ def precompute_metric_arrs(results, compute_open_set_recognition=False):
         roc_curve(y_true=is_ood, y_score=y_pred_entropy))
     (results['ood_detection_precision_arr'],
      results['ood_detection_recall_arr'], _) = (
-         precision_recall_curve(y_true=is_ood, probas_pred=y_pred_entropy))
+         precision_recall_curve(y_true=is_ood, y_score=y_pred_entropy))
 
     # For the joint datasets, we also compute a rebalanced retention metric,
     # in which we duplicate the OOD dataset to match the size of the in-domain
@@ -1086,7 +1086,7 @@ def compute_dataset_eval_metrics(
   except ValueError:
     eval_metrics[f'{dataset_key}/auroc'] = None
   precision, recall, _ = precision_recall_curve(
-      y_true=y_true, probas_pred=y_pred)
+      y_true=y_true, y_score=y_pred)
   eval_metrics[f'{dataset_key}/auprc'] = auc(recall, precision)
   eval_metrics[f'{dataset_key}/accuracy'] = (
       accuracy_score(y_true=y_true, y_pred=(y_pred > 0.5)))
@@ -1101,7 +1101,7 @@ def compute_dataset_eval_metrics(
     eval_metrics[f'{dataset_key}/ood_detection_auroc'] = roc_auc_score(
         y_true=is_ood, y_score=y_pred_entropy)
     precision, recall, _ = precision_recall_curve(
-        y_true=is_ood, probas_pred=y_pred_entropy)
+        y_true=is_ood, y_score=y_pred_entropy)
     eval_metrics[f'{dataset_key}/ood_detection_auprc'] = auc(recall, precision)
 
     # For the joint datasets, we also compute a rebalanced retention metric,
@@ -1307,7 +1307,7 @@ def compute_auc_retention_curve(y_pred,
     return roc_auc_score(y_true=true, y_score=pred)
 
   def compute_auprc(true, pred):
-    precision, recall, _ = precision_recall_curve(y_true=true, probas_pred=pred)
+    precision, recall, _ = precision_recall_curve(y_true=true, y_score=pred)
     return auc(recall, precision)
 
   if auc_str == 'roc':

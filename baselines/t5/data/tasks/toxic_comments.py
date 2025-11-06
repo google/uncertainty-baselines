@@ -142,7 +142,7 @@ _register_toxic_comments_task = functools.partial(
     toxicity_label_threshold=TOXIC_LABEL_THRESHOLD)
 
 # Training data.
-_register_toxic_comments_task(
+_register_toxic_comments_task(  # pytype: disable=wrong-arg-types
     task_name='wikipedia_talk',
     tfds_name='wikipedia_toxicity_subtypes:0.3.1',
     tfds_splits=('train',),
@@ -150,7 +150,7 @@ _register_toxic_comments_task(
 
 # In-domain evaluation data. Note we will use test split for validation since
 # wikipedia_talk data does not have a validation split.
-_register_toxic_comments_task(
+_register_toxic_comments_task(  # pytype: disable=wrong-arg-types
     task_name='wikipedia_talk_eval_only',
     tfds_name='wikipedia_toxicity_subtypes:0.3.1',
     tfds_splits={
@@ -160,7 +160,7 @@ _register_toxic_comments_task(
 )
 
 # Out-of-domain evaluation data.
-_register_toxic_comments_task(
+_register_toxic_comments_task(  # pytype: disable=wrong-arg-types
     task_name='civil_comments_eval_only',
     tfds_name='civil_comments/CivilComments:1.1.2',
     tfds_splits=('validation', 'test'),
@@ -168,7 +168,7 @@ _register_toxic_comments_task(
 
 # Spurious correlation / tail generalization evaluation data, i.e., comments
 # with mentions of sensitive social / racial attributes.
-_register_toxic_comments_task(
+_register_toxic_comments_task(  # pytype: disable=wrong-arg-types
     task_name='civil_comments_identity_eval_only',
     tfds_name='civil_comments/CivilCommentsIdentities:1.1.2',
     tfds_splits=('validation', 'test'),
@@ -178,7 +178,7 @@ _register_toxic_comments_task(
 # contains different types of covert offensiveness (e.g., microaggression,
 # sarcasim, emoticons, etc).
 # Note this data only has positive label and does not have a validation split.
-_register_toxic_comments_task(
+_register_toxic_comments_task(  # pytype: disable=wrong-arg-types
     task_name='civil_comments_covert_eval_only',
     tfds_name='civil_comments/CivilCommentsCovert:1.1.2',
     tfds_splits={'validation': 'test'},

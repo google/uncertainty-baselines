@@ -91,8 +91,7 @@ def train_and_eval(l2_reg, x, y, ens_size,
   clfs = []
   repr_size = x.shape[-1] // ens_size
   for i in range(ens_size):
-    clf = LogisticRegression(
-        random_state=0, multi_class="multinomial", C=1 / l2_reg, max_iter=150)
+    clf = LogisticRegression(random_state=0, C=1 / l2_reg, max_iter=150)
     clf.fit(x[:, i * repr_size:(i + 1) * repr_size], y)
     clfs.append(clf)
   metric_results = evaluate(clfs, x_test, labels_test, x_ood_test,

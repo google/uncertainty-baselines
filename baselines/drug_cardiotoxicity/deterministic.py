@@ -40,7 +40,7 @@ flags.DEFINE_integer('num_classes', 2, 'Number of classification heads.')
 flags.DEFINE_string('output_dir', None, 'Output directory.')
 flags.DEFINE_string('job_base_dir', None,
                     'Output directory for the umbrella job, which may have '
-                    'multilple models from ensemble strategy or Vizier.'
+                    'multiple models from ensemble strategy or Vizier.'
                     'It can be set to None when model_dir is specified.'
                     'When we use Vizier and there is no model_dir specified, '
                     'this flag should be specified.')

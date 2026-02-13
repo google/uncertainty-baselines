@@ -111,8 +111,7 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
   BUILDER_CONFIGS = _make_builder_configs()
 
   def __init__(self, data_dir, **kwargs):
-    super().__init__(
-        data_dir=data_dir, **kwargs)
+    super().__init__(data_dir=data_dir, **kwargs)
     # We have to override self._data_dir to prevent the parent class from
     # appending the class name and version.
     self._data_dir = data_dir
@@ -127,9 +126,10 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
         builder=self,
         description=_DESCRIPTION,
         features=tfds.features.FeaturesDict({
-            'image': tfds.features.Tensor(shape=_CIFAR_IMAGE_SIZE,
-                                          dtype=tf.int64),
-            'label': tfds.features.ClassLabel(num_classes=_CIFAR_CLASSES),
+            'image':
+                tfds.features.Tensor(shape=_CIFAR_IMAGE_SIZE, dtype=tf.int64),
+            'label':
+                tfds.features.ClassLabel(num_classes=_CIFAR_CLASSES),
         }),
         supervised_keys=('image', 'label'),
         homepage='https://github.com/hendrycks/robustness',
@@ -140,9 +140,14 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
             name=tfds.Split.TEST,
             shard_lengths=[_NUM_EXAMPLES],
             num_bytes=0,
+            filename_template=tfds.core.ShardedFileTemplate(
+                dataset_name=self.name,
+                split=tfds.Split.TEST,
+                data_dir=self.data_dir,
+                filetype_suffix='tfrecord'),
         ),
     ]
-    split_dict = tfds.core.SplitDict(split_infos, dataset_name=self.name)
+    split_dict = tfds.core.SplitDict(split_infos)
     info.set_splits(split_dict)
     return info
 
@@ -151,12 +156,11 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
     raise NotImplementedError(
         'Must provide a data_dir with the files already downloaded to.')
 
-  def _as_dataset(
-      self,
-      split: tfds.Split,
-      decoders=None,
-      read_config=None,
-      shuffle_files=False) -> tf.data.Dataset:
+  def _as_dataset(self,
+                  split: tfds.Split,
+                  decoders=None,
+                  read_config=None,
+                  shuffle_files=False) -> tf.data.Dataset:
     """Constructs a `tf.data.Dataset`."""
     del decoders
     del read_config
@@ -201,8 +205,8 @@ class Cifar100CorruptedDataset(base.BaseDataset):
         mean and stddev.
       download_data: Whether or not to download data before loading. Currently
         unsupported.
-      data_dir: Path to a directory containing the CIFAR dataset, with
-        filenames '{corruption_name}_{corruption_severity}.tfrecords'.
+      data_dir: Path to a directory containing the CIFAR dataset, with filenames
+        '{corruption_name}_{corruption_severity}.tfrecords'.
     """
     self._normalize = normalize
     dataset_builder = _Cifar100CorruptedDatasetBuilder(

@@ -305,20 +305,25 @@ class _DialogStateTrackingDatasetBuilder(tfds.core.DatasetBuilder):
             name=tfds.Split.VALIDATION,
             shard_lengths=[self._num_examples['validation']],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.VALIDATION),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TEST,
             shard_lengths=[self._num_examples['test']],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TEST),
         ),
         tfds.core.SplitInfo(
             name=tfds.Split.TRAIN,
             shard_lengths=[self._num_examples['train']],
             num_bytes=0,
+            filename_template=tfds.core.filename_template_for(
+                builder=self, split=tfds.Split.TRAIN),
         ),
     ]
-    split_dict = tfds.core.SplitDict(
-        split_infos, dataset_name='__dialog_state_tracking_dataset_builder')
+    split_dict = tfds.core.SplitDict(split_infos)
     info.set_splits(split_dict)
     return info
 

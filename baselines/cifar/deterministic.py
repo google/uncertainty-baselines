@@ -34,28 +34,30 @@ import ood_utils  # local file import from baselines.cifar
 import utils  # local file import from baselines.cifar
 from tensorboard.plugins.hparams import api as hp
 
-
 flags.DEFINE_float('label_smoothing', 0., 'Label smoothing parameter in [0,1].')
-flags.register_validator('label_smoothing',
-                         lambda ls: ls >= 0.0 and ls <= 1.0,
-                         message='--label_smoothing must be in [0, 1].')
+flags.register_validator(
+    'label_smoothing',
+    lambda ls: ls >= 0.0 and ls <= 1.0,
+    message='--label_smoothing must be in [0, 1].')
 
 # Data Augmentation flags.
 flags.DEFINE_bool('augmix', False,
                   'Whether to perform AugMix [4] on the input data.')
-flags.DEFINE_integer('aug_count', 1,
-                     'Number of augmentation operations in AugMix to perform '
-                     'on the input image. In the simgle model context, it'
-                     'should be 1. In the ensembles context, it should be'
-                     'ensemble_size if we perform random_augment only; It'
-                     'should be (ensemble_size - 1) if we perform augmix.')
+flags.DEFINE_integer(
+    'aug_count', 1, 'Number of augmentation operations in AugMix to perform '
+    'on the input image. In the simgle model context, it'
+    'should be 1. In the ensembles context, it should be'
+    'ensemble_size if we perform random_augment only; It'
+    'should be (ensemble_size - 1) if we perform augmix.')
 flags.DEFINE_float('augmix_prob_coeff', 0.5, 'Augmix probability coefficient.')
-flags.DEFINE_integer('augmix_depth', -1,
-                     'Augmix depth, -1 meaning sampled depth. This corresponds'
-                     'to line 7 in the Algorithm box in [4].')
-flags.DEFINE_integer('augmix_width', 3,
-                     'Augmix width. This corresponds to the k in line 5 in the'
-                     'Algorithm box in [4].')
+flags.DEFINE_integer(
+    'augmix_depth', -1,
+    'Augmix depth, -1 meaning sampled depth. This corresponds'
+    'to line 7 in the Algorithm box in [4].')
+flags.DEFINE_integer(
+    'augmix_width', 3,
+    'Augmix width. This corresponds to the k in line 5 in the'
+    'Algorithm box in [4].')
 
 # Fine-grained specification of the hyperparameters (used when FLAGS.l2 is None)
 flags.DEFINE_float('bn_l2', None, 'L2 reg. coefficient for batch-norm layers.')
@@ -71,7 +73,6 @@ flags.DEFINE_float('dense_kernel_l2', None,
                    'L2 reg. coefficient for the kernel of the dense layer.')
 flags.DEFINE_float('dense_bias_l2', None,
                    'L2 reg. coefficient for the bias of the dense layer.')
-
 
 flags.DEFINE_bool('collect_profile', False,
                   'Whether to trace a profile with tensorboard')
@@ -119,12 +120,13 @@ def _generalized_energy_distance(labels, predictions, num_classes):
   y_hat = tf.expand_dims(predictions, -1)
 
   non_diag = tf.expand_dims(1.0 - tf.eye(num_classes), 0)
-  distance = tf.reduce_sum(tf.reduce_sum(
-      non_diag * y * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
-  label_diversity = tf.reduce_sum(tf.reduce_sum(
-      non_diag * y * tf.transpose(y, perm=[0, 2, 1]), -1), -1)
-  sample_diversity = tf.reduce_sum(tf.reduce_sum(
-      non_diag * y_hat * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
+  distance = tf.reduce_sum(
+      tf.reduce_sum(non_diag * y * tf.transpose(y_hat, perm=[0, 2, 1]), -1), -1)
+  label_diversity = tf.reduce_sum(
+      tf.reduce_sum(non_diag * y * tf.transpose(y, perm=[0, 2, 1]), -1), -1)
+  sample_diversity = tf.reduce_sum(
+      tf.reduce_sum(non_diag * y_hat * tf.transpose(y_hat, perm=[0, 2, 1]), -1),
+      -1)
   ged = tf.reduce_mean(2 * distance - label_diversity - sample_diversity)
   return label_diversity, sample_diversity, ged
 
@@ -172,8 +174,8 @@ def main(argv):
 
   # Note that stateless_{fold_in,split} may incur a performance cost, but a
   # quick side-by-side test seemed to imply this was minimal.
-  seeds = tf.random.experimental.stateless_split(
-      [FLAGS.seed, FLAGS.seed + 1], 2)[:, 0]
+  seeds = tf.random.experimental.stateless_split([FLAGS.seed, FLAGS.seed + 1],
+                                                 2)[:, 0]
   train_builder = ub.datasets.get(
       FLAGS.dataset,
       data_dir=data_dir,
@@ -269,9 +271,8 @@ def main(argv):
         decay_ratio=FLAGS.lr_decay_ratio,
         decay_epochs=lr_decay_epochs,
         warmup_epochs=FLAGS.lr_warmup_epochs)
-    optimizer = tf.keras.optimizers.SGD(lr_schedule,
-                                        momentum=1.0 - FLAGS.one_minus_momentum,
-                                        nesterov=True)
+    optimizer = tf.keras.optimizers.SGD(
+        lr_schedule, momentum=1.0 - FLAGS.one_minus_momentum, nesterov=True)
     metrics = {
         'train/negative_log_likelihood':
             tf.keras.metrics.Mean(),
@@ -290,10 +291,12 @@ def main(argv):
     }
     if validation_dataset:
       metrics.update({
-          'validation/negative_log_likelihood': tf.keras.metrics.Mean(),
-          'validation/accuracy': tf.keras.metrics.SparseCategoricalAccuracy(),
-          'validation/ece': rm.metrics.ExpectedCalibrationError(
-              num_bins=FLAGS.num_bins),
+          'validation/negative_log_likelihood':
+              tf.keras.metrics.Mean(),
+          'validation/accuracy':
+              tf.keras.metrics.SparseCategoricalAccuracy(),
+          'validation/ece':
+              rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
       })
     if FLAGS.eval_on_ood:
       ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
@@ -331,6 +334,7 @@ def main(argv):
   @tf.function
   def train_step(iterator):
     """Training StepFn."""
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
@@ -344,9 +348,8 @@ def main(argv):
         logits = model(images, training=True)
         if FLAGS.label_smoothing == 0.:
           negative_log_likelihood = tf.reduce_mean(
-              tf.keras.losses.sparse_categorical_crossentropy(labels,
-                                                              logits,
-                                                              from_logits=True))
+              tf.keras.losses.sparse_categorical_crossentropy(
+                  labels, logits, from_logits=True))
         else:
           one_hot_labels = tf.one_hot(tf.cast(labels, tf.int32), num_classes)
           negative_log_likelihood = tf.reduce_mean(
@@ -376,6 +379,7 @@ def main(argv):
   @tf.function
   def test_step(iterator, dataset_split, dataset_name, num_steps):
     """Evaluation StepFn."""
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
@@ -416,21 +420,39 @@ def main(argv):
   @tf.function
   def cifar10h_test_step(iterator, num_steps):
     """Evaluation StepFn."""
+
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
-      labels = inputs['labels']
+      labels = inputs['pi_features']['annotator_labels']
+      if FLAGS.label_smoothing == 0:
+        labels = tf.one_hot(
+            tf.cast(labels, tf.int32), 10, dtype=tf.float32)
+
+      # The `pi_features` might come padded with dummy annotators to
+      # guarantee and efficient batching of the `pi_features`.
+      # We should not compute the loss with them, so we remove them.
+      annotator_ids = inputs['pi_features']['annotator_ids']
+      non_empty_indices = (annotator_ids != -1)
+
+      # labels: (batch_size, num_annotators_per_example, 1, 10)
+      # avg_labels: (batch_size, 10)
+      avg_labels = tf.reduce_mean(
+          tf.ragged.boolean_mask(labels, mask=non_empty_indices),
+          axis=1,
+          keepdims=False).to_tensor()[:, 0, :]  # Compute average label.
+
       logits = model(images, training=False)
 
       negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(
           from_logits=True,
-          reduction=tf.keras.losses.Reduction.NONE)(labels, logits)
+          reduction=tf.keras.losses.Reduction.NONE)(avg_labels, logits)
 
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
       metrics['cifar10h/nll'].update_state(negative_log_likelihood)
 
       label_diversity, sample_diversity, ged = _generalized_energy_distance(
-          labels, tf.nn.softmax(logits), 10)
+          avg_labels, tf.nn.softmax(logits), 10)
 
       metrics['cifar10h/ged'].update_state(ged)
       metrics['cifar10h/ged_label_diversity'].update_state(
@@ -477,8 +499,8 @@ def main(argv):
 
     if validation_dataset:
       validation_iterator = iter(validation_dataset)
-      test_step(
-          validation_iterator, 'validation', 'clean', steps_per_validation)
+      test_step(validation_iterator, 'validation', 'clean',
+                steps_per_validation)
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):

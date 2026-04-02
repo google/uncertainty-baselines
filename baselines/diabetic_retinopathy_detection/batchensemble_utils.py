@@ -19,6 +19,7 @@
 
 import dataclasses
 import functools
+import logging
 from typing import Any, Callable, Mapping, Optional, Tuple
 
 from clu import metric_writers
@@ -28,7 +29,7 @@ import flax.traverse_util
 import jax
 import jax.numpy as jnp
 import numpy as np
-
+import train_utils  # local file import from baselines.jft
 
 EvaluationOutput = Tuple[jnp.ndarray, ...]
 Module = type(functools)  # Python module.
@@ -118,8 +119,8 @@ def tree_map_with_names(f, param_tree, match_name_fn=lambda name: True):
     f: The function to be applied to each parameter in `param_tree`.
     param_tree: The tree of parameters `f` should be applied to.
     match_name_fn: This function is called with each tree leave's path name,
-      which has a path-like format ("a/b/c"), and decides whether `f` should
-      be applied to that leaf or the leaf should be kept as-is.
+      which has a path-like format ("a/b/c"), and decides whether `f` should be
+      applied to that leaf or the leaf should be kept as-is.
 
   Returns:
     A tree identical in structure to `param_tree` but with the leaves the
@@ -138,21 +139,17 @@ def tree_rngs_split(rngs, num_splits=2):
   return tuple(slice_rngs(rngs, i) for i in range(num_splits))
 
 
-def update_fn_be(
-    opt: flax.optim.Optimizer,
-    rngs: Mapping[str, jnp.ndarray],
-    lr: jnp.ndarray,
-    images: jnp.ndarray,
-    labels: jnp.ndarray,
-    batch_loss_fn: Callable[..., jnp.ndarray],
-    weight_decay_fn: Optional[Callable[[Any, float], Any]],
-    max_grad_norm_global: Optional[float],
-    fast_weight_lr_multiplier: float):
+def update_fn_be(opt: flax.optim.Optimizer, rng: jnp.ndarray, lr: jnp.ndarray,
+                 images: jnp.ndarray, labels: jnp.ndarray,
+                 batch_loss_fn: Callable[..., jnp.ndarray],
+                 weight_decay_fn: Optional[Callable[[Any, float], Any]],
+                 max_grad_norm_global: Optional[float],
+                 fast_weight_lr_multiplier: float):
   """Updates a model on the given inputs for one step.
 
   Args:
     opt: Flax optimizer used during training.
-    rngs: A random number generator to be passed by stochastic operations.
+    rng: A random number generator to be passed by stochastic operations.
     lr: The learning rate to use in each device.
     images: Array containing the images in a batch.
     labels: Array containing the labels in a batch.
@@ -175,9 +172,10 @@ def update_fn_be(
   """
 
   # If rng is provided: split rng, and return next_rng for the following step.
-  rngs, next_rngs = tree_rngs_split(rngs, num_splits=2)
+  rng, next_rng = jax.random.split(rng)
   (loss, aux), grads = jax.value_and_grad(
-      batch_loss_fn, has_aux=True)(opt.target, images, labels, rngs=rngs)
+      batch_loss_fn, has_aux=True)(
+          opt.target, images, labels, rng=rng)
 
   # Average gradients.
   grads = jax.lax.pmean(grads, axis_name='batch')
@@ -203,4 +201,161 @@ def update_fn_be(
     opt = opt.replace(target=params)
 
   aux['learning_rate'] = lr
-  return opt, next_rngs, aux
+  return opt, next_rng, aux
+
+
+def maybe_broadcast_batchensemble_biases(params, be_layers, ensemble_size):
+  """Tiles BE biases when seeding downstream weights from a deterministic model."""
+  for layer in be_layers:
+    for block in [0, 1]:
+      be_block = params['Transformer'][f'encoderblock_{layer}']['MlpBlock_3']
+
+      # The biases already have the right shape if we are restarting from a
+      # checkpoint (e.g., after a job got preempted).
+      if be_block[f'Dense_{block}']['bias'].ndim != 2:
+        be_block[f'Dense_{block}']['bias'] = jnp.tile(
+            be_block[f'Dense_{block}']['bias'], (ensemble_size, 1))
+  return params
+
+
+def create_init(model, config, train_ds):
+  """Create the initialization function for model parameters.
+
+  Args:
+    model: The model to be used in updates.
+    config: The config of the experiment.
+    train_ds: tf.data.Dataset.
+
+  Returns:
+    Function that returns initialized model parameters.
+  """
+  local_batch_size = config.batch_size // jax.process_count()
+  # We want all parameters to be created in host RAM, not on any device, they'll
+  # be sent there later as needed, otherwise we already encountered two
+  # situations where we allocate them twice.
+  @functools.partial(jax.jit, backend='cpu')
+  def init(rng):
+    image_size = tuple(train_ds.element_spec['image'].shape[2:])
+    logging.info('image_size = %s', image_size)
+    dummy_input = jnp.zeros((local_batch_size,) + image_size, jnp.float32)
+    params = flax.core.unfreeze(model.init(rng, dummy_input,
+                                           train=False))['params']
+
+    # Set bias in the head to a low value, such that loss is small initially.
+    params['batchensemble_head']['bias'] = jnp.full_like(
+        params['batchensemble_head']['bias'], config.get('init_head_bias', 0))
+
+    # init head kernel to all zeros for fine-tuning
+    if config.get('model_init'):
+      params['batchensemble_head']['kernel'] = jnp.full_like(
+          params['batchensemble_head']['kernel'], 0)
+
+    return params
+
+  return init
+
+
+def create_batch_loss_fn(model, config):
+  """Create the update function from model and config.
+
+  Args:
+    model: The model to be used in updates.
+    config: The config of the experiment.
+
+  Returns:
+    The function that updates the model for one step.
+  """
+
+  def batch_loss_fn(params, images, labels, rng):
+    logits, _ = model.apply({'params': flax.core.freeze(params)},
+                            images,
+                            train=True,
+                            rngs={'dropout': rng})
+    labels = jnp.tile(labels, (config.model.transformer.ens_size, 1))
+    loss_fn = getattr(train_utils, config.get('loss', 'sigmoid_xent'))
+    loss = jnp.mean(loss_fn(logits=logits, labels=labels))
+    return loss, dict()
+
+  return batch_loss_fn
+
+
+def create_update_fn(model, config):
+  """Create the update function from model and config.
+
+  Args:
+    model: The model to be used in updates.
+    config: The config of the experiment.
+
+  Returns:
+    The function that updates the model for one step.
+  """
+
+  batch_loss_fn = create_batch_loss_fn(model, config)
+
+  @functools.partial(jax.pmap, axis_name='batch', donate_argnums=(0))
+  def update_fn(opt, lr, images, labels, rngs):
+    return update_fn_be(
+        opt=opt,
+        rng=rngs,
+        lr=lr,
+        images=images,
+        labels=labels,
+        batch_loss_fn=batch_loss_fn,
+        weight_decay_fn=train_utils.get_weight_decay_fn(
+            weight_decay_rules=config.get('weight_decay', []) or [],
+            rescale_value=1.),
+        max_grad_norm_global=config.get('grad_clip_norm', None),
+        fast_weight_lr_multiplier=config.get('fast_weight_lr_multiplier', None))
+
+  return update_fn
+
+
+# TODO(trandustin, zmariet): Unify all evaluation functions and other utility
+# functions used in different models.
+def create_evaluation_fn(model, config):
+  """Create the evaluation function from model and config.
+
+  Args:
+    model: The model to be used in updates.
+    config: The config of the experiment.
+
+  Returns:
+    The function that evaluates the model for one step.
+  """
+  @functools.partial(jax.pmap, axis_name='batch')
+  def evaluation_fn(params, images, labels, mask):
+    # Ignore the entries with all zero labels for evaluation.
+    mask *= labels.max(axis=1)
+    tiled_logits, out = model.apply({'params': flax.core.freeze(params)},
+                                    images,
+                                    train=False)
+
+    loss_name = config.get('loss', 'sigmoid_xent')
+    # TODO(dusenberrymw,zmariet): Clean up and generalize this.
+    ens_size = config.model.transformer.ens_size
+    if loss_name == 'sigmoid_xent':
+      ens_logits = log_average_sigmoid_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+    else:  # softmax
+      ens_logits = log_average_softmax_probs(
+          jnp.asarray(jnp.split(tiled_logits, ens_size)))
+    pre_logits = jnp.concatenate(
+        jnp.split(out['pre_logits'], ens_size), axis=-1)
+
+    losses = getattr(train_utils, loss_name)(
+        logits=ens_logits,
+        labels=labels[:, :config.num_classes],
+        reduction=False)
+    loss = jax.lax.psum(losses * mask, axis_name='batch')
+
+    top1_idx = jnp.argmax(ens_logits, axis=1)
+    top1_correct = jnp.take_along_axis(labels, top1_idx[:, None], axis=1)[:, 0]
+    ncorrect = jax.lax.psum(top1_correct * mask, axis_name='batch')
+    n = jax.lax.psum(mask, axis_name='batch')
+
+    metric_args = jax.lax.all_gather(
+        [ens_logits, labels, pre_logits, mask],
+        axis_name='batch')
+    return ncorrect, loss, n, metric_args
+
+  return evaluation_fn

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -553,7 +553,7 @@ def main(config, output_dir):
   if ood_ds and config.ood_methods:
     ood_measurements = ood_utils.eval_ood_metrics(
         ood_ds,
-        ood_ds_names,
+        ood_ds_names,  # pyrefly: ignore[unbound-name]
         config.ood_methods,
         evaluation_fn,
         params,
@@ -563,7 +563,7 @@ def main(config, output_dir):
   # Perform subpopulation shift evaluation only if flag is provided.
   if config.get('subpopl_cifar_data_file'):
     subpopl_measurements = subpopl_utils.eval_subpopl_metrics(
-        subpopl_val_ds_splits,
+        subpopl_val_ds_splits,  # pyrefly: ignore[unbound-name]
         evaluation_fn,
         params,
         n_prefetch=config.get('prefetch_to_device', 1))

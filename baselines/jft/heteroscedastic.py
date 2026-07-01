@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -130,7 +130,7 @@ def main(config, output_dir):
       split=config.train_split,
       rng=train_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
+      preprocess_fn=preprocess_spec.parse(  # pyrefly: ignore[bad-argument-type]
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
@@ -445,7 +445,7 @@ def main(config, output_dir):
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
     if config.get('grad_clip_norm'):
-      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
+      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)  # pyrefly: ignore[unbound-name]
       g = jax.tree.map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
     opt = opt.replace(target=weight_decay_fn(opt.target, lr))
@@ -480,7 +480,7 @@ def main(config, output_dir):
 
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,
-      save_checkpoint_path=save_checkpoint_path,
+      save_checkpoint_path=save_checkpoint_path,  # pyrefly: ignore[bad-argument-type]
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=None,
@@ -594,7 +594,7 @@ def main(config, output_dir):
     if not config.get('only_eval', False) and train_utils.itstime(
         step, config.log_training_steps, total_steps, process=0):
       write_note('Reporting training progress...')
-      train_loss = loss_value[0]  # Keep to return for reproducibility tests.
+      train_loss = loss_value[0]  # Keep to return for reproducibility tests.  # pyrefly: ignore[unbound-name]
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
@@ -603,7 +603,7 @@ def main(config, output_dir):
           'training_loss': train_loss,
           'temperature': fetch_temperature(config, opt_repl.target)
       })
-      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))  # pyrefly: ignore[unbound-name]
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
 
@@ -709,7 +709,7 @@ def main(config, output_dir):
       if ood_ds and config.ood_methods:
         ood_measurements = ood_utils.eval_ood_metrics(
             ood_ds,
-            ood_ds_names,
+            ood_ds_names,  # pyrefly: ignore[unbound-name]
             config.ood_methods,
             evaluation_fn,
             opt_repl.target,

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -361,7 +361,7 @@ class Onehot:
     # than using tf.one_hot followed by tf.reduce_max; we tested.
     labels = features[self.key]
     if labels.shape.rank > 0 and self.multi:  # pytype: disable=attribute-error  # allow-recursive-types
-      x = tf.scatter_nd(labels[:, None], tf.ones(tf.shape(labels)[0]),
+      x = tf.scatter_nd(labels[:, None], tf.ones(tf.shape(labels)[0]),  # pyrefly: ignore[bad-index]
                         (self.depth,))
       x = tf.clip_by_value(x, 0, 1) * (self.on - self.off) + self.off
     else:

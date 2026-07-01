@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -176,7 +176,7 @@ def _build_dataset(dataset: Union[str, tfds.core.DatasetBuilder,
   dataset_options.experimental_threading.max_intra_op_parallelism = 1
 
   read_config = tfds.ReadConfig(  # pytype: disable=wrong-arg-types  # jax-ndarray
-      shuffle_seed=file_shuffle_seed, options=dataset_options)
+      shuffle_seed=file_shuffle_seed, options=dataset_options)  # pyrefly: ignore[bad-argument-type]
 
   process_split = _get_process_split(
       split,
@@ -261,7 +261,7 @@ def get_data(
     process_count = jax.process_count()
 
   if rng_available:
-    rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.
+    rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.  # pyrefly: ignore[bad-argument-type]
     rngs = list(jax.random.split(rng, 3))
   else:
     rngs = 3 * [[None, None]]
@@ -271,7 +271,7 @@ def get_data(
       data_dir=data_dir,
       split=split,
       shuffle_files=shuffle,
-      file_shuffle_seed=rngs.pop()[0],
+      file_shuffle_seed=rngs.pop()[0],  # pyrefly: ignore[bad-argument-type]
       process_index=process_index,
       process_count=process_count,
       drop_remainder=drop_remainder)
@@ -293,7 +293,7 @@ def get_data(
 
   if rng_available:
     ds = _preprocess_with_per_example_rng(
-        ds, preprocess_and_mask_fn, rng=rngs.pop())
+        ds, preprocess_and_mask_fn, rng=rngs.pop())  # pyrefly: ignore[bad-argument-type]
   else:
     ds = ds.map(preprocess_and_mask_fn, num_parallel_calls=tf.data.AUTOTUNE)
 

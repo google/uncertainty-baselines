@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -298,7 +298,7 @@ class Chrono:
       return f"{h:.0f}h{m:.0f}m"  # Seconds intentionally omitted.
 
     # Progress note with "global" full-program average timings
-    dt = now - self.start_time  # Time since process start.
+    dt = now - self.start_time  # Time since process start.  # pyrefly: ignore[unsupported-operation]
     steps_done = step - self.first_step
     steps_todo = self.total_steps - step
     self.note = f"Steps:{step}/{self.total_steps} [{step/self.total_steps:.1%}]"
@@ -308,7 +308,7 @@ class Chrono:
     timing_measurements = {}
 
     # Measurement with micro-timings of current training steps speed.
-    dt = now - self.prev_time - self.paused_time  # Time between ticks.
+    dt = now - self.prev_time - self.paused_time  # Time between ticks.  # pyrefly: ignore[unsupported-operation]
     ds = step - self.prev_step  # Steps between ticks.
     ncores = jax.device_count()  # Global device count.
     timing_measurements["img/sec/core"] = self.global_bs * ds / dt / ncores
@@ -332,5 +332,5 @@ class Chrono:
 
   def resume(self):
     """Resumes the time measurement."""
-    self.paused_time += time.time() - self.pause_start
+    self.paused_time += time.time() - self.pause_start  # pyrefly: ignore[bad-assignment, unsupported-operation]
     self.pause_start = None

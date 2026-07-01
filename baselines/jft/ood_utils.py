@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -445,7 +445,7 @@ def eval_ood_metrics(ood_ds,
             )
           else:
             dists_list = []
-            for m in range(ens_size):
+            for m in range(ens_size):  # pyrefly: ignore[unbound-name]
               dists = compute_mahalanobis_distance(
                   embeds[..., m], means[m], cov[m]
               )
@@ -459,7 +459,7 @@ def eval_ood_metrics(ood_ds,
             )
           else:
             dists_background_list = []
-            for m in range(ens_size):
+            for m in range(ens_size):  # pyrefly: ignore[unbound-name]
               dists_background = compute_mahalanobis_distance(
                   embeds[..., m], means_background[m], cov_background[m]
               )
@@ -496,7 +496,7 @@ def eval_ood_metrics(ood_ds,
       labels_train = np.argmax(np.vstack(labels_list), axis=-1)
       class_ids = jnp.unique(labels_train)
 
-      if not use_ens:
+      if not use_ens:  # pyrefly: ignore[unbound-name]
         # Single model
         # pre_logits_train shape [sample_size, hidden_size]
         # sample_size = num_batches*batch_size
@@ -511,7 +511,7 @@ def eval_ood_metrics(ood_ds,
         means, cov = [], []
         means_background, cov_background = [], []
         # pre_logits_train shape [sample_size, hidden_size, ens_size]
-        for m in range(ens_size):
+        for m in range(ens_size):  # pyrefly: ignore[unbound-name]
           mu, sigma = compute_mean_and_cov(
               pre_logits_train[..., m], labels_train, class_ids
           )

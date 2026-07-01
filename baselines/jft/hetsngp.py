@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -140,7 +140,7 @@ def main(argv):
       split=config.train_split,
       rng=train_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
+      preprocess_fn=preprocess_spec.parse(  # pyrefly: ignore[bad-argument-type]
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
@@ -470,7 +470,7 @@ def main(argv):
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
     if do_grad_clip:
-      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
+      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)  # pyrefly: ignore[unbound-name]
       g = jax.tree.map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
     opt = opt.replace(target=weight_decay_fn(opt.target, lr))
@@ -485,7 +485,7 @@ def main(argv):
   rng, train_loop_rngs = jax.random.split(rng)
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,
-      save_checkpoint_path=save_checkpoint_path,
+      save_checkpoint_path=save_checkpoint_path,  # pyrefly: ignore[bad-argument-type]
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=states_cpu,
@@ -519,7 +519,7 @@ def main(argv):
 
   write_note(f'Initializing few-shotters...\n{chrono.note}')
   if 'fewshot' in config:
-    fewshotter = fewshot.FewShotEvaluator(
+    fewshotter = fewshot.FewShotEvaluator(  # pyrefly: ignore[missing-attribute]
         representation_fn, config.fewshot,
         config.fewshot.get('batch_size') or batch_size_eval)
 
@@ -752,7 +752,7 @@ def main(argv):
 
         ood_measurements = ood_utils.eval_ood_metrics(
             ood_ds,
-            ood_ds_names,
+            ood_ds_names,  # pyrefly: ignore[unbound-name]
             config.ood_methods,
             make_sngp_eval_fn(states_repl),
             opt_repl.target,
@@ -767,7 +767,7 @@ def main(argv):
         chrono.pause()
         write_note(f'Few-shot evaluation...\n{chrono.note}')
         # Keep `results` to return for reproducibility tests.
-        fewshot_results, best_l2 = fewshotter.run_all(
+        fewshot_results, best_l2 = fewshotter.run_all(  # pyrefly: ignore[unbound-name]
             opt_repl.target,
             datasets=config.fewshot.datasets,
             states=states_repl)

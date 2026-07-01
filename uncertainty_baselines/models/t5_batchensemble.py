@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -289,7 +289,7 @@ class BatchEnsembleDecoder(nn.Module):
     be_layer_started = False
     be_decoder_layers = [
         x if x >= 0 else (x + cfg.num_decoder_layers)
-        for x in list(self.be_decoder_layers)
+        for x in list(self.be_decoder_layers)  # pyrefly: ignore[bad-argument-type]
         if x is not None
     ]
     for lyr in range(cfg.num_decoder_layers):
@@ -371,7 +371,7 @@ class TransformerBE(t5_network.Transformer):
 
     self.encoder = t5_network.Encoder(
         config=cfg, shared_embedding=self.shared_embedding)
-    self.decoder = BatchEnsembleDecoder(
+    self.decoder = BatchEnsembleDecoder(  # pyrefly: ignore[bad-assignment]
         config=cfg,
         ens_size=self.ens_size,
         random_sign_init=self.random_sign_init,
@@ -423,7 +423,7 @@ class TransformerBE(t5_network.Transformer):
       encoder_decoder_mask = t5_layers.combine_masks(
           encoder_decoder_mask,
           t5_layers.make_attention_mask(
-              decoder_segment_ids,
+              decoder_segment_ids,  # pyrefly: ignore[bad-argument-type]
               encoder_segment_ids,
               jnp.equal,
               dtype=cfg.dtype))

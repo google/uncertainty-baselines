@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ BatchNormalization = functools.partial(  # pylint: disable=invalid-name
     epsilon=1e-5,  # using epsilon and momentum defaults from Torch
     momentum=0.9)
 Conv2DFlipout = functools.partial(  # pylint: disable=invalid-name
-    ed.layers.Conv2DFlipout, use_bias=False)
+    ed.layers.Conv2DFlipout, use_bias=False)  # pyrefly: ignore[unbound-name]
 
 
 def bottleneck_block(inputs,
@@ -104,7 +104,7 @@ def bottleneck_block(inputs,
       name=conv_name_base + '2a')(
           inputs)
   x = BatchNormalization(name=bn_name_base + '2a')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   kernel_regularizer_2b = init_kernel_regularizer(
       kernel_regularizer_class,
@@ -126,7 +126,7 @@ def bottleneck_block(inputs,
       name=conv_name_base + '2b')(
           x)
   x = BatchNormalization(name=bn_name_base + '2b')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   kernel_regularizer_2c = init_kernel_regularizer(
       kernel_regularizer_class,
@@ -170,7 +170,7 @@ def bottleneck_block(inputs,
     shortcut = BatchNormalization(name=bn_name_base + '1')(shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -237,7 +237,7 @@ def resnet50_radial(input_shape,
   kernel_regularizer_class = get_kernel_regularizer_class(
       tied_mean_prior=tied_mean_prior)
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
 
   # Initialize kernel with given fixed stddev for prior, or compute the
   # stddev as sqrt(2 / fan_in) (as is done for the stddev in He initialization).
@@ -261,7 +261,7 @@ def resnet50_radial(input_shape,
       name='conv1')(
           x)
   x = BatchNormalization(name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(
       x, [64, 64, 256],
@@ -310,7 +310,7 @@ def resnet50_radial(input_shape,
       prior_stddev,
       x,
       n_outputs=num_classes)
-  x = ed.layers.DenseFlipout(
+  x = ed.layers.DenseFlipout(  # pyrefly: ignore[not-callable]
       num_classes,
       activation=None,
       kernel_initializer=TrainableHeRadial(

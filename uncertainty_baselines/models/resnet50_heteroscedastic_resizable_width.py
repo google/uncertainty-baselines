@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -71,7 +71,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters2,
@@ -87,7 +87,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters3,
@@ -119,7 +119,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
             shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -182,7 +182,7 @@ def resnet50_heteroscedastic_resizable_width(
     tf.keras.Model.
   """
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.Conv2D(
       round(64 * width_multiplier),
       kernel_size=7,
@@ -195,7 +195,7 @@ def resnet50_heteroscedastic_resizable_width(
   x = tf.keras.layers.BatchNormalization(
       momentum=BATCH_NORM_DECAY, epsilon=BATCH_NORM_EPSILON, name='bn_conv1')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(
       x,
@@ -241,17 +241,17 @@ def resnet50_heteroscedastic_resizable_width(
   if multiclass:
     het_layer_args.update({'num_classes': num_classes})
     if num_factors <= 0:
-      output_layer = ed.layers.MCSoftmaxDense(**het_layer_args)
+      output_layer = ed.layers.MCSoftmaxDense(**het_layer_args)  # pyrefly: ignore[missing-argument]
     else:
       het_layer_args.update({'num_factors': num_factors})
-      output_layer = ed.layers.MCSoftmaxDenseFA(**het_layer_args)
+      output_layer = ed.layers.MCSoftmaxDenseFA(**het_layer_args)  # pyrefly: ignore[missing-argument]
   else:
     het_layer_args.update({
         'num_outputs': num_classes,
         'num_factors': num_factors
     })
-    output_layer = ed.layers.MCSigmoidDenseFA(**het_layer_args)
+    output_layer = ed.layers.MCSigmoidDenseFA(**het_layer_args)  # pyrefly: ignore[missing-argument]
 
-  x = output_layer(x)
+  x = output_layer(x)  # pyrefly: ignore[not-callable]
 
   return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')

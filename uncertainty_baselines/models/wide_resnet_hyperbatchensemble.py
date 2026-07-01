@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -153,7 +153,7 @@ def e_factory(lambdas_input_shape, e_head_dims,
   out = log_lambdas_input
 
   for index, units in enumerate(e_shared_arch):
-    out = tf.keras.layers.Dense(
+    out = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
         units,
         name=prefix + '_shared_{}'.format(index),
         activation=activation,
@@ -165,14 +165,14 @@ def e_factory(lambdas_input_shape, e_head_dims,
   for i, e_head_dim in enumerate(e_head_dims):
     out = common_out
     for j, units in enumerate(e_body_arch):
-      out = tf.keras.layers.Dense(
+      out = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
           units,
           name=prefix+'_{}_{}'.format(j, i),
           activation=activation,
           kernel_regularizer=reg,
           bias_regularizer=reg)(out)
 
-    out = tf.keras.layers.Dense(
+    out = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
         e_head_dim,
         name=prefix+'_{}_{}'.format(len(e_body_arch), i),
         activation='linear',
@@ -299,22 +299,22 @@ def wide_resnet_hyperbatchensemble(input_shape,
       y = BatchNormalization(
           beta_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer),
           gamma_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer))(y)
-      y = tf.keras.layers.Activation('relu')(y)
+      y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
 
     layer_index = 0
     layer_name = block_name + '_conv_{}/'.format(layer_index)
-    y = Conv2D(
+    y = Conv2D(  # pyrefly: ignore[not-callable]
         filters, strides=strides,
         name=layer_name)([y, lambdas, block_e_list[layer_index]])
 
     y = BatchNormalization(
         beta_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer),
         gamma_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer))(y)
-    y = tf.keras.layers.Activation('relu')(y)
+    y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
 
     layer_index += 1
     layer_name = block_name + '_conv_{}/'.format(layer_index)
-    y = Conv2D(
+    y = Conv2D(  # pyrefly: ignore[not-callable]
         filters, strides=1,
         name=layer_name)([y, lambdas, block_e_list[layer_index]])
 
@@ -326,13 +326,13 @@ def wide_resnet_hyperbatchensemble(input_shape,
     if not x.shape.is_compatible_with(y.shape):
       layer_index += 1
       layer_name = block_name + '_conv_{}/'.format(layer_index)
-      x = Conv2D(
+      x = Conv2D(  # pyrefly: ignore[not-callable]
           filters, kernel_size=1, strides=strides,
           name=layer_name)([x, lambdas, block_e_list[layer_index]])
 
     x = tf.keras.layers.add([x, y])
     if version == 1:
-      x = tf.keras.layers.Activation('relu')(x)
+      x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
     return x
 
   def group(inputs, filters, strides, num_blocks, version, name,
@@ -378,11 +378,11 @@ def wide_resnet_hyperbatchensemble(input_shape,
   # inputs
   input_data = tf.keras.layers.Input(shape=input_shape)
   input_lambdas = tf.keras.layers.Input(shape=config.input_shape)
-  log_lambdas = LogScaler(config.ranges)(input_lambdas)
+  log_lambdas = LogScaler(config.ranges)(input_lambdas)  # pyrefly: ignore[not-callable]
 
   # input conv layer
   e = e_models[0]
-  x = Conv2D(
+  x = Conv2D(  # pyrefly: ignore[not-callable]
       16,
       strides=1,
       name='input_conv')([input_data, input_lambdas, e(log_lambdas)])
@@ -391,7 +391,7 @@ def wide_resnet_hyperbatchensemble(input_shape,
     x = BatchNormalization(
         beta_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer),
         gamma_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer))(x)
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   e_range_group = range(1, 1+num_layer_per_group)
   group_e_list = [e_models[i](log_lambdas) for i in e_range_group]
@@ -427,13 +427,13 @@ def wide_resnet_hyperbatchensemble(input_shape,
     x = BatchNormalization(
         beta_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer),
         gamma_regularizer=tf.keras.regularizers.l2(l2_batchnorm_layer))(x)
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
 
   assert 1+3*num_layer_per_group == len(e_models)-1
   e = e_models[1+3*num_layer_per_group](log_lambdas)
-  x = Dense(
+  x = Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       config.key_to_index,
       name='dense',

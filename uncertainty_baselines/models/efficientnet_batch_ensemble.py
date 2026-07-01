@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -455,8 +455,8 @@ class EfficientNetBatchEnsembleModel(tf.keras.Model):
         self._bn1(self._conv_head(outputs), training=training))
     outputs = self._avg_pooling(outputs)
     if self._dropout:
-      outputs = self._dropout(outputs, training=training)
-    outputs = self._fc(outputs)
+      outputs = self._dropout(outputs, training=training)  # pyrefly: ignore[not-callable]
+    outputs = self._fc(outputs)  # pyrefly: ignore[not-callable]
     return outputs
 
 

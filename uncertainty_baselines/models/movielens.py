@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -76,8 +76,8 @@ def movielens(
       categorical_feature_columns)(input_layer)
   x = tf.keras.layers.BatchNormalization()(categorical_features)
   for size in _LAYER_SIZES:
-    x = tf.keras.layers.Dense(size, activation='relu')(x)
-  logits = tf.keras.layers.Dense(1)(x)
+    x = tf.keras.layers.Dense(size, activation='relu')(x)  # pyrefly: ignore[not-callable]
+  logits = tf.keras.layers.Dense(1)(x)  # pyrefly: ignore[not-callable]
 
   return tf.keras.models.Model(
       inputs=input_layer, outputs=logits, name='movielens_mlp')

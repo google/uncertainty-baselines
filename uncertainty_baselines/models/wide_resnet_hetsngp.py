@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -67,9 +67,9 @@ def apply_dropout(inputs, dropout_rate, use_mc_dropout):
       dropout_rate, noise_shape=[inputs.shape[0], 1, 1, inputs.shape[3]])
 
   if use_mc_dropout:
-    return dropout_layer(inputs, training=True)
+    return dropout_layer(inputs, training=True)  # pyrefly: ignore[not-callable]
 
-  return dropout_layer(inputs)
+  return dropout_layer(inputs)  # pyrefly: ignore[not-callable]
 
 
 def basic_block(inputs,
@@ -108,7 +108,7 @@ def basic_block(inputs,
   y = inputs
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   if use_filterwise_dropout:
     y = apply_dropout(y, dropout_rate, use_mc_dropout)
 
@@ -117,7 +117,7 @@ def basic_block(inputs,
              kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   if use_filterwise_dropout:
     y = apply_dropout(y, dropout_rate, use_mc_dropout)
 
@@ -277,21 +277,21 @@ def wide_resnet_hetsngp(input_shape,
 
   x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
 
   if use_gp_layer:
     # Uses random projection to reduce the input dimension of the GP layer.
     if gp_input_dim > 0:
-      x = tf.keras.layers.Dense(
+      x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
           gp_input_dim,
           kernel_initializer='random_normal',
           use_bias=False,
           trainable=False)(x)
     outputs = OutputLayer(num_classes)(x)
   else:
-    outputs = tf.keras.layers.Dense(
+    outputs = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
         num_classes,
         kernel_initializer='he_normal',
         kernel_regularizer=tf.keras.regularizers.l2(l2),

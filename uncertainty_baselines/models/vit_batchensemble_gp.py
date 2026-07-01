@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,7 +69,7 @@ class VisionTransformerBEGP(nn.Module):
           "You must specify either patch_size or patch_grid, and not both "
           f"(patch_size = {patch_size}, patch_grid = {patch_grid})")
     elif patch_size is None:
-      patch_size = (h // patch_grid[0], w // patch_grid[1])
+      patch_size = (h // patch_grid[0], w // patch_grid[1])  # pyrefly: ignore[unsupported-operation]
     x = nn.Conv(
         hidden_size,
         patch_size,

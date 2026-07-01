@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ BATCH_NORM_DECAY = 0.9
 BATCH_NORM_EPSILON = 1e-5
 
 EnsembleBatchNormalization = functools.partial(  # pylint: disable=invalid-name
-    ed.layers.EnsembleSyncBatchNorm,
+    ed.layers.EnsembleSyncBatchNorm,  # pyrefly: ignore[unbound-name]
     epsilon=BATCH_NORM_EPSILON,
     momentum=BATCH_NORM_DECAY)
 BatchNormalization = functools.partial(  # pylint: disable=invalid-name
@@ -91,12 +91,12 @@ def bottleneck_block(inputs,
       name=conv_name_base + '2a',
       ensemble_size=ensemble_size)(inputs)
   if use_ensemble_bn:
-    x = EnsembleBatchNormalization(
+    x = EnsembleBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size,
         name=bn_name_base+'2a')(x)
   else:
     x = BatchNormalization(name=bn_name_base+'2a')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = ed.layers.Conv2DBatchEnsemble(
       filters2,
@@ -110,12 +110,12 @@ def bottleneck_block(inputs,
       name=conv_name_base + '2b',
       ensemble_size=ensemble_size)(x)
   if use_ensemble_bn:
-    x = EnsembleBatchNormalization(
+    x = EnsembleBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size,
         name=bn_name_base+'2b')(x)
   else:
     x = BatchNormalization(name=bn_name_base+'2b')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = ed.layers.Conv2DBatchEnsemble(
       filters3,
@@ -127,7 +127,7 @@ def bottleneck_block(inputs,
       name=conv_name_base + '2c',
       ensemble_size=ensemble_size)(x)
   if use_ensemble_bn:
-    x = EnsembleBatchNormalization(
+    x = EnsembleBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size,
         name=bn_name_base+'2c')(x)
   else:
@@ -146,14 +146,14 @@ def bottleneck_block(inputs,
         name=conv_name_base + '1',
         ensemble_size=ensemble_size)(inputs)
     if use_ensemble_bn:
-      shortcut = EnsembleBatchNormalization(
+      shortcut = EnsembleBatchNormalization(  # pyrefly: ignore[not-callable]
           ensemble_size=ensemble_size,
           name=bn_name_base+'1')(shortcut)
     else:
       shortcut = BatchNormalization(name=bn_name_base+'1')(shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -199,7 +199,7 @@ def resnet50_batchensemble(input_shape,
                              use_ensemble_bn=use_ensemble_bn,
                              random_sign_init=random_sign_init)
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = ed.layers.Conv2DBatchEnsemble(
       64,
       kernel_size=7,
@@ -212,19 +212,19 @@ def resnet50_batchensemble(input_shape,
       name='conv1',
       ensemble_size=ensemble_size)(x)
   if use_ensemble_bn:
-    x = EnsembleBatchNormalization(
+    x = EnsembleBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size,
         name='bn_conv1')(x)
   else:
     x = BatchNormalization(name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=(2, 2), padding='same')(x)
   x = group_(x, [64, 64, 256], stage=2, num_blocks=3, strides=1)
   x = group_(x, [128, 128, 512], stage=3, num_blocks=4, strides=2)
   x = group_(x, [256, 256, 1024], stage=4, num_blocks=6, strides=2)
   x = group_(x, [512, 512, 2048], stage=5, num_blocks=3, strides=2)
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
-  x = ed.layers.DenseBatchEnsemble(
+  x = ed.layers.DenseBatchEnsemble(  # pyrefly: ignore[not-callable]
       num_classes,
       ensemble_size=ensemble_size,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
@@ -261,7 +261,7 @@ def resnet101_batchensemble(input_shape,
                              use_ensemble_bn=use_ensemble_bn,
                              random_sign_init=random_sign_init)
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = ed.layers.Conv2DBatchEnsemble(
       64,
       kernel_size=7,
@@ -274,19 +274,19 @@ def resnet101_batchensemble(input_shape,
       name='conv1',
       ensemble_size=ensemble_size)(x)
   if use_ensemble_bn:
-    x = EnsembleBatchNormalization(
+    x = EnsembleBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size,
         name='bn_conv1')(x)
   else:
     x = BatchNormalization(name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=(2, 2), padding='same')(x)
   x = group_(x, [64, 64, 256], stage=2, num_blocks=3, strides=1)
   x = group_(x, [128, 128, 512], stage=3, num_blocks=4, strides=2)
   x = group_(x, [256, 256, 1024], stage=4, num_blocks=23, strides=2)
   x = group_(x, [512, 512, 2048], stage=5, num_blocks=3, strides=2)
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
-  x = ed.layers.DenseBatchEnsemble(
+  x = ed.layers.DenseBatchEnsemble(  # pyrefly: ignore[not-callable]
       num_classes,
       ensemble_size=ensemble_size,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),

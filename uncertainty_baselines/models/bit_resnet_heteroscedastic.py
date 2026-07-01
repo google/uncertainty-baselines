@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -246,7 +246,7 @@ class BitResNetHeteroscedastic(nn.Module):
 
     if self.multiclass:
       output_layer = ed.nn.MCSoftmaxDenseFA(
-          self.num_outputs,
+          self.num_outputs,  # pyrefly: ignore[bad-argument-type]
           self.num_factors,
           self.temperature,
           self.param_efficient,
@@ -261,7 +261,7 @@ class BitResNetHeteroscedastic(nn.Module):
           name='multiclass_head')
     else:
       output_layer = ed.nn.MCSigmoidDenseFA(
-          self.num_outputs,
+          self.num_outputs,  # pyrefly: ignore[bad-argument-type]
           self.num_factors,
           self.temperature,
           self.param_efficient,

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -136,7 +136,7 @@ def unet(
     inputs = tf.keras.layers.Input(shape=input_shape)
 
     # Downsampling through the model
-    skips = down_stack(inputs)
+    skips = down_stack(inputs)  # pyrefly: ignore[not-callable]
     x = skips[-1]
     skips = reversed(skips[:-1])
 

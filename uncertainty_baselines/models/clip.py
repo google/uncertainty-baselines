@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -211,7 +211,7 @@ class ModifiedResNet(nn.Module):
         self.features * 8, self.num_layers[3], stride=2, name='layer4')
     if self.out_features is not None:
       self.attnpool = AttentionPool(
-          self.num_heads, self.out_features, name='attnpool')
+          self.num_heads, self.out_features, name='attnpool')  # pyrefly: ignore[bad-argument-type]
 
   def __call__(self, x: jnp.ndarray, return_feature_map=False) -> jnp.ndarray:
 
@@ -401,9 +401,9 @@ class CLIP(nn.Module):
     else:
       self.vision_num_heads = self.vision_features // 64
       self.visual = VisionTransformer(
-          patch_size=self.vision_patch_size,
+          patch_size=self.vision_patch_size,  # pyrefly: ignore[bad-argument-type]
           features=self.vision_features,
-          num_layers=self.vision_num_layers,
+          num_layers=self.vision_num_layers,  # pyrefly: ignore[bad-argument-type]
           num_heads=self.vision_num_heads,
           out_features=self.embed_dim)
     self.text = TextEncoder(

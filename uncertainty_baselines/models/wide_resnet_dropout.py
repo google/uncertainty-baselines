@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,11 +32,11 @@ Conv2D = functools.partial(  # pylint: disable=invalid-name
 def apply_dropout(inputs, dropout_rate, filterwise_dropout):
   """Apply a dropout layer to the inputs."""
   if filterwise_dropout:
-    return tf.keras.layers.Dropout(
+    return tf.keras.layers.Dropout(  # pyrefly: ignore[not-callable]
         dropout_rate, noise_shape=[inputs.shape[0], 1, 1, inputs.shape[3]
                                   ])(inputs, training=True)
   else:
-    return tf.keras.layers.Dropout(dropout_rate)(inputs, training=True)
+    return tf.keras.layers.Dropout(dropout_rate)(inputs, training=True)  # pyrefly: ignore[not-callable]
 
 
 def basic_block(inputs, filters, strides, l2, dropout_rate, residual_dropout,
@@ -60,7 +60,7 @@ def basic_block(inputs, filters, strides, l2, dropout_rate, residual_dropout,
   y = inputs
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
 
   if not residual_dropout:
     y = apply_dropout(y, dropout_rate, filterwise_dropout)
@@ -74,7 +74,7 @@ def basic_block(inputs, filters, strides, l2, dropout_rate, residual_dropout,
 
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   if not residual_dropout:
     y = apply_dropout(y, dropout_rate, filterwise_dropout)
 
@@ -177,10 +177,10 @@ def wide_resnet_dropout(input_shape, depth, width_multiplier, num_classes, l2,
             filterwise_dropout=filterwise_dropout)
   x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
-  x = tf.keras.layers.Dense(
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       kernel_initializer='he_normal',
       kernel_regularizer=tf.keras.regularizers.l2(l2),

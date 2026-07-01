@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -260,7 +260,7 @@ class BitResNet(nn.Module):
     x = IdentityLayer(name='pre_logits')(x)
     representations['pre_logits'] = x
     x = nn.Dense(
-        self.num_outputs,
+        self.num_outputs,  # pyrefly: ignore[bad-argument-type]
         kernel_init=nn.initializers.zeros,
         name='head')(x)
 

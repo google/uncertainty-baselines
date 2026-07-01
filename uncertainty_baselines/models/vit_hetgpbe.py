@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -158,7 +158,7 @@ class VisionTransformerHetGPBE(nn.Module):
             train_mc_samples=self.mc_samples,
             test_mc_samples=self.mc_samples,
             ens_size=self.transformer.get('ens_size'),
-            logits_only=True, name='head', **gp_layer_kwargs)
+            logits_only=True, name='head', **gp_layer_kwargs)  # pyrefly: ignore[bad-argument-type]
       x_gp = gp_layer(x, training=train, **kwargs)
 
       # Gaussian process layer output: a tuple of logits, covmat, and optionally

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -87,7 +87,7 @@ def basic_block(inputs,
   x = inputs
   y = inputs
   y = BatchNormalization()(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2DRank1(
       filters,
       strides=strides,
@@ -102,7 +102,7 @@ def basic_block(inputs,
       use_additive_perturbation=use_additive_perturbation,
       ensemble_size=ensemble_size)(y)
   y = BatchNormalization()(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2DRank1(
       filters,
       strides=1,
@@ -225,10 +225,10 @@ def wide_resnet_rank1(input_shape,
               prior_stddev=prior_stddev)
 
   x = BatchNormalization()(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
-  x = ed.layers.DenseRank1(
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
+  x = ed.layers.DenseRank1(  # pyrefly: ignore[not-callable]
       num_classes,
       alpha_initializer=rank1_bnn_utils.make_initializer(
           alpha_initializer, random_sign_init, dropout_rate),

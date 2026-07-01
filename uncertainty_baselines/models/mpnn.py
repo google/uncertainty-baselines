@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -139,7 +139,7 @@ class MpnnLayer(tf.keras.layers.Layer):
     """
     # Generate messages from nodes and edges.
     message_input = self.prepare_message_input(nodes, edges)
-    messages = self.message_function(message_input)
+    messages = self.message_function(message_input)  # pyrefly: ignore[not-callable]
 
     # Aggregates messages from neighbors.
     adjacency_matrix = get_adjacency_matrix(edges)
@@ -150,7 +150,7 @@ class MpnnLayer(tf.keras.layers.Layer):
     (update_input_messages,
      update_input_nodes) = self.prepare_update_function_inputs(
          aggregated_messages, nodes)
-    _, updated_nodes = self.update_function(
+    _, updated_nodes = self.update_function(  # pyrefly: ignore[not-callable]
         update_input_messages, initial_state=update_input_nodes)
 
     updated_nodes = tf.reshape(updated_nodes, tf.shape(nodes))
@@ -246,7 +246,7 @@ class MpnnModel(tf.keras.Model):
 
     self.classifier = classifier_utils.build_classifier(
         num_classes=num_classes,
-        gp_layer_kwargs=gp_layer_kwargs,
+        gp_layer_kwargs=gp_layer_kwargs,  # pyrefly: ignore[bad-argument-type]
         use_gp_layer=use_gp_layer,
         kernel_regularizer=kernel_regularizer)
 
@@ -261,12 +261,12 @@ class MpnnModel(tf.keras.Model):
 
     readout = tf.reduce_sum(
         tf.multiply(
-            self.i_layer_final(
+            self.i_layer_final(  # pyrefly: ignore[not-callable]
                 tf.keras.layers.Concatenate()([nodes_under_iter, nodes])),
-            self.j_layer_final(nodes_under_iter)),
+            self.j_layer_final(nodes_under_iter)),  # pyrefly: ignore[not-callable]
         axis=1)
 
-    logits = self.classifier(readout, training=training)
+    logits = self.classifier(readout, training=training)  # pyrefly: ignore[not-callable]
     if self.use_gp_layer:
       # If model uses gp layer, the classifier returns a tuple of
       # (logits, covmat).
@@ -274,7 +274,7 @@ class MpnnModel(tf.keras.Model):
       if not training:
         logits = ed.layers.utils.mean_field_logits(
             logits, covmat, mean_field_factor=0.1)
-    return self.softmax(logits)
+    return self.softmax(logits)  # pyrefly: ignore[not-callable]
 
 
 def mpnn(

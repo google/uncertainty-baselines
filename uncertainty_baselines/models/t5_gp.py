@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,16 +68,16 @@ class GaussianProcessDecoder(nn.Module):
       params = variables.pop('params')
       # We put parameters into the 'params' scope. With this, all parameters
       # of gp_layer will have the same signatures as if we call gp_layer(y).
-      self.scope.put_variable('params', self.gp_layer.name, params)
+      self.scope.put_variable('params', self.gp_layer.name, params)  # pyrefly: ignore[missing-attribute]
       # We also put the remaining variables (e.g. the kernel and bias
       # variables of the random fourier feature module) into the 'params'
       # scope.
       variables['step'] = jnp.array(0., dtype=jnp.float32)
       variables = flax.core.freeze(variables)
-      self.scope.put_variable('params', 'gp_head_state', variables)
+      self.scope.put_variable('params', 'gp_head_state', variables)  # pyrefly: ignore[missing-attribute]
     else:
-      gp_params = self.scope.get_variable('params', self.gp_layer.name)
-      gp_state = self.scope.get_variable('params', 'gp_head_state')
+      gp_params = self.scope.get_variable('params', self.gp_layer.name)  # pyrefly: ignore[missing-attribute]
+      gp_state = self.scope.get_variable('params', 'gp_head_state')  # pyrefly: ignore[missing-attribute]
       gp_state = jax.tree_util.tree_map(
           lambda x: x.astype(jnp.float32), gp_state)
       gp_state = flax.core.unfreeze(gp_state)
@@ -251,7 +251,7 @@ class TransformerGaussianProcess(t5_network.Transformer):
 
     self.encoder = t5_network.Encoder(
         config=cfg, shared_embedding=self.shared_embedding)
-    self.decoder = GaussianProcessDecoder(
+    self.decoder = GaussianProcessDecoder(  # pyrefly: ignore[bad-assignment]
         config=cfg,
         shared_embedding=self.shared_embedding,
         use_gp_layer=self.use_gp_layer,

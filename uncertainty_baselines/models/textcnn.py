@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ def _embedding_block(
       input_length=feature_size,
       embeddings_initializer=embed_init,
       name='embedding')
-  return embedding_layer(inputs)
+  return embedding_layer(inputs)  # pyrefly: ignore[not-callable]
 
 
 def _conv_pooled_block(inputs: tf.Tensor, num_filters: int, filter_size: int,
@@ -123,7 +123,7 @@ def textcnn(
     vocab_size: int,
     embed_size: int = 300,
     num_filters: int = 128,
-    filter_sizes: Iterator[int] = (3, 4, 5),
+    filter_sizes: Iterator[int] = (3, 4, 5),  # pyrefly: ignore[bad-function-definition]
     dropout_rate: float = 0.2,
     l2_weight: float = 0.001,
     premade_embedding_arr: Optional[np.ndarray] = None,
@@ -158,7 +158,7 @@ def textcnn(
       feature_size,
       embed_size,
       premade_embedding_arr=premade_embedding_arr)
-  embed = tf.keras.layers.Reshape(
+  embed = tf.keras.layers.Reshape(  # pyrefly: ignore[not-callable]
       (feature_size, embed_size, 1), name='add_channel')(embed)
 
   # Evaluate and gather conv layer output for each filter size.
@@ -172,9 +172,9 @@ def textcnn(
       pool_outputs, axis=-1, name='concatenate')
 
   # Flatten and apply dropout.
-  flat_outputs = tf.keras.layers.Flatten(data_format='channels_last',
+  flat_outputs = tf.keras.layers.Flatten(data_format='channels_last',  # pyrefly: ignore[not-callable]
                                          name='flatten')(pool_outputs)
-  flat_outputs = tf.keras.layers.Dropout(dropout_rate,
+  flat_outputs = tf.keras.layers.Dropout(dropout_rate,  # pyrefly: ignore[not-callable]
                                          name='dropout')(flat_outputs)
 
   # Dense output.
@@ -186,6 +186,6 @@ def textcnn(
       kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
       bias_regularizer=tf.keras.regularizers.l2(l2_weight),
       name='dense_output')
-  outputs = dense_output_layer(flat_outputs)
+  outputs = dense_output_layer(flat_outputs)  # pyrefly: ignore[not-callable]
 
-  return tf.keras.Model(inputs=inputs, outputs=outputs, name='textcnn')
+  return tf.keras.Model(inputs=inputs, outputs=outputs, name='textcnn')  # pyrefly: ignore[bad-return]

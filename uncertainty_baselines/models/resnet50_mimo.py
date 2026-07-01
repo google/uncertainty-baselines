@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ def bottleneck_block(inputs,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters2,
@@ -73,7 +73,7 @@ def bottleneck_block(inputs,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters3,
@@ -101,7 +101,7 @@ def bottleneck_block(inputs,
         name=bn_name_base + '1')(shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -131,12 +131,12 @@ def resnet50_mimo(input_shape, num_classes, ensemble_size, width_multiplier=1):
   """
   input_shape = list(input_shape)
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.Permute([2, 3, 4, 1])(inputs)
+  x = tf.keras.layers.Permute([2, 3, 4, 1])(inputs)  # pyrefly: ignore[not-callable]
   assert ensemble_size == input_shape[0]
-  x = tf.keras.layers.Reshape(list(input_shape[1:-1]) +
+  x = tf.keras.layers.Reshape(list(input_shape[1:-1]) +  # pyrefly: ignore[not-callable]
                               [input_shape[-1] * ensemble_size])(
                                   x)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(x)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.Conv2D(
       width_multiplier * 64,
       kernel_size=7,
@@ -149,7 +149,7 @@ def resnet50_mimo(input_shape, num_classes, ensemble_size, width_multiplier=1):
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(x, [width_multiplier * 64,
                 width_multiplier * 64,
@@ -164,7 +164,7 @@ def resnet50_mimo(input_shape, num_classes, ensemble_size, width_multiplier=1):
                 width_multiplier * 512,
                 width_multiplier * 2048], stage=5, num_blocks=3, strides=2)
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
-  x = ed.layers.DenseMultihead(
+  x = ed.layers.DenseMultihead(  # pyrefly: ignore[not-callable]
       num_classes,
       activation=None,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),

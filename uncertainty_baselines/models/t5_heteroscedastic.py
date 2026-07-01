@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -162,7 +162,7 @@ class TransformerHeteroscedastic(t5_network.Transformer):
 
     self.encoder = t5_network.Encoder(
         config=cfg, shared_embedding=self.shared_embedding)
-    self.decoder = HeteroscedasticDecoder(
+    self.decoder = HeteroscedasticDecoder(  # pyrefly: ignore[bad-assignment]
         config=cfg,
         shared_embedding=self.shared_embedding,
         temperature=self.temperature,

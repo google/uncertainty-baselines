@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ BatchNormalization = functools.partial(  # pylint: disable=invalid-name
     epsilon=1e-5,  # using epsilon and momentum defaults from Torch
     momentum=0.9)
 Conv2DFlipout = functools.partial(  # pylint: disable=invalid-name
-    ed.layers.Conv2DFlipout,
+    ed.layers.Conv2DFlipout,  # pyrefly: ignore[unbound-name]
     kernel_size=3,
     padding='same',
     use_bias=False)
@@ -53,7 +53,7 @@ def basic_block(inputs, filters, strides, prior_stddev, dataset_size,
   x = inputs
   y = inputs
   y = BatchNormalization()(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2DFlipout(
       filters,
       strides=strides,
@@ -63,7 +63,7 @@ def basic_block(inputs, filters, strides, prior_stddev, dataset_size,
       kernel_regularizer=ed.regularizers.NormalKLDivergenceWithTiedMean(
           stddev=prior_stddev, scale_factor=1./dataset_size))(y)
   y = BatchNormalization()(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2DFlipout(
       filters,
       strides=1,
@@ -144,10 +144,10 @@ def wide_resnet_variational(input_shape,
               stddev_init=stddev_init)
 
   x = BatchNormalization()(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
-  x = ed.layers.DenseFlipout(
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
+  x = ed.layers.DenseFlipout(  # pyrefly: ignore[not-callable]
       num_classes,
       kernel_initializer=ed.initializers.TrainableHeNormal(
           stddev_initializer=tf.keras.initializers.TruncatedNormal(

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ def basic_block(
   if version == 2:
     y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(bn_l2),
                            gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(y)
-    y = tf.keras.layers.Activation('relu')(y)
+    y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   seeds = tf.random.experimental.stateless_split([seed, seed + 1], 3)[:, 0]
   y = Conv2D(filters,
              strides=strides,
@@ -81,7 +81,7 @@ def basic_block(
              kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(y)
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(bn_l2),
                          gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2D(filters,
              strides=1,
              seed=seeds[1],
@@ -97,7 +97,7 @@ def basic_block(
                kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(x)
   x = tf.keras.layers.add([x, y])
   if version == 1:
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -186,7 +186,7 @@ def wide_resnet_posterior_network(
     tf.keras.Model.
   """
   l2_reg = tf.keras.regularizers.l2
-  hps = _parse_hyperparameters(l2, hps)
+  hps = _parse_hyperparameters(l2, hps)  # pyrefly: ignore[bad-argument-type]
 
   seeds = tf.random.experimental.stateless_split([seed, seed + 1], 5)[:, 0]
   if (depth - 4) % 6 != 0:
@@ -205,7 +205,7 @@ def wide_resnet_posterior_network(
   if version == 1:
     x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),
                            gamma_regularizer=l2_reg(hps['bn_l2']))(x)
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = group(x,
             filters=16 * width_multiplier,
             strides=1,
@@ -233,20 +233,20 @@ def wide_resnet_posterior_network(
   if version == 2:
     x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),
                            gamma_regularizer=l2_reg(hps['bn_l2']))(x)
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
 
-  latents = tf.keras.layers.Dense(latent_dim)(x)
+  latents = tf.keras.layers.Dense(latent_dim)(x)  # pyrefly: ignore[not-callable]
   postnet_layer = ed.layers.PosteriorNetworkLayer(
       num_classes=num_classes,
       flow_type=flow_type,
       flow_depth=flow_depth,
       flow_width=flow_width,
       class_counts=class_counts)
-  alphas = postnet_layer(latents)
+  alphas = postnet_layer(latents)  # pyrefly: ignore[not-callable]
 
-  return tf.keras.Model(
+  return tf.keras.Model(  # pyrefly: ignore[bad-return]
       inputs=inputs,
       outputs=alphas,
       name='wide_resnet-posterior_network-{}-{}'.format(depth,

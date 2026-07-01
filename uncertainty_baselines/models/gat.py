@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -143,7 +143,7 @@ class GraphAttentionLayer(tf.keras.layers.Layer):
     attention_scores = tf.squeeze(
         tf.matmul(attention_inputs, self.a),
         axis=[3])  # (batch_size, num_nodes, num_nodes)
-    attention_scores = self.leakyrelu(
+    attention_scores = self.leakyrelu(  # pyrefly: ignore[not-callable]
         attention_scores)  # (batch_size, num_nodes, num_nodes)
     return attention_scores
 
@@ -282,30 +282,30 @@ class GATModel(tf.keras.Model):
     attention_layers = [self.attention_heads1, self.attention_heads2]
     nodes_under_iter = nodes
     for attention_heads in attention_layers:
-      nodes_under_iter = self.dropout(nodes_under_iter, training=training)
+      nodes_under_iter = self.dropout(nodes_under_iter, training=training)  # pyrefly: ignore[not-callable]
       nodes_under_iter = tf.concat(
-          [a_head(nodes_under_iter, adj) for a_head in attention_heads],
+          [a_head(nodes_under_iter, adj) for a_head in attention_heads],  # pyrefly: ignore[not-callable]
           axis=2)  # (batch_size, num_nodes, heads * out_node_feature_dim)
       nodes_under_iter = tf.nn.elu(
           nodes_under_iter
       )  # (batch_size, num_nodes, heads * out_node_feature_dim)
 
     # Go through graph attention 3.
-    nodes_under_iter = self.dropout(nodes_under_iter, training=training)
+    nodes_under_iter = self.dropout(nodes_under_iter, training=training)  # pyrefly: ignore[not-callable]
 
     if len(self.attention_heads3) > 1:
       nodes_under_iter = tf.keras.layers.Average()([
-          a_head(nodes_under_iter, adj) for a_head in self.attention_heads3
+          a_head(nodes_under_iter, adj) for a_head in self.attention_heads3  # pyrefly: ignore[not-callable]
       ])  # (batch_size, num_nodes, out_node_feature_dim)
     else:
-      nodes_under_iter = self.attention_heads3[0](nodes_under_iter, adj)
+      nodes_under_iter = self.attention_heads3[0](nodes_under_iter, adj)  # pyrefly: ignore[not-callable]
 
     # Go though graph level aggregation.
     readout = tf.reduce_sum(
         tf.multiply(
-            self.i_layer(
+            self.i_layer(  # pyrefly: ignore[not-callable]
                 tf.keras.layers.Concatenate()([nodes_under_iter, nodes])),
-            self.j_layer(nodes_under_iter)),
+            self.j_layer(nodes_under_iter)),  # pyrefly: ignore[not-callable]
         axis=1)  # (batch_size, graph_level_features)
 
     return readout
@@ -325,9 +325,9 @@ class GATModel(tf.keras.Model):
     adjacency_matrix = tf.cast(get_adjacency_matrix(edges), tf.int32)
     readout = self.graph_representation(nodes, adjacency_matrix, training)
 
-    logits = self.classifier(
+    logits = self.classifier(  # pyrefly: ignore[not-callable]
         readout, training=training)  # (batch_size, classes)
-    return self.softmax(logits)
+    return self.softmax(logits)  # pyrefly: ignore[not-callable]
 
 
 def gat(attention_heads,

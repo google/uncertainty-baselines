@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters2,
@@ -72,7 +72,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters3,
@@ -104,7 +104,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
             shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -160,7 +160,7 @@ def resnet50_pi_full_marginalization(input_shape,
       name='pi_mc_samples')
   num_pi_annotations = pi_input_shape[0]  # type: ignore
 
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.Conv2D(
       _resize_filters([64], width_multiplier)[0],
       kernel_size=7,
@@ -173,7 +173,7 @@ def resnet50_pi_full_marginalization(input_shape,
   x = tf.keras.layers.BatchNormalization(
       momentum=BATCH_NORM_DECAY, epsilon=BATCH_NORM_EPSILON, name='bn_conv1')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(
       x,
@@ -214,24 +214,24 @@ def resnet50_pi_full_marginalization(input_shape,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
       name='fc1000_logits_r')
 
-  pi_in_joint_feature_space = pi_fc(tf.cast(pi_inputs, x.dtype))
+  pi_in_joint_feature_space = pi_fc(tf.cast(pi_inputs, x.dtype))  # pyrefly: ignore[not-callable]
   joint_feature_space = tf.concat([x, pi_in_joint_feature_space], axis=-1)
-  joint_feature_space = joint_features_fc(joint_feature_space)
+  joint_feature_space = joint_features_fc(joint_feature_space)  # pyrefly: ignore[not-callable]
   joint_feature_space = tf.concat([x, joint_feature_space], axis=-1)
 
   # Final shape: (batch_size, num_pi_annotations, num_classes)
-  logits_pi = logits_pi_fc(joint_feature_space)
+  logits_pi = logits_pi_fc(joint_feature_space)  # pyrefly: ignore[not-callable]
 
   # Full marginalization (fm) head.
 
   pi_features_fm = tf.cast(pi_mc_samples, x.dtype)
-  pi_features_fm = pi_fc(pi_features_fm)
+  pi_features_fm = pi_fc(pi_features_fm)  # pyrefly: ignore[not-callable]
   x_tiled = tf.tile(tf.expand_dims(x, 1), [1, num_mc_samples, 1, 1])
 
   joint_feature_space_fm = tf.concat([x_tiled, pi_features_fm], axis=-1)
-  joint_feature_space_fm = joint_features_fc(joint_feature_space_fm)
+  joint_feature_space_fm = joint_features_fc(joint_feature_space_fm)  # pyrefly: ignore[not-callable]
   joint_feature_space_fm = tf.concat([x_tiled, joint_feature_space_fm], axis=-1)
-  logits_fm = logits_pi_fc(joint_feature_space_fm)
+  logits_fm = logits_pi_fc(joint_feature_space_fm)  # pyrefly: ignore[not-callable]
 
   # Per-sample shape: (batch_size, num_mc_samples, num_classes).
   probs_fm = tf.nn.softmax(logits_fm)

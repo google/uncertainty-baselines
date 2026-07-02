@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -378,13 +378,13 @@ def main(argv):
           negative_log_likelihood = tf.keras.losses.mean_absolute_error(
               labels, loss_probs)
 
-        negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
+        negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)  # pyrefly: ignore[unbound-name]
 
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
 
         if FLAGS.train_on_multi_task_label and FLAGS.multi_task_loss_weight > 0:
-          multi_task_logits = tf.squeeze(multi_task_logits, axis=1)
+          multi_task_logits = tf.squeeze(multi_task_logits, axis=1)  # pyrefly: ignore[unbound-name]
           multi_task_labels = inputs['multi_task_labels']
           multi_task_loss = tf.nn.sigmoid_cross_entropy_with_logits(
               multi_task_labels, multi_task_logits)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -149,8 +149,8 @@ def get_ood_metrics(
   # the weights per entry are 1 if it should be included during computation
   # and 0 otherwise.
   # the masked array makes any entry with value 1 as invalid.
-  y_true_masked = np.ma.masked_array(y_true, mask=1-weights)
-  ood_score_masked = np.ma.masked_array(ood_score, mask=1-weights)
+  y_true_masked = np.ma.masked_array(y_true, mask=1-weights)  # pyrefly: ignore[no-matching-overload, unsupported-operation]
+  ood_score_masked = np.ma.masked_array(ood_score, mask=1-weights)  # pyrefly: ignore[no-matching-overload, unsupported-operation]
 
   metrics = compute_ood_metrics(y_true_masked.flatten(),
                                 ood_score_masked.flatten())

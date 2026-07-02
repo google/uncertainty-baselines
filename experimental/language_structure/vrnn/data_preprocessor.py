@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -64,14 +64,14 @@ def create_bert_utterance_features_fn(bert_preprocess_model: tf.keras.Model):
 
     for key in merged_features:
       merged_features[key] = tf.stack(merged_features[key], axis=1)
-    return merged_features
+    return merged_features  # pyrefly: ignore[bad-return]
 
   def _create_bert_utterance_features(
       inputs: tf.Tensor) -> Sequence[_UtteranceFeatureType]:
     """Converts utterances into features for BERT embedding."""
     features = []
     for key in [USR_UTT_RAW_NAME, SYS_UTT_RAW_NAME]:
-      features_by_step = bert_preprocess_model(tf.unstack(inputs[key], axis=1))
+      features_by_step = bert_preprocess_model(tf.unstack(inputs[key], axis=1))  # pyrefly: ignore[not-callable]
       merged_features = _merge_utterance_features(features_by_step)
       features.append(merged_features)
     return features

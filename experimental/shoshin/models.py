@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -138,13 +138,13 @@ class ResNet50v1(tf.keras.Model):
     return config
 
   @classmethod
-  def from_config(cls, config):
+  def from_config(cls, config):  # pyrefly: ignore[bad-override]
     return cls(ModelTrainingParameters.from_dict(config['model_params']))
 
   def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     x = self.resnet_model(inputs['large_image'])
-    out_main = self.output_main(x)
-    out_bias = self.output_bias(x)
+    out_main = self.output_main(x)  # pyrefly: ignore[not-callable]
+    out_bias = self.output_bias(x)  # pyrefly: ignore[not-callable]
     return {
         'main': out_main,
         'bias': out_bias
@@ -211,13 +211,13 @@ class ResNet50v2(tf.keras.Model):
     return config
 
   @classmethod
-  def from_config(cls, config):
+  def from_config(cls, config):  # pyrefly: ignore[bad-override]
     return cls(ModelTrainingParameters.from_dict(config['model_params']))
 
   def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
     x = self.resnet_model(inputs['large_image'])
-    out_main = self.output_main(x)
-    out_bias = self.output_bias(x)
+    out_main = self.output_main(x)  # pyrefly: ignore[not-callable]
+    out_bias = self.output_bias(x)  # pyrefly: ignore[not-callable]
     return {
         'main': out_main,
         'bias': out_bias
@@ -282,7 +282,7 @@ class TwoTower(tf.keras.Model):
     return config
 
   @classmethod
-  def from_config(cls, config):
+  def from_config(cls, config):  # pyrefly: ignore[bad-override]
     return cls(ModelTrainingParameters.from_dict(config['model_params']))
 
   def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
@@ -300,6 +300,6 @@ class TwoTower(tf.keras.Model):
           [before_embed, after_embed, after_crop_embed], axis=-1
       )
 
-    out_main = self.output_main(combined)
-    out_bias = self.output_bias(combined)
+    out_main = self.output_main(combined)  # pyrefly: ignore[not-callable, unbound-name]
+    out_bias = self.output_bias(combined)  # pyrefly: ignore[not-callable]
     return {'main': out_main, 'bias': out_bias}

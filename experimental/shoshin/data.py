@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -154,7 +154,7 @@ def upsample_subgroup(
       for subgroup_label in subgroup_sizes
   ]
   upsampled_dataset = tf.data.Dataset.sample_from_datasets(
-      examples_by_subgroup.values(),
+      examples_by_subgroup.values(),  # pyrefly: ignore[bad-argument-type]
       weights=weights,
       stop_on_empty_dataset=False,
   )
@@ -463,11 +463,11 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
                          is_training: Optional[bool] = False
                         ) -> Iterator[Tuple[str, Dict[str, Any]]]:
     """Generator of examples for each split."""
-    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)
+    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)  # pyrefly: ignore[bad-argument-type]
 
     def _fetch_dataset(filename):
       buffer_size = 8 * 1024 * 1024  # 8 MiB per file
-      dataset = tf.data.TFRecordDataset(filename, buffer_size=buffer_size)
+      dataset = tf.data.TFRecordDataset(filename, buffer_size=buffer_size)  # pyrefly: ignore[bad-instantiation]
       return dataset
 
     # Reads the data from disk in parallel.
@@ -633,7 +633,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
       if subgroup_proportions:
         self.subgroup_proportions = subgroup_proportions
       else:
-        self.subgroup_proportions = [1.] * len(subgroup_ids)
+        self.subgroup_proportions = [1.] * len(subgroup_ids)  # pyrefly: ignore[bad-argument-type]
     else:
       self.subgroup_proportions = None
     self.include_train_sample = include_train_sample
@@ -749,7 +749,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     if not pattern:
       return
     paths = tf.io.gfile.glob(pattern)
-    ds = tf.data.TFRecordDataset(paths).map(
+    ds = tf.data.TFRecordDataset(paths).map(  # pyrefly: ignore[bad-instantiation]
         self._decode_record, num_parallel_calls=tf.data.AUTOTUNE)
     if self.builder_config.max_examples:
       ds = ds.take(self.builder_config.max_examples)
@@ -855,7 +855,7 @@ def get_waterbirds_dataset(num_splits: int,
       train_ds,
       num_train_examples=_WATERBIRDS_TRAIN_SIZE,
       worst_group_label=2,  # 1_0, waterbirds on land.
-      train_sample_ds=train_sample,
+      train_sample_ds=train_sample,  # pyrefly: ignore[bad-argument-type]
       eval_ds=eval_datasets)
 
 
@@ -1032,11 +1032,11 @@ def get_skai_dataset(num_splits: int,
     # No named config variant specified, so provide the config explicitly.
     # pylint: disable=unexpected-keyword-arg
     builder_kwargs['config'] = SkaiDatasetConfig(
-        name='skai_dataset',
+        name='skai_dataset',  # pyrefly: ignore[unexpected-keyword]
         labeled_train_pattern=labeled_train_pattern,
         labeled_test_pattern=validation_pattern,
         unlabeled_pattern=unlabeled_train_pattern,
-        use_post_disaster_only=use_post_disaster_only,
+        use_post_disaster_only=use_post_disaster_only,  # pyrefly: ignore[bad-argument-type]
         load_small_images=load_small_images,
     )
     # pylint: enable=unexpected-keyword-arg

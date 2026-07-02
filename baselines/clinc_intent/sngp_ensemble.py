@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -221,18 +221,18 @@ def main(argv):
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
       else:
-        metrics['test/nll_{}'.format(name)].update_state(
+        metrics['test/nll_{}'.format(name)].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics['test/accuracy_{}'.format(name)].update_state(
+        metrics['test/accuracy_{}'.format(name)].update_state(  # pyrefly: ignore[missing-attribute]
             labels, probs)
         metrics['test/ece_{}'.format(name)].add_batch(probs, label=labels)
 
       if dataset_name == 'all':
         ood_labels = tf.cast(labels == 150, labels.dtype)
         ood_probs = 1. - tf.reduce_max(probs, axis=-1)
-        metrics['test/auroc_{}'.format(dataset_name)].update_state(
+        metrics['test/auroc_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             ood_labels, ood_probs)
-        metrics['test/auprc_{}'.format(dataset_name)].update_state(
+        metrics['test/auprc_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             ood_labels, ood_probs)
 
     message = ('{:.1%} completion for evaluation: dataset {:d}/{:d}'.format(

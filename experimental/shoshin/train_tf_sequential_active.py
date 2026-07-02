@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -170,7 +170,7 @@ def main(_) -> None:
         save_best_model=config.training.save_best_model,
         early_stopping=config.training.early_stopping,
         ensemble_dir=FLAGS.ensemble_dir,
-        example_id_to_bias_table=example_id_to_bias_table)
+        example_id_to_bias_table=example_id_to_bias_table)  # pyrefly: ignore[unbound-name]
 
     # Get all ids used for training
     ids_train = data.get_ids_from_dataset(dataloader.train_ds)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -282,7 +282,7 @@ class BowLoss(SequentialWordLoss):
     y_true_shape = tf.shape(y_true)
     y_true_rank = len(y_true.shape)
     axis = self._sequence_axis
-    if y_true_rank <= axis:
+    if y_true_rank <= axis:  # pyrefly: ignore[unsupported-operation]
       raise ValueError(
           'Expected sequence axis {}, but y_true has a lower rank {}: {}'
           .format(axis, y_true_rank, y_true_shape))
@@ -291,8 +291,8 @@ class BowLoss(SequentialWordLoss):
     # multiple in the sequence axis. It's equivalent to:
     #   multiples = [1] * y_true_rank
     #   multiples.insert(axis, y_true_shape[axis])
-    multiples = tf.concat([[1] * axis, [y_true_shape[axis]], [1] *
-                           (y_true_rank - axis)],
+    multiples = tf.concat([[1] * axis, [y_true_shape[axis]], [1] *  # pyrefly: ignore[unsupported-operation]
+                           (y_true_rank - axis)],  # pyrefly: ignore[unsupported-operation]
                           axis=0)
     # Step 2/2: repeat `bow_pred` to match `y_true` on the sequence axis.
     y_pred = tf.tile(tf.expand_dims(bow_pred, axis=axis), multiples)
@@ -354,7 +354,7 @@ class BertPreprocessor(tf.keras.Model):
         arguments=dict(seq_length=self._max_seq_length),
         name='packer')
 
-  def call(self, inputs: Sequence[tf.Tensor], concat: Optional[bool] = False):
+  def call(self, inputs: Sequence[tf.Tensor], concat: Optional[bool] = False):  # pyrefly: ignore[bad-override]
     segments = [self.tokenizer(input) for input in inputs]
     truncated_segments = [
         segment[:, :self._max_seq_length] for segment in segments

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -64,7 +64,7 @@ class _BERT(tf.keras.Model):
     self._trainable = trainable
     self._vocab_size = bert_config.vocab_size
 
-  def call(self,
+  def call(self,  # pyrefly: ignore[bad-override]
            inputs: Dict[str, tf.Tensor],
            return_sequence: bool = True) -> tf.Tensor:
 
@@ -132,8 +132,8 @@ def _build_embedding_layer(config: model_config.EmbeddingConfig,
         INPUT_ID_NAME,
         config.vocab_size,
         config.embed_size,
-        embeddings_initializer=embeddings_initializer,
-        input_length=max_seq_length,
+        embeddings_initializer=embeddings_initializer,  # pyrefly: ignore[bad-argument-type]
+        input_length=max_seq_length,  # pyrefly: ignore[bad-argument-type]
         trainable=config.trainable_embedding)
   elif config.embedding_type == model_config.BERT_EMBED:
     return _BERT(
@@ -188,8 +188,8 @@ class _DualRNN(tf.keras.Model):
     self.dropout = tf.keras.layers.Dropout(self._dropout)
 
   def call(self, input_1, input_2, initial_state, **kwargs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
-    embed_1 = self.embedding_layer(input_1)
-    embed_2 = self.embedding_layer(input_2)
+    embed_1 = self.embedding_layer(input_1)  # pyrefly: ignore[not-callable]
+    embed_2 = self.embedding_layer(input_2)  # pyrefly: ignore[not-callable]
 
     input_mask_1 = self._get_input_mask(input_1)
     input_mask_2 = self._get_input_mask(input_2)
@@ -235,7 +235,7 @@ class DualRNNEncoder(_DualRNN):
 
   def _create_rnn(self):
     cells = [
-        utils.get_rnn_cell(self._cell_type)(units=self._hidden_size)
+        utils.get_rnn_cell(self._cell_type)(units=self._hidden_size)  # pyrefly: ignore[bad-argument-type]
         for _ in range(self._num_layers)
     ]
     return tf.keras.layers.RNN(cells, return_state=True, return_sequences=True)
@@ -261,7 +261,7 @@ class DualRNNEncoder(_DualRNN):
     state = outputs[1:]
     seqlen = tf.reduce_sum(input_mask, axis=1)
     final_step_output = utils.get_last_step(output, seqlen)
-    final_step_output = self.dropout(final_step_output)
+    final_step_output = self.dropout(final_step_output)  # pyrefly: ignore[not-callable]
     return final_step_output, state
 
 
@@ -270,7 +270,7 @@ class DualRNNDecoder(_DualRNN):
 
   def _create_rnn(self, hidden_size):
     cells = [
-        utils.get_rnn_cell(self._cell_type)(
+        utils.get_rnn_cell(self._cell_type)(  # pyrefly: ignore[bad-argument-type]
             units=hidden_size, dropout=self._dropout)
         for _ in range(self._num_layers)
     ]
@@ -506,8 +506,8 @@ class _VanillaEncoderOutputProjector(tf.keras.layers.Layer):
     encoder_input_1, encoder_input_2, initial_state = inputs[:3]
     inputs = tf.concat([initial_state, encoder_input_1, encoder_input_2],
                        axis=1)
-    hidden = self.mlp(inputs)
-    return hidden, self.project_layer(hidden)
+    hidden = self.mlp(inputs)  # pyrefly: ignore[not-callable]
+    return hidden, self.project_layer(hidden)  # pyrefly: ignore[not-callable]
 
 
 class VanillaLinearVAECell(_VAECell):
@@ -580,10 +580,10 @@ class VanillaLinearVAECell(_VAECell):
            bert_ckpt_dir=config.encoder_embedding.bert_ckpt_dir)
 
   def _post_process_samples(self, samples: tf.Tensor) -> tf.Tensor:
-    return self.sample_post_processor(samples)
+    return self.sample_post_processor(samples)  # pyrefly: ignore[not-callable]
 
   def _project_encoder_outputs(self, inputs: Sequence[tf.Tensor]):
-    return self.encoder_output_projector(inputs)
+    return self.encoder_output_projector(inputs)  # pyrefly: ignore[not-callable]
 
   def _prepare_encoder_initial_state(self, inputs: Sequence[tf.Tensor]):
     # Encoder don't use external initial state.

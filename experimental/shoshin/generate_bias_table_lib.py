@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -315,7 +315,7 @@ def get_example_id_to_bias_label_table(
         'is_train': is_train_all
     })
 
-    csv_name = os.path.join(
+    csv_name = os.path.join(  # pyrefly: ignore[no-matching-overload]
         save_dir,
         'bias_table.csv' if ckpt_epoch < 0 else f'bias_table_{ckpt_epoch}.csv')
     df.to_csv(csv_name, index=False)
@@ -354,8 +354,8 @@ def get_example_id_to_predictions_table(
   table_name = 'predictions_table'
   ds = dataloader.train_ds
   if split != 'train':
-    ds = dataloader.eval_ds[split]
-    table_name += '_' + split
+    ds = dataloader.eval_ds[split]  # pyrefly: ignore[bad-index, unsupported-operation]
+    table_name += '_' + split  # pyrefly: ignore[unsupported-operation]
   labels = list(
       ds.map(
           lambda example: example['label']).as_numpy_iterator())
@@ -370,7 +370,7 @@ def get_example_id_to_predictions_table(
         ds.map(lambda example: example['input_feature']))
     predictions_all.append(predictions['main'][..., 1])
     if has_bias:
-      bias_predictions_all.append(predictions['bias'][..., 1])
+      bias_predictions_all.append(predictions['bias'][..., 1])  # pyrefly: ignore[unbound-name]
     if compute_tracin:
       _, tracin_values, _ = calculate_tracin_values(
           ds, [model], has_bias=has_bias, use_prediction_gradient=True
@@ -381,7 +381,7 @@ def get_example_id_to_predictions_table(
   example_ids = np.concatenate(example_ids)
   predictions_all = np.stack(predictions_all)
   if has_bias:
-    bias_predictions_all = np.stack(bias_predictions_all)
+    bias_predictions_all = np.stack(bias_predictions_all)  # pyrefly: ignore[unbound-name]
   if compute_tracin:
     tracin_values_all = np.stack(tracin_values_all)
 
@@ -391,12 +391,12 @@ def get_example_id_to_predictions_table(
   for i in range(predictions_all.shape[0]):
     dict_values[f'predictions_label_{i}'] = predictions_all[i]
     if has_bias:
-      dict_values[f'predictions_bias_{i}'] = bias_predictions_all[i]
+      dict_values[f'predictions_bias_{i}'] = bias_predictions_all[i]  # pyrefly: ignore[unbound-name]
     if compute_tracin:
       dict_values[f'predictions_tracin_{i}'] = tracin_values_all[i]
   df = pd.DataFrame(dict_values)
   if save_table:
-    df.to_csv(os.path.join(save_dir, table_name + '.csv'), index=False)
+    df.to_csv(os.path.join(save_dir, table_name + '.csv'), index=False)  # pyrefly: ignore[no-matching-overload]
   return df
 
 
@@ -429,8 +429,8 @@ def get_example_id_to_tracin_value_table(
   ds = dataloader.train_ds
   table_name = 'tracin_table'
   if split != 'train':
-    ds = dataloader.eval_ds[split]
-    table_name += '_' + split
+    ds = dataloader.eval_ds[split]  # pyrefly: ignore[bad-index, unsupported-operation]
+    table_name += '_' + split  # pyrefly: ignore[unsupported-operation]
   example_ids_all, tracin_values_all, probs_all = calculate_tracin_values(
       ds, model_checkpoints, included_layers, has_bias)
   logging.info('# of examples: %s', example_ids_all.shape[0])
@@ -442,7 +442,7 @@ def get_example_id_to_tracin_value_table(
         PREDICTION_KEY: probs_all
     })
     df.to_csv(
-        os.path.join(save_dir, 'tracin_table_'+ table_name_suffix + '.csv'),
+        os.path.join(save_dir, 'tracin_table_'+ table_name_suffix + '.csv'),  # pyrefly: ignore[no-matching-overload, unsupported-operation]
         index=False)
 
   init = tf.lookup.KeyValueTensorInitializer(
@@ -505,7 +505,7 @@ def calculate_tracin_values(
   included_layers_start = included_layers
   included_layers_end = -1
   if has_bias:
-    included_layers_start -= 2
+    included_layers_start -= 2  # pyrefly: ignore[unsupported-operation]
     included_layers_end = -2
 
   @tf.function
@@ -525,7 +525,7 @@ def calculate_tracin_values(
       with tf.GradientTape(watch_accessed_variables=False) as tape:
         tape.watch(
             model.trainable_weights[included_layers_start:included_layers_end])
-        probs = model(features)['main']
+        probs = model(features)['main']  # pyrefly: ignore[not-callable]
         if use_prediction_gradient:
           y_pred = tf.math.argmax(probs, axis=1)
           loss = tf.keras.losses.sparse_categorical_crossentropy(y_pred, probs)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -427,26 +427,26 @@ def main(argv):
           tf.math.log(float(FLAGS.num_mc_samples)))
 
       if dataset_name == 'clean':
-        metrics['test/negative_log_likelihood'].update_state(
+        metrics['test/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics['test/accuracy'].update_state(labels, probs)
+        metrics['test/accuracy'].update_state(labels, probs)  # pyrefly: ignore[missing-attribute]
         metrics['test/ece'].add_batch(probs, label=labels)
-        metrics['test/stddev'].update_state(stddev)
+        metrics['test/stddev'].update_state(stddev)  # pyrefly: ignore[missing-attribute]
       else:
-        metrics['test/nll_{}'.format(dataset_name)].update_state(
+        metrics['test/nll_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics['test/accuracy_{}'.format(dataset_name)].update_state(
+        metrics['test/accuracy_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             labels, probs)
         metrics['test/ece_{}'.format(dataset_name)].add_batch(
             probs, label=labels)
-        metrics['test/stddev_{}'.format(dataset_name)].update_state(stddev)
+        metrics['test/stddev_{}'.format(dataset_name)].update_state(stddev)  # pyrefly: ignore[missing-attribute]
 
       if dataset_name == 'all':
         ood_labels = tf.cast(labels == 150, labels.dtype)
         ood_probs = 1. - tf.reduce_max(probs, axis=-1)
-        metrics['test/auroc_{}'.format(dataset_name)].update_state(
+        metrics['test/auroc_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             ood_labels, ood_probs)
-        metrics['test/auprc_{}'.format(dataset_name)].update_state(
+        metrics['test/auprc_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             ood_labels, ood_probs)
 
     for _ in tf.range(tf.cast(num_steps, tf.int32)):
@@ -482,7 +482,7 @@ def main(argv):
                    metrics['train/accuracy'].result() * 100)
       logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                    metrics['test/negative_log_likelihood'].result(),
-                   metrics['test/accuracy'].result() * 100)
+                   metrics['test/accuracy'].result() * 100)  # pyrefly: ignore[unsupported-operation]
       total_results = {
           name: metric.result() for name, metric in metrics.items()
       }

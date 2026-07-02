@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -97,9 +97,9 @@ def _primary_metric_improved(metrics: _MetricMap, current_best: tf.Tensor,
                              min_delta: float) -> bool:
   """Returns whether the primary metric is improved."""
   if _PRIMARY_METRIC_SHOULD_DECREASE:
-    return metrics[_PRIMARY_METRIC_KEY] + abs(min_delta) < current_best
+    return metrics[_PRIMARY_METRIC_KEY] + abs(min_delta) < current_best  # pyrefly: ignore[unsupported-operation]
   else:
-    return metrics[_PRIMARY_METRIC_KEY] - abs(min_delta) > current_best
+    return metrics[_PRIMARY_METRIC_KEY] - abs(min_delta) > current_best  # pyrefly: ignore[unsupported-operation]
 
 
 def _get_unmasked_dialog_turn_ids(
@@ -166,7 +166,7 @@ def _get_unmasked_dialog_turn_ids(
         num_samples = min(
             len(label_dialog_turn_id_map[label]), label_sample_map[label])
         sample_dialog_turn_ids.append(
-            rng.choice(
+            rng.choice(  # pyrefly: ignore[no-matching-overload]
                 label_dialog_turn_id_map[label], num_samples, replace=False))
 
     if sample_dialog_turn_ids:
@@ -261,7 +261,7 @@ def _create_metrics(
       'unique_prediction_class_count',
   ]
 
-  for rule_name in psl_constraint_rule_names:
+  for rule_name in psl_constraint_rule_names:  # pyrefly: ignore[not-iterable]
     mean_type_metrics.append('constraint_loss_%s' % rule_name)
 
   accuracy_type_metrics = ['accuracy', 'class_balanced_accuracy']
@@ -292,7 +292,7 @@ def _update_loss_metrics(metrics: _MetricMap, namespace: str,
   metrics['{}/constraint_loss'.format(namespace)].update_state(constraint_loss)
 
   if constraint_loss_per_rule is not None:
-    for rule_name, rule_loss in zip(psl_constraint_rule_names,
+    for rule_name, rule_loss in zip(psl_constraint_rule_names,  # pyrefly: ignore[bad-argument-type]
                                     constraint_loss_per_rule):
       metrics['{}/constraint_loss_{}'.format(namespace,
                                              rule_name)].update_state(rule_loss)
@@ -392,7 +392,7 @@ def _update_hidden_state_model_metrics(
   for namespace, state_eval_result, domain_eval_result in zip(
       namespaces, eval_results[0], eval_results[1]):
     for key, value in zip(hidden_state_model_metrics,
-                          state_eval_result + domain_eval_result):
+                          state_eval_result + domain_eval_result):  # pyrefly: ignore[unsupported-operation]
       metrics['{}/{}'.format(namespace, key)].update_state(value)
     metrics['{}/hidden_state_class_balanced_mixed_accuracy'.format(
         namespace)].update_state(
@@ -489,7 +489,7 @@ def _create_fewshot_dataset_and_sample_weights(
   """Creates dataset for few-shot evaluation and the rebalanced sample weights."""
   _, label = repr_fn(feautres, labels, mask)
   sample_weights = utils.create_rebalanced_sample_weights(label)
-  dataset = tf.data.Dataset.from_tensor_slices((feautres, labels))
+  dataset = tf.data.Dataset.from_tensor_slices((feautres, labels))  # pyrefly: ignore[bad-argument-type]
   dataset = dataset.batch(labels.shape[0]).repeat()
   return dataset, sample_weights
 
@@ -781,7 +781,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
       with tf.GradientTape() as tape:
         # Set learning phase to enable dropout etc during training.
-        model_outputs = model(model_inputs, training=True)
+        model_outputs = model(model_inputs, training=True)  # pyrefly: ignore[not-callable]
 
         losses = linear_vrnn.compute_loss(
             decoder_input_1[_INPUT_ID_NAME][:, :, 1:],
@@ -837,7 +837,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
           initial_state, initial_sample
       ]
-      model_outputs = model(model_inputs, training=False)
+      model_outputs = model(model_inputs, training=False)  # pyrefly: ignore[not-callable]
 
       if ind_mask is not None:
         ood_mask = 1 - ind_mask
@@ -885,7 +885,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
           initial_state, initial_sample
       ]
-      model_outputs = model(model_inputs, training=False)
+      model_outputs = model(model_inputs, training=False)  # pyrefly: ignore[not-callable]
 
       if psl_inference:
         psl_inputs = inputs[-1]
@@ -894,7 +894,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
         psl_inputs = tf.ensure_shape(
             psl_inputs, (batch_size, psl_inputs.shape[1], psl_inputs.shape[2]))
         logits = psl_utils.update_logits(model, psl_optimizer, model_inputs,
-                                         linear_vrnn.get_logits, psl_model,
+                                         linear_vrnn.get_logits, psl_model,  # pyrefly: ignore[bad-argument-type]
                                          psl_inputs,
                                          config.psl_constraint_inference_steps,
                                          config.psl_constraint_inference_weight)
@@ -949,7 +949,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   out_of_patience = 0
   train_model_outputs = None
   test_model_outputs = None
-  train_iterator = iter(train_dataset)
+  train_iterator = iter(train_dataset)  # pyrefly: ignore[no-matching-overload]
   start_time = time.time()
   for epoch in range(initial_epoch, config.train_epochs):
     if not fixed_train_epoch and out_of_patience > config.patience:
@@ -984,13 +984,13 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
       (train_hidden_state, train_label, train_prediction, train_domain_label, _,
        train_sample_mask) = run_inference_steps(
-           iter(inference_train_dataset), num_inference_train_steps)
+           iter(inference_train_dataset), num_inference_train_steps)  # pyrefly: ignore[no-matching-overload]
       if not config.load_train_sample_mask:
         train_sample_mask = None
 
       (test_hidden_state, test_label, test_prediction, test_domain_label,
        ind_mask, _) = run_inference_steps(
-           iter(inference_test_dataset), num_inference_test_steps)
+           iter(inference_test_dataset), num_inference_test_steps)  # pyrefly: ignore[no-matching-overload]
 
       if config.has_ood:
         test_example_masks = [ind_mask, 1 - ind_mask]

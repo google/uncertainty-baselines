@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -175,7 +175,7 @@ def main(argv):
           except StopIteration:
             continue
           features, labels, _ = utils.create_feature_and_label(inputs)
-          logits.append(model(features, training=False))
+          logits.append(model(features, training=False))  # pyrefly: ignore[not-callable]
 
         logits = tf.concat(logits, axis=0)
         with tf.io.gfile.GFile(filename, 'w') as f:
@@ -329,7 +329,7 @@ def main(argv):
   # single key/value, instead of a scalar.
   total_results = {
       k: (list(v.values())[0] if isinstance(v, dict) else v)
-      for k, v in total_results.items()
+      for k, v in total_results.items()  # pyrefly: ignore[unbound-name]
   }
   logging.info('Metrics: %s', total_results)
 

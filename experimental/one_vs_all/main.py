@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -155,7 +155,7 @@ def run(trial_dir: str, flag_string: Optional[str]):
         learning_rate=FLAGS.learning_rate,
         weight_decay=FLAGS.weight_decay,
         steps_per_epoch=steps_per_epoch,
-        **optimizer_kwargs)
+        **optimizer_kwargs)  # pyrefly: ignore[bad-argument-type]
 
     train_lib.run_train_loop(
         train_dataset_builder=train_dataset_builder,

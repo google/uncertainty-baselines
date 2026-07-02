@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ def embedding_block(inputs,
       input_length=feature_size,
       embeddings_initializer=embed_init,
       name='embedding')
-  return embedding_layer(inputs)
+  return embedding_layer(inputs)  # pyrefly: ignore[not-callable]
 
 
 def conv_pooled_block(inputs, num_filters, filter_size, feature_size,
@@ -149,7 +149,7 @@ def textcnn(filter_sizes,
       feature_size,
       embed_size,
       premade_embedding_arr=premade_embedding_arr)
-  embed = tf.keras.layers.Reshape((feature_size, embed_size, 1),
+  embed = tf.keras.layers.Reshape((feature_size, embed_size, 1),  # pyrefly: ignore[not-callable]
                                   name='add_channel')(
                                       embed)
 
@@ -164,10 +164,10 @@ def textcnn(filter_sizes,
       pool_outputs, axis=-1, name='concatenate')
 
   # Flatten and apply dropout.
-  flat_outputs = tf.keras.layers.Flatten(
+  flat_outputs = tf.keras.layers.Flatten(  # pyrefly: ignore[not-callable]
       data_format='channels_last', name='flatten')(
           pool_outputs)
-  flat_outputs = tf.keras.layers.Dropout(
+  flat_outputs = tf.keras.layers.Dropout(  # pyrefly: ignore[not-callable]
       dropout_rate, name='dropout')(
           flat_outputs)
 
@@ -180,6 +180,6 @@ def textcnn(filter_sizes,
       kernel_regularizer=tf.keras.regularizers.l2(l2),
       bias_regularizer=tf.keras.regularizers.l2(l2),
       name='dense')
-  outputs = dense_output_layer(flat_outputs)
+  outputs = dense_output_layer(flat_outputs)  # pyrefly: ignore[not-callable]
 
   return tf.keras.Model(inputs=inputs, outputs=outputs)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -103,14 +103,14 @@ class UBSegmentationModel(SegmentationModel):
     restored_params = restored_train_state['optimizer']['target']
     restored_model_state = restored_train_state.get('model_state')
 
-    model_params = train_state.optimizer.target
+    model_params = train_state.optimizer.target  # pyrefly: ignore[missing-attribute]
     model_params = _replace_dict(model_params, restored_params,
                                  model_cfg,
                                  restored_model_cfg, gs_vit, gs_segvit,
                                  ckpt_prefix_path, model_prefix_path,
                                  name_mapping, skip_regex)
 
-    new_optimizer = train_state.optimizer.replace(target=model_params)
+    new_optimizer = train_state.optimizer.replace(target=model_params)  # pyrefly: ignore[missing-attribute]
     train_state = train_state.replace(  # pytype: disable=attribute-error
         optimizer=new_optimizer)
 
@@ -333,21 +333,21 @@ def _replace_dict(model: PyTree,
               int(np.sqrt(vit_posemb.shape[0])),
               int(np.sqrt(vit_posemb.shape[0]))
           ]
-        assert np.prod(gs_vit) == vit_posemb.shape[0]
+        assert np.prod(gs_vit) == vit_posemb.shape[0]  # pyrefly: ignore[no-matching-overload]
 
         if model_cfg.model.backbone.classifier == 'gap':
-          assert np.prod(gs_segvit) == segvit_ntok
+          assert np.prod(gs_segvit) == segvit_ntok  # pyrefly: ignore[no-matching-overload]
         elif model_cfg.model.backbone.classifier == 'token':
-          assert np.prod(gs_segvit) == segvit_ntok - 1
+          assert np.prod(gs_segvit) == segvit_ntok - 1  # pyrefly: ignore[no-matching-overload]
         else:
           raise NotImplementedError('')
 
         if gs_vit != gs_segvit:  # we need resolution change
           logging.info('Grid-size from %s to %s', gs_vit, gs_segvit)
           vit_posemb_grid = vit_posemb.reshape(gs_vit + [-1])
-          zoom = (gs_segvit[0] / gs_vit[0], gs_segvit[1] / gs_vit[1], 1)
+          zoom = (gs_segvit[0] / gs_vit[0], gs_segvit[1] / gs_vit[1], 1)  # pyrefly: ignore[unsupported-operation]
           vit_posemb_grid = scipy.ndimage.zoom(vit_posemb_grid, zoom, order=1)
-          vit_posemb = vit_posemb_grid.reshape(1, np.prod(gs_segvit), -1)
+          vit_posemb = vit_posemb_grid.reshape(1, np.prod(gs_segvit), -1)  # pyrefly: ignore[no-matching-overload]
         else:  # just the cls token was extra and we are now fine
           vit_posemb = np.expand_dims(vit_posemb, axis=0)
 
@@ -355,7 +355,7 @@ def _replace_dict(model: PyTree,
         if model_cfg.model.backbone.classifier == 'token' and restored_model_cfg.classifier == 'token':
           segvit_cls_token = segvit_posemb[0, 0, :]
           if restored_model_cfg.token_init:
-            segvit_cls_token = vit_cls_token
+            segvit_cls_token = vit_cls_token  # pyrefly: ignore[unbound-name]
           segvit_cls_token = np.expand_dims(
               np.expand_dims(segvit_cls_token, axis=0), axis=0)
           m_params = np.hstack([segvit_cls_token, vit_posemb])

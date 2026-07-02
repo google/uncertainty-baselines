@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -64,8 +64,8 @@ def create_model(input_shape: Iterable[int],
 
   if distance_logits:
     x = resnet_model.layers[-1].output
-    out = DisMax(num_classes=num_classes)(x)
-    return tf.keras.Model(
+    out = DisMax(num_classes=num_classes)(x)  # pyrefly: ignore[not-callable]
+    return tf.keras.Model(  # pyrefly: ignore[bad-return]
         inputs=resnet_model.inputs,
         outputs=out,
         name=resnet_model.name + "_distance-logits")

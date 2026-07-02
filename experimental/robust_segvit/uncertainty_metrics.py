@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -127,15 +127,15 @@ def get_uncertainty_confusion_matrix(
   correct = correct.astype(jnp.float32)
 
   # A given patch is accurate if its acc > accuracy_threshold
-  binary_acc_map = reduce_2dmap(correct, window_size,
-                                accuracy_th).astype(jnp.float32)
+  binary_acc_map = reduce_2dmap(correct, window_size,  # pyrefly: ignore[bad-argument-type]
+                                accuracy_th).astype(jnp.float32)  # pyrefly: ignore[bad-argument-type]
 
   # Calculate uncertainty map
   entropy = get_entropy_from_logits(logits)
 
   # A given patch is uncertain if its uncertainty > uncertainty_th
-  binary_unc_map = reduce_2dmap(entropy, window_size,
-                                uncertainty_th).astype(jnp.float32)
+  binary_unc_map = reduce_2dmap(entropy, window_size,  # pyrefly: ignore[bad-argument-type]
+                                uncertainty_th).astype(jnp.float32)  # pyrefly: ignore[bad-argument-type]
 
   # number of patches that are accurate and certain
   unc_confusion_matrix = calculate_num_patches_binary_maps(

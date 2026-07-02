@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -106,10 +106,10 @@ def sync_model_state_across_replicas(
   #   statistics like variance. (check the discussion in Flax for fixing this).
   if jax.tree_util.tree_leaves(
       train_state.model_state
-  ) and 'batch_stats' in train_state.model_state.keys():
+  ) and 'batch_stats' in train_state.model_state.keys():  # pyrefly: ignore[missing-attribute]
     # If the model_state has batch_stats
-    new_model_state = train_state.model_state.copy(
-        {'batch_stats': pmap_mean(train_state.model_state['batch_stats'])})
+    new_model_state = train_state.model_state.copy(  # pyrefly: ignore[missing-attribute]
+        {'batch_stats': pmap_mean(train_state.model_state['batch_stats'])})  # pyrefly: ignore[unsupported-operation]
     return train_state.replace(  # pytype: disable=attribute-error
         model_state=new_model_state)
   else:
@@ -194,9 +194,9 @@ def evaluate(train_state: train_utils.TrainState,
   if lead_host:
     # in eval_step we do not use all_gather in batch or logits
     # so the visualization will only include the subset of logits in lead_host
-    logits = to_cpu(e_logits)
+    logits = to_cpu(e_logits)  # pyrefly: ignore[unbound-name]
     e_predictions = jnp.argmax(logits, axis=-1)
-    images = _draw_side_by_side(to_cpu(e_batch), e_predictions)
+    images = _draw_side_by_side(to_cpu(e_batch), e_predictions)  # pyrefly: ignore[unbound-name]
     example_viz = {
         f'{prefix}/example_{i}': image[None, ...]
         for i, image in enumerate(images)
@@ -327,8 +327,8 @@ def evaluate_ood(
     all_auc_pr_states = multihost_utils.process_allgather(auc_pr_state)
 
     # Below we pick the first device.
-    auc_roc = arrays_to_keras_auc(*combine_states(all_auc_roc_states), auc_roc)
-    auc_pr = arrays_to_keras_auc(*combine_states(all_auc_pr_states), auc_pr)
+    auc_roc = arrays_to_keras_auc(*combine_states(all_auc_roc_states), auc_roc)  # pyrefly: ignore[bad-argument-count]
+    auc_pr = arrays_to_keras_auc(*combine_states(all_auc_pr_states), auc_pr)  # pyrefly: ignore[bad-argument-count]
 
     eval_summary = {'auroc': float(auc_roc.result().numpy()),  # pytype: disable=attribute-error  # jnp-type
                     'auprc': float(auc_pr.result().numpy()),  # pytype: disable=attribute-error  # jnp-type
@@ -417,15 +417,15 @@ def train_step(
     Updated state of training, computed metrics, learning rate, and predictions
       for logging.
   """
-  new_rng, rng = jax.random.split(train_state.rng)
+  new_rng, rng = jax.random.split(train_state.rng)  # pyrefly: ignore[bad-argument-type]
 
   # Bind the rng to the host/device we are on.
   rng_model_local = jax.random.fold_in(rng, jax.lax.axis_index('batch'))
   rngs = {'dropout': rng_model_local}
 
   def training_loss_fn(params):
-    variables = {'params': params, **train_state.model_state}
-    mutable = ['batch_stats'] + list(train_state.model_state.keys())
+    variables = {'params': params, **train_state.model_state}  # pyrefly: ignore[invalid-argument]
+    mutable = ['batch_stats'] + list(train_state.model_state.keys())  # pyrefly: ignore[missing-attribute]
     (logits, _), new_model_state = flax_model.apply(
         variables,
         batch['inputs'],
@@ -460,10 +460,10 @@ def train_step(
 
   compute_gradient_fn = jax.value_and_grad(training_loss_fn, has_aux=True)
   step = train_state.global_step
-  lr = learning_rate_fn(step)
+  lr = learning_rate_fn(step)  # pyrefly: ignore[bad-argument-type]
   (train_cost,
    (new_model_state,
-    logits)), grad = compute_gradient_fn(train_state.optimizer.target)
+    logits)), grad = compute_gradient_fn(train_state.optimizer.target)  # pyrefly: ignore[missing-attribute]
 
   del train_cost
   # Re-use same axis_name as in the call to `pmap(...train_step...)` below.
@@ -478,7 +478,7 @@ def train_step(
                              in name)
     grad = optimizers.tree_map_with_names(fast_weights_lr_fn, grad, match_fn)
 
-  new_optimizer = train_state.optimizer.apply_gradient(grad, learning_rate=lr)
+  new_optimizer = train_state.optimizer.apply_gradient(grad, learning_rate=lr)  # pyrefly: ignore[missing-attribute]
 
   # Explicit weight decay, if necessary.
   if config.get('explicit_weight_decay', None) is not None:
@@ -499,7 +499,7 @@ def train_step(
 
   metrics = metrics_fn(logits, batch)
   new_train_state = train_state.replace(  # pytype: disable=attribute-error
-      global_step=step + 1,
+      global_step=step + 1,  # pyrefly: ignore[unsupported-operation]
       optimizer=new_optimizer,
       model_state=new_model_state,
       rng=new_rng)
@@ -548,8 +548,8 @@ def eval_step(
     Batch, predictions and calculated metrics.
   """
   variables = {
-      'params': train_state.optimizer.target,
-      **train_state.model_state
+      'params': train_state.optimizer.target,  # pyrefly: ignore[missing-attribute]
+      **train_state.model_state  # pyrefly: ignore[invalid-argument]
   }
 
   ens_size = config.model.backbone.get('ens_size', 1)
@@ -624,8 +624,8 @@ def eval_step_baseline(
     Batch, predictions and calculated metrics.
   """
   variables = {
-      'params': train_state.optimizer.target,
-      **train_state.model_state
+      'params': train_state.optimizer.target,  # pyrefly: ignore[missing-attribute]
+      **train_state.model_state  # pyrefly: ignore[invalid-argument]
   }
 
   ens_size = config.model.backbone.get('ens_size', 1)
@@ -719,7 +719,7 @@ def train(
   (params, model_state, num_trainable_params,
    gflops) = train_utils.initialize_model(
        model_def=model.flax_model,
-       input_spec=[(input_shape,
+       input_spec=[(input_shape,  # pyrefly: ignore[bad-argument-type]
                     dataset.meta_data.get('input_dtype', jnp.float32))],
        config=config,
        rngs=init_rng)
@@ -821,23 +821,23 @@ def train(
   global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
 
   chrono = train_utils.Chrono(
-      first_step=start_step,
+      first_step=start_step,  # pyrefly: ignore[bad-argument-type]
       total_steps=total_steps,
-      steps_per_epoch=steps_per_epoch,
+      steps_per_epoch=steps_per_epoch,  # pyrefly: ignore[bad-argument-type]
       global_bs=config.batch_size,
       accum_train_time=int(jax_utils.unreplicate(train_state.accum_train_time)))
 
-  logging.info('Starting training loop at step %d.', start_step + 1)
+  logging.info('Starting training loop at step %d.', start_step + 1)  # pyrefly: ignore[unsupported-operation]
   report_progress = periodic_actions.ReportProgress(
       num_train_steps=total_steps, writer=writer)
   hooks = [report_progress]
   if config.get('xprof', True) and lead_host:
-    hooks.append(periodic_actions.Profile(num_profile_steps=5, logdir=workdir))
+    hooks.append(periodic_actions.Profile(num_profile_steps=5, logdir=workdir))  # pyrefly: ignore[bad-argument-type]
 
   if start_step == 0:
     step0_log = {'num_trainable_params': num_trainable_params}
     if gflops:
-      step0_log['gflops'] = gflops
+      step0_log['gflops'] = gflops  # pyrefly: ignore[bad-assignment]
     writer.write_scalars(1, step0_log)
 
   # Early stopping flags (not necessary when we use wandb)
@@ -847,9 +847,9 @@ def train(
   force_out = 0
   early_stopping_patience = config.get('early_stopping_patience', 100)
 
-  for step in range(start_step + 1, total_steps + 1):
+  for step in range(start_step + 1, total_steps + 1):  # pyrefly: ignore[unsupported-operation]
     with jax.profiler.StepTraceAnnotation('train', sfLtep_num=step):
-      train_batch = next(dataset.train_iter)
+      train_batch = next(dataset.train_iter)  # pyrefly: ignore[bad-argument-type]
       train_state, t_metrics, lr, train_predictions = train_step_pmapped(
           train_state=train_state, batch=train_batch)
       # This will accumulate metrics in TPU memory up to the point that we log
@@ -959,10 +959,10 @@ def train(
       workdir=workdir,
   )
 
-  eval_summary.update(eval_summary_ood)
+  eval_summary.update(eval_summary_ood)  # pyrefly: ignore[missing-attribute]
 
   # Return the train and eval summary after last step for testing.
-  return train_state, train_summary, eval_summary
+  return train_state, train_summary, eval_summary  # pyrefly: ignore[bad-return]
 
 
 def eval_ckpt(
@@ -1023,7 +1023,7 @@ def eval_ckpt(
 
   (params, model_state, _, _) = train_utils.initialize_model(
       model_def=model.flax_model,
-      input_spec=[(input_shape, dataset.meta_data.get('input_dtype',
+      input_spec=[(input_shape, dataset.meta_data.get('input_dtype',  # pyrefly: ignore[bad-argument-type]
                                                       jnp.float32))],
       config=config,
       rngs=init_rng)
@@ -1192,7 +1192,7 @@ def evaluate_ood_step(
     else:
       logging.info('OOD Covariate shift dataset is not implemented')
 
-    eval_summary = eval_ood_covariate[ood_dataset](
+    eval_summary = eval_ood_covariate[ood_dataset](  # pyrefly: ignore[unbound-name]
         train_state=train_state,
         config=config,
         rng=rng,
@@ -1242,7 +1242,7 @@ def evaluate_ood_step(
     else:
       logging.info('OOD Label shift dataset is not implemented')
 
-    eval_summary = eval_label_shift[ood_dataset](
+    eval_summary = eval_label_shift[ood_dataset](  # pyrefly: ignore[unbound-name]
         train_state=train_state,
         config=config,
         rng=rng,
@@ -1253,7 +1253,7 @@ def evaluate_ood_step(
 
     # Wait until computations are done before exiting.
     jax.random.normal(jax.random.PRNGKey(0), ()).block_until_ready()
-  return eval_summary
+  return eval_summary  # pyrefly: ignore[unbound-name]
 
 
 def evaluate_cityscapes_c(
@@ -1290,7 +1290,7 @@ def evaluate_cityscapes_c(
 
   # update config:
   ood_config = ml_collections.ConfigDict()
-  ood_config.update(**config)
+  ood_config.update(**config)  # pyrefly: ignore[bad-unpacking]
   ood_config.update({'dataset_name': 'cityscapes_variants'})
 
   accuracy_per_corruption = {}
@@ -1335,7 +1335,7 @@ def evaluate_cityscapes_c(
       for key, val in cityscapes_c_metrics.items()
   }
   # update metrics
-  eval_summary.update(avg_cityscapes_c_metrics)
+  eval_summary.update(avg_cityscapes_c_metrics)  # pyrefly: ignore[unbound-name]
   writer.write_scalars(0, avg_cityscapes_c_metrics)
   writer.flush()
   return eval_summary
@@ -1371,7 +1371,7 @@ def evaluate_fishyscapes(
 
   # update config:
   ood_config = ml_collections.ConfigDict()
-  ood_config.update(**config)
+  ood_config.update(**config)  # pyrefly: ignore[bad-unpacking]
   ood_config.update({'dataset_name': 'cityscapes_variants'})
 
   device_count = jax.device_count()
@@ -1412,7 +1412,7 @@ def evaluate_fishyscapes(
       for key, val in fishyscapes_metrics.items()
   }
   # update metrics
-  eval_summary.update(avg_fishyscapes_metrics)
+  eval_summary.update(avg_fishyscapes_metrics)  # pyrefly: ignore[unbound-name]
   writer.write_scalars(0, avg_fishyscapes_metrics)
   writer.flush()
   return eval_summary
@@ -1448,7 +1448,7 @@ def evaluate_ade20k_ood_open(
 
   # update config:
   ood_config = ml_collections.ConfigDict()
-  ood_config.update(**config)
+  ood_config.update(**config)  # pyrefly: ignore[bad-unpacking]
   ood_config.update({'dataset_name': 'robust_segvit_segmentation'})
 
   device_count = jax.device_count()
@@ -1522,7 +1522,7 @@ def evaluate_ade20k_corrupted(
 
   # update config:
   ood_config = ml_collections.ConfigDict()
-  ood_config.update(**config)
+  ood_config.update(**config)  # pyrefly: ignore[bad-unpacking]
   ood_config.update({'dataset_name': 'robust_segvit_variants'})
 
   # Calculate metrics per corruption.
@@ -1567,7 +1567,7 @@ def evaluate_ade20k_corrupted(
       for key, val in ade20k_c_metrics.items()
   }
   # update metrics
-  eval_summary.update(avg_corrupted_metrics)
+  eval_summary.update(avg_corrupted_metrics)  # pyrefly: ignore[unbound-name]
   writer.write_scalars(0, avg_corrupted_metrics)
   writer.flush()
   return eval_summary

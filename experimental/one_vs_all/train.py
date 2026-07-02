@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -189,12 +189,12 @@ def run_train_loop(
       checkpoint_manager.save(checkpoint_number=current_step)
     if mode == 'train_and_eval' and current_step % eval_frequency == 0:
       eval_lib.run_eval_epoch(
-          val_fn,
-          val_dataset,
-          val_summary_writer,
-          test_fn,
-          test_dataset,
-          test_summary_writer,
+          val_fn,  # pyrefly: ignore[bad-argument-type, unbound-name]
+          val_dataset,  # pyrefly: ignore[unbound-name]
+          val_summary_writer,  # pyrefly: ignore[unbound-name]
+          test_fn,  # pyrefly: ignore[unbound-name]
+          test_dataset,  # pyrefly: ignore[unbound-name]
+          test_summary_writer,  # pyrefly: ignore[unbound-name]
           current_step)
     train_step_outputs = train_step_fn(train_iterator)
     if current_step % log_frequency == 0:
@@ -218,18 +218,18 @@ def run_train_loop(
     train_step_outputs = remainder_train_step_fn(train_iterator)
 
   # Always evaluate and record metrics at the end of training.
-  _write_summaries(train_step_outputs, train_steps, train_summary_writer)
+  _write_summaries(train_step_outputs, train_steps, train_summary_writer)  # pyrefly: ignore[unbound-name]
   train_step_outputs_np = {k: v.numpy() for k, v in train_step_outputs.items()}
   logging.info(
-      'Training metrics for step %d: %s', current_step, train_step_outputs_np)
+      'Training metrics for step %d: %s', current_step, train_step_outputs_np)  # pyrefly: ignore[unbound-name]
   if mode == 'train_and_eval':
     eval_lib.run_eval_epoch(
-        val_fn,
-        val_dataset,
-        val_summary_writer,
-        test_fn,
-        test_dataset,
-        test_summary_writer,
+        val_fn,  # pyrefly: ignore[bad-argument-type, unbound-name]
+        val_dataset,  # pyrefly: ignore[unbound-name]
+        val_summary_writer,  # pyrefly: ignore[unbound-name]
+        test_fn,  # pyrefly: ignore[unbound-name]
+        test_dataset,  # pyrefly: ignore[unbound-name]
+        test_summary_writer,  # pyrefly: ignore[unbound-name]
         train_steps)
   # Save checkpoint at the end of training.
   if checkpoint_manager:

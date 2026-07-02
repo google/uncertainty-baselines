@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -107,7 +107,7 @@ def build_hidden_state_model(input_size: int, output_size: int,
                              learning_rate: float) -> tf.keras.Model:
   """Builds the simple linear classifer for hidden representation learning."""
   input_layer = tf.keras.layers.Input(input_size)
-  output = tf.keras.layers.Dense(output_size, activation="softmax")(input_layer)
+  output = tf.keras.layers.Dense(output_size, activation="softmax")(input_layer)  # pyrefly: ignore[not-callable]
 
   model = tf.keras.Model(input_layer, output)
 
@@ -131,8 +131,8 @@ class FewShotSamplePool(object):
     self._seed = seed
     self._rng = np.random.default_rng(seed=self._seed)
 
-    self._features: np.ndarray = None
-    self._labels: np.ndarray = None
+    self._features: np.ndarray = None  # pyrefly: ignore[bad-assignment]
+    self._labels: np.ndarray = None  # pyrefly: ignore[bad-assignment]
     self._class_indices = []
 
   def refresh(self, features: tf.Tensor, labels: tf.Tensor):

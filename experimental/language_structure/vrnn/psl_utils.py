@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -153,7 +153,7 @@ def update_logits(model: tf.keras.Model,
                 weights: Sequence[tf.Tensor]):
     """Update weights by satisfing test constraints."""
     with tf.GradientTape() as tape:
-      model_outputs = model(model_inputs, training=False)
+      model_outputs = model(model_inputs, training=False)  # pyrefly: ignore[not-callable]
       logits = get_logits_fn(model_outputs)
       constraint_loss = psl_constraint.compute_loss(psl_inputs, logits)
       weight_loss = tf.reduce_sum([
@@ -169,7 +169,7 @@ def update_logits(model: tf.keras.Model,
   for _ in tf.range(tf.cast(grad_steps, dtype=tf.int32)):
     test_step(model_inputs, psl_inputs, weights=weights_copy)
 
-  model_outputs = model(model_inputs)
+  model_outputs = model(model_inputs)  # pyrefly: ignore[not-callable]
   logits = get_logits_fn(model_outputs)
   for var, weight in zip(model.trainable_variables, weights_copy):
     var.assign(weight)

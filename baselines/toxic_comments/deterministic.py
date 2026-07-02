@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -236,14 +236,14 @@ def main(argv):
       features, labels, _ = utils.create_feature_and_label(inputs)
 
       with tf.GradientTape() as tape:
-        logits = model(features, training=True)
+        logits = model(features, training=True)  # pyrefly: ignore[not-callable]
 
         if FLAGS.train_on_multi_task_label:
           logits, multi_task_logits = logits
 
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
-          multi_task_logits = tf.cast(multi_task_logits, tf.float32)
+          multi_task_logits = tf.cast(multi_task_logits, tf.float32)  # pyrefly: ignore[unbound-name]
 
         loss_logits = tf.squeeze(logits, axis=1)
         if FLAGS.loss_type == 'cross_entropy':
@@ -267,13 +267,13 @@ def main(argv):
           negative_log_likelihood = tf.keras.losses.mean_absolute_error(
               labels, loss_probs)
 
-        negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
+        negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)  # pyrefly: ignore[unbound-name]
 
         l2_loss = sum(model.losses)
         loss = negative_log_likelihood + l2_loss
 
         if FLAGS.train_on_multi_task_label:
-          multi_task_logits = tf.squeeze(multi_task_logits, axis=1)
+          multi_task_logits = tf.squeeze(multi_task_logits, axis=1)  # pyrefly: ignore[unbound-name]
           multi_task_labels = inputs['multi_task_labels']
           multi_task_loss = tf.nn.sigmoid_cross_entropy_with_logits(
               multi_task_labels, multi_task_logits)
@@ -321,7 +321,7 @@ def main(argv):
       features, labels, _ = utils.create_feature_and_label(inputs)
 
       eval_start_time = time.time()
-      logits = model(features, training=False)
+      logits = model(features, training=False)  # pyrefly: ignore[not-callable]
       eval_time = (time.time() - eval_start_time) / FLAGS.per_core_batch_size
 
       if FLAGS.use_bfloat16:
@@ -372,7 +372,7 @@ def main(argv):
       text_ids = inputs['input_ids']
       bert_features, labels, additional_labels = utils.create_feature_and_label(
           inputs)
-      logits = model(bert_features, training=False)
+      logits = model(bert_features, training=False)  # pyrefly: ignore[not-callable]
 
       if FLAGS.train_on_multi_task_label:
         logits, multi_task_logits = logits

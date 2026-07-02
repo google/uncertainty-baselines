@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -223,7 +223,7 @@ def run_eval_loop(
     logging.info('Restoring model from checkpoint %s.', checkpoint_path)
     checkpoint.restore(checkpoint_path)
     run_eval_epoch(
-        val_fn,
+        val_fn,  # pyrefly: ignore[bad-argument-type]
         val_dataset,
         val_summary_writer,
         test_fn,

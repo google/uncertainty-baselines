@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -83,7 +83,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     return config
 
   def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
-    return self.model(inputs)
+    return self.model(inputs)  # pyrefly: ignore[not-callable]
 
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table
@@ -131,7 +131,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     y_true_main = tf.one_hot(labels, depth=self.num_classes)
 
     with tf.GradientTape() as tape:
-      y_pred = self(features, training=True)
+      y_pred = self(features, training=True)  # pyrefly: ignore[not-callable]
 
       y_true = {'main': y_true_main}
       y_true_bias_original = None
@@ -155,7 +155,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
         elif self.reweighting_signal == 'error':  # Use prediction error.
           error = tf.math.subtract(
               tf.ones_like(y_pred), tf.gather_nd(y_pred, y_true_main))
-          threshold = np.percentile(error, self.error_percentile_threshold)
+          threshold = np.percentile(error, self.error_percentile_threshold)  # pyrefly: ignore[no-matching-overload]
           reweighting_labels = tf.math.greater(error, threshold)
         else:  # Give weight to worst group only.
           reweighting_labels = tf.math.equal(subgroup_labels,
@@ -165,7 +165,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
             self.reweighting_lambda,
             tf.ones_like(reweighting_labels, dtype=tf.float32))
         below_threshold_example_multiplex = tf.math.multiply(
-            1. - self.reweighting_lambda,
+            1. - self.reweighting_lambda,  # pyrefly: ignore[unsupported-operation]
             tf.ones_like(reweighting_labels, dtype=tf.float32))
         sample_weight = tf.where(
             reweighting_labels,
@@ -208,7 +208,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     labels = inputs['label']
     subgroup_labels = inputs['subgroup_label']
     y_true_main = tf.one_hot(labels, depth=2)
-    y_pred = self(features, training=False)
+    y_pred = self(features, training=False)  # pyrefly: ignore[not-callable]
     y_true = {'main': y_true_main}
     if self.train_bias:
       if self.id_to_bias_table is None:
@@ -673,7 +673,7 @@ def load_trained_models(combos_dir: str,
       tf.compat.v1.logging.info(
           f'Loading model for checkpoint {ckpt_epoch} from `{checkpoint_path}`')
 
-    combo_model = load_one_checkpoint(checkpoint_path=checkpoint_path,
+    combo_model = load_one_checkpoint(checkpoint_path=checkpoint_path,  # pyrefly: ignore[bad-argument-type]
                                       model_params=model_params,
                                       experiment_name=combo_name)
     trained_models.append(combo_model)
@@ -752,7 +752,7 @@ def generate_checkpoint_list(
       checkpoint_list = [
           sorted_ckpts_names[i]
           for i in range(0, len(sorted_ckpts_names),
-                         int(len(sorted_ckpts_names) / checkpoint_number))
+                         int(len(sorted_ckpts_names) / checkpoint_number))  # pyrefly: ignore[unsupported-operation]
       ]
     elif checkpoint_selection == 'all':
       checkpoint_list = sorted_ckpts_names
@@ -793,7 +793,7 @@ def load_model_checkpoints(checkpoint_dir: str,
                                              checkpoint_selection,
                                              checkpoint_number, checkpoint_name)
   checkpoints = []
-  for checkpoint in checkpoint_list:
+  for checkpoint in checkpoint_list:  # pyrefly: ignore[not-iterable]
     ckpt_path = os.path.join(checkpoint_dir, checkpoint)
     ckpt = load_one_checkpoint(checkpoint_path=ckpt_path,
                                model_params=model_params,
@@ -813,8 +813,8 @@ def eval_ensemble(
     ensemble: List of trained models.
     example_id_to_bias_table: Hash table mapping example ID to bias label.
   """
-  for ds_name in dataloader.eval_ds:
-    test_examples = dataloader.eval_ds[ds_name]
+  for ds_name in dataloader.eval_ds:  # pyrefly: ignore[not-iterable]
+    test_examples = dataloader.eval_ds[ds_name]  # pyrefly: ignore[unsupported-operation]
     y_pred_main = []
     y_pred_bias = []
     for model in ensemble:
@@ -953,11 +953,11 @@ def train_and_evaluate(
 
     two_head_model = run_train(
         dataloader.train_ds,
-        dataloader.eval_ds['val'],
+        dataloader.eval_ds['val'],  # pyrefly: ignore[unsupported-operation]
         model_params=model_params,
         experiment_name=experiment_name,
         callbacks=callbacks,
         example_id_to_bias_table=example_id_to_bias_table)
-    evaluate_model(two_head_model, output_dir, dataloader.eval_ds,
+    evaluate_model(two_head_model, output_dir, dataloader.eval_ds,  # pyrefly: ignore[bad-argument-type]
                    save_model_checkpoints, save_best_model)
     return two_head_model

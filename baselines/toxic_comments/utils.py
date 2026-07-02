@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -328,10 +328,10 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
 
   def get_identity_dir(name):
     parent_dir = identity_type_dataset_dir if name in IDENTITY_TYPES else identity_specific_dataset_dir
-    return os.path.join(parent_dir, name)
+    return os.path.join(parent_dir, name)  # pyrefly: ignore[no-matching-overload]
 
   def get_challenge_dir(name):
-    return os.path.join(challenge_dataset_dir, f'challenge_eval_{name}')
+    return os.path.join(challenge_dataset_dir, f'challenge_eval_{name}')  # pyrefly: ignore[no-matching-overload]
 
   if use_cross_validation and train_dataset_type == 'tfrecord':
     raise ValueError('Cannot use local data when in cross_validation mode.'
@@ -433,7 +433,7 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
       'train': train_dataset_builder
   }
   if train_on_identity_subgroup_data:
-    train_dataset_builders.update(identity_train_dataset_builders)
+    train_dataset_builders.update(identity_train_dataset_builders)  # pyrefly: ignore[unbound-name]
 
   # Gather test dataset builders into dictionaries.
   test_dataset_builders = {
@@ -443,13 +443,13 @@ def make_train_and_test_dataset_builders(in_dataset_dir,
   }
 
   if test_on_identity_subgroup_data:
-    test_dataset_builders.update(identity_test_dataset_builders)
+    test_dataset_builders.update(identity_test_dataset_builders)  # pyrefly: ignore[unbound-name]
 
   if test_on_challenge_data:
-    test_dataset_builders.update(challenge_test_dataset_builders)
+    test_dataset_builders.update(challenge_test_dataset_builders)  # pyrefly: ignore[unbound-name]
 
   if use_cross_validation:
-    test_dataset_builders['cv_eval'] = cv_eval_dataset_builder
+    test_dataset_builders['cv_eval'] = cv_eval_dataset_builder  # pyrefly: ignore[unbound-name]
 
   if return_train_split_name:
     return train_dataset_builders, test_dataset_builders, train_split_name
@@ -899,7 +899,7 @@ def make_test_metrics_update_fn(dataset_name,
       train_on_multi_task_label and isinstance(multi_task_labels, tf.Tensor) and
       isinstance(multi_task_probs, tf.Tensor))
   if update_multi_task_metrics:
-    multi_task_ece_probs = tf.concat([1. - multi_task_probs, multi_task_probs],
+    multi_task_ece_probs = tf.concat([1. - multi_task_probs, multi_task_probs],  # pyrefly: ignore[unsupported-operation]
                                      axis=1)
     multi_task_preds = tf.math.argmax(multi_task_ece_probs, axis=-1)
     multi_task_one_hot_labels = tf.one_hot(

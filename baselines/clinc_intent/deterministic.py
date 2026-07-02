@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2025 The Uncertainty Baselines Authors.
+# Copyright 2026 The Uncertainty Baselines Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -266,9 +266,9 @@ def main(argv):
       initial_epoch = optimizer.iterations.numpy() // steps_per_epoch
     elif FLAGS.model_family.lower() == 'bert':
       # load BERT from initial checkpoint
-      bert_checkpoint = tf.train.Checkpoint(model=bert_encoder)
+      bert_checkpoint = tf.train.Checkpoint(model=bert_encoder)  # pyrefly: ignore[unbound-name]
       bert_checkpoint.restore(
-          bert_ckpt_dir).assert_existing_objects_matched()
+          bert_ckpt_dir).assert_existing_objects_matched()  # pyrefly: ignore[unbound-name]
       logging.info('Loaded BERT checkpoint %s', bert_ckpt_dir)
 
   # Finally, define OOD metrics outside the accelerator scope for CPU eval.
@@ -286,7 +286,7 @@ def main(argv):
 
       with tf.GradientTape() as tape:
         # Set learning phase to enable dropout etc during training.
-        logits = model(features, training=True)
+        logits = model(features, training=True)  # pyrefly: ignore[not-callable]
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         negative_log_likelihood = tf.reduce_mean(
@@ -320,7 +320,7 @@ def main(argv):
           inputs, feature_size, model_family=FLAGS.model_family)
 
       # Set learning phase to disable dropout etc during eval.
-      logits = model(features, training=False)
+      logits = model(features, training=False)  # pyrefly: ignore[not-callable]
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
       probs = tf.nn.softmax(logits)
@@ -333,9 +333,9 @@ def main(argv):
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
       else:
-        metrics['test/nll_{}'.format(dataset_name)].update_state(
+        metrics['test/nll_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics['test/accuracy_{}'.format(dataset_name)].update_state(
+        metrics['test/accuracy_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             labels, probs)
         metrics['test/ece_{}'.format(dataset_name)].add_batch(
             probs, label=labels)
@@ -343,9 +343,9 @@ def main(argv):
       if dataset_name == 'all':
         ood_labels = tf.cast(labels == 150, labels.dtype)
         ood_probs = 1. - tf.reduce_max(probs, axis=-1)
-        metrics['test/auroc_{}'.format(dataset_name)].update_state(
+        metrics['test/auroc_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             ood_labels, ood_probs)
-        metrics['test/auprc_{}'.format(dataset_name)].update_state(
+        metrics['test/auprc_{}'.format(dataset_name)].update_state(  # pyrefly: ignore[missing-attribute]
             ood_labels, ood_probs)
 
     for _ in tf.range(tf.cast(num_steps, tf.int32)):

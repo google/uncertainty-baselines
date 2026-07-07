@@ -140,7 +140,7 @@ def main(argv):
 
   # TODO(dusenberrymw,zmariet): Add a validation dataset.
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=FLAGS.data_dir)
   clean_test_dataset = test_builder.load(batch_size=batch_size)
@@ -325,7 +325,7 @@ def main(argv):
         metrics['test/ece'].add_batch(probs, label=labels)
         metrics['test/joint_nll'].update_state(joint_nll)
       else:
-        corrupt_metrics['test/nll_{}'.format(name)].update_state(
+        corrupt_metrics['test/nll_{}'.format(name)].update_state(  # pyrefly: ignore[unbound-name]
             negative_log_likelihood)
         corrupt_metrics['test/accuracy_{}'.format(name)].update_state(
             labels, probs)
@@ -339,9 +339,9 @@ def main(argv):
   total_results = {name: metric.result() for name, metric in metrics.items()}
 
   if FLAGS.evaluate_corrupted_data:
-    corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
-                                                      corruption_types,
-                                                      max_severity,
+    corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
+                                                      corruption_types,  # pyrefly: ignore[unbound-name]
+                                                      max_severity,  # pyrefly: ignore[unbound-name]
                                                       FLAGS.alexnet_errors_path)
     # Metrics from Robustness Metrics (like ECE) will return a dict with a
     # single key/value, instead of a scalar.

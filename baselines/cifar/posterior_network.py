@@ -142,7 +142,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       seed=seeds[0],
       aug_params=aug_params,
       validation_percent=1. - FLAGS.train_proportion,)
@@ -152,7 +152,7 @@ def main(argv):
   if FLAGS.train_proportion < 1.0:
     validation_builder = ub.datasets.get(
         FLAGS.dataset,
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         validation_percent=1. - FLAGS.train_proportion,
         data_dir=data_dir)
     validation_dataset = validation_builder.load(batch_size=batch_size)
@@ -161,7 +161,7 @@ def main(argv):
     steps_per_validation = validation_builder.num_examples // batch_size
   clean_test_builder = ub.datasets.get(
       FLAGS.dataset,
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       data_dir=data_dir)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   test_datasets = {
@@ -184,7 +184,7 @@ def main(argv):
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
             severity=severity,
-            split=tfds.Split.TEST,
+            split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             data_dir=data_dir).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
@@ -251,7 +251,7 @@ def main(argv):
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
-        for corruption in corruption_types:
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -287,7 +287,7 @@ def main(argv):
         # We take just 1 augmented image from the returned augmented images.
         images = images[:, 1, ...]
       with tf.GradientTape() as tape:
-        alphas = model(images, training=True)
+        alphas = model(images, training=True)  # pyrefly: ignore[not-callable]
         loss = uce_loss_fn(labels, alphas)
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
@@ -314,16 +314,16 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      alphas = model(images, training=False)
+      alphas = model(images, training=False)  # pyrefly: ignore[not-callable]
       probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
 
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
 
       if dataset_name == 'clean':
-        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)  # pyrefly: ignore[missing-attribute]
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
@@ -343,15 +343,15 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      alphas = model(images, training=False)
+      alphas = model(images, training=False)  # pyrefly: ignore[not-callable]
       probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
 
-      negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(
+      negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(  # pyrefly: ignore[not-callable]
           from_logits=False,
           reduction=tf.keras.losses.Reduction.NONE)(labels, probs)
 
       negative_log_likelihood = tf.reduce_mean(negative_log_likelihood)
-      metrics['cifar10h/nll'].update_state(negative_log_likelihood)
+      metrics['cifar10h/nll'].update_state(negative_log_likelihood)  # pyrefly: ignore[missing-attribute]
 
     for _ in tf.range(tf.cast(num_steps, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
@@ -374,7 +374,7 @@ def main(argv):
     train_start_time = time.time()
     train_step(train_iterator)
     ms_per_example = (time.time() - train_start_time) * 1e6 / batch_size
-    metrics['train/ms_per_example'].update_state(ms_per_example)
+    metrics['train/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
     current_step = (epoch + 1) * steps_per_epoch
     max_steps = steps_per_epoch * FLAGS.train_epochs
@@ -408,14 +408,14 @@ def main(argv):
       test_start_time = time.time()
       test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+      metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
       logging.info('Done with testing on %s', dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
-      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
+      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
                                                         corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',

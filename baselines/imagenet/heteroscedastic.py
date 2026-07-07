@@ -164,7 +164,7 @@ def main(argv):
   }
 
   train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       validation_percent=1. - FLAGS.train_proportion,
       one_hot=True,
@@ -172,13 +172,13 @@ def main(argv):
       data_dir=data_dir)
   if FLAGS.train_proportion != 1.:
     test_builder = ub.datasets.ImageNetDataset(
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         validation_percent=1. - FLAGS.train_proportion,
         data_dir=data_dir)
   else:
     test_builder = ub.datasets.ImageNetDataset(
-        split=tfds.Split.TEST,
+        split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
@@ -190,7 +190,7 @@ def main(argv):
 
     # Train set to compute the means of the images and of the (one-hot) labels
     imagenet_train_no_mixup = ub.datasets.ImageNetDataset(
-        split=tfds.Split.TRAIN,
+        split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         one_hot=True,
         data_dir=data_dir)
@@ -284,7 +284,7 @@ def main(argv):
     def step_fn_images(images):
       return tf.reduce_mean(tf.cast(images, tf.float32), axis=0)
 
-    new_count = count + 1.
+    new_count = count + 1.  # pyrefly: ignore[unsupported-operation]
     count.assign(new_count)
 
     inputs = next(iterator)
@@ -293,11 +293,11 @@ def main(argv):
 
     per_replica_means = strategy.run(step_fn_labels, args=(labels,))
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
-    mean_labels.assign(cr_replica_means/count + (count-1.)/count * mean_labels)
+    mean_labels.assign(cr_replica_means/count + (count-1.)/count * mean_labels)  # pyrefly: ignore[unsupported-operation]
 
     per_replica_means = strategy.run(step_fn_images, args=(images,))
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
-    mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)
+    mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)  # pyrefly: ignore[unsupported-operation]
 
   def _get_temperature(trainable_variables):
     """Retrieve the temperature to track it over the training steps."""
@@ -371,9 +371,9 @@ def main(argv):
         tf.keras.losses.sparse_categorical_crossentropy(
             labels, logits, from_logits=True))
     probs = tf.nn.softmax(logits)
-    metrics['test/negative_log_likelihood' + metric_suffix].update_state(
+    metrics['test/negative_log_likelihood' + metric_suffix].update_state(  # pyrefly: ignore[missing-attribute]
         negative_log_likelihood)
-    metrics['test/accuracy' + metric_suffix].update_state(labels, probs)
+    metrics['test/accuracy' + metric_suffix].update_state(labels, probs)  # pyrefly: ignore[missing-attribute]
     metrics['test/ece' + metric_suffix].add_batch(probs, label=labels)
 
   @tf.function
@@ -415,14 +415,14 @@ def main(argv):
 
   if enable_mixup:
     logging.info('Starting to compute the means of labels and images')
-    tr_iterator_no_mixup = iter(tr_data_no_mixup)
+    tr_iterator_no_mixup = iter(tr_data_no_mixup)  # pyrefly: ignore[unbound-name]
     for _ in range(steps_per_epoch):
       moving_average_step(tr_iterator_no_mixup)
     # Save stats required by the mixup rescaling [2] for subsequent predictions
     mixup_rescaling_stats = {
-        'mean_labels': mean_labels.numpy(),
-        'mean_images': mean_images.numpy(),
-        'mean_theta': mean_theta
+        'mean_labels': mean_labels.numpy(),  # pyrefly: ignore[unbound-name]
+        'mean_images': mean_images.numpy(),  # pyrefly: ignore[unbound-name]
+        'mean_theta': mean_theta  # pyrefly: ignore[unbound-name]
     }
     output_dir = os.path.join(FLAGS.output_dir, 'mixup_rescaling_stats.npz')
     with tf.io.gfile.GFile(output_dir, 'wb') as f:
@@ -455,7 +455,7 @@ def main(argv):
     test_start_time = time.time()
     test_step(test_iterator)
     ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-    metrics['test/ms_per_example'].update_state(ms_per_example)
+    metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%, Temperature: %.2f%%',
                  metrics['train/loss'].result(),
@@ -468,7 +468,7 @@ def main(argv):
       logging.info(
           'Test NLL (+ rescaling): %.4f, Accuracy (+ rescaling): %.2f%%',
           metrics['test/negative_log_likelihood+rescaling'].result(),
-          metrics['test/accuracy+rescaling'].result() * 100)
+          metrics['test/accuracy+rescaling'].result() * 100)  # pyrefly: ignore[unsupported-operation]
 
     total_results = {name: metric.result() for name, metric in metrics.items()}
     # Metrics from Robustness Metrics (like ECE) will return a dict with a

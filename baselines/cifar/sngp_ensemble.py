@@ -130,7 +130,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       drop_remainder=FLAGS.drop_remainder_for_eval)
   dataset = dataset_builder.load(batch_size=batch_size)
   test_datasets = {'clean': dataset}
@@ -154,7 +154,7 @@ def main(argv):
           corruption_type=corruption_type,
           data_dir=data_dir,
           severity=severity,
-          split=tfds.Split.TEST,
+          split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
           drop_remainder=FLAGS.drop_remainder_for_eval,
           **extra_kwargs).load(batch_size=batch_size)
       test_datasets[f'{corruption_type}_{severity}'] = dataset
@@ -218,7 +218,7 @@ def main(argv):
       if not tf.io.gfile.exists(filename):
         logits = []
         test_iterator = iter(test_dataset)
-        steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]
+        steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]  # pyrefly: ignore[unbound-name]
         for _ in range(steps):
           features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
           logits_member = model(features, training=False)
@@ -250,7 +250,7 @@ def main(argv):
           num_bins=FLAGS.num_bins),
   }
   if FLAGS.eval_on_ood:
-    ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+    ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)  # pyrefly: ignore[unbound-name]
     metrics.update(ood_metrics)
   corrupt_metrics = {}
   for name in test_datasets:
@@ -272,7 +272,7 @@ def main(argv):
 
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
-    steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]
+    steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]  # pyrefly: ignore[unbound-name]
     for step in range(steps):
       inputs = next(test_iterator)
       labels = inputs['labels']  # pytype: disable=unsupported-operands
@@ -303,7 +303,7 @@ def main(argv):
 
         for metric_name, metric in metrics.items():
           if name in metric_name:
-            metric.update_state(ood_labels, ood_scores)
+            metric.update_state(ood_labels, ood_scores)  # pyrefly: ignore[missing-attribute]
       else:
         corrupt_metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)

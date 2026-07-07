@@ -82,7 +82,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       validation_percent=1. - FLAGS.train_proportion)
   train_dataset = train_builder.load(batch_size=batch_size)
   validation_dataset = None
@@ -92,7 +92,7 @@ def main(argv):
         FLAGS.dataset,
         data_dir=data_dir,
         download_data=FLAGS.download_data,
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         validation_percent=1. - FLAGS.train_proportion)
     validation_dataset = validation_builder.load(batch_size=batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
@@ -102,7 +102,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST)
+      split=tfds.Split.TEST)  # pyrefly: ignore[missing-attribute]
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
@@ -123,7 +123,7 @@ def main(argv):
             corruption_type=corruption_type,
             data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST,
+            split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             **extra_kwargs).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
@@ -180,7 +180,7 @@ def main(argv):
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
-        for corruption in corruption_types:
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -224,7 +224,7 @@ def main(argv):
         l2_loss = FLAGS.l2 * 2 * tf.nn.l2_loss(
             tf.concat(filtered_variables, axis=0))
         kl = sum(model.losses)
-        kl_scale = tf.cast(optimizer.iterations + 1, kl.dtype)
+        kl_scale = tf.cast(optimizer.iterations + 1, kl.dtype)  # pyrefly: ignore[missing-attribute]
         kl_scale /= steps_per_epoch * FLAGS.kl_annealing_epochs
         kl_scale = tf.minimum(1., kl_scale)
         kl_loss = kl_scale * kl
@@ -269,9 +269,9 @@ def main(argv):
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))
 
       if dataset_name == 'clean':
-        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)  # pyrefly: ignore[missing-attribute]
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
@@ -322,14 +322,14 @@ def main(argv):
       test_start_time = time.time()
       test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+      metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
       logging.info('Done with testing on %s', dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
-      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
+      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
                                                         corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',

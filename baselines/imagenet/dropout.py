@@ -114,13 +114,13 @@ def main(argv):
   }
   # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       one_hot=(FLAGS.mixup_alpha > 0),
       use_bfloat16=FLAGS.use_bfloat16,
       mixup_params=mixup_params,
       data_dir=data_dir)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
+      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)  # pyrefly: ignore[missing-attribute]
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   clean_test_dataset = test_builder.load(
       batch_size=batch_size, strategy=strategy)
@@ -129,7 +129,7 @@ def main(argv):
   }
   if FLAGS.adaptive_mixup:
     imagenet_confidence_dataset = ub.datasets.ImageNetDataset(
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         run_mixup=True,
         use_bfloat16=FLAGS.use_bfloat16,
         data_dir=data_dir).load(
@@ -190,8 +190,8 @@ def main(argv):
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
-      for intensity in range(1, max_severity + 1):
-        for corruption in corruption_types:
+      for intensity in range(1, max_severity + 1):  # pyrefly: ignore[unbound-name]
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -344,7 +344,7 @@ def main(argv):
     logging.info(message)
 
     if FLAGS.adaptive_mixup:
-      confidence_set_iterator = iter(imagenet_confidence_dataset)
+      confidence_set_iterator = iter(imagenet_confidence_dataset)  # pyrefly: ignore[unbound-name]
       predictions_list = []
       labels_list = []
       for step in range(FLAGS.confidence_eval_iterations):
@@ -374,7 +374,7 @@ def main(argv):
       mixup_coeff = tf.clip_by_value(mixup_coeff, 0, 1)
       mixup_params['mixup_coeff'] = mixup_coeff
       builder = ub.datasets.ImageNetDataset(
-          split=tfds.Split.TRAIN,
+          split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
           one_hot=(FLAGS.mixup_alpha > 0),
           use_bfloat16=FLAGS.use_bfloat16,
           mixup_params=mixup_params,
@@ -397,7 +397,7 @@ def main(argv):
           test_start_time = time.time()
           test_step(test_iterator, dataset_name)
           ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-          metrics['test/ms_per_example'].update_state(ms_per_example)
+          metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
       logging.info('Done with testing on %s', dataset_name)
 
@@ -405,7 +405,7 @@ def main(argv):
       if (FLAGS.corruptions_interval > 0 and
           (epoch + 1) % FLAGS.corruptions_interval == 0):
         corrupt_results = utils.aggregate_corrupt_metrics(
-            corrupt_metrics, corruption_types, max_severity,
+            corrupt_metrics, corruption_types, max_severity,  # pyrefly: ignore[unbound-name]
             FLAGS.alexnet_errors_path)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
@@ -415,7 +415,7 @@ def main(argv):
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)
     total_results = {name: metric.result() for name, metric in metrics.items()}
-    total_results.update(corrupt_results)
+    total_results.update(corrupt_results)  # pyrefly: ignore[unbound-name]
     # Metrics from Robustness Metrics (like ECE) will return a dict with a
     # single key/value, instead of a scalar.
     total_results = {

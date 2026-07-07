@@ -81,7 +81,7 @@ def main(argv):
 
   # TODO(dusenberrymw,zmariet): Add a validation dataset.
   builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=False, data_dir=FLAGS.data_dir)
+      split=tfds.Split.TEST, use_bfloat16=False, data_dir=FLAGS.data_dir)  # pyrefly: ignore[missing-attribute]
   clean_test_dataset = builder.load(batch_size=batch_size)
   test_datasets = {'clean': clean_test_dataset}
   corruption_types, max_severity = utils.load_corrupted_test_info()

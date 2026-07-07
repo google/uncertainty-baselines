@@ -102,7 +102,7 @@ def main(argv):
       ub.models.efficientnet_utils.efficientnet_params(FLAGS.model_name))
   # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       image_size=input_image_size,
       normalize_input=True,
@@ -110,7 +110,7 @@ def main(argv):
       data_dir=data_dir)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       image_size=input_image_size,
       normalize_input=True,

@@ -108,7 +108,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       validation_percent=1. - FLAGS.train_proportion,
       drop_remainder=False,
       mask_and_pad=True)
@@ -120,7 +120,7 @@ def main(argv):
         FLAGS.dataset,
         data_dir=data_dir,
         download_data=FLAGS.download_data,
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         validation_percent=1. - FLAGS.train_proportion,
         drop_remainder=False,
         mask_and_pad=True)
@@ -132,7 +132,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       drop_remainder=False,
       mask_and_pad=True)
   clean_test_dataset = clean_test_builder.load(batch_size=batch_size)
@@ -154,7 +154,7 @@ def main(argv):
             corruption_type=corruption_type,
             data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST,
+            split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             drop_remainder=False,
             mask_and_pad=True).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
@@ -231,7 +231,7 @@ def main(argv):
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
-        for corruption in corruption_types:
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -358,8 +358,8 @@ def main(argv):
           member_probs = per_probs[i]
           member_loss = tf.keras.losses.sparse_categorical_crossentropy(
               labels, member_probs)
-          metrics[f'{dataset_split}/nll_member_{i}'].update_state(member_loss)
-          metrics[f'{dataset_split}/accuracy_member_{i}'].update_state(
+          metrics[f'{dataset_split}/nll_member_{i}'].update_state(member_loss)  # pyrefly: ignore[missing-attribute]
+          metrics[f'{dataset_split}/accuracy_member_{i}'].update_state(  # pyrefly: ignore[missing-attribute]
               labels, member_probs)
 
       # Negative log marginal likelihood computed in a numerically-stable way.
@@ -378,11 +378,11 @@ def main(argv):
       elbo = -(negative_log_likelihood + l2_loss + kl)
 
       if dataset_name == 'clean':
-        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics[f'{dataset_split}/kl'].update_state(kl)
-        metrics[f'{dataset_split}/elbo'].update_state(elbo)
-        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/kl'].update_state(kl)  # pyrefly: ignore[missing-attribute]
+        metrics[f'{dataset_split}/elbo'].update_state(elbo)  # pyrefly: ignore[missing-attribute]
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)  # pyrefly: ignore[missing-attribute]
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
@@ -435,7 +435,7 @@ def main(argv):
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
-      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
+      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
                                                         corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
@@ -448,7 +448,7 @@ def main(argv):
       for i in range(FLAGS.ensemble_size):
         logging.info('Member %d Test Loss: %.4f, Accuracy: %.2f%%',
                      i, metrics['test/nll_member_{}'.format(i)].result(),
-                     metrics['test/accuracy_member_{}'.format(i)].result()*100)
+                     metrics['test/accuracy_member_{}'.format(i)].result()*100)  # pyrefly: ignore[unsupported-operation]
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)
     # Metrics from Robustness Metrics (like ECE) will return a dict with a

@@ -77,7 +77,7 @@ def load_ood_datasets(ood_dataset_names,
   datasets = {}
   for ood_dataset_name in ood_dataset_names:
     ood_dataset_class = ub.datasets.DATASETS[ood_dataset_name]
-    ood_dataset_class = ub.datasets.make_ood_dataset(ood_dataset_class)
+    ood_dataset_class = ub.datasets.make_ood_dataset(ood_dataset_class)  # pyrefly: ignore[bad-argument-type]
     # If the OOD datasets are not CIFAR10/CIFAR100, we normalize by CIFAR
     # statistics, since all test datasets should be preprocessed the same.
     if 'cifar' not in ood_dataset_name:

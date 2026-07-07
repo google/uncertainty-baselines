@@ -115,13 +115,13 @@ def main(argv):
 
   # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=data_dir)
   train_dataset = train_builder.load(
       batch_size=train_batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
+      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)  # pyrefly: ignore[missing-attribute]
   test_dataset = test_builder.load(
       batch_size=test_batch_size, strategy=strategy)
 
@@ -344,7 +344,7 @@ def main(argv):
     for i in range(FLAGS.ensemble_size):
       logging.info('Member %d Test Loss: %.4f, Accuracy: %.2f%%',
                    i, metrics['test/nll_member_{}'.format(i)].result(),
-                   metrics['test/accuracy_member_{}'.format(i)].result() * 100)
+                   metrics['test/accuracy_member_{}'.format(i)].result() * 100)  # pyrefly: ignore[unsupported-operation]
 
     total_results = {name: metric.result() for name, metric in metrics.items()}
     # Results from Robustness Metrics themselves return a dict, so flatten them.

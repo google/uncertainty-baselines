@@ -85,7 +85,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       validation_percent=1. - FLAGS.train_proportion)
   train_dataset = train_builder.load(batch_size=train_batch_size)
   validation_dataset = None
@@ -95,7 +95,7 @@ def main(argv):
         FLAGS.dataset,
         data_dir=data_dir,
         download_data=FLAGS.download_data,
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         validation_percent=1. - FLAGS.train_proportion)
     validation_dataset = validation_builder.load(batch_size=test_batch_size)
     validation_dataset = strategy.experimental_distribute_dataset(
@@ -105,7 +105,7 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST)
+      split=tfds.Split.TEST)  # pyrefly: ignore[missing-attribute]
   clean_test_dataset = clean_test_builder.load(batch_size=test_batch_size)
   train_dataset = strategy.experimental_distribute_dataset(train_dataset)
   test_datasets = {
@@ -139,7 +139,7 @@ def main(argv):
             corruption_type=corruption_type,
             data_dir=data_dir,
             severity=severity,
-            split=tfds.Split.TEST).load(batch_size=test_batch_size)
+            split=tfds.Split.TEST).load(batch_size=test_batch_size)  # pyrefly: ignore[missing-attribute]
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
 
@@ -193,7 +193,7 @@ def main(argv):
       eval_dataset_splits += ['validation']
 
     if FLAGS.eval_on_ood:
-      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)  # pyrefly: ignore[unbound-name]
       metrics.update(ood_metrics)
 
     for i in range(FLAGS.ensemble_size):
@@ -204,7 +204,7 @@ def main(argv):
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
-        for corruption in corruption_types:
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -396,19 +396,19 @@ def main(argv):
       logging.info('Done with testing on %s', dataset_name)
 
     if FLAGS.eval_on_ood:
-      for ood_dataset_name, ood_dataset in ood_datasets.items():
+      for ood_dataset_name, ood_dataset in ood_datasets.items():  # pyrefly: ignore[unbound-name]
         ood_iterator = iter(ood_dataset)
         logging.info('Calculating OOD on dataset %s', ood_dataset_name)
         logging.info('Running OOD eval at epoch: %s', epoch)
         test_step(ood_iterator, 'test', ood_dataset_name,
-                  steps_per_ood[ood_dataset_name])
+                  steps_per_ood[ood_dataset_name])  # pyrefly: ignore[unbound-name]
 
         logging.info('Done with OOD eval on %s', ood_dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
-      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
+      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
                                                         corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
@@ -421,7 +421,7 @@ def main(argv):
       logging.info(
           'Member %d Test Loss: %.4f, Accuracy: %.2f%%', i,
           metrics['test/nll_member_{}'.format(i)].result(),
-          metrics['test/accuracy_member_{}'.format(i)].result() * 100)
+          metrics['test/accuracy_member_{}'.format(i)].result() * 100)  # pyrefly: ignore[unsupported-operation]
 
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)

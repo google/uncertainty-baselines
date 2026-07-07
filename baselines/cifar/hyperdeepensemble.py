@@ -138,13 +138,13 @@ def main(argv):
       FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST).load(batch_size=batch_size)
+      split=tfds.Split.TEST).load(batch_size=batch_size)  # pyrefly: ignore[missing-attribute]
   validation_percent = 1. - FLAGS.train_proportion
   val_dataset = ub.datasets.get(
       dataset_name=FLAGS.dataset,
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.VALIDATION,
+      split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
       validation_percent=validation_percent,
       drop_remainder=False).load(batch_size=batch_size)
   steps_per_val_eval = int(ds_info.splits['train'].num_examples *
@@ -161,7 +161,7 @@ def main(argv):
           corruption_type=corruption_type,
           data_dir=data_dir,
           severity=severity,
-          split=tfds.Split.TEST).load(batch_size=batch_size)
+          split=tfds.Split.TEST).load(batch_size=batch_size)  # pyrefly: ignore[missing-attribute]
       test_datasets[f'{corruption_type}_{severity}'] = dataset
 
   model = ub.models.wide_resnet(
@@ -197,7 +197,7 @@ def main(argv):
       inputs = next(val_iterator)
       features = inputs['features']
       labels = inputs['labels']
-      val_logits_m.append(model(features, training=False))
+      val_logits_m.append(model(features, training=False))  # pyrefly: ignore[not-callable]
       if m == 0:
         val_labels.append(labels)
 
@@ -239,7 +239,7 @@ def main(argv):
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval):
           features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
-          logits.append(model(features, training=False))
+          logits.append(model(features, training=False))  # pyrefly: ignore[not-callable]
 
         logits = tf.concat(logits, axis=0)
         with tf.io.gfile.GFile(filename, 'w') as f:

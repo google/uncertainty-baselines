@@ -140,14 +140,14 @@ def main(argv):
 
   # TODO(dusenberrymw,zmariet): Add a validation dataset.
   train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=data_dir,
       drop_remainder=False,
       mask_and_pad=True)
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=data_dir,
       drop_remainder=False,
@@ -237,8 +237,8 @@ def main(argv):
     }
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
-      for intensity in range(1, max_severity + 1):
-        for corruption in corruption_types:
+      for intensity in range(1, max_severity + 1):  # pyrefly: ignore[unbound-name]
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -315,7 +315,7 @@ def main(argv):
                                                             from_logits=True))
         l2_loss = compute_l2_loss(model)
         kl = sum(model.losses) / APPROX_IMAGENET_TRAIN_IMAGES
-        kl_scale = tf.cast(optimizer.iterations + 1, kl.dtype)
+        kl_scale = tf.cast(optimizer.iterations + 1, kl.dtype)  # pyrefly: ignore[missing-attribute]
         kl_scale /= steps_per_epoch * FLAGS.kl_annealing_epochs
         kl_scale = tf.minimum(1., kl_scale)
         kl_loss = kl_scale * kl
@@ -462,7 +462,7 @@ def main(argv):
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       corrupt_results = utils.aggregate_corrupt_metrics(
-          corrupt_metrics, corruption_types, max_severity,
+          corrupt_metrics, corruption_types, max_severity,  # pyrefly: ignore[unbound-name]
           FLAGS.alexnet_errors_path)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
@@ -475,7 +475,7 @@ def main(argv):
     for i in range(FLAGS.ensemble_size):
       logging.info('Member %d Test Loss: %.4f, Accuracy: %.2f%%',
                    i, metrics['test/nll_member_{}'.format(i)].result(),
-                   metrics['test/accuracy_member_{}'.format(i)].result() * 100)
+                   metrics['test/accuracy_member_{}'.format(i)].result() * 100)  # pyrefly: ignore[unsupported-operation]
 
     total_results = {name: metric.result() for name, metric in metrics.items()}
     total_results.update(corrupt_results)

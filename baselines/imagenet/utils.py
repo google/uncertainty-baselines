@@ -107,25 +107,25 @@ def aggregate_corrupt_metrics(metrics,
     avg_ece = np.mean(ece)
     avg_member_acc = np.mean(member_acc)
     avg_member_ece = np.mean(member_ece)
-    results['test/nll_mean_{}'.format(intensity)] = avg_nll
-    results['test/kl_mean_{}'.format(intensity)] = avg_kl
-    results['test/elbo_mean_{}'.format(intensity)] = avg_elbo
-    results['test/accuracy_mean_{}'.format(intensity)] = avg_accuracy
-    results['test/ece_mean_{}'.format(intensity)] = avg_ece
+    results['test/nll_mean_{}'.format(intensity)] = avg_nll  # pyrefly: ignore[bad-assignment]
+    results['test/kl_mean_{}'.format(intensity)] = avg_kl  # pyrefly: ignore[bad-assignment]
+    results['test/elbo_mean_{}'.format(intensity)] = avg_elbo  # pyrefly: ignore[bad-assignment]
+    results['test/accuracy_mean_{}'.format(intensity)] = avg_accuracy  # pyrefly: ignore[bad-assignment]
+    results['test/ece_mean_{}'.format(intensity)] = avg_ece  # pyrefly: ignore[bad-assignment]
     results['test/nll_median_{}'.format(intensity)] = np.median(nll)
     results['test/kl_median_{}'.format(intensity)] = np.median(kl)
     results['test/elbo_median_{}'.format(intensity)] = np.median(elbo)
     results['test/accuracy_median_{}'.format(intensity)] = np.median(acc)
     results['test/ece_median_{}'.format(intensity)] = np.median(ece)
-    results['test/nll_mean_corrupted'] += avg_nll
-    results['test/kl_mean_corrupted'] += avg_kl
-    results['test/elbo_mean_corrupted'] += avg_elbo
-    results['test/accuracy_mean_corrupted'] += avg_accuracy
-    results['test/ece_mean_corrupted'] += avg_ece
-    results['test/member_acc_mean_{}'.format(intensity)] = avg_member_acc
-    results['test/member_ece_mean_{}'.format(intensity)] = avg_member_ece
-    results['test/member_acc_mean_corrupted'] += avg_member_acc
-    results['test/member_ece_mean_corrupted'] += avg_member_ece
+    results['test/nll_mean_corrupted'] += avg_nll  # pyrefly: ignore[bad-assignment]
+    results['test/kl_mean_corrupted'] += avg_kl  # pyrefly: ignore[bad-assignment]
+    results['test/elbo_mean_corrupted'] += avg_elbo  # pyrefly: ignore[bad-assignment]
+    results['test/accuracy_mean_corrupted'] += avg_accuracy  # pyrefly: ignore[bad-assignment]
+    results['test/ece_mean_corrupted'] += avg_ece  # pyrefly: ignore[bad-assignment]
+    results['test/member_acc_mean_{}'.format(intensity)] = avg_member_acc  # pyrefly: ignore[bad-assignment]
+    results['test/member_ece_mean_{}'.format(intensity)] = avg_member_ece  # pyrefly: ignore[bad-assignment]
+    results['test/member_acc_mean_corrupted'] += avg_member_acc  # pyrefly: ignore[bad-assignment]
+    results['test/member_ece_mean_corrupted'] += avg_member_ece  # pyrefly: ignore[bad-assignment]
 
   results['test/nll_mean_corrupted'] /= max_severity
   results['test/kl_mean_corrupted'] /= max_severity
@@ -151,7 +151,7 @@ def aggregate_corrupt_metrics(metrics,
       corrupt_error[corruption] = average_error / alexnet_normalization
       results['test/corruption_error_{}'.format(
           corruption)] = 100 * corrupt_error[corruption]
-    results['test/mCE'] = 100 * np.mean(list(corrupt_error.values()))
+    results['test/mCE'] = 100 * np.mean(list(corrupt_error.values()))  # pyrefly: ignore[bad-assignment]
   return results
 
 

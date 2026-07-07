@@ -132,7 +132,7 @@ def main(argv):
   }
 
   train_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       one_hot=True,
       mixup_params=mixup_params,
@@ -140,7 +140,7 @@ def main(argv):
       data_dir=data_dir)
   steps_per_epoch = train_builder.num_examples // batch_size
   test_builder = ub.datasets.ImageNetDataset(
-      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)
+      split=tfds.Split.TEST, use_bfloat16=FLAGS.use_bfloat16, data_dir=data_dir)  # pyrefly: ignore[missing-attribute]
   train_dataset = train_builder.load(batch_size=batch_size, strategy=strategy)
   test_dataset = test_builder.load(batch_size=batch_size, strategy=strategy)
   steps_per_test_eval = IMAGENET_VALIDATION_IMAGES // batch_size
@@ -149,7 +149,7 @@ def main(argv):
   if FLAGS.train_proportion < 1.0:
     # Note we do not one_hot the validation set.
     validation_builder = ub.datasets.ImageNetDataset(
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         mixup_params=mixup_params,
         validation_percent=1.0 - FLAGS.train_proportion,
@@ -162,7 +162,7 @@ def main(argv):
     mean_theta = mean_truncated_beta_distribution(FLAGS.mixup_alpha)
     # Train set to compute the means of the images and of the (one-hot) labels
     imagenet_train_no_mixup = ub.datasets.ImageNetDataset(
-        split=tfds.Split.TRAIN,
+        split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         one_hot=True,
         data_dir=data_dir)
@@ -255,7 +255,7 @@ def main(argv):
     def step_fn_images(images):
       return tf.reduce_mean(tf.cast(images, tf.float32), axis=0)
 
-    new_count = count + 1.
+    new_count = count + 1.  # pyrefly: ignore[unsupported-operation]
     count.assign(new_count)
 
     batch = next(iterator)
@@ -264,11 +264,11 @@ def main(argv):
 
     per_replica_means = strategy.run(step_fn_labels, args=(labels,))
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
-    mean_labels.assign(cr_replica_means/count + (count-1.)/count * mean_labels)
+    mean_labels.assign(cr_replica_means/count + (count-1.)/count * mean_labels)  # pyrefly: ignore[unsupported-operation]
 
     per_replica_means = strategy.run(step_fn_images, args=(images,))
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
-    mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)
+    mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)  # pyrefly: ignore[unsupported-operation]
 
   @tf.function
   def train_step(iterator):
@@ -326,8 +326,8 @@ def main(argv):
             labels, logits, from_logits=True))
     probs = tf.nn.softmax(logits)
     nll_key = metric_prefix + '/negative_log_likelihood' + metric_suffix
-    metrics[nll_key].update_state(negative_log_likelihood)
-    metrics[metric_prefix + '/accuracy' + metric_suffix].update_state(
+    metrics[nll_key].update_state(negative_log_likelihood)  # pyrefly: ignore[missing-attribute]
+    metrics[metric_prefix + '/accuracy' + metric_suffix].update_state(  # pyrefly: ignore[missing-attribute]
         labels, probs)
     metrics[metric_prefix + '/ece' + metric_suffix].add_batch(
         probs, label=labels)
@@ -371,14 +371,14 @@ def main(argv):
 
   if enable_mixup:
     logging.info('Starting to compute the means of labels and images')
-    tr_iterator_no_mixup = iter(tr_data_no_mixup)
+    tr_iterator_no_mixup = iter(tr_data_no_mixup)  # pyrefly: ignore[unbound-name]
     for _ in range(steps_per_epoch):
       moving_average_step(tr_iterator_no_mixup)
     # Save stats required by the mixup rescaling [2] for subsequent predictions
     mixup_rescaling_stats = {
-        'mean_labels': mean_labels.numpy(),
-        'mean_images': mean_images.numpy(),
-        'mean_theta': mean_theta
+        'mean_labels': mean_labels.numpy(),  # pyrefly: ignore[unbound-name]
+        'mean_images': mean_images.numpy(),  # pyrefly: ignore[unbound-name]
+        'mean_theta': mean_theta  # pyrefly: ignore[unbound-name]
     }
     output_dir = os.path.join(FLAGS.output_dir, 'mixup_rescaling_stats.npz')
     with tf.io.gfile.GFile(output_dir, 'wb') as f:
@@ -408,7 +408,7 @@ def main(argv):
     test_iterator = iter(test_dataset)
     logging.info('Starting to run eval at epoch: %s', epoch)
     if FLAGS.train_proportion < 1.0:
-      validation_iterator = iter(validation_dataset)
+      validation_iterator = iter(validation_dataset)  # pyrefly: ignore[no-matching-overload]
       test_step(
           metrics_prefix='validation',
           iterator=validation_iterator,
@@ -419,7 +419,7 @@ def main(argv):
         iterator=test_iterator,
         steps_per_eval=steps_per_test_eval)
     ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-    metrics['test/ms_per_example'].update_state(ms_per_example)
+    metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),
@@ -427,7 +427,7 @@ def main(argv):
     if FLAGS.train_proportion < 1.0:
       logging.info('Validation NLL: %.4f, Accuracy: %.2f%%',
                    metrics['validation/negative_log_likelihood'].result(),
-                   metrics['validation/accuracy'].result() * 100)
+                   metrics['validation/accuracy'].result() * 100)  # pyrefly: ignore[unsupported-operation]
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)
@@ -435,7 +435,7 @@ def main(argv):
       logging.info(
           'Test NLL (+ rescaling): %.4f, Accuracy (+ rescaling): %.2f%%',
           metrics['test/negative_log_likelihood+rescaling'].result(),
-          metrics['test/accuracy+rescaling'].result() * 100)
+          metrics['test/accuracy+rescaling'].result() * 100)  # pyrefly: ignore[unsupported-operation]
 
     total_results = {name: metric.result() for name, metric in metrics.items()}
     # Metrics from Robustness Metrics (like ECE) will return a dict with a

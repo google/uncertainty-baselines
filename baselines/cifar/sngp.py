@@ -241,7 +241,7 @@ def main(argv):
   train_dataset_builder = dataset_builder_class(
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       aug_params=aug_params,
       validation_percent=validation_proportion,
@@ -252,7 +252,7 @@ def main(argv):
     validation_dataset_builder = dataset_builder_class(
         data_dir=data_dir,
         download_data=FLAGS.download_data,
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         validation_percent=validation_proportion,
         drop_remainder=FLAGS.drop_remainder_for_eval)
@@ -265,7 +265,7 @@ def main(argv):
   clean_test_dataset_builder = dataset_builder_class(
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       drop_remainder=FLAGS.drop_remainder_for_eval)
   clean_test_dataset = clean_test_dataset_builder.load(
@@ -301,7 +301,7 @@ def main(argv):
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
             severity=severity,
-            split=tfds.Split.TEST,
+            split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             data_dir=data_dir,
             drop_remainder=FLAGS.drop_remainder_for_eval).load(
                 batch_size=batch_size)
@@ -394,12 +394,12 @@ def main(argv):
       })
     if FLAGS.eval_on_ood:
       ood_metrics = ood_utils.create_ood_metrics(
-          ood_dataset_names, tpr_list=FLAGS.ood_tpr_threshold)
+          ood_dataset_names, tpr_list=FLAGS.ood_tpr_threshold)  # pyrefly: ignore[unbound-name]
       metrics.update(ood_metrics)
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
-        for corruption in corruption_types:
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -580,11 +580,11 @@ def main(argv):
         metrics['test/logits_mean'].update_state(logits_mean)
         metrics['test/logits_var'].update_state(logits_var)
       elif dataset_name == 'val':
-        metrics['val/negative_log_likelihood'].update_state(
+        metrics['val/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics['val/accuracy'].update_state(labels, probs)
+        metrics['val/accuracy'].update_state(labels, probs)  # pyrefly: ignore[missing-attribute]
         metrics['val/ece'].add_batch(probs, label=labels)
-        metrics['val/stddev'].update_state(stddev)
+        metrics['val/stddev'].update_state(stddev)  # pyrefly: ignore[missing-attribute]
       elif dataset_name.startswith('ood/'):
         ood_labels = 1 - inputs['is_in_distribution']
         if FLAGS.dempster_shafer_ood:
@@ -599,7 +599,7 @@ def main(argv):
         # Edgecase for if dataset_name contains underscores
         for name, metric in metrics.items():
           if dataset_name in name:
-            metric.update_state(ood_labels, ood_scores)
+            metric.update_state(ood_labels, ood_scores)  # pyrefly: ignore[missing-attribute]
       elif FLAGS.corruptions_interval > 0:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -646,36 +646,36 @@ def main(argv):
 
     datasets_to_evaluate = {'clean': test_datasets['clean']}
     if use_validation_set:
-      datasets_to_evaluate['val'] = validation_dataset
+      datasets_to_evaluate['val'] = validation_dataset  # pyrefly: ignore[unbound-name]
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
       datasets_to_evaluate = test_datasets
     for dataset_name, test_dataset in datasets_to_evaluate.items():
       test_iterator = iter(test_dataset)
       logging.info('Testing on dataset %s', dataset_name)
-      steps_per_eval = steps_per_val if dataset_name == 'val' else steps_per_eval
+      steps_per_eval = steps_per_val if dataset_name == 'val' else steps_per_eval  # pyrefly: ignore[unbound-name]
       logging.info('Starting to run eval at epoch: %s', epoch)
       test_start_time = time.time()
       test_step(test_iterator, dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+      metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
       logging.info('Done with testing on %s', dataset_name)
 
     if FLAGS.eval_on_ood:
-      for ood_dataset_name, ood_dataset in ood_datasets.items():
+      for ood_dataset_name, ood_dataset in ood_datasets.items():  # pyrefly: ignore[unbound-name]
         ood_iterator = iter(ood_dataset)
         logging.info('Calculating OOD on dataset %s', ood_dataset_name)
         logging.info('Running OOD eval at epoch: %s', epoch)
         test_step(ood_iterator, ood_dataset_name,
-                  steps_per_ood[ood_dataset_name])
+                  steps_per_ood[ood_dataset_name])  # pyrefly: ignore[unbound-name]
 
         logging.info('Done with OOD eval on %s', dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
-      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
+      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
                                                         corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
@@ -684,7 +684,7 @@ def main(argv):
     if use_validation_set:
       logging.info('Val NLL: %.4f, Accuracy: %.2f%%',
                    metrics['val/negative_log_likelihood'].result(),
-                   metrics['val/accuracy'].result() * 100)
+                   metrics['val/accuracy'].result() * 100)  # pyrefly: ignore[unsupported-operation]
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)
@@ -704,7 +704,7 @@ def main(argv):
       metric.reset_states()
 
     if FLAGS.corruptions_interval > 0:
-      for metric in corrupt_metrics.values():
+      for metric in corrupt_metrics.values():  # pyrefly: ignore[unbound-name]
         metric.reset_states()
 
     if (FLAGS.checkpoint_interval > 0 and

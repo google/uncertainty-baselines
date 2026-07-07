@@ -120,7 +120,7 @@ def main(argv):
   train_builder = dataset_builder_class(
       data_dir=data_dir,
       download_data=FLAGS.download_data,
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       validation_percent=1. - FLAGS.train_proportion)
   train_dataset = train_builder.load(batch_size=batch_size)
@@ -131,7 +131,7 @@ def main(argv):
   if FLAGS.train_proportion < 1.0:
     validation_builder = dataset_builder_class(
         data_dir=data_dir,
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         validation_percent=1. - FLAGS.train_proportion)
     validation_dataset = validation_builder.load(batch_size=batch_size)
@@ -141,7 +141,7 @@ def main(argv):
 
   clean_test_dataset_builder = dataset_builder_class(
       data_dir=data_dir,
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16)
   clean_test_dataset = clean_test_dataset_builder.load(
       batch_size=test_batch_size)
@@ -161,7 +161,7 @@ def main(argv):
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
             severity=severity,
-            split=tfds.Split.TEST,
+            split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             data_dir=data_dir).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
@@ -262,7 +262,7 @@ def main(argv):
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
-        for corruption in corruption_types:
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics['test/nll_{}'.format(dataset_name)] = (
               tf.keras.metrics.Mean())
@@ -343,7 +343,7 @@ def main(argv):
           tf.keras.losses.sparse_categorical_crossentropy(
               labels, processing_results['unweighted_logits'],
               from_logits=True))
-    return probs, negative_log_likelihood
+    return probs, negative_log_likelihood  # pyrefly: ignore[unbound-name]
 
   def _process_3d_logits_test(routing_weights, logits, labels):
     processing_results = _process_3d_logits(logits, routing_weights, labels)
@@ -444,53 +444,53 @@ def main(argv):
 
       if dataset_name == 'clean':
         if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
-          metrics[f'{dataset_split}/nll_poe'].update_state(results['nll_poe'])
-          metrics[f'{dataset_split}/nll_moe'].update_state(results['nll_moe'])
-          metrics[f'{dataset_split}/nll_unweighted_poe'].update_state(
+          metrics[f'{dataset_split}/nll_poe'].update_state(results['nll_poe'])  # pyrefly: ignore[missing-attribute, unbound-name]
+          metrics[f'{dataset_split}/nll_moe'].update_state(results['nll_moe'])  # pyrefly: ignore[missing-attribute]
+          metrics[f'{dataset_split}/nll_unweighted_poe'].update_state(  # pyrefly: ignore[missing-attribute]
               results['nll_unweighted_poe'])
-          metrics[f'{dataset_split}/nll_unweighted_moe'].update_state(
+          metrics[f'{dataset_split}/nll_unweighted_moe'].update_state(  # pyrefly: ignore[missing-attribute]
               results['nll_unweighted_moe'])
-          metrics[f'{dataset_split}/unweighted_gibbs_ce'].update_state(
+          metrics[f'{dataset_split}/unweighted_gibbs_ce'].update_state(  # pyrefly: ignore[missing-attribute]
               results['unweighted_gibbs_ce'])
-          metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
+          metrics[f'{dataset_split}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
               results['weighted_gibbs_ce'])
           metrics[f'{dataset_split}/ece'].add_batch(
               results['weighted_probs'], label=labels)
-          metrics[f'{dataset_split}/accuracy'].update_state(
+          metrics[f'{dataset_split}/accuracy'].update_state(  # pyrefly: ignore[missing-attribute]
               labels, results['weighted_probs'])
           metrics[f'{dataset_split}/ece_unweighted_moe'].add_batch(
               results['unweighted_probs'], label=labels)
-          metrics[f'{dataset_split}/accuracy_unweighted_moe'].update_state(
+          metrics[f'{dataset_split}/accuracy_unweighted_moe'].update_state(  # pyrefly: ignore[missing-attribute]
               labels, results['unweighted_probs'])
           metrics[f'{dataset_split}/ece_poe'].add_batch(
               results['weighted_logits'], label=labels)
-          metrics[f'{dataset_split}/accuracy_poe'].update_state(
+          metrics[f'{dataset_split}/accuracy_poe'].update_state(  # pyrefly: ignore[missing-attribute]
               labels, results['weighted_logits'])
           metrics[f'{dataset_split}/ece_unweighted_poe'].add_batch(
               results['unweighted_logits'], label=labels)
-          metrics[f'{dataset_split}/accuracy_unweighted_poe'].update_state(
+          metrics[f'{dataset_split}/accuracy_unweighted_poe'].update_state(  # pyrefly: ignore[missing-attribute]
               labels, results['unweighted_logits'])
           # TODO(ghassen): summarize all routing weights not only last layer's.
           average_routing_weights = tf.math.reduce_mean(routing_weights, axis=0)
           routing_weights_sum = tf.math.reduce_sum(average_routing_weights)
           for idx in range(FLAGS.num_experts):
-            metrics[f'{dataset_split}/dense_routing_weight_{idx}'].update_state(
+            metrics[f'{dataset_split}/dense_routing_weight_{idx}'].update_state(  # pyrefly: ignore[missing-attribute]
                 average_routing_weights[idx])
             key = f'{dataset_split}/dense_routing_weight_normalized_{idx}'
-            metrics[key].update_state(
+            metrics[key].update_state(  # pyrefly: ignore[missing-attribute]
                 average_routing_weights[idx] / routing_weights_sum)
           # TODO(ghassen): add more metrics for expert utilization,
           # load loss and importance/balance loss.
         else:
-          metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
-              negative_log_likelihood)
-          metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+          metrics[f'{dataset_split}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
+              negative_log_likelihood)  # pyrefly: ignore[unbound-name]
+          metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)  # pyrefly: ignore[missing-attribute, unbound-name]
           metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       else:
         # TODO(ghassen): figure out how to aggregate probs for the OOD case.
         if not FLAGS.reduce_dense_outputs and FLAGS.use_cond_dense:
           corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
-              results['unweighted_gibbs_ce'])
+              results['unweighted_gibbs_ce'])  # pyrefly: ignore[unbound-name]
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
               labels, results['unweighted_probs'])
           corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
@@ -504,9 +504,9 @@ def main(argv):
               dataset_name)].add_batch(results['weighted_probs'], label=labels)
         else:
           corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
-              negative_log_likelihood)
+              negative_log_likelihood)  # pyrefly: ignore[unbound-name]
           corrupt_metrics['test/accuracy_{}'.format(dataset_name)].update_state(
-              labels, probs)
+              labels, probs)  # pyrefly: ignore[unbound-name]
           corrupt_metrics['test/ece_{}'.format(dataset_name)].add_batch(
               probs, label=labels)
 
@@ -547,14 +547,14 @@ def main(argv):
       test_start_time = time.time()
       test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+      metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
       logging.info('Done with testing on %s', dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
-      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
+      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
                                                         corruption_types)
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',

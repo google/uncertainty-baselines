@@ -75,22 +75,22 @@ def basic_block(
   y = inputs
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = models_util.apply_dropout(y, dropout_rate, use_mc_dropout)
 
-  y = conv_layer(filters=filters,
+  y = conv_layer(filters=filters,  # pyrefly: ignore[not-callable]
                  strides=strides,
                  kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = models_util.apply_dropout(y, dropout_rate, use_mc_dropout)
 
-  y = conv_layer(filters=filters,
+  y = conv_layer(filters=filters,  # pyrefly: ignore[not-callable]
                  strides=1,
                  kernel_regularizer=tf.keras.regularizers.l2(l2))(y)
   if not x.shape.is_compatible_with(y.shape):
-    x = conv_layer(filters=filters,
+    x = conv_layer(filters=filters,  # pyrefly: ignore[not-callable]
                    kernel_size=1,
                    strides=strides,
                    kernel_regularizer=tf.keras.regularizers.l2(l2))(x)
@@ -209,15 +209,15 @@ def wide_resnet(
             conv_layer=conv2d)
   x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
 
   output_layer = models_util.make_output_layer(
       gp_layer_hparams=gp_layer_hparams)
   if gp_layer_hparams and gp_layer_hparams['gp_input_dim'] > 0:
     # Uses random projection to reduce the input dimension of the GP layer.
-    x = tf.keras.layers.Dense(
+    x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
         gp_layer_hparams['gp_input_dim'],
         kernel_initializer='random_normal',
         use_bias=False,

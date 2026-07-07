@@ -46,7 +46,7 @@ def get_model_names() -> List[str]:
 # edward2/tensorflow/initializers.py line 772.
 def get(
     model_name: str,
-    **hyperparameters) -> tf.keras.Model:
+    **hyperparameters) -> tf.keras.Model:  # pyrefly: ignore[bad-return]
   """Gets a model builder by name.
 
   Args:

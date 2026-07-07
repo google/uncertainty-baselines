@@ -62,7 +62,7 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
     if return_intermediates:
       sequence_scores, intermediates = sequence_scores
     if ens_size > 1:
-      sequence_scores = jnp.reshape(sequence_scores,
+      sequence_scores = jnp.reshape(sequence_scores,  # pyrefly: ignore[bad-argument-type]
                                     (ens_size, -1) + sequence_scores.shape[1:])  # pytype: disable=attribute-error  # jax-ndarray
       if ensemble_probs:
         # Computes log(mean(exp(logits))) along the first dimension.
@@ -71,7 +71,7 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
       else:
         sequence_scores = jnp.mean(sequence_scores, axis=0)
     if return_intermediates:
-      return sequence_scores, intermediates
+      return sequence_scores, intermediates  # pyrefly: ignore[bad-return, unbound-name]
     return sequence_scores
 
   def _compute_logits_from_slice(self,

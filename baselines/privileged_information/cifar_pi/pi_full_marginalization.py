@@ -338,8 +338,8 @@ def main(argv):
     steps_per_validation = validation_builder.num_examples // batch_size
   clean_test_builder = ub.datasets.get(
       'cifar10' if FLAGS.dataset in ['cifar10n', 'cifar10h'] else 'cifar100',
-      split=tfds.Split.TEST
-      if FLAGS.dataset != 'cifar10h' else tfds.Split.TRAIN,
+      split=tfds.Split.TEST  # pyrefly: ignore[missing-attribute]
+      if FLAGS.dataset != 'cifar10h' else tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       data_dir=data_dir,
       drop_remainder=FLAGS.drop_remainder_for_eval,
       is_training=False)
@@ -380,7 +380,7 @@ def main(argv):
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
             severity=severity,
-            split=tfds.Split.TEST,
+            split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             data_dir=data_dir).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
@@ -427,7 +427,7 @@ def main(argv):
       'random_pi': lambda e: e['pi_features']['random_pi'],
   }
   privileged_information_fn = pi_utils.get_privileged_information_fn(
-      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)
+      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)  # pyrefly: ignore[bad-argument-type]
 
   pi_shape = privileged_information_fn(dummy_example).shape[1:]
 
@@ -586,7 +586,7 @@ def main(argv):
         # We take just 1 augmented image from the returned augmented images.
         images = images[:, 1, ...]
       with tf.GradientTape() as tape:
-        (logits_pi, probs_fm) = model(
+        (logits_pi, probs_fm) = model(  # pyrefly: ignore[not-callable]
             (images, privileged_information, batched_pi_mc_samples),
             training=True)
 
@@ -644,7 +644,7 @@ def main(argv):
       }
 
       for setting in ['pi', 'fm']:
-        metrics[f'train/negative_log_likelihood_{setting}'].update_state(
+        metrics[f'train/negative_log_likelihood_{setting}'].update_state(  # pyrefly: ignore[missing-attribute]
             stats[setting]['negative_log_likelihood'])
         for noise_split in ['', '_clean', '_noisy']:
           sample_weight = None
@@ -656,7 +656,7 @@ def main(argv):
               stats[setting]['probs'],
               label=labels,
               sample_weight=sample_weight)
-          metrics[f'train/accuracy_{setting}{noise_split}'].update_state(
+          metrics[f'train/accuracy_{setting}{noise_split}'].update_state(  # pyrefly: ignore[missing-attribute]
               labels, stats[setting]['outputs'], sample_weight=sample_weight)  # pylint: disable=redundant-keyword-arg
 
       metrics['train/loss'].update_state(loss)
@@ -705,7 +705,7 @@ def main(argv):
           tf.expand_dims(pi_mc_samples, axis=0), multiples=[batch_size, 1, 1, 1]
       )
 
-      _, probs_fm = model(
+      _, probs_fm = model(  # pyrefly: ignore[not-callable]
           (images, random_pi, batched_pi_mc_samples), training=False
       )
       probs_fm = pi_utils.flatten_annotator_axis(probs_fm)
@@ -719,10 +719,10 @@ def main(argv):
       validation_type = (
           'validation_noisy' if use_annotator_labels else 'validation_clean'
       )
-      metrics[f'{validation_type}/negative_log_likelihood'].update_state(
+      metrics[f'{validation_type}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
           negative_log_likelihood
       )
-      metrics[f'{validation_type}/accuracy'].update_state(labels, probs_fm)
+      metrics[f'{validation_type}/accuracy'].update_state(labels, probs_fm)  # pyrefly: ignore[missing-attribute]
       metrics[f'{validation_type}/ece'].add_batch(probs_fm, label=labels)
 
     for _ in tf.range(tf.cast(num_steps, tf.int32)):
@@ -750,7 +750,7 @@ def main(argv):
           tf.expand_dims(pi_mc_samples, axis=0),
           multiples=[batch_size, 1, 1, 1])
 
-      _, probs_fm = model((images, random_pi, batched_pi_mc_samples),
+      _, probs_fm = model((images, random_pi, batched_pi_mc_samples),  # pyrefly: ignore[not-callable]
                           training=False)
       # Remove repeated annotator dimensions:
       # probs_fm (batch_size, num_dummy_annotators, num_classes) ->
@@ -761,9 +761,9 @@ def main(argv):
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs_fm))
 
       if dataset_name == 'clean':
-        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs_fm)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs_fm)  # pyrefly: ignore[missing-attribute]
         metrics[f'{dataset_split}/ece'].add_batch(probs_fm, label=labels)
       elif dataset_name.startswith('ood/'):
         ood_labels = 1 - inputs['is_in_distribution']
@@ -772,7 +772,7 @@ def main(argv):
         # Edgecase for if dataset_name contains underscores
         for name, metric in metrics.items():
           if dataset_name in name:
-            metric.update_state(ood_labels, ood_scores)
+            metric.update_state(ood_labels, ood_scores)  # pyrefly: ignore[missing-attribute]
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -803,7 +803,7 @@ def main(argv):
       train_start_time = time.time()
       train_step(train_iterator)
       ms_per_example = (time.time() - train_start_time) * 1e6 / batch_size
-      metrics['train/ms_per_example'].update_state(ms_per_example)
+      metrics['train/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
       current_step = (epoch + 1) * steps_per_epoch
       max_steps = steps_per_epoch * FLAGS.train_epochs
@@ -835,7 +835,7 @@ def main(argv):
       test_start_time = time.time()
       test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+      metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
       logging.info('Done with testing on %s', dataset_name)
 
@@ -858,8 +858,8 @@ def main(argv):
     logging.info(
         'Train Loss: %.4f, Accuracy (FM): %.2f%%, Accuracy (PI): %.2f%%',
         metrics['train/loss'].result(),
-        metrics['train/accuracy_fm'].result() * 100,
-        metrics['train/accuracy_pi'].result() * 100)
+        metrics['train/accuracy_fm'].result() * 100,  # pyrefly: ignore[unsupported-operation]
+        metrics['train/accuracy_pi'].result() * 100)  # pyrefly: ignore[unsupported-operation]
     logging.info('Test NLL: %.4f, Accuracy: %.2f%%',
                  metrics['test/negative_log_likelihood'].result(),
                  metrics['test/accuracy'].result() * 100)

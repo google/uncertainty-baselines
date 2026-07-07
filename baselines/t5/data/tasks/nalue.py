@@ -116,7 +116,7 @@ def register_nalue_dataset(data_name: str, split_names: Sequence[str],
                            file_num_examples: Mapping[str, int]):
   """Registers NaLUE datasets."""
   # Filters file metadata by split_names.
-  file_patterns = {k: v for k, v in file_patterns.items() if k in split_names}
+  file_patterns = {k: v for k, v in file_patterns.items() if k in split_names}  # pyrefly: ignore[bad-assignment]
   file_num_examples = {
       k: v for k, v in file_num_examples.items() if k in split_names
   }
@@ -160,7 +160,7 @@ def register_nalue_dataset(data_name: str, split_names: Sequence[str],
 
   TaskRegistry.add(
       data_name,
-      source=data_source,
+      source=data_source,  # pyrefly: ignore[bad-argument-type]
       preprocessors=[
           functools.partial(
               t5_preprocessors.parse_tsv, field_names=NALUE_TSV_FIELD_NAMES),
@@ -208,11 +208,11 @@ register_nalue_dataset(
 register_nalue_dataset(
     'nalue_ind_and_standard_oos',
     split_names=('validation', 'test'),
-    file_patterns=NALUE_FILE_PATTERNS_IND_AND_OOS,
+    file_patterns=NALUE_FILE_PATTERNS_IND_AND_OOS,  # pyrefly: ignore[bad-argument-type]
     file_num_examples=NALUE_NUM_EXAMPLES_IND_AND_OOS)
 
 register_nalue_dataset(
     'nalue_ind_and_near_oos',
     split_names=('validation', 'test'),
-    file_patterns=NALUE_FILE_PATTERNS_IND_AND_NEAR_OOS,
+    file_patterns=NALUE_FILE_PATTERNS_IND_AND_NEAR_OOS,  # pyrefly: ignore[bad-argument-type]
     file_num_examples=NALUE_NUM_EXAMPLES_IND_AND_NEAR_OOS)

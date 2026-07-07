@@ -56,7 +56,7 @@ def _conv_pooled_block(
   logging.info('conv input shape %s', inputs.shape)
   # expend last dim to fit conv2d
   out = tf.expand_dims(inputs, axis=3)  # [batch_size, seq_len, embed_size, 1]
-  out = conv_layer(out)  # [batch_size, seq_len, embed_size, num_motifs]
+  out = conv_layer(out)  # [batch_size, seq_len, embed_size, num_motifs]  # pyrefly: ignore[not-callable]
   # TODO(jjren) indices=1 only works for embed_size=4
   out = tf.gather(out, indices=1, axis=2)  # [batch_size, seq_len, num_motifs]
 
@@ -73,7 +73,7 @@ def _input_embedding(inputs, vocab_size, one_hot=True, embed_size=None):
     embed_size = vocab_size
   else:
     if embed_size:
-      out = tf.keras.layers.Embedding(vocab_size, embed_size)(inputs)
+      out = tf.keras.layers.Embedding(vocab_size, embed_size)(inputs)  # pyrefly: ignore[not-callable]
     else:
       raise ValueError('Embed input integers but embedding size is not given.')
   return out
@@ -177,7 +177,7 @@ def genomics_cnn(batch_size: int,
       x, dropout_rate, use_mc_dropout, name='dropout2')
   if gp_layer_hparams and gp_layer_hparams['gp_input_dim'] > 0:
     # Uses random projection to reduce the input dimension of the GP layer.
-    x = tf.keras.layers.Dense(
+    x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
         gp_layer_hparams['gp_input_dim'],
         kernel_initializer='random_normal',
         use_bias=False,
@@ -185,4 +185,4 @@ def genomics_cnn(batch_size: int,
         name='gp_random_projection')(
             x)
   outputs = output_layer(num_classes, name='logits')(x)
-  return tf.keras.Model(inputs=inputs, outputs=outputs)
+  return tf.keras.Model(inputs=inputs, outputs=outputs)  # pyrefly: ignore[bad-return]

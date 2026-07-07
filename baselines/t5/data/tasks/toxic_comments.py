@@ -81,7 +81,7 @@ def _register_toxic_comments_ranking_task(
 
   TaskRegistry.add(
       task_name,
-      source=tfds_source,
+      source=tfds_source,  # pyrefly: ignore[bad-argument-type]
       preprocessors=[
           toxicity_rank_classification_preprocessor,
           toxicity_rank_classification_formatter, seqio.preprocessors.tokenize,
@@ -126,7 +126,7 @@ def _register_toxic_comments_classification_task(
   # outputs.
   TaskRegistry.add(
       task_name,
-      source=tfds_source,
+      source=tfds_source,  # pyrefly: ignore[bad-argument-type]
       preprocessors=[
           toxicity_classification_preprocessor,
           seqio.preprocessors.tokenize,

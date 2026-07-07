@@ -81,7 +81,7 @@ class DiabeticRetinopathyPreprocess:
 
     # Perform binarization using given threshold
     labels = features["label"]
-    labels = tf.cast(labels > highest_negative_class, tf.int32)
+    labels = tf.cast(labels > highest_negative_class, tf.int32)  # pyrefly: ignore[unsupported-operation]
     features[self.key_result or self.key] = decoded_image
     features["labels"] = labels
     del features["label"]
@@ -413,7 +413,7 @@ class Onehot:
     # than using tf.one_hot followed by tf.reduce_max; we tested.
     labels = features[self.key]
     if labels.shape.rank > 0 and self.multi:  # pytype: disable=attribute-error
-      x = tf.scatter_nd(labels[:, None], tf.ones(tf.shape(labels)[0]),
+      x = tf.scatter_nd(labels[:, None], tf.ones(tf.shape(labels)[0]),  # pyrefly: ignore[bad-index]
                         (self.depth,))
       x = tf.clip_by_value(x, 0, 1) * (self.on - self.off) + self.off
     else:

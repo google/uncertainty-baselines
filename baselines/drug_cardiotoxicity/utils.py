@@ -112,11 +112,11 @@ def get_metric_result_value(metric):
 def load_dataset(data_dir, split, batch_size):
   """Loads a single dataset with specific split."""
   known_splits = [
-      tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST,
+      tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       tfds.Split('test2')
   ]
   if split in known_splits:
-    is_training = split == tfds.Split.TRAIN
+    is_training = split == tfds.Split.TRAIN  # pyrefly: ignore[missing-attribute]
   else:
     raise ValueError(
         'Received ambiguous split {}, must set is_training for splits other '

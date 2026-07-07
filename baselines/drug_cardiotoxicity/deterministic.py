@@ -249,7 +249,7 @@ def run(
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.categorical_crossentropy(labels, probs))
 
-      metrics[f'{dataset_name}/negative_log_likelihood'].update_state(
+      metrics[f'{dataset_name}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-argument]
           negative_log_likelihood)
       metrics[f'{dataset_name}/accuracy'].update_state(labels, probs)
       metrics[f'{dataset_name}/roc_auc'].update_state(
@@ -275,8 +275,8 @@ def run(
     logging.info('Starting to run epoch: %s', epoch)
     train_step(train_iterator)
 
-    current_step = (epoch + 1) * params.steps_per_epoch
-    max_steps = params.steps_per_epoch * params.num_epochs
+    current_step = (epoch + 1) * params.steps_per_epoch  # pyrefly: ignore[unsupported-operation]
+    max_steps = params.steps_per_epoch * params.num_epochs  # pyrefly: ignore[unsupported-operation]
     time_elapsed = time.time() - start_time
     steps_per_sec = float(current_step) / time_elapsed
     eta_seconds = (max_steps - current_step) / steps_per_sec
@@ -325,11 +325,11 @@ def main(argv: Sequence[str]):
     strategy = tf.distribute.MirroredStrategy()
 
   train_dataset, steps_per_epoch = utils.load_dataset(FLAGS.data_dir,
-                                                      tfds.Split.TRAIN,
+                                                      tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
                                                       FLAGS.batch_size)
 
   eval_identifiers = ['tune', 'test1', 'test2']
-  splits = [tfds.Split.VALIDATION, tfds.Split.TEST, tfds.Split('test2')]
+  splits = [tfds.Split.VALIDATION, tfds.Split.TEST, tfds.Split('test2')]  # pyrefly: ignore[missing-attribute]
   eval_datasets, steps_per_eval = utils.load_eval_datasets(
       eval_identifiers, splits, FLAGS.data_dir, FLAGS.batch_size)
 
@@ -380,7 +380,7 @@ def main(argv: Sequence[str]):
       strategy=strategy,
       summary_writer=summary_writer,
       loss_type=FLAGS.loss_type,
-      graph_augmenter=graph_augmenter)
+      graph_augmenter=graph_augmenter)  # pyrefly: ignore[bad-argument-type]
 
 
 if __name__ == '__main__':

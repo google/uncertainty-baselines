@@ -218,11 +218,11 @@ TEST_MULTIWOZ_CONFIG = {
 def build_constrained_model(input_size: List[int]) -> tf.keras.Model:
   """Build simple neural model for class prediction."""
   input_layer = tf.keras.layers.Input(input_size)
-  hidden_layer_1 = tf.keras.layers.Dense(1024)(input_layer)
-  hidden_layer_2 = tf.keras.layers.Dense(
+  hidden_layer_1 = tf.keras.layers.Dense(1024)(input_layer)  # pyrefly: ignore[not-callable]
+  hidden_layer_2 = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       512, activation='sigmoid')(
           hidden_layer_1)
-  output = tf.keras.layers.Dense(
+  output = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       9, activation='softmax',
       kernel_regularizer=tf.keras.regularizers.l2(1.0))(
           hidden_layer_2)

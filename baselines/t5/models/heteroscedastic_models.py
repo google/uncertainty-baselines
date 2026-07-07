@@ -127,4 +127,4 @@ def get_assignment_map(
         # `scale_layer_heteroscedastic` in the parameter-efficient case.
         (r'(.*)decoder/heteroscedastic_head/scale_layer(.*)', None),
     ]
-  return assignment_map
+  return assignment_map  # pyrefly: ignore[bad-return]

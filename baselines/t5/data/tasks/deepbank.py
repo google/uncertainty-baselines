@@ -152,12 +152,12 @@ def parsing_dataset(
     datasets = [
         tfrecord_dataset(
             data_patterns=[p], shuffle_files=shuffle_files, repeat=True)
-        for p in params['train_patterns']
+        for p in params['train_patterns']  # pyrefly: ignore[unsupported-operation]
     ]
-    return dataset_mixture(datasets, weights=params['train_weights'])
+    return dataset_mixture(datasets, weights=params['train_weights'])  # pyrefly: ignore[unsupported-operation]
 
   return tfrecord_dataset(
-      data_patterns=[params['eval_patterns'][split]],
+      data_patterns=[params['eval_patterns'][split]],  # pyrefly: ignore[unsupported-operation]
       shuffle_files=shuffle_files,
       repeat=False)
 

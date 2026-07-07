@@ -205,7 +205,7 @@ def checkpoint_trained_model(
           accum_train_time=checkpoint_data.accumulated_train_time),
       )
   if checkpoint_data.fixed_model_states is not None:
-    tree["states"] = checkpoint_data.fixed_model_states
+    tree["states"] = checkpoint_data.fixed_model_states  # pyrefly: ignore[bad-assignment]
   save_checkpoint(tree, path, step_for_copy)
 
 
@@ -216,7 +216,7 @@ def _flatten_jax_params_dict(d: Params, parent_key: str = "",
   for k, v in d.items():
     path = parent_key + sep + k if parent_key else k
     if isinstance(v, collections.abc.Mapping):
-      items.extend(_flatten_jax_params_dict(v, path, sep=sep).items())
+      items.extend(_flatten_jax_params_dict(v, path, sep=sep).items())  # pyrefly: ignore[bad-argument-type]
     else:
       items.append((path, v))
 
@@ -411,7 +411,7 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
 
     checkpoint_tree = {"opt": init_optimizer, "extra": checkpoint_extra}
     if init_fixed_model_states is not None:
-      checkpoint_tree["states"] = init_fixed_model_states
+      checkpoint_tree["states"] = init_fixed_model_states  # pyrefly: ignore[bad-assignment]
     checkpoint = load_checkpoint(checkpoint_tree, resume_checkpoint_path)
     optimizer, checkpoint_extra = checkpoint["opt"], checkpoint["extra"]
     fixed_model_states = checkpoint.get("states", None)
@@ -442,7 +442,7 @@ def maybe_load_checkpoint(train_loop_rngs: jnp.ndarray,
   return CheckpointData(
       optimizer=optimizer,
       fixed_model_states=fixed_model_states,
-      train_loop_rngs=checkpoint_extra["rngs_loop"],
+      train_loop_rngs=checkpoint_extra["rngs_loop"],  # pyrefly: ignore[bad-argument-type]
       accumulated_train_time=checkpoint_extra["accum_train_time"])
 
 

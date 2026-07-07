@@ -206,7 +206,7 @@ def get_data(
   dataset_builder = _get_dataset_builder(dataset, data_dir)
 
   if rng is not None:
-    rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.
+    rng = jax.random.fold_in(rng, process_index)  # Derive RNG for this process.  # pyrefly: ignore[bad-argument-type]
 
   process_split = _get_process_split(
       split,

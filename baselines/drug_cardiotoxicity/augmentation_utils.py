@@ -330,7 +330,7 @@ class GraphAugment:
         perturbation_values_for_pair_mask = drop_values_for_pair_mask
       else:
         edges_to_perturb = tf.concat(
-            (idx_edges_to_drop, idx_bidirectional_edges_to_add), axis=0)
+            (idx_edges_to_drop, idx_bidirectional_edges_to_add), axis=0)  # pyrefly: ignore[unbound-name]
         add_values_for_pair_mask = tf.ones(
             tf.shape(idx_bidirectional_edges_to_add)[0])
         perturbation_values_for_pair_mask = tf.concat(
@@ -344,11 +344,11 @@ class GraphAugment:
       else:
         if self.initialize_edge_features_randomly:
           add_values_for_pairs = tf.random.uniform(
-              (tf.shape(idx_bidirectional_edges_to_add)[0],
+              (tf.shape(idx_bidirectional_edges_to_add)[0],  # pyrefly: ignore[unbound-name]
                tf.shape(pairs)[-1]))
         else:
           add_values_for_pairs = tf.concat(
-              (features_of_edges_to_drop, features_of_edges_to_drop), axis=0)
+              (features_of_edges_to_drop, features_of_edges_to_drop), axis=0)  # pyrefly: ignore[unbound-name]
         perturbation_values_for_pairs = tf.concat(
             (drop_values_for_pairs, add_values_for_pairs), axis=0)
 

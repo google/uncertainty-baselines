@@ -142,7 +142,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     label_token_ids = []
 
     for token in self.label_tokens:
-      token_id = self._output_vocabulary.encode(token)
+      token_id = self._output_vocabulary.encode(token)  # pyrefly: ignore[bad-argument-type]
 
       # Convert token_id to integer.
       if not isinstance(token_id, INT_CLASSES):
@@ -235,7 +235,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
         intermediates = None
 
       # Returns class logits, shape (batch_size, output_len, num_class).
-      sequence_scores = logits[:, :, self.label_token_ids]
+      sequence_scores = logits[:, :, self.label_token_ids]  # pyrefly: ignore[bad-index]
       return sequence_scores, intermediates
 
     batch_sequence_scores, intermediates = _partial_map(
@@ -300,7 +300,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     if dropout_seed is not None:
       dropout_rng = jax.random.PRNGKey(dropout_seed)
     if num_mcdropout_samples is not None:
-      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)
+      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)  # pyrefly: ignore[bad-argument-type]
     # Computes argmax predictive logits over the whole class,
     # shape (batch_size, output_len, num_class).
     sequence_scores = self._compute_argmax_score(params, batch,
@@ -339,7 +339,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
               rngs=dropout_rng,
               method=self.module.encode,
           )
-          intermediates['encoded_inputs'] = encoded_inputs
+          intermediates['encoded_inputs'] = encoded_inputs  # pyrefly: ignore[unbound-name, unsupported-operation]
 
         intermediates_flat = traverse_util.flatten_dict(intermediates)
         intermediates = {}
@@ -347,7 +347,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
           key = '/'.join(key_flat)
           if key in intermediates_to_track:
             intermediates[key] = value
-      return sequence_scores, intermediates
+      return sequence_scores, intermediates  # pyrefly: ignore[unbound-name]
 
     return sequence_scores
 
@@ -455,7 +455,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     new_cache = _cache_concatenate(batch_new_cache)
     return flat_logits, new_cache
 
-  def predict_batch_with_aux(
+  def predict_batch_with_aux(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: Mapping[str, jnp.ndarray],
@@ -502,7 +502,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     elif run_mc_dropout:
       params_list = [params]
       batch_rngs = {'dropout': dropout_rng}
-      k = dropout_rng.shape[0]
+      k = dropout_rng.shape[0]  # pyrefly: ignore[missing-attribute]
     else:
       params_list = [params]
       k = 1
@@ -541,7 +541,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     def get_encoded_inputs(args):
       params, rngs = args
       encoded_inputs = decoding.flat_batch_beam_expand(
-          self.module.apply({'params': params},
+          self.module.apply({'params': params},  # pyrefly: ignore[bad-argument-type]
                             inputs,
                             enable_dropout=rngs is not None,
                             rngs=rngs,
@@ -587,7 +587,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
     # decodes: [k * batch, num_decodes, max_decode_len + 1]
     # scores: [k * batch, num_decodes]
     scanned = hasattr(self.module, 'scan_layers') and self.module.scan_layers
-    decodes, scores = self._decode_fn(
+    decodes, scores = self._decode_fn(  # pyrefly: ignore[not-callable]
         inputs=decoder_prompt_inputs,
         cache=cache,
         tokens_to_logits=tokens_ids_to_logits,
@@ -626,7 +626,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
   `return_all_decodes` set to `True`.
   """
 
-  def predict_batch(
+  def predict_batch(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: Mapping[str, jnp.ndarray],
@@ -704,7 +704,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
     if dropout_seed is not None:
       dropout_rng = jax.random.PRNGKey(dropout_seed)
     if num_mcdropout_samples is not None:
-      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)
+      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)  # pyrefly: ignore[bad-argument-type]
     return super().predict_batch_with_aux(
         params=params,
         batch=batch,
@@ -747,7 +747,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
     if dropout_seed is not None:
       dropout_rng = jax.random.PRNGKey(dropout_seed)
     if num_mcdropout_samples is not None:
-      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)
+      dropout_rng = jax.random.split(dropout_rng, num_mcdropout_samples)  # pyrefly: ignore[bad-argument-type]
     # Computes argmax predictive logits over the whole class,
     # shape (batch_size, output_len, num_class).
     sequence_scores = self._compute_argmax_score(params, batch,
@@ -767,15 +767,15 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
     token_scores = -losses.cross_entropy_with_logits(
         logits,
         common_utils.onehot(
-            target_tokens, jnp.shape(logits)[-1], on_value=1, off_value=0),
+            target_tokens, jnp.shape(logits)[-1], on_value=1, off_value=0),  # pyrefly: ignore[bad-argument-type]
         z_loss=0.0)[0] * weights
 
     sequence_scores = token_scores.sum(-1)
 
     if return_intermediates:
-      intermediates.setdefault('entropy', {})
+      intermediates.setdefault('entropy', {})  # pyrefly: ignore[missing-attribute, unbound-name]
       intermediates['entropy']['logits'] = logits
-      intermediates['entropy']['token_entropy'] = _compute_token_entropy(logits)
+      intermediates['entropy']['token_entropy'] = _compute_token_entropy(logits)  # pyrefly: ignore[bad-argument-type]
       if intermediates_to_track:
         # infer binary's write_fn requires intermediates to be a flatten dict.
         # So we will return flatten dictionary here. For example, given
@@ -809,7 +809,7 @@ class DecoderOnlyBeamScoreModel(t5x_models.DecoderOnlyModel):
   decoding algorithms.
   """
 
-  def predict_batch(
+  def predict_batch(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: Mapping[str, jnp.ndarray],

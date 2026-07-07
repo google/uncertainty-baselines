@@ -109,16 +109,16 @@ def _configure(triples: Triples, root: str) -> tree_utils.Tree:
   #  'x2': ('x2', [('/', '_udef_q')])}
   # Initialization of nodemap.
   nodemap = {idx: None for idx in node_indexes}
-  nodemap[root] = (root, [])
+  nodemap[root] = (root, [])  # pyrefly: ignore[unsupported-operation]
   data = list(reversed(triples))
   # Initialization of node.
-  node = _configure_node(root, data, nodemap)
+  node = _configure_node(root, data, nodemap)  # pyrefly: ignore[bad-argument-type]
   while data:
-    skipped, idx, data = _find_next(data, nodemap)
+    skipped, idx, data = _find_next(data, nodemap)  # pyrefly: ignore[bad-argument-type]
     data_count = len(data)
     if idx is None or data_count == 0:
       raise ValueError('Possibly disconnected graph')
-    _configure_node(idx, data, nodemap)
+    _configure_node(idx, data, nodemap)  # pyrefly: ignore[bad-argument-type]
     if len(data) >= data_count:
       raise ValueError('Possible cycle in configuration')
     data = skipped + data

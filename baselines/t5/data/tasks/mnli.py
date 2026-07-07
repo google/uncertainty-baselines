@@ -151,7 +151,7 @@ def register_hans_dataset(
 
   TaskRegistry.add(
       data_name,
-      source=data_source,
+      source=data_source,  # pyrefly: ignore[bad-argument-type]
       preprocessors=[
           hans_tsv_preprocessor,
           hans_example_preprocessor,
@@ -182,7 +182,7 @@ def register_mnli_dataset(
 
   TaskRegistry.add(
       data_name,
-      source=tfds_source,
+      source=tfds_source,  # pyrefly: ignore[bad-argument-type]
       preprocessors=[
           mnli_preprocessor,
           seqio.preprocessors.tokenize,

@@ -127,7 +127,7 @@ def main(config, output_dir):
       split=config.train_split,
       rng=train_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
+      preprocess_fn=preprocess_spec.parse(  # pyrefly: ignore[bad-argument-type]
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
@@ -392,7 +392,7 @@ def main(config, output_dir):
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
     if config.get('grad_clip_norm'):
-      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
+      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)  # pyrefly: ignore[unbound-name]
       g = jax.tree_util.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
 
@@ -411,7 +411,7 @@ def main(config, output_dir):
   reint_params = []
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=rng,
-      save_checkpoint_path=save_checkpoint_path,
+      save_checkpoint_path=save_checkpoint_path,  # pyrefly: ignore[bad-argument-type]
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=states_cpu,
@@ -533,7 +533,7 @@ def main(config, output_dir):
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
-      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))  # pyrefly: ignore[unbound-name]
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
       # Keep train_loss to return for reproducibility tests.

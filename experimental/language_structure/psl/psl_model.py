@@ -82,7 +82,7 @@ class PSLModel(abc.ABC):
         return tf.reduce_mean(-tf.reduce_sum(tf.math.log(prob), axis=-1))
 
     if logic == 'product_real_logic':
-      body = PSLModel.soft_and(body, logic)
+      body = PSLModel.soft_and(body, logic)  # pyrefly: ignore[bad-assignment]
       truth_values = PSLModel.soft_imply(body, head, logic)
 
       if loss_function == _LINEAR_LOSS:
@@ -103,10 +103,10 @@ class PSLModel(abc.ABC):
     """Soft logical implication."""
     if logic == 'lukasiewicz':
       # body -> head = (1 - body_i), head
-      return [1. - predicate for predicate in body], head
+      return [1. - predicate for predicate in body], head  # pyrefly: ignore[bad-return, unsupported-operation]
     if logic == 'product_real_logic':
       # 1 - A + A * B
-      return 1 - body + body * head
+      return 1 - body + body * head  # pyrefly: ignore[bad-return, unsupported-operation]
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 
@@ -116,9 +116,9 @@ class PSLModel(abc.ABC):
                   logic: str = 'lukasiewicz') -> tf.Tensor:
     """Soft logical implication."""
     if logic == 'lukasiewicz':
-      body = PSLModel.soft_and(body)
+      body = PSLModel.soft_and(body)  # pyrefly: ignore[bad-assignment]
       # A -> B = min(1, 1 - A + B)
-      return tf.minimum(1., 1 - body + head)
+      return tf.minimum(1., 1 - body + head)  # pyrefly: ignore[unsupported-operation]
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 
@@ -132,7 +132,7 @@ class PSLModel(abc.ABC):
       # A & B = max(0, A + B - 1)
       val = body[0]
       for i in range(1, num_bodies):
-        val = normalize(tf.nn.relu(val + body[i] - 1))
+        val = normalize(tf.nn.relu(val + body[i] - 1))  # pyrefly: ignore[unsupported-operation]
       return val
     elif logic == 'product_real_logic':
       # A & B = A * B
@@ -148,9 +148,9 @@ class PSLModel(abc.ABC):
     """Soft logical negation."""
     if logic == 'lukasiewicz':
       # !predicate = 1 - predicate
-      return normalize(1. - predicate)
+      return normalize(1. - predicate)  # pyrefly: ignore[unsupported-operation]
     if logic == 'product_real_logic':
-      return 1. - predicate
+      return 1. - predicate  # pyrefly: ignore[bad-return, unsupported-operation]
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 

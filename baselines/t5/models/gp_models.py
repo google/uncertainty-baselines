@@ -53,7 +53,7 @@ class EncoderDecoderGPModel(models.EncoderDecoderModel):
         weights=weights,
         label_smoothing=self._label_smoothing,
         z_loss=self._z_loss,
-        loss_normalizing_factor=self._loss_normalizing_factor)
+        loss_normalizing_factor=self._loss_normalizing_factor)  # pyrefly: ignore[bad-argument-type]
     metrics = models.compute_base_metrics(logits, targets, weights, loss,
                                           total_z_loss)
 

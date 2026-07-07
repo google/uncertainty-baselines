@@ -259,7 +259,7 @@ def retoken_graph_str(graph_str: Text, data_version: str = 'v0') -> Text:
       edge_name = token.split('-of')[0]
       if edge_name in name_to_token_map:
         retoken = token.replace(edge_name, name_to_token_map[edge_name])
-      if '-of' in retoken and '-of' in name_to_token_map:
+      if '-of' in retoken and '-of' in name_to_token_map:  # pyrefly: ignore[unbound-name]
         retoken = retoken.replace('-of', ' ' + name_to_token_map['-of'])
       new_graph_str_list.append(retoken)
     elif token.startswith('_') and data_version in ['v0', 'v1']:

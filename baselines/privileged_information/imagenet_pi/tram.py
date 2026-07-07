@@ -226,7 +226,7 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   train_builder = ub.datasets.ImageNetPIDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       one_hot=True,
       validation_percent=1.0 - FLAGS.train_proportion,
@@ -248,7 +248,7 @@ def main(argv):
   )
   steps_per_epoch = train_builder.num_examples // batch_size
   test_builder = ub.datasets.ImageNetPIDataset(
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=data_dir,
       annotations_path=FLAGS.annotations_path,
@@ -280,7 +280,7 @@ def main(argv):
                  validation_proportion * 100)
     # Note we do not one_hot the validation set.
     validation_builder = ub.datasets.ImageNetPIDataset(
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         validation_percent=validation_proportion,
         data_dir=data_dir,
@@ -335,7 +335,7 @@ def main(argv):
           annotator_label_if_incorrect_encoding,
   }
   privileged_information_fn = pi_utils.get_privileged_information_fn(
-      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)
+      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)  # pyrefly: ignore[bad-argument-type]
 
   pi_shape = privileged_information_fn(dummy_example).shape[1:]
 
@@ -360,7 +360,7 @@ def main(argv):
 
   test_privileged_information_fn = pi_utils.get_privileged_information_fn(
       pi_subset=FLAGS.pi_subset.split(','),
-      encoding_fn_dict=test_encoding_fn_dict)
+      encoding_fn_dict=test_encoding_fn_dict)  # pyrefly: ignore[bad-argument-type]
 
   with strategy.scope():
 
@@ -557,7 +557,7 @@ def main(argv):
               label=labels,
               sample_weight=sample_weight)
           metrics[f'train/accuracy_{setting}{noise_split}'].update_state(
-              labels, stats[setting]['logits'], sample_weight=sample_weight)
+              labels, stats[setting]['logits'], sample_weight=sample_weight)  # pyrefly: ignore[bad-keyword-argument]
 
       metrics['train/loss'].update_state(loss)
 
@@ -637,13 +637,13 @@ def main(argv):
     test_iterator = iter(test_dataset)
     logging.info('Starting to run eval at epoch: %s', epoch)
     if FLAGS.train_proportion < 1.0:
-      validation_iterator = iter(validation_dataset)
+      validation_iterator = iter(validation_dataset)  # pyrefly: ignore[no-matching-overload]
       test_step(
           metrics_prefix='validation_noisy',
           iterator=validation_iterator,
           steps_per_eval=steps_per_validation_eval)
       # NOTE: We reinitialize the iterator to avoid OutOfRangeError.
-      validation_iterator = iter(validation_dataset)
+      validation_iterator = iter(validation_dataset)  # pyrefly: ignore[no-matching-overload]
       test_step(
           metrics_prefix='validation_clean',
           iterator=validation_iterator,

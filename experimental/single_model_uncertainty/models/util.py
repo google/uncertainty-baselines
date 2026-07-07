@@ -173,9 +173,9 @@ def apply_dropout(inputs: tf.Tensor,
       dropout_rate, noise_shape=noise_shape, name=name)
 
   if use_mc_dropout:
-    return dropout_layer(inputs, training=True)
+    return dropout_layer(inputs, training=True)  # pyrefly: ignore[not-callable]
 
-  return dropout_layer(inputs)
+  return dropout_layer(inputs)  # pyrefly: ignore[not-callable]
 
 
 def make_output_layer(gp_layer_hparams=None):

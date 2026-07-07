@@ -288,8 +288,8 @@ def main(argv):
     steps_per_validation = validation_builder.num_examples // batch_size
   clean_test_builder = ub.datasets.get(
       'cifar10' if FLAGS.dataset in ['cifar10n', 'cifar10h'] else 'cifar100',
-      split=tfds.Split.TEST
-      if FLAGS.dataset != 'cifar10h' else tfds.Split.TRAIN,
+      split=tfds.Split.TEST  # pyrefly: ignore[missing-attribute]
+      if FLAGS.dataset != 'cifar10h' else tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       data_dir=data_dir,
       drop_remainder=FLAGS.drop_remainder_for_eval,
       is_training=False)
@@ -328,7 +328,7 @@ def main(argv):
             f'{FLAGS.dataset}_corrupted',
             corruption_type=corruption_type,
             severity=severity,
-            split=tfds.Split.TEST,
+            split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             data_dir=data_dir).load(batch_size=batch_size)
         test_datasets[f'{corruption_type}_{severity}'] = (
             strategy.experimental_distribute_dataset(dataset))
@@ -375,7 +375,7 @@ def main(argv):
       'random_pi': lambda e: e['pi_features']['random_pi'],
   }
   privileged_information_fn = pi_utils.get_privileged_information_fn(
-      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)
+      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)  # pyrefly: ignore[bad-argument-type]
 
   pi_shape = privileged_information_fn(dummy_example).shape[1:]
 
@@ -470,12 +470,12 @@ def main(argv):
                 rm.metrics.ExpectedCalibrationError(num_bins=FLAGS.num_bins),
         })
     if FLAGS.eval_on_ood:
-      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)
+      ood_metrics = ood_utils.create_ood_metrics(ood_dataset_names)  # pyrefly: ignore[unbound-name]
       metrics.update(ood_metrics)
     if FLAGS.corruptions_interval > 0:
       corrupt_metrics = {}
       for intensity in range(1, 6):
-        for corruption in corruption_types:
+        for corruption in corruption_types:  # pyrefly: ignore[unbound-name]
           dataset_name = '{0}_{1}'.format(corruption, intensity)
           corrupt_metrics[f'distill/test/nll_{dataset_name}'] = (
               tf.keras.metrics.Mean())
@@ -590,7 +590,7 @@ def main(argv):
 
     sample_weight = None
     if noise_split == '_clean':
-      sample_weight = 1. - noisy_idx
+      sample_weight = 1. - noisy_idx  # pyrefly: ignore[unsupported-operation]
     elif noise_split == '_noisy':
       sample_weight = noisy_idx
     metrics[f'{training_phase}/train/ece{noise_split}'].add_batch(
@@ -613,7 +613,7 @@ def main(argv):
       noisy_idx = pi_utils.find_noisy_annotators(inputs)
 
       with tf.GradientTape() as tape:
-        logits = teacher_model((images, privileged_information), training=True)
+        logits = teacher_model((images, privileged_information), training=True)  # pyrefly: ignore[not-callable]
 
         # Flatten the annotator axis.
         logits = pi_utils.flatten_annotator_axis(logits)
@@ -668,9 +668,9 @@ def main(argv):
       noisy_idx = pi_utils.find_noisy_annotators(inputs)
 
       with tf.GradientTape() as tape:
-        teacher_logits = teacher_model((images, privileged_information),
+        teacher_logits = teacher_model((images, privileged_information),  # pyrefly: ignore[not-callable]
                                        training=False)
-        logits = distill_model(images, training=True)
+        logits = distill_model(images, training=True)  # pyrefly: ignore[not-callable]
 
         # teacher_logits: (batch_size, num_annotators, num_classes) ->
         #                 (batch_size * num_annotators, num_classes)
@@ -755,7 +755,7 @@ def main(argv):
       else:
         labels = inputs['clean_labels']
 
-      logits = distill_model(images, training=False)
+      logits = distill_model(images, training=False)  # pyrefly: ignore[not-callable]
       # pytype: disable=attribute-error
       logits = pi_utils.repeat_across_annotators(
           logits,
@@ -764,7 +764,7 @@ def main(argv):
       # pytype: enable=attribute-error
       logits = pi_utils.flatten_annotator_axis(logits)
       if use_annotator_labels:
-        logits = tf.gather(logits, non_empty_indices)
+        logits = tf.gather(logits, non_empty_indices)  # pyrefly: ignore[unbound-name]
       probs = tf.nn.softmax(logits)
 
       negative_log_likelihood = tf.reduce_mean(
@@ -789,7 +789,7 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
 
-      logits = distill_model(images, training=False)
+      logits = distill_model(images, training=False)  # pyrefly: ignore[not-callable]
       probs = tf.nn.softmax(logits)
 
       negative_log_likelihood = tf.reduce_mean(
@@ -941,19 +941,19 @@ def main(argv):
       logging.info('Done with testing on %s', dataset_name)
 
     if FLAGS.eval_on_ood:
-      for ood_dataset_name, ood_dataset in ood_datasets.items():
+      for ood_dataset_name, ood_dataset in ood_datasets.items():  # pyrefly: ignore[unbound-name]
         ood_iterator = iter(ood_dataset)
         logging.info('Calculating OOD on dataset %s', ood_dataset_name)
         logging.info('Running OOD eval at epoch: %s', epoch)
         test_step(ood_iterator, 'test', ood_dataset_name,
-                  steps_per_ood[ood_dataset_name])
+                  steps_per_ood[ood_dataset_name])  # pyrefly: ignore[unbound-name]
 
         logging.info('Done with OOD eval on %s', ood_dataset_name)
 
     corrupt_results = {}
     if (FLAGS.corruptions_interval > 0 and
         (epoch + 1) % FLAGS.corruptions_interval == 0):
-      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,
+      corrupt_results = utils.aggregate_corrupt_metrics(corrupt_metrics,  # pyrefly: ignore[unbound-name]
                                                         corruption_types)
 
     logging.info('Distillation Loss: %.4f, Accuracy: %.2f%%',

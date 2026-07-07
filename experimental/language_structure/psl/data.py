@@ -221,10 +221,10 @@ def create_utterance_mask_feature(dialogs: tf.Tensor,
   """Creates features from actual dialog turn length."""
   utterance_mask = _get_utterance_mask(dialogs)
   last_utterance_mask = _get_last_utterance_mask(utterance_mask)
-  non_last_utterance_mask = utterance_mask - last_utterance_mask
-  pad_utterance_mask = 1 - utterance_mask
+  non_last_utterance_mask = utterance_mask - last_utterance_mask  # pyrefly: ignore[unsupported-operation]
+  pad_utterance_mask = 1 - utterance_mask  # pyrefly: ignore[unsupported-operation]
   mask_feature = (
-      last_utterance_mask * last_utterance_mask_value +
+      last_utterance_mask * last_utterance_mask_value +  # pyrefly: ignore[unsupported-operation]
       non_last_utterance_mask * utterance_mask_value +
       pad_utterance_mask * pad_utterance_mask_value)
   return mask_feature
@@ -302,7 +302,7 @@ def create_features(user_utterance_ids: tf.Tensor,
     ]
   for i, keyword_ids in enumerate(keyword_ids_per_class):
     if check_keyword_by_utterance:
-      dialogs = candidate_dialogs[i % 2]
+      dialogs = candidate_dialogs[i % 2]  # pyrefly: ignore[unbound-name]
     features.append(
         create_keyword_feature(dialogs, keyword_ids, include_keyword_value,
                                exclude_keyword_value))
@@ -399,7 +399,7 @@ def pad_one_hot_labels(
 def list_to_dataset(data: List[Dialog], labels: List[List[List[int]]],
                     shuffle: bool, batch_size: int) -> tf.data.Dataset:
   """Converts list into tensorflow dataset."""
-  ds = tf.data.Dataset.from_tensor_slices((data, labels))
+  ds = tf.data.Dataset.from_tensor_slices((data, labels))  # pyrefly: ignore[bad-argument-type]
   if shuffle:
     ds = ds.shuffle(buffer_size=len(data))
   ds = ds.batch(batch_size)

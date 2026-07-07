@@ -163,7 +163,7 @@ def lispress_to_graph(sexp: Sexp) -> str:
   if len(sexp) == 1:
     # Input example: ['Constraint[Recipient]'].
     # Output example: ' ( Constraint[Recipient] ) '.
-    return ' ( ' + sexp[0] + ' ) '
+    return ' ( ' + sexp[0] + ' ) '  # pyrefly: ignore[unsupported-operation]
   elif len(sexp) == 2:
     if isinstance(sexp[1], str):
       if sexp[0] == 'Number':

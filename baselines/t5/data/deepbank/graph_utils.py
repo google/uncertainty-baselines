@@ -941,10 +941,10 @@ def get_dag_match(cur_dag1,
     logging.warning("Fail to parse DAG: %s", cur_dag2)
     dag2_parsed = False
 
-  if dag1_parsed and not dag1.root:
+  if dag1_parsed and not dag1.root:  # pyrefly: ignore[unbound-name]
     logging.warning("Fail to parse DAG: %s", cur_dag1)
     dag1_parsed = False
-  if dag2_parsed and not dag2.root:
+  if dag2_parsed and not dag2.root:  # pyrefly: ignore[unbound-name]
     logging.warning("Fail to parse DAG: %s", cur_dag2)
     dag2_parsed = False
 
@@ -967,8 +967,8 @@ def get_dag_match(cur_dag1,
     compare_instance = compare_attribute = False
   if dag1_parsed and dag2_parsed:
     (best_mapping, best_match_num) = get_best_match(
-        instance1, attribute1, relation1,
-        instance2, attribute2, relation2,
+        instance1, attribute1, relation1,  # pyrefly: ignore[unbound-name]
+        instance2, attribute2, relation2,  # pyrefly: ignore[unbound-name]
         prefix1, prefix2,
         compare_instance=compare_instance,
         compare_attribute=compare_attribute,

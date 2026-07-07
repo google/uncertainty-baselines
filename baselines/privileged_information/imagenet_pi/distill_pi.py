@@ -177,7 +177,7 @@ def main(argv):
     strategy = tf.distribute.TPUStrategy(resolver)
 
   train_builder = ub.datasets.ImageNetPIDataset(
-      split=tfds.Split.TRAIN,
+      split=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       one_hot=True,
       validation_percent=1.0 - FLAGS.train_proportion,
@@ -199,7 +199,7 @@ def main(argv):
   )
   steps_per_epoch = train_builder.num_examples // batch_size
   test_builder = ub.datasets.ImageNetPIDataset(
-      split=tfds.Split.TEST,
+      split=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
       use_bfloat16=FLAGS.use_bfloat16,
       data_dir=data_dir,
       annotations_path=FLAGS.annotations_path,
@@ -231,7 +231,7 @@ def main(argv):
                  validation_proportion * 100)
     # Note we do not one_hot the validation set.
     validation_builder = ub.datasets.ImageNetPIDataset(
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         use_bfloat16=FLAGS.use_bfloat16,
         validation_percent=validation_proportion,
         data_dir=data_dir,
@@ -286,7 +286,7 @@ def main(argv):
           annotator_label_if_incorrect_encoding,
   }
   privileged_information_fn = pi_utils.get_privileged_information_fn(
-      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)
+      pi_subset=FLAGS.pi_subset.split(','), encoding_fn_dict=encoding_fn_dict)  # pyrefly: ignore[bad-argument-type]
 
   pi_shape = privileged_information_fn(dummy_example).shape[1:]
 
@@ -313,7 +313,7 @@ def main(argv):
 
   test_privileged_information_fn = pi_utils.get_privileged_information_fn(
       pi_subset=FLAGS.pi_subset.split(','),
-      encoding_fn_dict=test_encoding_fn_dict)
+      encoding_fn_dict=test_encoding_fn_dict)  # pyrefly: ignore[bad-argument-type]
 
   with strategy.scope():
 
@@ -487,7 +487,7 @@ def main(argv):
     labels = tf.argmax(labels, axis=-1)
     sample_weight = None
     if noise_split == '_clean':
-      sample_weight = 1.0 - noisy_idx
+      sample_weight = 1.0 - noisy_idx  # pyrefly: ignore[unsupported-operation]
     elif noise_split == '_noisy':
       sample_weight = noisy_idx
 
@@ -677,10 +677,10 @@ def main(argv):
           logits = pi_utils.flatten_annotator_axis(logits)
 
       if FLAGS.use_bfloat16:
-        logits = tf.cast(logits, tf.float32)
+        logits = tf.cast(logits, tf.float32)  # pyrefly: ignore[unbound-name]
 
       update_test_metrics(
-          labels, logits, metric_prefix=f'{training_phase}/{metrics_prefix}')
+          labels, logits, metric_prefix=f'{training_phase}/{metrics_prefix}')  # pyrefly: ignore[unbound-name]
 
     for _ in tf.range(tf.cast(steps_per_eval, tf.int32)):
       strategy.run(step_fn, args=(next(iterator),))
@@ -720,7 +720,7 @@ def main(argv):
       logging.info('Starting to run %s eval at epoch: %s', training_phase,
                    epoch)
       if FLAGS.train_proportion < 1.0:
-        validation_iterator = iter(validation_dataset)
+        validation_iterator = iter(validation_dataset)  # pyrefly: ignore[no-matching-overload]
         test_step(
             metrics_prefix='validation_clean',
             iterator=validation_iterator,
@@ -728,7 +728,7 @@ def main(argv):
             training_phase=training_phase,
         )
         # NOTE: We reinitialize iterator to avoid OutOfRangeError
-        validation_iterator = iter(validation_dataset)
+        validation_iterator = iter(validation_dataset)  # pyrefly: ignore[no-matching-overload]
         test_step(
             metrics_prefix='validation_noisy',
             iterator=validation_iterator,

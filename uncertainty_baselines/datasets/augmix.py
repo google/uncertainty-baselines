@@ -161,13 +161,13 @@ def mixup(batch_size, aug_params, images, labels, return_weights=False):
 
   # 4 is hard-coding to aug_count=3. Fix this later!
   if augmix:
-    mix_weight = ed.Beta(
+    mix_weight = ed.Beta(  # pyrefly: ignore[missing-attribute]
         alpha, alpha, sample_shape=[batch_size, aug_count + 1, 1])
   elif same_mix_weight_per_batch:
-    mix_weight = ed.Beta(alpha, alpha, sample_shape=[1, 1])
+    mix_weight = ed.Beta(alpha, alpha, sample_shape=[1, 1])  # pyrefly: ignore[missing-attribute]
     mix_weight = tf.tile(mix_weight, [batch_size, 1])
   else:
-    mix_weight = ed.Beta(alpha, alpha, sample_shape=[batch_size, 1])
+    mix_weight = ed.Beta(alpha, alpha, sample_shape=[batch_size, 1])  # pyrefly: ignore[missing-attribute]
 
   if use_truncated_beta:
     mix_weight = tf.maximum(mix_weight, 1. - mix_weight)

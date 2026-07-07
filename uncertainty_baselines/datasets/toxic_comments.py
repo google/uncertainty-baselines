@@ -42,7 +42,7 @@ _IDENTITY_LABELS = ('male', 'female', 'transgender', 'other_gender',
                     'psychiatric_or_mental_illness', 'other_disability')
 
 DATA_SPLIT_NAMES = list(
-    map(str, [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]))
+    map(str, [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]))  # pyrefly: ignore[missing-attribute]
 
 _TF_RECORD_NAME_PATTERNS = {
     name: name + '_*.tfrecord' for name in DATA_SPLIT_NAMES
@@ -114,7 +114,7 @@ NUM_EXAMPLES_PER_YEAR = {
 def _build_tfrecord_dataset(glob_dir: str,
                             is_training: bool) -> tf.data.Dataset:
   cycle_len = 10 if is_training else 1
-  dataset = tf.data.Dataset.list_files(glob_dir, shuffle=is_training)
+  dataset = tf.data.Dataset.list_files(glob_dir, shuffle=is_training)  # pyrefly: ignore[bad-argument-type]
   dataset = dataset.interleave(tf.data.TFRecordDataset, cycle_length=cycle_len)
   return dataset
 
@@ -122,7 +122,7 @@ def _build_tfrecord_dataset(glob_dir: str,
 def _build_csv_dataset(glob_dir: str, is_training: bool) -> tf.data.Dataset:
   """Builds a CSV dataset for toxic comments data."""
   cycle_len = 10 if is_training else 1
-  dataset = tf.data.Dataset.list_files(glob_dir, shuffle=is_training)
+  dataset = tf.data.Dataset.list_files(glob_dir, shuffle=is_training)  # pyrefly: ignore[bad-argument-type]
 
   def _csv_ds(path):
     # ids, texts, labels, noise, bias, uncertainty, margin.
@@ -270,7 +270,7 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
                  shuffle_files=False,
                  as_supervised=False) -> tf.data.Dataset:
     """Constructs a `tf.data.Dataset`, see parent class for documentation."""
-    is_training = split == tfds.Split.TRAIN
+    is_training = split == tfds.Split.TRAIN  # pyrefly: ignore[missing-attribute]
     if self._dataset_type == 'tfds':
       logging.info('Reading from TFDS.')
       return self._tfds_dataset_builder.as_dataset(
@@ -285,13 +285,13 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
       # Reading locally.
       logging.info('Reading from local CSV with raw texts %s', self._data_dir)
       return _build_csv_dataset(
-          glob_dir=os.path.join(self._data_dir, _CSV_NAME_PATTERNS[split]),
+          glob_dir=os.path.join(self._data_dir, _CSV_NAME_PATTERNS[split]),  # pyrefly: ignore[no-matching-overload]
           is_training=is_training)
     else:
       # Reading locally.
       logging.info('Reading from local TFRecords with BERT features %s',
                    self._data_dir)
-      glob_dir = os.path.join(self._data_dir, _TF_RECORD_NAME_PATTERNS[split])
+      glob_dir = os.path.join(self._data_dir, _TF_RECORD_NAME_PATTERNS[split])  # pyrefly: ignore[no-matching-overload]
       if self._shard is not None:
         glob_dir = glob_dir.replace('*', '{:05d}-of-*'.format(self._shard))
       return _build_tfrecord_dataset(glob_dir=glob_dir, is_training=is_training)
@@ -307,12 +307,12 @@ class _JigsawToxicityDatasetBuilder(tfds.core.DatasetBuilder):
     info = self._tfds_dataset_builder.info
     if info.metadata is None:
       info._metadata = tfds.core.MetadataDict()  # pylint: disable=protected-access
-    info.metadata['num_classes'] = 1
-    info.metadata['max_seq_length'] = self._max_seq_length
+    info.metadata['num_classes'] = 1  # pyrefly: ignore[unsupported-operation]
+    info.metadata['max_seq_length'] = self._max_seq_length  # pyrefly: ignore[unsupported-operation]
 
     if self._split_num_examples is not None:
       # Updates the number of examples in each split.
-      info.metadata['num_examples'] = self._split_num_examples
+      info.metadata['num_examples'] = self._split_num_examples  # pyrefly: ignore[unsupported-operation]
 
     return info
 
@@ -335,7 +335,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
       self,
       name: str,
       split: str,
-      additional_labels: Tuple[str] = (),
+      additional_labels: Tuple[str] = (),  # pyrefly: ignore[bad-function-definition]
       multi_task_labels: Optional[str] = None,
       multi_task_label_threshold: float = -1.0,
       validation_percent: float = 0.0,
@@ -423,7 +423,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
             name,
             try_gcs=try_gcs,
         ),
-        max_seq_length,
+        max_seq_length,  # pyrefly: ignore[bad-argument-type]
         data_dir,
         dataset_type,
         self._shard,
@@ -437,7 +437,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
     self._has_created_date = has_created_date
     self._has_features = has_features
     self.feature_spec = _make_features_spec(
-        max_seq_length,
+        max_seq_length,  # pyrefly: ignore[bad-argument-type]
         additional_labels,
         self._int_id_type,
         self._has_features,
@@ -456,11 +456,11 @@ class _JigsawToxicityDataset(base.BaseDataset):
           arguments=dict(seq_length=max_seq_length))
 
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
 
     self._only_keep_train_examples = only_keep_train_examples
     if self._only_keep_train_examples:
-      if split not in ['train', tfds.Split.TRAIN]:
+      if split not in ['train', tfds.Split.TRAIN]:  # pyrefly: ignore[missing-attribute]
         raise ValueError(
             f'Expect split to be `train` when `only_keep_train_examples` is '
             f'True, found {split}')
@@ -496,13 +496,13 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
     # Reading locally does not support tfds.core.ReadInstruction (yet), so we
     # also default to split = {'train', 'validation'} if data_dir is provided.
-    if split == tfds.Split.TRAIN:
+    if split == tfds.Split.TRAIN:  # pyrefly: ignore[missing-attribute]
       if validation_percent == 0 or data_dir:
         split = 'train'
       else:
         split = tfds.core.ReadInstruction(
             'train', to=-num_validation_examples, unit='abs')
-    elif split == tfds.Split.VALIDATION:
+    elif split == tfds.Split.VALIDATION:  # pyrefly: ignore[missing-attribute]
       if validation_percent == 0 or data_dir:
         split = 'validation'
       else:
@@ -571,7 +571,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
       # Append processed input for BERT model.
       if self.tf_hub_preprocessor_url:
-        tokens = self.tokenizer([feature])
+        tokens = self.tokenizer([feature])  # pyrefly: ignore[unbound-name]
         bert_inputs = self.bert_input_formatter([tokens])
         parsed_example.update({
             'input_ids': bert_inputs['input_word_ids'],
@@ -585,7 +585,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
           raise ValueError('dataset_type must be "csv" when bias_labels=True.'
                            f' Got {self._dataset_type}.')
 
-        multi_task_labels = multitask_signals[self.multi_task_labels]
+        multi_task_labels = multitask_signals[self.multi_task_labels]  # pyrefly: ignore[unbound-name]
         if self.multi_task_label_threshold > 0:
           multi_task_labels = tf.math.greater_equal(
               multi_task_labels, self.multi_task_label_threshold)
@@ -601,7 +601,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
 
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
   @property
   def num_examples(self):
@@ -611,7 +611,7 @@ class _JigsawToxicityDataset(base.BaseDataset):
           ' any more.'
       )
     if self._only_keep_train_examples:
-      return self._signals[_IS_TRAIN_NAME].sum()
+      return self._signals[_IS_TRAIN_NAME].sum()  # pyrefly: ignore[unsupported-operation]
     if (self._dataset_type == 'tfrecord' and
         'num_examples' in self.tfds_info.metadata):
       key = (
@@ -637,7 +637,7 @@ class WikipediaToxicityDataset(_JigsawToxicityDataset):
     super().__init__(
         name='wikipedia_toxicity_subtypes',
         validation_percent=validation_percent,
-        additional_labels=additional_labels,
+        additional_labels=additional_labels,  # pyrefly: ignore[bad-argument-type]
         **kwargs)
 
 
@@ -656,7 +656,7 @@ class CivilCommentsIdentitiesDataset(_JigsawToxicityDataset):
   def __init__(self, has_created_date=True, **kwargs):
     super().__init__(  # pytype: disable=wrong-arg-types
         name='civil_comments/CivilCommentsIdentities',
-        additional_labels=_TOXICITY_SUBTYPE_NAMES + _IDENTITY_LABELS,
+        additional_labels=_TOXICITY_SUBTYPE_NAMES + _IDENTITY_LABELS,  # pyrefly: ignore[bad-argument-type]
         has_created_date=has_created_date,
         **kwargs,
     )

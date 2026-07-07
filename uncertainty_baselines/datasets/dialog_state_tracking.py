@@ -247,13 +247,13 @@ class _DialogStateTrackingDatasetBuilder(tfds.core.DatasetBuilder):
     del decoders
     del read_config
     del shuffle_files
-    if split == tfds.Split.TRAIN:
+    if split == tfds.Split.TRAIN:  # pyrefly: ignore[missing-attribute]
       return _build_dataset(
           glob_dir=self._file_paths['train'], is_training=True)
-    elif split == tfds.Split.VALIDATION:
+    elif split == tfds.Split.VALIDATION:  # pyrefly: ignore[missing-attribute]
       return _build_dataset(
           glob_dir=self._file_paths['validation'], is_training=False)
-    elif split == tfds.Split.TEST:
+    elif split == tfds.Split.TEST:  # pyrefly: ignore[missing-attribute]
       return _build_dataset(
           glob_dir=self._file_paths['test'], is_training=False)
     raise ValueError('Unsupported split given: {}.'.format(split))
@@ -302,17 +302,17 @@ class _DialogStateTrackingDatasetBuilder(tfds.core.DatasetBuilder):
     # list of the number of elements in each file shard in each split.
     split_infos = [
         tfds.core.SplitInfo(
-            name=tfds.Split.VALIDATION,
+            name=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_examples['validation']],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TEST,
+            name=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_examples['test']],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TRAIN,
+            name=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_examples['train']],
             num_bytes=0,
         ),
@@ -372,12 +372,12 @@ class _DialogStateTrackingDataset(base.BaseDataset):
     # set.
     self.load_train_sample_mask = load_train_sample_mask
 
-    self.vocab_utter = load_json(os.path.join(data_dir, FILENAME_TOKENIZER))
+    self.vocab_utter = load_json(os.path.join(data_dir, FILENAME_TOKENIZER))  # pyrefly: ignore[no-matching-overload]
     self.vocab_label = load_json(
-        os.path.join(data_dir, FILENAME_TOKENIZER_LABEL))
+        os.path.join(data_dir, FILENAME_TOKENIZER_LABEL))  # pyrefly: ignore[no-matching-overload]
     if self.load_domain_label:
       self.vocab_domain_label = load_json(
-          os.path.join(data_dir, FILENAME_TOKENIZER_DOMAIN_LABEL))
+          os.path.join(data_dir, FILENAME_TOKENIZER_DOMAIN_LABEL))  # pyrefly: ignore[no-matching-overload]
 
     dataset_builder = _DialogStateTrackingDatasetBuilder(
         name, data_dir, load_domain_label)
@@ -445,7 +445,7 @@ class _DialogStateTrackingDataset(base.BaseDataset):
         parsed_example[TRAIN_SAMPLE_MASK_NAME] = train_sample_mask
 
       if self.add_dialog_turn_id:
-        example_id = example[self._fingerprint_key]
+        example_id = example[self._fingerprint_key]  # pyrefly: ignore[bad-index]
         dialog_turn_id = tf.range(
             example_id * max_dialog_len, (example_id + 1) * max_dialog_len,
             dtype=tf.int32)
@@ -454,7 +454,7 @@ class _DialogStateTrackingDataset(base.BaseDataset):
 
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
 
 class SimDialDataset(_DialogStateTrackingDataset):

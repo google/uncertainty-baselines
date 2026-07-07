@@ -68,11 +68,11 @@ class _RandomDatasetBuilder(tfds.core.DatasetBuilder):
     del read_config
     del shuffle_files
     del as_supervised
-    if split == tfds.Split.TRAIN:
+    if split == tfds.Split.TRAIN:  # pyrefly: ignore[missing-attribute]
       return tf.data.Dataset.range(self._num_train_examples)
-    if split == tfds.Split.VALIDATION:
+    if split == tfds.Split.VALIDATION:  # pyrefly: ignore[missing-attribute]
       return tf.data.Dataset.range(self._num_validation_examples)
-    if split == tfds.Split.TEST:
+    if split == tfds.Split.TEST:  # pyrefly: ignore[missing-attribute]
       return tf.data.Dataset.range(self._num_test_examples)
     raise ValueError('Unsupported split given: {}.'.format(split))
 
@@ -93,17 +93,17 @@ class _RandomDatasetBuilder(tfds.core.DatasetBuilder):
     # list of the number of elements in each file shard in each split.
     split_infos = [
         tfds.core.SplitInfo(
-            name=tfds.Split.VALIDATION,
+            name=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_validation_examples],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TEST,
+            name=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_test_examples],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TRAIN,
+            name=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_train_examples],
             num_bytes=0,
         ),
@@ -165,9 +165,9 @@ class _RandomNoiseDataset(base.BaseDataset):
     """
     self._image_shape = image_shape
     self._split_seed = {
-        tfds.Split.TRAIN: 0,
-        tfds.Split.VALIDATION: 1,
-        tfds.Split.TEST: 2,
+        tfds.Split.TRAIN: 0,  # pyrefly: ignore[missing-attribute]
+        tfds.Split.VALIDATION: 1,  # pyrefly: ignore[missing-attribute]
+        tfds.Split.TEST: 2,  # pyrefly: ignore[missing-attribute]
     }
     self._normalize_by_cifar = normalize_by_cifar
     super().__init__(
@@ -212,7 +212,7 @@ class RandomGaussianImageDataset(_RandomNoiseDataset):
         image = (image - mean) / std
       return {'features': image, 'labels': label}
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
 
 class RandomRademacherImageDataset(_RandomNoiseDataset):
@@ -233,7 +233,7 @@ class RandomRademacherImageDataset(_RandomNoiseDataset):
       ]
       image = tf.random.stateless_categorical(
           tf.math.log([[0.5, 0.5]]),
-          np.prod(self._image_shape),
+          np.prod(self._image_shape),  # pyrefly: ignore[no-matching-overload]
           seed=seed,
           dtype=tf.int32)
       image = tf.reshape(tf.cast(image, tf.float32), self._image_shape)
@@ -241,4 +241,4 @@ class RandomRademacherImageDataset(_RandomNoiseDataset):
       label = tf.zeros([], tf.float32)
       return {'features': image, 'labels': label}
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

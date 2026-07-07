@@ -99,7 +99,7 @@ class DiabeticRetinopathySeverityShiftMildDataset(base.BaseDataset):
         errors in host memory.
     """
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
     logging.info(
         'Using Severity Shift (Mild decision threshold) builder config %s.',
         builder_config)
@@ -133,7 +133,7 @@ class DiabeticRetinopathySeverityShiftMildDataset(base.BaseDataset):
       highest_negative_class = 0
 
       # Binarize task.
-      label = tf.cast(example['label'] > highest_negative_class, tf.int32)
+      label = tf.cast(example['label'] > highest_negative_class, tf.int32)  # pyrefly: ignore[unsupported-operation]
 
       parsed_example = {
           'features': image,
@@ -142,7 +142,7 @@ class DiabeticRetinopathySeverityShiftMildDataset(base.BaseDataset):
       }
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
 
 class DiabeticRetinopathySeverityShiftMildConfig(tfds.core.BuilderConfig):
@@ -329,7 +329,7 @@ class DiabeticRetinopathySeverityShiftMild(tfds.core.GeneratorBasedBuilder):
         data = []
         for row in reader:
           level = int(row['level'])
-          if level not in severity_level_set:
+          if level not in severity_level_set:  # pyrefly: ignore[unbound-name]
             continue
 
           if csv_usage is None or row['Usage'] == csv_usage:

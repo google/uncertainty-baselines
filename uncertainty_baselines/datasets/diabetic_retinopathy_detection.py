@@ -67,7 +67,7 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
         errors in host memory.
     """
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
     dataset_builder = tfds.builder(builder_config, data_dir=data_dir)
     super().__init__(
         name='ub_diabetic_retinopathy_detection',
@@ -112,7 +112,7 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
         raise NotImplementedError('Decision threshold must be mild or moderate')
 
       # Binarize task.
-      label = tf.cast(example['label'] > highest_negative_class, tf.int32)
+      label = tf.cast(example['label'] > highest_negative_class, tf.int32)  # pyrefly: ignore[unsupported-operation]
 
       parsed_example = {
           'features': image,
@@ -121,4 +121,4 @@ class UBDiabeticRetinopathyDetectionDataset(base.BaseDataset):
       }
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

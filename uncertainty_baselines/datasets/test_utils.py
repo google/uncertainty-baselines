@@ -22,7 +22,7 @@ import tensorflow_datasets as tfds
 from uncertainty_baselines.datasets import base
 
 
-_SPLITS = (tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST)
+_SPLITS = (tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST)  # pyrefly: ignore[missing-attribute]
 
 
 class DatasetTest(tf.test.TestCase):
@@ -30,14 +30,14 @@ class DatasetTest(tf.test.TestCase):
 
   def _testDatasetSize(
       self,
-      dataset_class: Type[TypeVar('B', bound=base.BaseDataset)],
+      dataset_class: Type[TypeVar('B', bound=base.BaseDataset)],  # pyrefly: ignore[not-a-type]
       image_size: Sequence[int],
       splits: Sequence[Union[float, str, tfds.Split]] = _SPLITS,
       label_size: Optional[Sequence[int]] = None,
       **kwargs: Dict[str, Any]):
     batch_size_splits = {}
     for split in splits:
-      if split in ['train', tfds.Split.TRAIN]:
+      if split in ['train', tfds.Split.TRAIN]:  # pyrefly: ignore[missing-attribute]
         batch_size_splits[split] = 9
       else:
         batch_size_splits[split] = 5

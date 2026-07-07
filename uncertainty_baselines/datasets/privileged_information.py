@@ -86,7 +86,7 @@ def _gather_annotator_features(example: Example,
     The example with the PI from the gathered annotators.
   """
   annotator_features = example['pi_features']
-  example['pi_features'] = {
+  example['pi_features'] = {  # pyrefly: ignore[bad-assignment]
       feature_key: tf.gather(feature_value, annotator_idx) for feature_key,
       feature_value in annotator_features.items()  # type: ignore
   }
@@ -203,7 +203,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
     elif isinstance(pi_seed, int):
       self._pi_seed = (pi_seed, pi_seed + 1)
     elif isinstance(pi_seed, tf.Tensor) and tf.shape(pi_seed).shape == 0:
-      self._pi_seed = tf.stack([pi_seed, pi_seed + 1])
+      self._pi_seed = tf.stack([pi_seed, pi_seed + 1])  # pyrefly: ignore[unsupported-operation]
     else:
       self._pi_seed = pi_seed
 
@@ -338,11 +338,11 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
     preproc_fn = super()._create_process_example_fn()
 
     def _example_parser(example: NoPIFeatures) -> Example:
-      parsed_example = preproc_fn(example)
+      parsed_example = preproc_fn(example)  # pyrefly: ignore[not-callable]
       pi_parsed_example = self._process_pi_features_and_labels(
           parsed_example, unprocessed_example=example)
 
-      example_idx = self._hash_fingerprint_int(example[self._fingerprint_key])
+      example_idx = self._hash_fingerprint_int(example[self._fingerprint_key])  # pyrefly: ignore[bad-index]
       # Filter annotators by reliability.
       annotator_ids = tf.cast(pi_parsed_example['pi_features']['annotator_ids'],
                               tf.int32)[:, 0]  # Remove dummy feature dim.
@@ -361,7 +361,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
         if self._random_pi_length <= 0:
           raise ValueError('random_pi_length must be greater than 0.')
         pi_parsed_example['pi_features'][  # type: ignore
-            'random_pi'] = self._create_random_pi(
+            'random_pi'] = self._create_random_pi(  # pyrefly: ignore[bad-typed-dict-key]
                 pi_parsed_example, per_example_seed=per_example_seed)
 
       if self._artificial_id_increase_factor:
@@ -380,7 +380,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
             self._pi_seed, example_idx)
         pi_parsed_example = self._subsample_annotators(
             pi_parsed_example, per_example_seed,
-            self._annotator_sampling_strategy, self._num_annotators_per_example)
+            self._annotator_sampling_strategy, self._num_annotators_per_example)  # pyrefly: ignore[bad-argument-type]
       if self._num_annotators_per_example_and_step:
         per_example_step_seed = tf.random.experimental.stateless_fold_in(
             self._pi_seed, example[self._enumerate_id_key])
@@ -392,7 +392,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
 
       return pi_parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
   def _subsample_annotators(self, example: Example, seed: tf.Tensor,
                             strategy: str, num_max_annotators: int) -> Example:
@@ -440,7 +440,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
                                                   [-1]))[:num_max_annotators]
 
     example = _gather_annotator_features(
-        example=example, annotator_idx=selected_annotators)
+        example=example, annotator_idx=selected_annotators)  # pyrefly: ignore[unbound-name]
 
     return example
 
@@ -483,7 +483,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
 
     if adversarial_pi_features is not None:
       for pi_key in adversarial_pi_features.keys():
-        example['pi_features'][
+        example['pi_features'][  # pyrefly: ignore[unsupported-operation]
             pi_key] = _stack_adversarial_features(  # type: ignore
                 adversarial_pi_features[pi_key], pi_key)  # type: ignore
 
@@ -714,7 +714,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
     dataset_iterator = iter(
         self.load(
             batch_size=self._reliability_estimation_buffer_size,
-            process_batch_fn=lambda batch: batch))
+            process_batch_fn=lambda batch: batch))  # pyrefly: ignore[bad-argument-type]
     step_remainder = int(
         self.num_examples % self._reliability_estimation_buffer_size != 0
     )
@@ -771,8 +771,8 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
     """
 
     for annotator_id, reliability in self.annotators_reliability.items():
-      annotator_accepted = int(reliability >= self._reliability_interval[0] and
-                               reliability <= self._reliability_interval[1])
+      annotator_accepted = int(reliability >= self._reliability_interval[0] and  # pyrefly: ignore[unsupported-operation]
+                               reliability <= self._reliability_interval[1])  # pyrefly: ignore[unsupported-operation]
 
       self._annotators_info['accepted'].insert(annotator_id, annotator_accepted)
 

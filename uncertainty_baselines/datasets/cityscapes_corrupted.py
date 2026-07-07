@@ -199,7 +199,7 @@ class CityscapesCorrupted(tfds.core.GeneratorBasedBuilder):
 
     splits = [
         tfds.core.SplitGenerator(
-            name=tfds.Split.VALIDATION,
+            name=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
             gen_kwargs={
                 feat_dir: os.path.join(path, 'val')
                 for feat_dir, path in paths.items()
@@ -303,12 +303,12 @@ class CityscapesCorruptedDataset(base.BaseDataset):
         corruption_type, str(severity))
     dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
     new_split = base.get_validation_percent_split(
         dataset_builder,
         validation_percent,
         split,
-        test_split=tfds.Split.VALIDATION)
+        test_split=tfds.Split.VALIDATION)  # pyrefly: ignore[missing-attribute]
 
     super().__init__(
         name=name,
@@ -354,7 +354,7 @@ class CityscapesCorruptedDataset(base.BaseDataset):
         parsed_example['file_name'] = example['file_name']
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
 
 # Helper functions
@@ -376,4 +376,4 @@ def _get_left_image_id(left_image):
     Id of the image (see example above).
   """
   match = LEFT_IMAGE_FILE_RE.match(left_image)
-  return '{}_{}_{}'.format(*match.groups())
+  return '{}_{}_{}'.format(*match.groups())  # pyrefly: ignore[missing-attribute]

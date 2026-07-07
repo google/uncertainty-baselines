@@ -120,12 +120,12 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
           'ReadInstruction splits are currently not supported. Using '
           'the split name `%s` instead of `%s`.', split.split_name, split)
       split = tfds.Split(split.split_name)
-    if split == tfds.Split.TRAIN:
+    if split == tfds.Split.TRAIN:  # pyrefly: ignore[missing-attribute]
       file_pattern = 'train-*-of-*'
       is_training = True
-    elif split == tfds.Split.VALIDATION:
+    elif split == tfds.Split.VALIDATION:  # pyrefly: ignore[missing-attribute]
       file_pattern = 'validation-*-of-*'
-    elif split == tfds.Split.TEST:
+    elif split == tfds.Split.TEST:  # pyrefly: ignore[missing-attribute]
       file_pattern = 'test-*-of-*'
     else:
       raise ValueError('Unsupported split given: {}.'.format(split))
@@ -137,10 +137,10 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
     """Returns the `tfds.core.DatasetInfo` object."""
     features = {'clicked': tfds.features.ClassLabel(num_classes=2)}
     for idx in range(1, NUM_INT_FEATURES + 1):
-      features[feature_name(idx)] = tfds.features.Tensor(
+      features[feature_name(idx)] = tfds.features.Tensor(  # pyrefly: ignore[bad-assignment]
           shape=(1,), dtype=tf.float32)
     for idx in range(NUM_INT_FEATURES + 1, NUM_TOTAL_FEATURES + 1):
-      features[feature_name(idx)] = tfds.features.Tensor(
+      features[feature_name(idx)] = tfds.features.Tensor(  # pyrefly: ignore[bad-assignment]
           shape=(1,), dtype=tf.string)
     info = tfds.core.DatasetInfo(
         builder=self,
@@ -153,17 +153,17 @@ class _CriteoDatasetBuilder(tfds.core.DatasetBuilder):
     # list of the number of elements in each file shard in each split.
     split_infos = [
         tfds.core.SplitInfo(
-            name=tfds.Split.VALIDATION,
+            name=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[4420308],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TEST,
+            name=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[4420309],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TRAIN,
+            name=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[int(37e6)],
             num_bytes=0,
         ),
@@ -214,7 +214,7 @@ class CriteoDataset(base.BaseDataset):
       self._corruption_level = None
     dataset_builder = _CriteoDatasetBuilder(data_dir=data_dir)
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
     new_split = base.get_validation_percent_split(dataset_builder,
                                                   validation_percent, split)
     super().__init__(
@@ -248,4 +248,4 @@ class CriteoDataset(base.BaseDataset):
           'labels': labels,
       }
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

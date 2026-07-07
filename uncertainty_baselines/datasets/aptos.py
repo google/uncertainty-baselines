@@ -328,4 +328,4 @@ class APTOSDataset(base.BaseDataset):
       }
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

@@ -64,7 +64,7 @@ class MovieLensDataset(base.BaseDataset):
     num_total_examples = 1000209
 
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
 
     if validation_percent < 0.0 or validation_percent >= 1.0:
       raise ValueError(
@@ -76,10 +76,10 @@ class MovieLensDataset(base.BaseDataset):
     num_validation_examples = int(num_total_examples * validation_percent)
     num_test_examples = int(num_total_examples * test_percent)
 
-    if split == tfds.Split.TRAIN:
+    if split == tfds.Split.TRAIN:  # pyrefly: ignore[missing-attribute]
       split = tfds.core.ReadInstruction(
           'train', to=num_train_examples, unit='abs')
-    if split == tfds.Split.VALIDATION:
+    if split == tfds.Split.VALIDATION:  # pyrefly: ignore[missing-attribute]
       if num_validation_examples == 0:
         raise ValueError(
             'No validation set provided. Set `validation_percent > 0.0` to '
@@ -89,7 +89,7 @@ class MovieLensDataset(base.BaseDataset):
           from_=num_train_examples,
           to=-num_test_examples,
           unit='abs')
-    if split == tfds.Split.TEST:
+    if split == tfds.Split.TEST:  # pyrefly: ignore[missing-attribute]
       split = tfds.core.ReadInstruction(
           'train', from_=-num_test_examples, unit='abs')
 
@@ -127,4 +127,4 @@ class MovieLensDataset(base.BaseDataset):
       }
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

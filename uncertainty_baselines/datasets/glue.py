@@ -117,7 +117,7 @@ class _GlueDataset(base.BaseDataset):
     def _example_parser(example: Dict[str, tf.Tensor]) -> Dict[str, Any]:
       """Parse sentences and labels from a serialized tf.train.Example."""
       text_a_name, text_b_name = _FEATURE_NAME[self.name]
-      text_a = example[text_a_name]
+      text_a = example[text_a_name]  # pyrefly: ignore[bad-index]
       text_b = example[text_b_name] if text_b_name else None
       return {
           'text_a': text_a,
@@ -126,7 +126,7 @@ class _GlueDataset(base.BaseDataset):
           'idx': example['idx'],
       }
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
 
 class ColaDataset(_GlueDataset):

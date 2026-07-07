@@ -62,14 +62,14 @@ def _get_num_examples(name: str) -> Dict[str, int]:
   """Retrieves the number of examples and filenames according to task name."""
   if name == 'smcalflow':
     num_examples = {
-        tfds.Split.TRAIN: _NUM_TRAIN_SMCALFLOW,
-        tfds.Split.VALIDATION: _NUM_VAL_SMCALFLOW,
+        tfds.Split.TRAIN: _NUM_TRAIN_SMCALFLOW,  # pyrefly: ignore[missing-attribute]
+        tfds.Split.VALIDATION: _NUM_VAL_SMCALFLOW,  # pyrefly: ignore[missing-attribute]
     }
   elif name == 'multiwoz':
     num_examples = {
-        tfds.Split.TRAIN: _NUM_TRAIN_MULTIWOZ,
-        tfds.Split.VALIDATION: _NUM_VAL_MULTIWOZ,
-        tfds.Split.TEST: _NUM_TEST_MULTIWOZ,
+        tfds.Split.TRAIN: _NUM_TRAIN_MULTIWOZ,  # pyrefly: ignore[missing-attribute]
+        tfds.Split.VALIDATION: _NUM_VAL_MULTIWOZ,  # pyrefly: ignore[missing-attribute]
+        tfds.Split.TEST: _NUM_TEST_MULTIWOZ,  # pyrefly: ignore[missing-attribute]
     }
   else:
     raise ValueError('"name" can only be one of "smcalflow" or "multiwoz". '
@@ -107,11 +107,11 @@ class _SMCalflowDatasetBuilder(tfds.core.DatasetBuilder):
   def _build_task(self, task_name: str, data_dir: str,
                   vocabulary: seqio.Vocabulary) -> seqio.Task:
     split_to_filepattern = {
-        tfds.Split.TRAIN: os.path.join(data_dir, 'train.tfr*'),
-        tfds.Split.VALIDATION: os.path.join(data_dir, 'valid.tfr*')
+        tfds.Split.TRAIN: os.path.join(data_dir, 'train.tfr*'),  # pyrefly: ignore[missing-attribute]
+        tfds.Split.VALIDATION: os.path.join(data_dir, 'valid.tfr*')  # pyrefly: ignore[missing-attribute]
     }
     if _has_test_split(task_name):
-      split_to_filepattern[tfds.Split.TEST] = os.path.join(
+      split_to_filepattern[tfds.Split.TEST] = os.path.join(  # pyrefly: ignore[missing-attribute]
           data_dir, 'test.tfr*')
 
     source_features = {
@@ -172,9 +172,9 @@ class _SMCalflowDatasetBuilder(tfds.core.DatasetBuilder):
         metadata=None)
     # Instead of having a single element shard_lengths, we should really have a
     # list of the number of elements in each file shard in each split.
-    splits = [tfds.Split.TRAIN, tfds.Split.VALIDATION]
+    splits = [tfds.Split.TRAIN, tfds.Split.VALIDATION]  # pyrefly: ignore[missing-attribute]
     if _has_test_split(self._task.name):
-      splits.append(tfds.Split.TEST)
+      splits.append(tfds.Split.TEST)  # pyrefly: ignore[missing-attribute]
     split_infos = []
     for split in splits:
       split_infos.append(
@@ -231,10 +231,10 @@ class _SMCalflowDataset(base.BaseDataset):
         name=name,
         dataset_builder=_SMCalflowDatasetBuilder(
             name=name,
-            data_dir=data_dir,
+            data_dir=data_dir,  # pyrefly: ignore[bad-argument-type]
             max_seq_length=max_seq_length,
-            vocabulary=vocabulary,
-            feature_converter_cls=feature_converter_cls),
+            vocabulary=vocabulary,  # pyrefly: ignore[bad-argument-type]
+            feature_converter_cls=feature_converter_cls),  # pyrefly: ignore[bad-argument-type]
         split=split,
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
@@ -247,7 +247,7 @@ class _SMCalflowDataset(base.BaseDataset):
       """Parse sentences and labels from a serialized tf.train.Example."""
       return {feature: example[feature] for feature in _FEATURES}
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
 
 class SMCalflowDataset(_SMCalflowDataset):
@@ -255,7 +255,7 @@ class SMCalflowDataset(_SMCalflowDataset):
 
   def __init__(self, data_dir: Optional[str] = None, **kwargs: Dict[str, Any]):
     super().__init__(
-        name='smcalflow', data_dir=data_dir, **kwargs)
+        name='smcalflow', data_dir=data_dir, **kwargs)  # pyrefly: ignore[bad-argument-type]
 
 
 class MultiWoZDataset(_SMCalflowDataset):
@@ -263,4 +263,4 @@ class MultiWoZDataset(_SMCalflowDataset):
 
   def __init__(self, data_dir: Optional[str] = None, **kwargs: Dict[str, Any]):
     super().__init__(
-        name='multiwoz', data_dir=data_dir, **kwargs)
+        name='multiwoz', data_dir=data_dir, **kwargs)  # pyrefly: ignore[bad-argument-type]

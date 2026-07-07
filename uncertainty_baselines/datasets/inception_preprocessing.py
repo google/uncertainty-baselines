@@ -73,7 +73,7 @@ def distort_color(
     ValueError: if color_ordering not in [0, 3]
   """
   seeds = tf.random.experimental.stateless_split(seed, num=4)
-  with tf.name_scope('distort_color'):
+  with tf.name_scope('distort_color'):  # pyrefly: ignore[bad-instantiation]
     if fast_mode:
       if color_ordering == 0:
         image = tf.image.stateless_random_brightness(
@@ -161,7 +161,7 @@ def distorted_bounding_box_crop(
   Returns:
     A tuple, a 3-D Tensor cropped_image and the distorted bbox
   """
-  with tf.name_scope('distorted_bounding_box_crop'):
+  with tf.name_scope('distorted_bounding_box_crop'):  # pyrefly: ignore[bad-instantiation]
     # Each bounding box has shape [1, num_boxes, box coords] and
     # the coordinates are ordered [ymin, xmin, ymax, xmax].
 
@@ -227,7 +227,7 @@ def preprocess_for_train(
   Returns:
     3-D float Tensor of distorted image used for training with range [-1, 1].
   """
-  with tf.name_scope('distort_image'):
+  with tf.name_scope('distort_image'):  # pyrefly: ignore[bad-instantiation]
     if bbox is None:
       bbox = tf.constant([0.0, 0.0, 1.0, 1.0],
                          dtype=tf.float32,
@@ -268,7 +268,7 @@ def preprocess_for_train(
     num_resize_cases = 1 if fast_mode else 4
     distorted_image = apply_with_random_selector(
         distorted_image,
-        lambda x, method: tf.image.resize(x, [height, width], methods[method]),
+        lambda x, method: tf.image.resize(x, [height, width], methods[method]),  # pyrefly: ignore[bad-index]
         num_cases=num_resize_cases,
         seed=seeds[1])
 
@@ -332,7 +332,7 @@ def preprocess_for_eval(
   Returns:
     3-D float Tensor of prepared image.
   """
-  with tf.name_scope('eval_image'):
+  with tf.name_scope('eval_image'):  # pyrefly: ignore[bad-instantiation]
     if image.dtype != tf.float32:
       image = tf.image.convert_image_dtype(image, dtype=tf.float32)
     if use_grayscale:
@@ -399,7 +399,7 @@ def preprocess_image(
         height,
         width,
         seed=seed,
-        bbox=bbox,
+        bbox=bbox,  # pyrefly: ignore[bad-argument-type]
         fast_mode=fast_mode,
         add_image_summaries=add_image_summaries,
         random_crop=crop_image,

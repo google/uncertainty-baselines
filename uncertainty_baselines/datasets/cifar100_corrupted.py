@@ -137,7 +137,7 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
 
     split_infos = [
         tfds.core.SplitInfo(
-            name=tfds.Split.TEST,
+            name=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[_NUM_EXAMPLES],
             num_bytes=0,
         ),
@@ -161,7 +161,7 @@ class _Cifar100CorruptedDatasetBuilder(tfds.core.DatasetBuilder):
     del decoders
     del read_config
     del shuffle_files
-    if split == tfds.Split.TEST:
+    if split == tfds.Split.TEST:  # pyrefly: ignore[missing-attribute]
       filename = (f'{self._builder_config.corruption}-'  # pytype: disable=attribute-error  # always-use-return-annotations
                   f'{self._builder_config.severity}.tfrecords')  # pytype: disable=attribute-error  # always-use-return-annotations
       filepath = os.path.join(self._data_dir, filename)
@@ -247,4 +247,4 @@ class Cifar100CorruptedDataset(base.BaseDataset):
           'labels': tf.cast(label, tf.int32),
       }
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

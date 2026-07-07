@@ -151,12 +151,12 @@ class _ImageNetDataset(base.BaseDataset):
     """
     dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
     new_split = base.get_validation_percent_split(
         dataset_builder,
         validation_percent,
         split,
-        test_split=tfds.Split.VALIDATION)
+        test_split=tfds.Split.VALIDATION)  # pyrefly: ignore[missing-attribute]
     if preprocessing_type == 'inception':
       decoders = {
           'image': tfds.decode.SkipDecoding(),
@@ -174,7 +174,7 @@ class _ImageNetDataset(base.BaseDataset):
         mask_and_pad=mask_and_pad,
         fingerprint_key='file_name',
         download_data=download_data,
-        decoders=decoders,
+        decoders=decoders,  # pyrefly: ignore[bad-argument-type]
     )
     self._preprocessing_type = preprocessing_type
     self._use_bfloat16 = use_bfloat16
@@ -208,7 +208,7 @@ class _ImageNetDataset(base.BaseDataset):
             seed=per_example_step_seed,
             is_training=self._is_training)
         # Rescale to [0, 1].
-        image = (image + 1.0) / 2.0
+        image = (image + 1.0) / 2.0  # pyrefly: ignore[unsupported-operation]
       elif self._preprocessing_type == 'resnet':
         # `resnet_preprocessing.preprocess_image` returns images in [0, 1].
         image = resnet_preprocessing.preprocess_image(
@@ -241,7 +241,7 @@ class _ImageNetDataset(base.BaseDataset):
         parsed_example['file_name'] = example['file_name']
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
   def _create_process_batch_fn(self,
                                batch_size: int) -> Optional[base.PreProcessFn]:
@@ -328,7 +328,7 @@ class ImageNetPIDataset(AnnotatorPIMixin, _ImageNetDataset):
 
     self._annotations_path = annotations_path
     self._split_annotations_file = (
-        'validation.csv' if split in ['test', tfds.Split.TEST] else 'train.csv'
+        'validation.csv' if split in ['test', tfds.Split.TEST] else 'train.csv'  # pyrefly: ignore[missing-attribute]
     )
 
     (
@@ -405,7 +405,7 @@ class ImageNetPIDataset(AnnotatorPIMixin, _ImageNetDataset):
         dtype=tf.float32) * ADVERSARIAL_NUM_PARAMS_NORMALIZED
     adversarial_reliabilities = tf.ones(
         (self._num_adversarial_annotators_per_example, 1),
-        dtype=tf.float32) * (1.0 / self.info.num_classes)
+        dtype=tf.float32) * (1.0 / self.info.num_classes)  # pyrefly: ignore[unsupported-operation]
     adversarial_features = tf.concat(
         [adversarial_reliabilities, adversarial_num_params], axis=1)
 
@@ -557,6 +557,6 @@ class ImageNetCorruptedDataset(_ImageNetDataset):
       del kwargs['split']
     super().__init__(
         name=f'imagenet2012_corrupted/{corruption_type}_{severity}',
-        split=tfds.Split.VALIDATION,
+        split=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
         preprocessing_type='resnet',
         **kwargs)

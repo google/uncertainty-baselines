@@ -43,17 +43,17 @@ def get_validation_percent_split(
     dataset_builder,
     validation_percent,
     split,
-    test_split=tfds.Split.TEST):
+    test_split=tfds.Split.TEST):  # pyrefly: ignore[missing-attribute]
   """Calculate a validation set from a provided validation_percent in [0, 1]."""
   if validation_percent < 0.0 or validation_percent >= 1.0:
     raise ValueError(
         'validation_percent must be in [0, 1), received {}.'.format(
             validation_percent))
   if validation_percent == 0.:
-    train_split = tfds.Split.TRAIN
+    train_split = tfds.Split.TRAIN  # pyrefly: ignore[missing-attribute]
     # We cannot use None here because that will return all the splits if passed
     # to builder.as_dataset().
-    validation_split = tfds.Split.VALIDATION
+    validation_split = tfds.Split.VALIDATION  # pyrefly: ignore[missing-attribute]
   else:
     num_train_examples = dataset_builder.info.splits['train'].num_examples
     num_validation_examples = int(num_train_examples * validation_percent)
@@ -62,11 +62,11 @@ def get_validation_percent_split(
     validation_split = tfds.core.ReadInstruction(
         'train', from_=-num_validation_examples, unit='abs')
 
-  if split in ['train', tfds.Split.TRAIN]:
+  if split in ['train', tfds.Split.TRAIN]:  # pyrefly: ignore[missing-attribute]
     new_split = train_split
-  elif split in ['validation', tfds.Split.VALIDATION]:
+  elif split in ['validation', tfds.Split.VALIDATION]:  # pyrefly: ignore[missing-attribute]
     new_split = validation_split
-  elif split in ['test', tfds.Split.TEST]:
+  elif split in ['test', tfds.Split.TEST]:  # pyrefly: ignore[missing-attribute]
     new_split = test_split
   elif isinstance(split, str):
     # For Python 3 this should be save to check for the Text type, see
@@ -152,7 +152,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
       filter_fn: The filter function for tf.data.Dataset.filter().
     """
     self.name = name
-    self._split = split
+    self._split = split  # pyrefly: ignore[bad-assignment]
 
     # Stateless random ops require a (2,) shaped seed.
     if seed is None:
@@ -172,12 +172,12 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     self._cache = cache
 
     known_splits = [
-        'train', 'validation', 'test', tfds.Split.TRAIN, tfds.Split.VALIDATION,
-        tfds.Split.TEST
+        'train', 'validation', 'test', tfds.Split.TRAIN, tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
+        tfds.Split.TEST  # pyrefly: ignore[missing-attribute]
     ]
     if is_training is None:
       if split in known_splits:
-        is_training = split in ['train', tfds.Split.TRAIN]
+        is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
       else:
         raise ValueError(
             'Received ambiguous split {}, must set is_training for splits other'
@@ -252,7 +252,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     if 'element_id' in features:
       raise ValueError(
           '`element_id` should not be already present in the feature set.')
-    fingerprint_feature = features[self._fingerprint_key]
+    fingerprint_feature = features[self._fingerprint_key]  # pyrefly: ignore[bad-index]
     features['element_id'] = ops.fingerprint_int64(fingerprint_feature)
     return features
 
@@ -309,7 +309,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     # a unique and stable fingerprint key.
     if self._add_fingerprint_key:
       dataset = dataset.enumerate()
-      add_fingerprint_key_fn = self._add_enumerate_id(self._fingerprint_key)
+      add_fingerprint_key_fn = self._add_enumerate_id(self._fingerprint_key)  # pyrefly: ignore[bad-argument-type]
       dataset = dataset.map(
           add_fingerprint_key_fn,
           num_parallel_calls=self._num_parallel_parser_calls)
@@ -465,7 +465,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
                         batch_size=batch_size)
 
 
-_BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]
+_BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]  # pyrefly: ignore[not-a-type]
 
 
 def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:
@@ -561,4 +561,4 @@ def _create_ood_label_fn(is_in_distribution: bool) -> PreProcessFn:
     example['is_in_distribution'] = in_dist_label
     return example
 
-  return _add_ood_label
+  return _add_ood_label  # pyrefly: ignore[bad-return]

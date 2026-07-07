@@ -165,15 +165,15 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
     del decoders
     del read_config
     del shuffle_files
-    if split == tfds.Split.TRAIN:
+    if split == tfds.Split.TRAIN:  # pyrefly: ignore[missing-attribute]
       return _build_dataset(
           glob_dir=os.path.join(self._data_dir, self._file_names['train']),
           is_training=True)
-    elif split == tfds.Split.VALIDATION:
+    elif split == tfds.Split.VALIDATION:  # pyrefly: ignore[missing-attribute]
       return _build_dataset(
           glob_dir=os.path.join(self._data_dir, self._file_names['validation']),
           is_training=False)
-    elif split == tfds.Split.TEST:
+    elif split == tfds.Split.TEST:  # pyrefly: ignore[missing-attribute]
       return _build_dataset(
           glob_dir=os.path.join(self._data_dir, self._file_names['test']),
           is_training=False)
@@ -222,12 +222,12 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
     # list of the number of elements in each file shard in each split.
     split_infos = [
         tfds.core.SplitInfo(
-            name=tfds.Split.VALIDATION,
+            name=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_examples['validation']],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TEST,
+            name=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_examples['test']],
             num_bytes=0,
         ),
@@ -237,7 +237,7 @@ class _DrugCardiotoxicityDatasetBuilder(tfds.core.DatasetBuilder):
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TRAIN,
+            name=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[self._num_examples['train']],
             num_bytes=0,
         ),
@@ -305,4 +305,4 @@ class DrugCardiotoxicityDataset(base.BaseDataset):
 
       return {'features': features, 'labels': labels}
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

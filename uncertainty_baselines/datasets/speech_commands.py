@@ -244,8 +244,8 @@ class SpeechCommandsDataset(base.BaseDataset):
       label_filter_fn = (
           lambda example: example['label'] <= IN_DISTRIBUTION_MAX_LABEL)
 
-    if split not in [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]:
-      tfds_split = tfds.Split.TEST
+    if split not in [tfds.Split.TRAIN, tfds.Split.VALIDATION, tfds.Split.TEST]:  # pyrefly: ignore[missing-attribute]
+      tfds_split = tfds.Split.TEST  # pyrefly: ignore[missing-attribute]
 
     dataset_builder = _SpeechCommandsDatasetBuilder(
         tfds_dataset_builder=tfds_dataset_builder,
@@ -253,7 +253,7 @@ class SpeechCommandsDataset(base.BaseDataset):
     super().__init__(
         name=name,
         dataset_builder=dataset_builder,
-        split=tfds_split,
+        split=tfds_split,  # pyrefly: ignore[bad-argument-type]
         is_training=is_training,
         shuffle_buffer_size=shuffle_buffer_size,
         num_parallel_parser_calls=num_parallel_parser_calls,
@@ -300,7 +300,7 @@ class SpeechCommandsDataset(base.BaseDataset):
       }
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
 
 # Room impulse responses.

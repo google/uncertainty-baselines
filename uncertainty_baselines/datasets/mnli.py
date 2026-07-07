@@ -83,15 +83,15 @@ class MnliDataset(base.BaseDataset):
     if mode not in ('matched', 'mismatched'):
       raise ValueError('"mode" must be either "matched" or "mismatched".'
                        'Got {}'.format(mode))
-    if mode == 'mismatched' and split == tfds.Split.TRAIN:
+    if mode == 'mismatched' and split == tfds.Split.TRAIN:  # pyrefly: ignore[missing-attribute]
       raise ValueError('No training data for mismatched domains.')
 
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
 
-    if split == tfds.Split.VALIDATION:
+    if split == tfds.Split.VALIDATION:  # pyrefly: ignore[missing-attribute]
       split = 'validation_' + mode
-    if split == tfds.Split.TEST:
+    if split == tfds.Split.TEST:  # pyrefly: ignore[missing-attribute]
       split = 'test_' + mode
 
     name = 'glue/mnli'
@@ -123,4 +123,4 @@ class MnliDataset(base.BaseDataset):
           'idx': idx
       }
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

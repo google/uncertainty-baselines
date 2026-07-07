@@ -145,9 +145,9 @@ def _is_derivative_of_split(split: Union[str, tfds.Split,
     return split == origin_split
   elif isinstance(split, tfds.Split):
     split_equivalences = {
-        tfds.Split.TRAIN: 'train',
-        tfds.Split.TEST: 'test',
-        tfds.Split.VALIDATION: 'validation'
+        tfds.Split.TRAIN: 'train',  # pyrefly: ignore[missing-attribute]
+        tfds.Split.TEST: 'test',  # pyrefly: ignore[missing-attribute]
+        tfds.Split.VALIDATION: 'validation'  # pyrefly: ignore[missing-attribute]
     }
     return split_equivalences[split] == origin_split
   elif isinstance(split, tfds.core.ReadInstruction):
@@ -218,7 +218,7 @@ class _CifarDataset(base.BaseDataset):
     self._normalize = normalize
     dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
     new_split = base.get_validation_percent_split(dataset_builder,
                                                   validation_percent, split)
     super().__init__(
@@ -310,7 +310,7 @@ class _CifarDataset(base.BaseDataset):
       parsed_example = {'features': image}
       parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
       if self._add_fingerprint_key:
-        parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
+        parsed_example[self._fingerprint_key] = example[self._fingerprint_key]  # pyrefly: ignore[bad-index, unsupported-operation]
 
       # Note that labels are always float32, even when images are bfloat16.
       labels = example['label']
@@ -331,7 +331,7 @@ class _CifarDataset(base.BaseDataset):
 
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]
 
   def _prepare_parsed_example_cifar10n(self, example, parsed_example):
 
@@ -403,7 +403,7 @@ class Cifar10CorruptedDataset(_CifarDataset):
     """
     super().__init__(
         name=f'cifar10_corrupted/{corruption_type}_{severity}',
-        fingerprint_key=None,
+        fingerprint_key=None,  # pyrefly: ignore[bad-argument-type]
         **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
 
 
@@ -524,7 +524,7 @@ class Cifar10HDataset(AnnotatorPIMixin, _CifarDataset):
     example_id = unprocessed_example['id']
     parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
     if self._add_fingerprint_key:
-      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
+      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]  # pyrefly: ignore[unsupported-operation]
 
     # Save clean label.
     parsed_example['clean_labels'] = example['labels']
@@ -788,7 +788,7 @@ class Cifar10NDataset(_CifarNDataset):
     }
     parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
     if self._add_fingerprint_key:
-      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
+      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]  # pyrefly: ignore[unsupported-operation]
 
     # Save clean label.
     parsed_example['clean_labels'] = example['labels']
@@ -882,7 +882,7 @@ class Cifar100NDataset(_CifarNDataset):
     }
     parsed_example[self._enumerate_id_key] = example[self._enumerate_id_key]
     if self._add_fingerprint_key:
-      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]
+      parsed_example[self._fingerprint_key] = example[self._fingerprint_key]  # pyrefly: ignore[unsupported-operation]
 
     # Save clean label.
     parsed_example['clean_labels'] = example['labels']

@@ -38,15 +38,15 @@ _TEST_OOD_FILEPATTERN = 'genomics_ood-test_ood.tfrecord*'
 
 def _tfrecord_filepattern(split, data_mode):
   """Filenames of different subtypes of data."""
-  if split == tfds.Split.TRAIN and data_mode == 'ind':
+  if split == tfds.Split.TRAIN and data_mode == 'ind':  # pyrefly: ignore[missing-attribute]
     return _TRAIN_FILEPATTERN
-  elif split == tfds.Split.VALIDATION and data_mode == 'ind':
+  elif split == tfds.Split.VALIDATION and data_mode == 'ind':  # pyrefly: ignore[missing-attribute]
     return _VAL_FILEPATTERN
-  elif split == tfds.Split.TEST and data_mode == 'ind':
+  elif split == tfds.Split.TEST and data_mode == 'ind':  # pyrefly: ignore[missing-attribute]
     return _TEST_FILEPATTERN
-  elif split == tfds.Split.VALIDATION and data_mode == 'ood':
+  elif split == tfds.Split.VALIDATION and data_mode == 'ood':  # pyrefly: ignore[missing-attribute]
     return _VAL_OOD_FILEPATTERN
-  elif split == tfds.Split.TEST and data_mode == 'ood':
+  elif split == tfds.Split.TEST and data_mode == 'ood':  # pyrefly: ignore[missing-attribute]
     return _TEST_OOD_FILEPATTERN
   else:
     raise ValueError(
@@ -109,17 +109,17 @@ class _GenomicsOodDatasetBuilder(tfds.core.DatasetBuilder):
     # list of the number of elements in each file shard in each split.
     split_infos = [
         tfds.core.SplitInfo(
-            name=tfds.Split.VALIDATION,
+            name=tfds.Split.VALIDATION,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[_NUM_VAL],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TEST,
+            name=tfds.Split.TEST,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[_NUM_TEST],
             num_bytes=0,
         ),
         tfds.core.SplitInfo(
-            name=tfds.Split.TRAIN,
+            name=tfds.Split.TRAIN,  # pyrefly: ignore[missing-attribute]
             shard_lengths=[_NUM_TRAIN],
             num_bytes=0,
         ),
@@ -226,4 +226,4 @@ class GenomicsOodDataset(base.BaseDataset):
 
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

@@ -52,7 +52,7 @@ def distorted_bounding_box_crop(image_bytes,
   Returns:
     (cropped image `Tensor`, distorted bbox `Tensor`).
   """
-  with tf.name_scope('distorted_bounding_box_crop'):
+  with tf.name_scope('distorted_bounding_box_crop'):  # pyrefly: ignore[bad-instantiation]
     decoded = image_bytes.dtype != tf.string
     shape = (tf.shape(image_bytes) if decoded
              else tf.image.extract_jpeg_shape(image_bytes))

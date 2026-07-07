@@ -172,4 +172,4 @@ def get(dataset_name: str, split: Union[Tuple[str, float], str, tfds.Split],
     raise ValueError('Unrecognized dataset name: {!r}'.format(dataset_name))
 
   dataset_class = DATASETS[dataset_name]
-  return dataset_class(split=split, **hyperparameters)
+  return dataset_class(split=split, **hyperparameters)  # pyrefly: ignore[bad-argument-type, not-callable]

@@ -66,7 +66,7 @@ class DtdDataset(base.BaseDataset):
     name = 'dtd'
     dataset_builder = tfds.builder(name, try_gcs=try_gcs, data_dir=data_dir)
     if is_training is None:
-      is_training = split in ['train', tfds.Split.TRAIN]
+      is_training = split in ['train', tfds.Split.TRAIN]  # pyrefly: ignore[missing-attribute]
     new_split = base.get_validation_percent_split(
         dataset_builder, validation_percent, split)
     super().__init__(
@@ -106,4 +106,4 @@ class DtdDataset(base.BaseDataset):
       }
       return parsed_example
 
-    return _example_parser
+    return _example_parser  # pyrefly: ignore[bad-return]

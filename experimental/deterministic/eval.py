@@ -230,7 +230,7 @@ def run_eval_loop(
     if last_eval_step >= train_steps:
       written_hparams = hparams
     run_eval_epoch(
-        val_fn,
+        val_fn,  # pyrefly: ignore[bad-argument-type]
         val_dataset,
         val_summary_writer,
         test_fn,

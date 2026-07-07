@@ -242,7 +242,7 @@ def process_beam_prediction_outputs(
   if not isinstance(beam_predictions[0], list):
     beam_predictions = [beam_predictions]
 
-  if not isinstance(beam_predictions[0][0], int):
+  if not isinstance(beam_predictions[0][0], int):  # pyrefly: ignore[bad-index]
     raise ValueError('prediction output from predict_batch() must be a list of'
                      f' integer token ids. Got {type(beam_predictions[0][0])}')
 
@@ -261,11 +261,11 @@ def process_beam_prediction_outputs(
   if output_beam_scores and output_contains_scores:
     if len(beam_predictions) == 1:
       # In case of a single beam sample, return beam scores as it is.
-      beam_outputs_dict['beam_scores'] = beam_scores
+      beam_outputs_dict['beam_scores'] = beam_scores  # pyrefly: ignore[unbound-name]
     else:
       # In case of multiple beam samples, apply special processing to make sure
       # beam scores are ranked in decreasing order.
-      if len(beam_scores) != len(beam_predictions):
+      if len(beam_scores) != len(beam_predictions):  # pyrefly: ignore[unbound-name]
         # Make sure number of samples from beam_scores matches that from
         # beam_predictions.
         raise ValueError(

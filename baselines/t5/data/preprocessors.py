@@ -63,7 +63,7 @@ def toxic_comments_preprocessor_binary_classification(
 
   def _map_fn(ex: Mapping[str, tf.Tensor]) -> Mapping[str, tf.Tensor]:
 
-    label_index = tf.cast(ex['toxicity'] > threshold, tf.int32)
+    label_index = tf.cast(ex['toxicity'] > threshold, tf.int32)  # pyrefly: ignore[unsupported-operation]
     label_string = tf.gather(label_tokens, label_index)
 
     return {'inputs': ex['text'], 'targets': label_string}
@@ -120,7 +120,7 @@ def toxic_comments_preprocessor_rank_classification(
         'inputs': ex[input_feature],
         'choice1': tf.constant(all_labels[0], dtype=tf.string),
         'choice2': tf.constant(all_labels[1], dtype=tf.string),
-        'label': tf.cast(ex[target_feature] > threshold, dtype=tf.int32)
+        'label': tf.cast(ex[target_feature] > threshold, dtype=tf.int32)  # pyrefly: ignore[unsupported-operation]
     }
 
   return dataset.map(_map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)

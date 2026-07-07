@@ -121,8 +121,8 @@ def _seq2seq_uncertainty_metrics(
   """Returns uncertainty metrics for seq2seq tasks."""
 
   # Convert to numpy.
-  targets = np.array(targets)
-  predictions = np.array(predictions)
+  targets = np.array(targets)  # pyrefly: ignore[bad-assignment]
+  predictions = np.array(predictions)  # pyrefly: ignore[bad-assignment]
 
   model_pred_confs = np.exp(log_probs)
   model_pred_confs_ece = np.stack([1. - model_pred_confs, model_pred_confs],
@@ -141,16 +141,16 @@ def _seq2seq_uncertainty_metrics(
   calib_auprc = rm_metrics.CalibrationAUC(
       curve='PR', correct_pred_as_pos_label=False)
 
-  ece.add_batch(model_pred_confs_ece, label=correct_predictions)
-  weighted_ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+  ece.add_batch(model_pred_confs_ece, label=correct_predictions)  # pyrefly: ignore[bad-argument-type]
+  weighted_ece.add_batch(model_pred_confs_ece, label=correct_predictions)  # pyrefly: ignore[bad-argument-type]
   calib_auroc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
   calib_auprc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
 
   return {
       f'{metric_prefix}ece': ece.result()['ece'],
@@ -248,8 +248,8 @@ def seq2seq_uncertainty_metrics(
         metric_prefix='token_')
 
   sequence_metrics = _seq2seq_uncertainty_metrics(
-      targets,
-      predictions,
+      targets,  # pyrefly: ignore[bad-argument-type]
+      predictions,  # pyrefly: ignore[bad-argument-type]
       log_probs,
       num_ece_bins=num_ece_bins,
       metric_prefix='sequence_')
@@ -544,19 +544,19 @@ def deepbank_uncertainty_metrics(
     correct_predictions = np.array([c for (_, c) in prob_match_list])
     correct_predictions_fl = np.array(correct_predictions, dtype=np.float32)
     ece = rm_metrics.ExpectedCalibrationError(num_bins=num_ece_bins)
-    ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+    ece.add_batch(model_pred_confs_ece, label=correct_predictions)  # pyrefly: ignore[bad-argument-type]
     calib_auroc = rm_metrics.CalibrationAUC(
         curve='ROC', correct_pred_as_pos_label=False)
     calib_auprc = rm_metrics.CalibrationAUC(
         curve='PR', correct_pred_as_pos_label=False)
     calib_auroc.add_batch(
         np.ones_like(correct_predictions_fl),
-        confidence=model_pred_confs,
-        label=correct_predictions_fl)
+        confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+        label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
     calib_auprc.add_batch(
         np.ones_like(correct_predictions_fl),
-        confidence=model_pred_confs,
-        label=correct_predictions_fl)
+        confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+        label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
     return ece, calib_auroc, calib_auprc
 
   # Node evaluation
@@ -585,15 +585,15 @@ def deepbank_uncertainty_metrics(
   smatch_calib_auprc = rm_metrics.CalibrationAUC(
       curve='PR', correct_pred_as_pos_label=False)
 
-  smatch_ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+  smatch_ece.add_batch(model_pred_confs_ece, label=correct_predictions)  # pyrefly: ignore[bad-argument-type]
   smatch_calib_auroc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
   smatch_calib_auprc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
 
   analysis = dict(
       node_ece=node_ece.result()['ece'],
@@ -711,19 +711,19 @@ def dataflow_uncertainty_metrics(
     correct_predictions = np.array([c for (_, c) in prob_match_list])
     correct_predictions_fl = np.array(correct_predictions, dtype=np.float32)
     ece = rm_metrics.ExpectedCalibrationError(num_bins=num_ece_bins)
-    ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+    ece.add_batch(model_pred_confs_ece, label=correct_predictions)  # pyrefly: ignore[bad-argument-type]
     calib_auroc = rm_metrics.CalibrationAUC(
         curve='ROC', correct_pred_as_pos_label=False)
     calib_auprc = rm_metrics.CalibrationAUC(
         curve='PR', correct_pred_as_pos_label=False)
     calib_auroc.add_batch(
         np.ones_like(correct_predictions_fl),
-        confidence=model_pred_confs,
-        label=correct_predictions_fl)
+        confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+        label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
     calib_auprc.add_batch(
         np.ones_like(correct_predictions_fl),
-        confidence=model_pred_confs,
-        label=correct_predictions_fl)
+        confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+        label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
     return ece, calib_auroc, calib_auprc
 
   # Node evaluation
@@ -752,15 +752,15 @@ def dataflow_uncertainty_metrics(
   smatch_calib_auprc = rm_metrics.CalibrationAUC(
       curve='PR', correct_pred_as_pos_label=False)
 
-  smatch_ece.add_batch(model_pred_confs_ece, label=correct_predictions)
+  smatch_ece.add_batch(model_pred_confs_ece, label=correct_predictions)  # pyrefly: ignore[bad-argument-type]
   smatch_calib_auroc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
   smatch_calib_auprc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
 
   analysis = dict(
       node_ece=node_ece.result()['ece'],
@@ -830,9 +830,9 @@ def binary_classification(
     # If input is BeamScore (i.e., a tuple whose first element
     # is an array of GreedyScore), grab the first element, i.e., array of
     # GreedyScore
-    scores = scores[0]
+    scores = scores[0]  # pyrefly: ignore[bad-assignment]
 
-  scores = np.array(scores, dtype=np.float32)
+  scores = np.array(scores, dtype=np.float32)  # pyrefly: ignore[bad-assignment]
 
   # Check score shape.
   score_shape = scores.shape
@@ -861,7 +861,7 @@ def binary_classification(
   # to (batch_size, num_classes) and then apply softmax to compute the
   # predictive probability for all classes (`model_class_probs`) and also for
   # the predicted class (`model_pred_probs`).
-  scores = np.squeeze(scores, axis=1)
+  scores = np.squeeze(scores, axis=1)  # pyrefly: ignore[no-matching-overload]
   model_class_probs = sp_special.softmax(scores, axis=-1)
   model_pred_probs = model_class_probs[:, 1]
 
@@ -881,8 +881,8 @@ def binary_classification(
   acc = sk_metrics.accuracy_score(target_labels, predicted_labels)
   nll = sk_metrics.log_loss(target_labels, model_pred_probs)
   f1 = sk_metrics.f1_score(target_labels, predicted_labels)
-  auc_roc = tf_metrics.AUC(curve='ROC')(target_labels_fl, model_pred_probs)
-  auc_prc = tf_metrics.AUC(curve='PR')(target_labels_fl, model_pred_probs)
+  auc_roc = tf_metrics.AUC(curve='ROC')(target_labels_fl, model_pred_probs)  # pyrefly: ignore[not-callable]
+  auc_prc = tf_metrics.AUC(curve='PR')(target_labels_fl, model_pred_probs)  # pyrefly: ignore[not-callable]
 
   # Computes the optimal AUC based on temperature-adjusted logits.
   auc_rocs_temperature_adjusted = []
@@ -893,9 +893,9 @@ def binary_classification(
         temp_adjusted_logits, axis=-1)[:, 1]
     temp_adjusted_probs = temp_adjusted_probs.astype(np.float32)
 
-    auc_roc_temp = tf_metrics.AUC(curve='ROC')(target_labels_fl,
+    auc_roc_temp = tf_metrics.AUC(curve='ROC')(target_labels_fl,  # pyrefly: ignore[not-callable]
                                                temp_adjusted_probs)
-    auc_prc_temp = tf_metrics.AUC(curve='PR')(target_labels_fl,
+    auc_prc_temp = tf_metrics.AUC(curve='PR')(target_labels_fl,  # pyrefly: ignore[not-callable]
                                               temp_adjusted_probs)
 
     auc_rocs_temperature_adjusted.append(auc_roc_temp.numpy())
@@ -911,11 +911,11 @@ def binary_classification(
   calib_auprc = rm_metrics.CalibrationAUC(
       curve='PR', correct_pred_as_pos_label=False)
 
-  ece.add_batch(model_class_probs, label=target_labels)
+  ece.add_batch(model_class_probs, label=target_labels)  # pyrefly: ignore[bad-argument-type]
   calib_auroc.add_batch(
-      predicted_labels_fl, confidence=model_pred_confs, label=target_labels_fl)
+      predicted_labels_fl, confidence=model_pred_confs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
   calib_auprc.add_batch(
-      predicted_labels_fl, confidence=model_pred_confs, label=target_labels_fl)
+      predicted_labels_fl, confidence=model_pred_confs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
 
   # Defines and computes selective prediction metrics.
   collab_auprc_1 = rm_metrics.OracleCollaborativeAUC(
@@ -938,15 +938,15 @@ def binary_classification(
   collab_auroc_10 = rm_metrics.OracleCollaborativeAUC(
       oracle_fraction=0.1, curve='ROC')
 
-  collab_auprc_1.add_batch(model_pred_probs, label=target_labels_fl)
-  collab_auprc_2.add_batch(model_pred_probs, label=target_labels_fl)
-  collab_auprc_5.add_batch(model_pred_probs, label=target_labels_fl)
-  collab_auprc_10.add_batch(model_pred_probs, label=target_labels_fl)
+  collab_auprc_1.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
+  collab_auprc_2.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
+  collab_auprc_5.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
+  collab_auprc_10.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
 
-  collab_auroc_1.add_batch(model_pred_probs, label=target_labels_fl)
-  collab_auroc_2.add_batch(model_pred_probs, label=target_labels_fl)
-  collab_auroc_5.add_batch(model_pred_probs, label=target_labels_fl)
-  collab_auroc_10.add_batch(model_pred_probs, label=target_labels_fl)
+  collab_auroc_1.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
+  collab_auroc_2.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
+  collab_auroc_5.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
+  collab_auroc_10.add_batch(model_pred_probs, label=target_labels_fl)  # pyrefly: ignore[bad-argument-type]
 
   return {
       'accuracy': acc * 100,
@@ -1067,9 +1067,9 @@ def sequence_classification(
     # If input is BeamScore (i.e., a tuple whose first element
     # is an array of GreedyScore), grab the first element, i.e., array of
     # GreedyScore.
-    scores = scores[0]
+    scores = scores[0]  # pyrefly: ignore[bad-assignment]
 
-  scores = np.array(scores, dtype=np.float32)
+  scores = np.array(scores, dtype=np.float32)  # pyrefly: ignore[bad-assignment]
 
   # Validates input shapes.
   score_shape = scores.shape  # (batch_size, output_len, num_class)
@@ -1133,9 +1133,9 @@ def sequence_classification(
 
   # Performance metrics.
   acc = np.mean(correct_predictions_fl)
-  auc_roc = tf_metrics.AUC(curve='ROC')(correct_predictions_fl,
+  auc_roc = tf_metrics.AUC(curve='ROC')(correct_predictions_fl,  # pyrefly: ignore[not-callable]
                                         model_pred_confs)
-  auc_prc = tf_metrics.AUC(curve='PR')(correct_predictions_fl, model_pred_confs)
+  auc_prc = tf_metrics.AUC(curve='PR')(correct_predictions_fl, model_pred_confs)  # pyrefly: ignore[not-callable]
 
   # Calibration metrics.
   # To utilize the classification metrics, we evaluate sequence-level
@@ -1153,11 +1153,11 @@ def sequence_classification(
   calib_auroc.add_batch(
       np.ones_like(correct_predictions_fl),
       confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
   calib_auprc.add_batch(
       np.ones_like(correct_predictions_fl),
       confidence=model_pred_confs,
-      label=correct_predictions_fl)
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
 
   result_dict = {
       'accuracy': float(acc) * 100,
@@ -1181,10 +1181,10 @@ def sequence_classification(
         label=correct_predictions_fl,
         custom_binning_score=model_pred_confs)
 
-    collab_acc_1.add_batch(**collab_acc_kwargs)
-    collab_acc_2.add_batch(**collab_acc_kwargs)
-    collab_acc_5.add_batch(**collab_acc_kwargs)
-    collab_acc_10.add_batch(**collab_acc_kwargs)
+    collab_acc_1.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
+    collab_acc_2.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
+    collab_acc_5.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
+    collab_acc_10.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
 
     result_dict.update({
         'collab_acc_1%': collab_acc_1.result()['collaborative_accuracy'],
@@ -1197,8 +1197,8 @@ def sequence_classification(
     # OOD metrics
     is_oos = np.any(target_labels == oos_token_id, axis=-1)
     logging.info('The bool is_oos %s', is_oos)
-    auc_roc_ood = tf_metrics.AUC(curve='ROC')(is_oos, 1 - model_pred_confs)
-    auc_prc_ood = tf_metrics.AUC(curve='PR')(is_oos, 1 - model_pred_confs)
+    auc_roc_ood = tf_metrics.AUC(curve='ROC')(is_oos, 1 - model_pred_confs)  # pyrefly: ignore[not-callable]
+    auc_prc_ood = tf_metrics.AUC(curve='PR')(is_oos, 1 - model_pred_confs)  # pyrefly: ignore[not-callable]
 
     result_dict.update({
         'ood_auc_roc': auc_roc_ood.numpy(),
@@ -1293,15 +1293,15 @@ def sequence_classification_beam_metrics(
   calib_auprc = rm_metrics.CalibrationAUC(
       curve='PR', correct_pred_as_pos_label=False)
 
-  ece.add_batch(beam_confidences_ece, label=correct_predictions)
+  ece.add_batch(beam_confidences_ece, label=correct_predictions)  # pyrefly: ignore[bad-argument-type]
   calib_auroc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=beam_confidences,
-      label=correct_predictions_fl)
+      confidence=beam_confidences,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
   calib_auprc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=beam_confidences,
-      label=correct_predictions_fl)
+      confidence=beam_confidences,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
 
   result_dict = {
       f'ece_{beam_type}_{uncertainty_type}':
@@ -1330,10 +1330,10 @@ def sequence_classification_beam_metrics(
         label=correct_predictions_fl,
         custom_binning_score=beam_confidences)
 
-    collab_acc_1.add_batch(**collab_acc_kwargs)
-    collab_acc_2.add_batch(**collab_acc_kwargs)
-    collab_acc_5.add_batch(**collab_acc_kwargs)
-    collab_acc_10.add_batch(**collab_acc_kwargs)
+    collab_acc_1.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
+    collab_acc_2.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
+    collab_acc_5.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
+    collab_acc_10.add_batch(**collab_acc_kwargs)  # pyrefly: ignore[bad-argument-type]
 
     result_dict.update({
         f'collab_acc_1%_{beam_type}_{uncertainty_type}':
@@ -1537,7 +1537,7 @@ def _extract_beam_results_from_scores(
         np.max(beam_scores))
     beam_scores = np.clip(beam_scores, a_min=None, a_max=0.)
 
-  return beam_predictions, beam_scores
+  return beam_predictions, beam_scores  # pyrefly: ignore[bad-return]
 
 
 def _process_beam_by_type(
@@ -1720,7 +1720,7 @@ def _compute_beam_uncertainty(beam_predictions: Sequence[TopkPrediction],
           np.mean(beam_confidences < 0.) * 100, neg_conf_id,
           beam_confidences[neg_conf_id], beam_probs[neg_conf_id],
           beam_log_probs_normalized[neg_conf_id], beam_scores[neg_conf_id],
-          beam_predictions[neg_conf_id])
+          beam_predictions[neg_conf_id])  # pyrefly: ignore[bad-index]
       beam_confidences = np.clip(beam_confidences, a_min=0., a_max=None)
     beam_confidences = np.log(beam_confidences)
   else:

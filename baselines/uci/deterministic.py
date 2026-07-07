@@ -116,12 +116,12 @@ def multilayer_perceptron(input_shape, output_scaler=1.):
     tf.keras.Model.
   """
   inputs = tf.keras.layers.Input(shape=input_shape)
-  hidden = tf.keras.layers.Dense(50, activation='relu')(inputs)
-  loc = tf.keras.layers.Dense(1, activation=None)(hidden)
-  loc = tf.keras.layers.Lambda(lambda x: x * output_scaler)(loc)
+  hidden = tf.keras.layers.Dense(50, activation='relu')(inputs)  # pyrefly: ignore[not-callable]
+  loc = tf.keras.layers.Dense(1, activation=None)(hidden)  # pyrefly: ignore[not-callable]
+  loc = tf.keras.layers.Lambda(lambda x: x * output_scaler)(loc)  # pyrefly: ignore[not-callable]
   # The variable layer must depend on a symbolic input tensor.
-  scale = VariableInputLayer((), constraint='softplus')(inputs)
-  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(loc=x[0], scale=x[1]))(
+  scale = VariableInputLayer((), constraint='softplus')(inputs)  # pyrefly: ignore[not-callable]
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(loc=x[0], scale=x[1]))(  # pyrefly: ignore[missing-attribute, not-callable]
       (loc, scale))
   return tf.keras.Model(inputs=inputs, outputs=outputs)
 
@@ -178,10 +178,10 @@ def main(argv):
         for j in range(n_train // FLAGS.batch_size):
           perm = np.random.permutation(n_train)
           with tf.GradientTape() as tape:
-            loss = loss_fn(x_train[perm[j:j + FLAGS.batch_size]],
+            loss = loss_fn(x_train[perm[j:j + FLAGS.batch_size]],  # pyrefly: ignore[unbound-name]
                            y_train[perm[j:j + FLAGS.batch_size]])
           grads = tape.gradient(loss, model.trainable_weights)
-          optimizer.apply_gradients(zip(grads, model.trainable_weights))
+          optimizer.apply_gradients(zip(grads, model.trainable_weights))  # pyrefly: ignore[unbound-name]
     else:
       if FLAGS.bootstrap:
         inds = np.random.choice(n_train, n_train, replace=True)
@@ -189,8 +189,8 @@ def main(argv):
         y_sampled = y_train[inds]
 
       model.fit(
-          x=x_train if not FLAGS.bootstrap else x_sampled,
-          y=y_train if not FLAGS.bootstrap else y_sampled,
+          x=x_train if not FLAGS.bootstrap else x_sampled,  # pyrefly: ignore[unbound-name]
+          y=y_train if not FLAGS.bootstrap else y_sampled,  # pyrefly: ignore[unbound-name]
           batch_size=FLAGS.batch_size,
           epochs=(FLAGS.batch_size * FLAGS.training_steps) // n_train,
           validation_data=(x_test, y_test),

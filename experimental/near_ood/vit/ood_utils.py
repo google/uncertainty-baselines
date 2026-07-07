@@ -377,8 +377,8 @@ def eval_ood_metrics(ood_ds, ood_ds_names, ood_methods, evaluation_fn,
     logging.info('ood_ds_name %s, nseen %s', ood_ds_name, nseen)
     if ood_ds_name == 'train_maha':
       # Estimate class conditional Gaussian distribution for Mahalanobis dist.
-      pre_logits_train = np.vstack(np.vstack(pre_logits_list))
-      labels_train = np.argmax(np.vstack(np.vstack(labels_list)), axis=-1)
+      pre_logits_train = np.vstack(np.vstack(pre_logits_list))  # pyrefly: ignore[no-matching-overload]
+      labels_train = np.argmax(np.vstack(np.vstack(labels_list)), axis=-1)  # pyrefly: ignore[no-matching-overload]
       mean_list, cov = compute_mean_and_cov(pre_logits_train, labels_train)
       mean_list_background, cov_background = compute_mean_and_cov(
           pre_logits_train, np.zeros_like(labels_train))

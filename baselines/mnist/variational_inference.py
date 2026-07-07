@@ -260,7 +260,7 @@ def lenet5(n_examples, input_shape, num_classes):
       bias_posterior_fn=q_fn,
       kernel_divergence_fn=normalized_kl_fn,
       bias_divergence_fn=normalized_kl_fn)(pool2)
-  flatten = tf.keras.layers.Flatten()(conv3)
+  flatten = tf.keras.layers.Flatten()(conv3)  # pyrefly: ignore[not-callable]
   dense1 = tfp.layers.DenseLocalReparameterization(
       84,
       activation=tf.nn.relu,
@@ -278,7 +278,7 @@ def lenet5(n_examples, input_shape, num_classes):
       bias_posterior_fn=q_fn,
       kernel_divergence_fn=normalized_kl_fn,
       bias_divergence_fn=normalized_kl_fn)(dense1)
-  outputs = tf.keras.layers.Lambda(lambda x: ed.Categorical(logits=x))(dense2)
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Categorical(logits=x))(dense2)  # pyrefly: ignore[missing-attribute, not-callable]
   return tf.keras.models.Model(inputs=inputs, outputs=outputs)
 
 

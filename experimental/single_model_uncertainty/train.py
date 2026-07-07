@@ -236,11 +236,11 @@ def run_train_loop(
     train_step_outputs = remainder_train_step_fn(train_iterator)
 
   # Always evaluate and record metrics at the end of training.
-  _write_summaries(train_step_outputs, train_steps, train_summary_writer,
+  _write_summaries(train_step_outputs, train_steps, train_summary_writer,  # pyrefly: ignore[unbound-name]
                    hparams)
   train_step_outputs_np = {k: v.numpy() for k, v in train_step_outputs.items()}
   logging.info(
-      'Training metrics for step %d: %s', current_step, train_step_outputs_np)
+      'Training metrics for step %d: %s', current_step, train_step_outputs_np)  # pyrefly: ignore[unbound-name]
   if 'eval' in mode:
     eval_lib.run_eval_epoch(
         train_steps,

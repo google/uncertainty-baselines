@@ -715,7 +715,7 @@ def make_radar_plot(df,
 
   max_val += 0.2  # Adds some padding for ticklabels
   ticks = np.linspace(0, max_val, nticks)
-  scaled_ticks = np.linspace(yscales[0][0], yscales[0][1], nticks)
+  scaled_ticks = np.linspace(yscales[0][0], yscales[0][1], nticks)  # pyrefly: ignore[unsupported-operation]
   ticklabels = ['%.2f' % i for i in scaled_ticks]
   ax.set_yticks(ticks, ticklabels)
   ax.set_ylim(0.0, max_val)
@@ -767,7 +767,7 @@ def make_radar_plot(df,
     ax2.xaxis.grid(False)
 
   for i in range(0, num_categories):
-    add_new_yaxis(yscales[i][0], yscales[i][1], angles[i])
+    add_new_yaxis(yscales[i][0], yscales[i][1], angles[i])  # pyrefly: ignore[unsupported-operation]
 
 
 def process_fewshot_for_moe_comparison(

@@ -121,7 +121,7 @@ def run_eval_epoch(
   val_outputs_np = None
   if val_dataset:
     val_iterator = iter(val_dataset)
-    val_outputs = val_fn(val_iterator)
+    val_outputs = val_fn(val_iterator)  # pyrefly: ignore[not-callable]
     with val_summary_writer.as_default():  # pytype: disable=attribute-error
       if hparams:
         hp.hparams(hparams)
@@ -132,7 +132,7 @@ def run_eval_epoch(
         'Validation metrics for step %d: %s', current_step, val_outputs_np)
   if ood_dataset:
     ood_iterator = iter(ood_dataset)
-    ood_outputs = ood_fn(ood_iterator)
+    ood_outputs = ood_fn(ood_iterator)  # pyrefly: ignore[not-callable]
     with ood_summary_writer.as_default():  # pytype: disable=attribute-error
       if hparams:
         hp.hparams(hparams)
@@ -150,7 +150,7 @@ def run_eval_epoch(
     for name, metric in test_outputs.items():
       tf.summary.scalar(name, metric, step=current_step)
   test_outputs_np = {k: v.numpy() for k, v in test_outputs.items()}
-  return val_outputs_np, ood_outputs_np, test_outputs_np
+  return val_outputs_np, ood_outputs_np, test_outputs_np  # pyrefly: ignore[unbound-name]
 
 
 def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
@@ -196,7 +196,7 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
     ood_fn = eval_step_fn(
         model,
         strategy,
-        ood_metrics,
+        ood_metrics,  # pyrefly: ignore[bad-argument-type]
         dempster_shafer_ood=dempster_shafer_ood,
         iterations_per_loop=num_ood_steps,
         label_key='is_in_distribution',

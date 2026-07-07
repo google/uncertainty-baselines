@@ -93,7 +93,7 @@ def call_step_fn(strategy,
 
   step_outputs = strategy.run(step_fn, args=(global_inputs,))
   if step_outputs is None:
-    return step_outputs
+    return step_outputs  # pyrefly: ignore[bad-return]
   if strategy.num_replicas_in_sync > 1:
     if concatenate_outputs:
       step_outputs = {

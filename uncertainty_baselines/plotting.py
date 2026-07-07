@@ -27,7 +27,7 @@ tableau20 = [
 ]
 for i in range(len(tableau20)):
   r, g, b = tableau20[i]
-  tableau20[i] = (r / 255., g / 255., b / 255.)
+  tableau20[i] = (r / 255., g / 255., b / 255.)  # pyrefly: ignore[unsupported-operation]
 
 
 def _hue_order_sort_key_fn(s):

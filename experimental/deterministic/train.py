@@ -178,7 +178,7 @@ def run_train_loop(
          test_dataset_builder=test_dataset_builder,
          batch_size=eval_batch_size,
          strategy=strategy,
-         trial_dir=trial_dir,
+         trial_dir=trial_dir,  # pyrefly: ignore[bad-argument-type]
          model=model,
          metrics=metrics)
   # Each call to train_step_fn will run iterations_per_loop steps.
@@ -194,11 +194,11 @@ def run_train_loop(
       checkpoint_manager.save(checkpoint_number=current_step)
     if mode == 'train_and_eval' and current_step % eval_frequency == 0:
       eval_lib.run_eval_epoch(
-          val_fn,
-          val_dataset,
+          val_fn,  # pyrefly: ignore[bad-argument-type, unbound-name]
+          val_dataset,  # pyrefly: ignore[unbound-name]
           val_summary_writer,
-          test_fn,
-          test_dataset,
+          test_fn,  # pyrefly: ignore[unbound-name]
+          test_dataset,  # pyrefly: ignore[unbound-name]
           test_summary_writer,
           current_step,
           hparams=None)  # Only write hparams on the last step.
@@ -224,17 +224,17 @@ def run_train_loop(
 
   # Always evaluate and record metrics at the end of training.
   _write_summaries(
-      train_step_outputs, train_steps, train_summary_writer, hparams)
+      train_step_outputs, train_steps, train_summary_writer, hparams)  # pyrefly: ignore[unbound-name]
   train_step_outputs_np = {k: v.numpy() for k, v in train_step_outputs.items()}
   logging.info(
-      'Training metrics for step %d: %s', current_step, train_step_outputs_np)
+      'Training metrics for step %d: %s', current_step, train_step_outputs_np)  # pyrefly: ignore[unbound-name]
   if mode == 'train_and_eval':
     eval_lib.run_eval_epoch(
-        val_fn,
-        val_dataset,
+        val_fn,  # pyrefly: ignore[bad-argument-type, unbound-name]
+        val_dataset,  # pyrefly: ignore[unbound-name]
         val_summary_writer,
-        test_fn,
-        test_dataset,
+        test_fn,  # pyrefly: ignore[unbound-name]
+        test_dataset,  # pyrefly: ignore[unbound-name]
         test_summary_writer,
         train_steps,
         hparams=hparams)

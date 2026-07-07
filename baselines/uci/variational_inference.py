@@ -258,11 +258,11 @@ def multilayer_perceptron(n_examples, input_shape, output_scaler=1.):
       bias_posterior_fn=q_fn,
       kernel_divergence_fn=normalized_kl_fn,
       bias_divergence_fn=normalized_kl_fn)(hidden)
-  loc = tf.keras.layers.Lambda(lambda x: x * output_scaler)(loc)
+  loc = tf.keras.layers.Lambda(lambda x: x * output_scaler)(loc)  # pyrefly: ignore[not-callable]
   scale = tfp.layers.VariableLayer(
       shape=(), initializer=tf.keras.initializers.Constant(-3.))(loc)
-  scale = tf.keras.layers.Activation('softplus')(scale)
-  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(loc=x[0], scale=x[1]))(
+  scale = tf.keras.layers.Activation('softplus')(scale)  # pyrefly: ignore[not-callable]
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(loc=x[0], scale=x[1]))(  # pyrefly: ignore[missing-attribute, not-callable]
       (loc, scale))
   return tf.keras.Model(inputs=inputs, outputs=outputs)
 

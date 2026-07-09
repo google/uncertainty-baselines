@@ -117,7 +117,7 @@ def main(config, output_dir):
       split=config.train_split,
       rng=train_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
+      preprocess_fn=preprocess_spec.parse(  # pyrefly: ignore[bad-argument-type]
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
@@ -493,7 +493,7 @@ def main(config, output_dir):
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
     if config.get('grad_clip_norm'):
-      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
+      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)  # pyrefly: ignore[unbound-name]
       g = jax.tree.map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
     opt = opt.replace(target=weight_decay_fn(opt.target, lr))
@@ -535,7 +535,7 @@ def main(config, output_dir):
 
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,
-      save_checkpoint_path=save_checkpoint_path,
+      save_checkpoint_path=save_checkpoint_path,  # pyrefly: ignore[bad-argument-type]
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=states_cpu,
@@ -675,7 +675,7 @@ def main(config, output_dir):
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
-      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))  # pyrefly: ignore[unbound-name]
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
       # Keep train_loss to return for reproducibility tests.
@@ -744,20 +744,20 @@ def main(config, output_dir):
             confidence = np.max(probs, axis=-1)
             for p, c, l, d, m, label in zip(probs, confidence, int_labels,
                                             int_preds, masks, labels[0]):
-              ece.add_batch(p[m, :], label=l[m])
-              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])
+              ece.add_batch(p[m, :], label=l[m])  # pyrefly: ignore[unbound-name]
+              calib_auc.add_batch(d[m], label=l[m], confidence=c[m])  # pyrefly: ignore[unbound-name]
               # TODO(jereliu): Extend to support soft multi-class probabilities.
-              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])
-              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])
+              oc_auc_0_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])  # pyrefly: ignore[unbound-name]
+              oc_auc_1.add_batch(d[m], label=l[m], custom_binning_score=c[m])  # pyrefly: ignore[unbound-name]
+              oc_auc_2.add_batch(d[m], label=l[m], custom_binning_score=c[m])  # pyrefly: ignore[unbound-name]
+              oc_auc_5.add_batch(d[m], label=l[m], custom_binning_score=c[m])  # pyrefly: ignore[unbound-name]
 
               if val_name == 'cifar_10h' or val_name == 'imagenet_real':
                 batch_label_diversity, batch_sample_diversity, batch_ged = data_uncertainty_utils.generalized_energy_distance(
                     label[m], p[m, :], config.num_classes)
-                label_diversity.update_state(batch_label_diversity)
-                sample_diversity.update_state(batch_sample_diversity)
-                ged.update_state(batch_ged)
+                label_diversity.update_state(batch_label_diversity)  # pyrefly: ignore[unbound-name]
+                sample_diversity.update_state(batch_sample_diversity)  # pyrefly: ignore[unbound-name]
+                ged.update_state(batch_ged)  # pyrefly: ignore[unbound-name]
 
         val_loss[val_name] = loss / nseen  # Keep for reproducibility tests.
         val_measurements = {
@@ -765,24 +765,24 @@ def main(config, output_dir):
             f'{val_name}_loss': val_loss[val_name],
         }
         if config.get('loss', 'sigmoid_xent') != 'sigmoid_xent':
-          val_measurements[f'{val_name}_ece'] = ece.result()['ece']
-          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[
+          val_measurements[f'{val_name}_ece'] = ece.result()['ece']  # pyrefly: ignore[unbound-name]
+          val_measurements[f'{val_name}_calib_auc'] = calib_auc.result()[  # pyrefly: ignore[unbound-name]
               'calibration_auc']
-          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[
+          val_measurements[f'{val_name}_oc_auc_0.5%'] = oc_auc_0_5.result()[  # pyrefly: ignore[unbound-name]
               'collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[
+          val_measurements[f'{val_name}_oc_auc_1%'] = oc_auc_1.result()[  # pyrefly: ignore[unbound-name]
               'collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[
+          val_measurements[f'{val_name}_oc_auc_2%'] = oc_auc_2.result()[  # pyrefly: ignore[unbound-name]
               'collaborative_auc']
-          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[
+          val_measurements[f'{val_name}_oc_auc_5%'] = oc_auc_5.result()[  # pyrefly: ignore[unbound-name]
               'collaborative_auc']
         writer.write_scalars(step, val_measurements)
 
         if val_name == 'cifar_10h' or val_name == 'imagenet_real':
           cifar_10h_measurements = {
-              f'{val_name}_label_diversity': label_diversity.result(),
-              f'{val_name}_sample_diversity': sample_diversity.result(),
-              f'{val_name}_ged': ged.result(),
+              f'{val_name}_label_diversity': label_diversity.result(),  # pyrefly: ignore[unbound-name]
+              f'{val_name}_sample_diversity': sample_diversity.result(),  # pyrefly: ignore[unbound-name]
+              f'{val_name}_ged': ged.result(),  # pyrefly: ignore[unbound-name]
           }
           writer.write_scalars(step, cifar_10h_measurements)
 
@@ -807,7 +807,7 @@ def main(config, output_dir):
       if ood_ds and config.ood_methods:
         ood_measurements = ood_utils.eval_ood_metrics(
             ood_ds,
-            ood_ds_names,
+            ood_ds_names,  # pyrefly: ignore[unbound-name]
             config.ood_methods,
             make_hetgpbe_eval_fn(states_repl),
             opt_repl.target,
@@ -818,7 +818,7 @@ def main(config, output_dir):
       # Perform subpopulation shift evaluation only if flag is provided.
       if config.get('subpopl_cifar_data_file'):
         subpopl_measurements = subpopl_utils.eval_subpopl_metrics(
-            subpopl_val_ds_splits,
+            subpopl_val_ds_splits,  # pyrefly: ignore[unbound-name]
             make_hetgpbe_eval_fn(states_repl),
             opt_repl.target,
             n_prefetch=config.get('prefetch_to_device', 1))

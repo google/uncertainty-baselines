@@ -131,7 +131,7 @@ def main(config, output_dir):
       split=config.train_split,
       rng=train_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
+      preprocess_fn=preprocess_spec.parse(  # pyrefly: ignore[bad-argument-type]
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
@@ -424,7 +424,7 @@ def main(config, output_dir):
     # Optionally resize the global gradient to a maximum norm. We found this
     # useful in some cases across optimizers, hence it's in the main loop.
     if config.get('grad_clip_norm'):
-      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)
+      g_factor = jnp.minimum(1.0, config.grad_clip_norm / l2_g)  # pyrefly: ignore[unbound-name]
       g = jax.tree_util.tree_map(lambda p: g_factor * p, g)
     opt = opt.apply_gradient(g, learning_rate=lr)
 
@@ -707,7 +707,7 @@ def main(config, output_dir):
       if ood_ds and config.ood_methods:
         ood_measurements = ood_utils.eval_ood_metrics(
             ood_ds,
-            ood_ds_names,
+            ood_ds_names,  # pyrefly: ignore[unbound-name]
             config.ood_methods,
             evaluation_fn,
             opt_repl.target,

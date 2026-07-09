@@ -224,8 +224,8 @@ class LogRegFewShotEvaluator:
       # TODO(kehanghan): Switch to `input_utils.get_data` instead of this
       # non-deterministic `input_pipeline.make_for_inference`.
       train_ds, batches_tr = input_pipeline.make_for_inference(  # pytype: disable=wrong-keyword-args
-          dataset=dataset,
-          split=train_split,
+          dataset=dataset,  # pyrefly: ignore[unexpected-keyword]
+          split=train_split,  # pyrefly: ignore[unexpected-keyword]
           batch_size=self.batch_size,
           # TODO(kehanghan): Switch to `clu.preprocess_spec` instead of this
           # non-deterministic `pp_builder.get_preprocess_fn`.
@@ -233,8 +233,8 @@ class LogRegFewShotEvaluator:
           # available_ops=preprocess_utils.all_ops()).
           preprocess_fn=pp_builder.get_preprocess_fn(self.pp_tr))
       test_ds, batches_te = input_pipeline.make_for_inference(  # pytype: disable=wrong-keyword-args
-          dataset=dataset,
-          split=test_split,
+          dataset=dataset,  # pyrefly: ignore[unexpected-keyword]
+          split=test_split,  # pyrefly: ignore[unexpected-keyword]
           batch_size=self.batch_size,
           preprocess_fn=pp_builder.get_preprocess_fn(self.pp_te))
       num_classes = tfds.builder(dataset).info.features["label"].num_classes
@@ -300,7 +300,7 @@ class LogRegFewShotEvaluator:
       x = (repr_train[all_idx] - mean) / std
       x_test = (repr_test - mean) / std
       if eval_ood_detection:
-        x_ood_test = (repr_ood_test - mean) / std
+        x_ood_test = (repr_ood_test - mean) / std  # pyrefly: ignore[unbound-name]
       else:
         x_ood_test = None
 
@@ -334,7 +334,7 @@ class LogRegFewShotEvaluator:
       else:
         ood_dataset_args = (None, None, None)
       results[name] = self.compute_fewshot_metrics(params, *dataset_args,
-                                                   eval_ood_detection,
+                                                   eval_ood_detection,  # pyrefly: ignore[bad-argument-count]
                                                    *ood_dataset_args, **kwargs)
 
     best_l2 = select_best_l2_reg(

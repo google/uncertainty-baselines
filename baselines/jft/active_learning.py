@@ -353,7 +353,7 @@ def get_density_scores(*,
     # Ensemble models
     # train_embeds shape [batch_size, hidden_size, ens_size]
     mean_list, cov = [], []
-    for m in range(ens_size):
+    for m in range(ens_size):  # pyrefly: ignore[unbound-name]
       mu, sigma = ood_utils.compute_mean_and_cov(
           train_embeds[..., m], train_labels, class_ids
       )
@@ -373,7 +373,7 @@ def get_density_scores(*,
     # pool_pre_logits [num_cores, per_core_batch_size, hidden_size, ens_size]
     pool_pre_logits = pool_pre_logits.reshape(
         [-1] + [s for s in pool_pre_logits.shape[2:]])
-    for m in range(ens_size):
+    for m in range(ens_size):  # pyrefly: ignore[unbound-name]
       scores_list = []
       d = ood_utils.compute_mahalanobis_distance(pool_pre_logits[..., m],
                                                  mean_list[m], cov[m])
@@ -614,7 +614,7 @@ def finetune(*,
       best_step=best_step,
       train_val_accuracies=train_val_accuracies)
 
-  return best_opt_repl, rngs_loop, info
+  return best_opt_repl, rngs_loop, info  # pyrefly: ignore[unbound-name]
 
 
 def main(config, output_dir):
@@ -669,7 +669,7 @@ def main(config, output_dir):
       split=config.val_split,
       rng=None,
       process_batch_size=local_batch_size_eval,
-      preprocess_fn=pp_eval,
+      preprocess_fn=pp_eval,  # pyrefly: ignore[bad-argument-type]
       num_epochs=1,
       repeat_after_batching=True,
       shuffle=False,
@@ -682,7 +682,7 @@ def main(config, output_dir):
       split=config.test_split,
       rng=None,
       process_batch_size=local_batch_size_eval,
-      preprocess_fn=pp_eval,
+      preprocess_fn=pp_eval,  # pyrefly: ignore[bad-argument-type]
       num_epochs=1,
       repeat_after_batching=True,
       shuffle=False,
@@ -727,7 +727,7 @@ def main(config, output_dir):
       split=config.train_split,
       rng=pool_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=pp_eval,
+      preprocess_fn=pp_eval,  # pyrefly: ignore[bad-argument-type]
       num_epochs=1,
       repeat_after_batching=True,
       shuffle=False,
@@ -808,7 +808,7 @@ def main(config, output_dir):
 
   measurements = {}
   accumulated_steps = 0
-  current_train_ds_length = len(train_subset_data_builder.subset_ids)
+  current_train_ds_length = len(train_subset_data_builder.subset_ids)  # pyrefly: ignore[bad-argument-type]
   write_note(f'Initial training set size: {current_train_ds_length}')
   while current_train_ds_length <= config.get('max_training_set_size'):
     current_opt_repl = flax_utils.replicate(opt_cpu)
@@ -824,7 +824,7 @@ def main(config, output_dir):
           split=config.train_split,
           rng=train_ds_rng,
           process_batch_size=local_batch_size,
-          preprocess_fn=preprocess_spec.parse(
+          preprocess_fn=preprocess_spec.parse(  # pyrefly: ignore[bad-argument-type]
               spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
           cache='loaded',
           shuffle_buffer_size=config.shuffle_buffer_size,
@@ -840,7 +840,7 @@ def main(config, output_dir):
           split=config.train_split,
           rng=train_ds_rng,
           process_batch_size=local_batch_size,
-          preprocess_fn=pp_eval,
+          preprocess_fn=pp_eval,  # pyrefly: ignore[bad-argument-type]
           cache='loaded',
           num_epochs=1,
           repeat_after_batching=True,
@@ -897,13 +897,13 @@ def main(config, output_dir):
     acquisition_batch_ids, rng_loop = acquire_points(
         model, current_opt_repl, pool_train_ds, train_eval_ds,
         train_subset_data_builder, acquisition_method, config, rng_loop)
-    train_subset_data_builder.subset_ids.update(acquisition_batch_ids)
+    train_subset_data_builder.subset_ids.update(acquisition_batch_ids)  # pyrefly: ignore[missing-attribute]
 
     write_note(f'Training set ids at train set size {current_train_ds_length}:'
                f'{training_subset_ids}')
     write_note(f'Selected ids at train set size {current_train_ds_length}:'
                f'{acquisition_batch_ids}')
-    current_train_ds_length = len(train_subset_data_builder.subset_ids)
+    current_train_ds_length = len(train_subset_data_builder.subset_ids)  # pyrefly: ignore[bad-argument-type]
     write_note(
         f'Training set size after acquisition: {current_train_ds_length}')
 

@@ -120,7 +120,7 @@ def main(config, output_dir):
       split=config.train_split,
       rng=train_ds_rng,
       process_batch_size=local_batch_size,
-      preprocess_fn=preprocess_spec.parse(
+      preprocess_fn=preprocess_spec.parse(  # pyrefly: ignore[bad-argument-type]
           spec=config.pp_train, available_ops=preprocess_utils.all_ops()),
       shuffle_buffer_size=config.shuffle_buffer_size,
       prefetch_size=config.get('prefetch_to_host', 2),
@@ -502,7 +502,7 @@ def main(config, output_dir):
 
   checkpoint_data = checkpoint_utils.maybe_load_checkpoint(
       train_loop_rngs=train_loop_rngs,
-      save_checkpoint_path=save_checkpoint_path,
+      save_checkpoint_path=save_checkpoint_path,  # pyrefly: ignore[bad-argument-type]
       init_optimizer=opt_cpu,
       init_params=params_cpu,
       init_fixed_model_states=None,
@@ -628,7 +628,7 @@ def main(config, output_dir):
       timing_measurements, note = chrono.tick(step)
       write_note(note)
       train_measurements = {}
-      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))
+      train_measurements.update(flax.jax_utils.unreplicate(extra_measurements))  # pyrefly: ignore[unbound-name]
       train_measurements.update(timing_measurements)
       writer.write_scalars(step, train_measurements)
       # Keep to return for reproducibility tests.
@@ -744,7 +744,7 @@ def main(config, output_dir):
       if ood_ds and config.ood_methods:
         ood_measurements = ood_utils.eval_ood_metrics(
             ood_ds,
-            ood_ds_names,
+            ood_ds_names,  # pyrefly: ignore[unbound-name]
             config.ood_methods,
             evaluation_fn,
             opt_repl.target,
@@ -755,7 +755,7 @@ def main(config, output_dir):
       # Perform subpopulation shift evaluation only if flag is provided.
       if config.get('subpopl_cifar_data_file'):
         subpopl_measurements = subpopl_utils.eval_subpopl_metrics(
-            subpopl_val_ds_splits,
+            subpopl_val_ds_splits,  # pyrefly: ignore[unbound-name]
             evaluation_fn,
             opt_repl.target,
             n_prefetch=config.get('prefetch_to_device', 1))

@@ -162,7 +162,7 @@ class TransformerHeteroscedastic(t5_network.Transformer):
 
     self.encoder = t5_network.Encoder(
         config=cfg, shared_embedding=self.shared_embedding)
-    self.decoder = HeteroscedasticDecoder(
+    self.decoder = HeteroscedasticDecoder(  # pyrefly: ignore[bad-assignment]
         config=cfg,
         shared_embedding=self.shared_embedding,
         temperature=self.temperature,

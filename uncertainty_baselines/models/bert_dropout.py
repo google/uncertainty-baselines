@@ -58,7 +58,7 @@ def _monte_carlo_dropout(inputs: tf.Tensor, dropout_rate: float,
       # Input is a 4D attention mask [batch_size, num_head, seq_len, seq_len]
       noise_shape = [inputs.shape[0], inputs.shape[1], 1, 1]
 
-  return tf.keras.layers.Dropout(dropout_rate, noise_shape=noise_shape)(
+  return tf.keras.layers.Dropout(dropout_rate, noise_shape=noise_shape)(  # pyrefly: ignore[not-callable]
       inputs, training=training)
 
 
@@ -217,7 +217,7 @@ class DropoutTransformerEncoder(bert_encoder.EncoderScaffold):
     if hidden_cfg:
       hidden_cfg.update(mc_dropout_cfg)
     else:
-      hidden_cfg = mc_dropout_cfg
+      hidden_cfg = mc_dropout_cfg  # pyrefly: ignore[bad-assignment]
 
     super().__init__(
         hidden_cls=hidden_cls, hidden_cfg=hidden_cfg, **kwargs)
@@ -272,11 +272,11 @@ class DropoutBertClassifier(tf.keras.Model):
     inputs = network.inputs
 
     # Construct classifier using CLS token of the BERT encoder output.
-    _, cls_output = network(inputs)
+    _, cls_output = network(inputs)  # pyrefly: ignore[not-callable]
 
     # Perform MC Dropout on the CLS embedding.
     training = True if use_mc_dropout else None
-    cls_output = tf.keras.layers.Dropout(rate=dropout_rate)(
+    cls_output = tf.keras.layers.Dropout(rate=dropout_rate)(  # pyrefly: ignore[not-callable]
         cls_output, training=training)
 
     # Produce final logits.
@@ -292,7 +292,7 @@ class DropoutBertClassifier(tf.keras.Model):
     if num_heads > 1:
       outputs = [outputs]
       for head_id in range(1, num_heads):
-        additional_outputs = tf.keras.layers.Dense(
+        additional_outputs = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
             num_classes,
             activation=None,
             kernel_initializer=initializer,
@@ -363,7 +363,7 @@ def get_mc_dropout_transformer_encoder(bert_config,
       channel_wise_dropout_mha=channel_wise_dropout_mha,
       channel_wise_dropout_att=channel_wise_dropout_att,
       channel_wise_dropout_ffn=channel_wise_dropout_ffn,
-      hidden_cfg=hidden_cfg,
+      hidden_cfg=hidden_cfg,  # pyrefly: ignore[bad-argument-type]
       **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
 
 

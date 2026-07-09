@@ -36,10 +36,10 @@ def basic_block(inputs, filters, strides):
   x = inputs
   y = inputs
   y = BatchNormalization()(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2D(filters, strides=strides)(y)
   y = BatchNormalization()(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2D(filters, strides=1)(y)
   if not x.shape.is_compatible_with(y.shape):
     x = Conv2D(filters, kernel_size=1, strides=strides)(x)
@@ -83,10 +83,10 @@ def wide_resnet_mimo(input_shape, depth, width_multiplier, num_classes,
   num_blocks = (depth - 4) // 6
   input_shape = list(input_shape)
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.Permute([2, 3, 4, 1])(inputs)
+  x = tf.keras.layers.Permute([2, 3, 4, 1])(inputs)  # pyrefly: ignore[not-callable]
   if ensemble_size != input_shape[0]:
     raise ValueError('the first dimension of input_shape must be ensemble_size')
-  x = tf.keras.layers.Reshape(input_shape[1:-1] +
+  x = tf.keras.layers.Reshape(input_shape[1:-1] +  # pyrefly: ignore[not-callable]
                               [input_shape[-1] * ensemble_size])(x)
   x = Conv2D(16, strides=1)(x)
   for strides, filters in zip([1, 2, 2], [16, 32, 64]):
@@ -97,10 +97,10 @@ def wide_resnet_mimo(input_shape, depth, width_multiplier, num_classes,
         num_blocks=num_blocks)
 
   x = BatchNormalization()(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
-  x = ed.layers.DenseMultihead(
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
+  x = ed.layers.DenseMultihead(  # pyrefly: ignore[not-callable]
       num_classes,
       kernel_initializer='he_normal',
       activation=None,

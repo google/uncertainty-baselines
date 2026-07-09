@@ -41,7 +41,7 @@ def MonteCarloDropout(  # pylint:disable=invalid-name
   if filterwise_dropout:
     noise_shape = [inputs.shape[0], 1, 1, inputs.shape[3]]
 
-  return tf.keras.layers.Dropout(
+  return tf.keras.layers.Dropout(  # pyrefly: ignore[not-callable]
       dropout_rate, noise_shape=noise_shape)(
           inputs, training=training)
 
@@ -106,7 +106,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, conv_layer,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = dropout_layer(x)
 
   x = conv_layer(
@@ -122,7 +122,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, conv_layer,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = dropout_layer(x)
 
   x = conv_layer(
@@ -154,7 +154,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, conv_layer,
     shortcut = dropout_layer(shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -243,7 +243,7 @@ def resnet50_sngp_add_last_layer(inputs, x, num_classes, use_gp_layer,
         kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
         name='fc1000')
 
-  outputs = output_layer(num_classes)(x)
+  outputs = output_layer(num_classes)(x)  # pyrefly: ignore[not-callable]
   return tf.keras.Model(inputs=inputs, outputs=outputs, name='resnet50')
 
 
@@ -316,7 +316,7 @@ def resnet50_sngp(input_shape,
                                  spec_norm_bound=spec_norm_bound)
 
   inputs = tf.keras.layers.Input(shape=input_shape, batch_size=batch_size)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   # TODO(jereliu): apply SpectralNormalization to input layer as well.
   x = tf.keras.layers.Conv2D(
       64,
@@ -330,7 +330,7 @@ def resnet50_sngp(input_shape,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = dropout_layer(x)
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
 

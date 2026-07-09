@@ -246,7 +246,7 @@ class BitResNetHeteroscedastic(nn.Module):
 
     if self.multiclass:
       output_layer = ed.nn.MCSoftmaxDenseFA(
-          self.num_outputs,
+          self.num_outputs,  # pyrefly: ignore[bad-argument-type]
           self.num_factors,
           self.temperature,
           self.param_efficient,
@@ -261,7 +261,7 @@ class BitResNetHeteroscedastic(nn.Module):
           name='multiclass_head')
     else:
       output_layer = ed.nn.MCSigmoidDenseFA(
-          self.num_outputs,
+          self.num_outputs,  # pyrefly: ignore[bad-argument-type]
           self.num_factors,
           self.temperature,
           self.param_efficient,

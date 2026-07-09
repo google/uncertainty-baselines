@@ -59,7 +59,7 @@ def bottleneck_block(inputs,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters2,
@@ -73,7 +73,7 @@ def bottleneck_block(inputs,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters3,
@@ -101,7 +101,7 @@ def bottleneck_block(inputs,
         name=bn_name_base + '1')(shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -129,7 +129,7 @@ def resnet50_deterministic(input_shape, num_classes, omit_last_layer=False):
     tf.keras.Model.
   """
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.Conv2D(
       64,
       kernel_size=7,
@@ -142,7 +142,7 @@ def resnet50_deterministic(input_shape, num_classes, omit_last_layer=False):
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(x, [64, 64, 256], stage=2, num_blocks=3, strides=1)
   x = group(x, [128, 128, 512], stage=3, num_blocks=4, strides=2)
@@ -153,7 +153,7 @@ def resnet50_deterministic(input_shape, num_classes, omit_last_layer=False):
     return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')
 
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
-  x = tf.keras.layers.Dense(
+  x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       activation=None,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),

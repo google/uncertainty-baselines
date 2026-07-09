@@ -56,7 +56,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters2,
@@ -72,7 +72,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters3,
@@ -104,7 +104,7 @@ def bottleneck_block(inputs, filters, stage, block, strides):
             shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -151,7 +151,7 @@ def resnet50_tram(input_shape,
   pi_inputs = tf.keras.Input(shape=pi_input_shape, name='pi_inputs')
   num_pi_annotations = pi_input_shape[0]
 
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.Conv2D(
       _resize_filters([64], width_multiplier)[0],
       kernel_size=7,
@@ -164,7 +164,7 @@ def resnet50_tram(input_shape,
   x = tf.keras.layers.BatchNormalization(
       momentum=BATCH_NORM_DECAY, epsilon=BATCH_NORM_EPSILON, name='bn_conv1')(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(
       x,
@@ -205,13 +205,13 @@ def resnet50_tram(input_shape,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),
       name='fc1000_logits_r')
 
-  pi_in_joint_feature_space = pi_fc(tf.cast(pi_inputs, x.dtype))
+  pi_in_joint_feature_space = pi_fc(tf.cast(pi_inputs, x.dtype))  # pyrefly: ignore[not-callable]
   joint_feature_space = tf.concat([x, pi_in_joint_feature_space], axis=-1)
-  joint_feature_space = joint_features_fc(joint_feature_space)
+  joint_feature_space = joint_features_fc(joint_feature_space)  # pyrefly: ignore[not-callable]
   joint_feature_space = tf.concat([x, joint_feature_space], axis=-1)
-  logits_pi = logits_pi_fc(joint_feature_space)
+  logits_pi = logits_pi_fc(joint_feature_space)  # pyrefly: ignore[not-callable]
 
-  logits = tf.keras.layers.Dense(
+  logits = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       activation=None,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),

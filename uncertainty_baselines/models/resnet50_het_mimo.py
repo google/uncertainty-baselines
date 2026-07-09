@@ -59,7 +59,7 @@ def bottleneck_block(inputs,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters2,
@@ -73,7 +73,7 @@ def bottleneck_block(inputs,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = tf.keras.layers.Conv2D(
       filters3,
@@ -101,7 +101,7 @@ def bottleneck_block(inputs,
         name=bn_name_base + '1')(shortcut)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -156,12 +156,12 @@ def resnet50_het_mimo(
   """
   input_shape = list(input_shape)
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.Permute([2, 3, 4, 1])(inputs)
+  x = tf.keras.layers.Permute([2, 3, 4, 1])(inputs)  # pyrefly: ignore[not-callable]
   assert ensemble_size == input_shape[0]
-  x = tf.keras.layers.Reshape(list(input_shape[1:-1]) +
+  x = tf.keras.layers.Reshape(list(input_shape[1:-1]) +  # pyrefly: ignore[not-callable]
                               [input_shape[-1] * ensemble_size])(
                                   x)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(x)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.Conv2D(
       width_multiplier * 64,
       kernel_size=7,
@@ -174,7 +174,7 @@ def resnet50_het_mimo(
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(x, [width_multiplier * 64,
                 width_multiplier * 64,
@@ -200,13 +200,13 @@ def resnet50_het_mimo(
                     'return_unaveraged_logits': return_unaveraged_logits}
   if share_het_layer:
     het_layer_args.update({'ensemble_size': ensemble_size})
-    output_layer = ed.layers.MultiHeadMCSoftmaxDenseFA(**het_layer_args)
-    x = output_layer(x)
+    output_layer = ed.layers.MultiHeadMCSoftmaxDenseFA(**het_layer_args)  # pyrefly: ignore[missing-argument]
+    x = output_layer(x)  # pyrefly: ignore[not-callable]
   else:
     output_het = []
     for i in range(ensemble_size):
       het_layer_args.update({'name': 'ensemble_' + str(i) + '_fc1000'})
       output_layer = ed.layers.MCSoftmaxDenseFA(**het_layer_args)
-      output_het.append(output_layer(x))
+      output_het.append(output_layer(x))  # pyrefly: ignore[not-callable]
     x = tf.stack(output_het, axis=1)
   return tf.keras.Model(inputs=inputs, outputs=x, name='resnet50')

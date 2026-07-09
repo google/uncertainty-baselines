@@ -305,24 +305,24 @@ class VisionTransformerBE(nn.Module):
     else:
       x = ed.nn.DenseBatchEnsemble(
           self.representation_size,
-          self.transformer.get("ens_size"),
+          self.transformer.get("ens_size"),  # pyrefly: ignore[bad-argument-type]
           activation=None,
           alpha_init=ed.nn.utils.make_sign_initializer(
-              self.transformer.get("random_sign_init")),
+              self.transformer.get("random_sign_init")),  # pyrefly: ignore[bad-argument-type]
           gamma_init=ed.nn.utils.make_sign_initializer(
-              self.transformer.get("random_sign_init")),
+              self.transformer.get("random_sign_init")),  # pyrefly: ignore[bad-argument-type]
           name="pre_logits")(x)
       extra_info["pre_logits"] = x
       x = nn.tanh(x)
 
     x = ed.nn.DenseBatchEnsemble(
         self.num_classes,
-        self.transformer.get("ens_size"),
+        self.transformer.get("ens_size"),  # pyrefly: ignore[bad-argument-type]
         activation=None,
         alpha_init=ed.nn.utils.make_sign_initializer(
-            self.transformer.get("random_sign_init")),
+            self.transformer.get("random_sign_init")),  # pyrefly: ignore[bad-argument-type]
         gamma_init=ed.nn.utils.make_sign_initializer(
-            self.transformer.get("random_sign_init")),
+            self.transformer.get("random_sign_init")),  # pyrefly: ignore[bad-argument-type]
         kernel_init=self.head_kernel_init,
         name="batchensemble_head")(x)
     return x, extra_info

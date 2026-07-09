@@ -73,7 +73,7 @@ def basic_block(inputs: tf.Tensor, filters: int, strides: int, conv_l2: float,
         beta_regularizer=tf.keras.regularizers.l2(bn_l2),
         gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(
             y)
-    y = tf.keras.layers.Activation('relu')(y)
+    y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   seeds = tf.random.experimental.stateless_split([seed, seed + 1], 3)[:, 0]
   y = Conv2D(
       filters,
@@ -85,7 +85,7 @@ def basic_block(inputs: tf.Tensor, filters: int, strides: int, conv_l2: float,
       beta_regularizer=tf.keras.regularizers.l2(bn_l2),
       gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(
           y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2D(
       filters,
       strides=1,
@@ -107,7 +107,7 @@ def basic_block(inputs: tf.Tensor, filters: int, strides: int, conv_l2: float,
             x)
   x = tf.keras.layers.add([x, y])
   if version == 1:
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -186,7 +186,7 @@ def wide_resnet(
     tf.keras.Model.
   """
   l2_reg = tf.keras.regularizers.l2
-  hps = _parse_hyperparameters(l2, hps)
+  hps = _parse_hyperparameters(l2, hps)  # pyrefly: ignore[bad-argument-type]
 
   seeds = tf.random.experimental.stateless_split([seed, seed + 1], 5)[:, 0]
   if (depth - 4) % 6 != 0:
@@ -204,7 +204,7 @@ def wide_resnet(
         beta_regularizer=l2_reg(hps['bn_l2']),
         gamma_regularizer=l2_reg(hps['bn_l2']))(
             x)
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = group(
       x,
       filters=round(16 * width_multiplier),
@@ -237,16 +237,16 @@ def wide_resnet(
         beta_regularizer=l2_reg(hps['bn_l2']),
         gamma_regularizer=l2_reg(hps['bn_l2']))(
             x)
-    x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
-  x = tf.keras.layers.Dense(
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       kernel_initializer=tf.keras.initializers.HeNormal(seed=seeds[4]),
       kernel_regularizer=l2_reg(hps['dense_kernel_l2']),
       bias_regularizer=l2_reg(hps['dense_bias_l2']))(
           x)
-  return tf.keras.Model(
+  return tf.keras.Model(  # pyrefly: ignore[bad-return]
       inputs=inputs,
       outputs=x,
       name='wide_resnet-{}-{}'.format(depth, width_multiplier))

@@ -98,11 +98,11 @@ def bert_model(num_classes: int,
   # Build model.
   inputs = bert_encoder.inputs
   _, cls_output = bert_encoder(inputs)
-  cls_output = tf.keras.layers.Dropout(rate=bert_config.hidden_dropout_prob)(
+  cls_output = tf.keras.layers.Dropout(rate=bert_config.hidden_dropout_prob)(  # pyrefly: ignore[not-callable]
       cls_output)
 
   # Build output.
-  outputs = tf.keras.layers.Dense(
+  outputs = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       activation=None,
       kernel_initializer=final_layer_initializer,
@@ -113,7 +113,7 @@ def bert_model(num_classes: int,
   if num_heads > 1:
     outputs = [outputs]
     for head_id in range(1, num_heads):
-      additional_outputs = tf.keras.layers.Dense(
+      additional_outputs = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
           num_classes,
           activation=None,
           kernel_initializer=final_layer_initializer,

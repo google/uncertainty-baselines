@@ -144,7 +144,7 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
 
     # Defines the EinsumDense layer.
     if self._use_spec_norm:
-      self.einsum_dense_layer = make_spec_norm_dense_layer(**spec_norm_kwargs)
+      self.einsum_dense_layer = make_spec_norm_dense_layer(**spec_norm_kwargs)  # pyrefly: ignore[bad-unpacking]
     else:
       self.einsum_dense_layer = _EinsumDense
 
@@ -180,11 +180,11 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
   def call(self,
            inputs: tf.Tensor,
            training: Optional[bool] = None) -> tf.Tensor:
-    intermediate_output = self._intermediate_dense(inputs)
-    intermediate_output = self._intermediate_activation_layer(
+    intermediate_output = self._intermediate_dense(inputs)  # pyrefly: ignore[not-callable]
+    intermediate_output = self._intermediate_activation_layer(  # pyrefly: ignore[not-callable]
         intermediate_output)
-    layer_output = self._output_dense(intermediate_output)
-    layer_output = self._output_dropout(layer_output, training=training)
+    layer_output = self._output_dense(intermediate_output)  # pyrefly: ignore[not-callable]
+    layer_output = self._output_dropout(layer_output, training=training)  # pyrefly: ignore[not-callable]
     # During mixed precision training, attention_output is from layer norm
     # and is always fp32 for now. Cast layer_output to fp32 for the subsequent
     # add.
@@ -192,7 +192,7 @@ class SpectralNormalizedFeedforwardLayer(tf.keras.layers.Layer):
     residual_output = layer_output + inputs
 
     if self._use_layer_norm:
-      return self._output_layer_norm(residual_output)
+      return self._output_layer_norm(residual_output)  # pyrefly: ignore[not-callable]
     return residual_output
 
   def get_config(self) -> Dict[str, Any]:
@@ -226,7 +226,7 @@ class SpectralNormalizedMultiHeadAttention(tf.keras.layers.MultiHeadAttention):
     super().__init__(**kwargs)
     self._use_spec_norm = use_spec_norm
     self._spec_norm_kwargs = spec_norm_kwargs
-    self._spec_norm_dense_layer = make_spec_norm_dense_layer(**spec_norm_kwargs)
+    self._spec_norm_dense_layer = make_spec_norm_dense_layer(**spec_norm_kwargs)  # pyrefly: ignore[bad-unpacking]
 
   def _update_einsum_dense(
       self, einsum_dense_layer: tf.keras.layers.Layer) -> tf.keras.layers.Layer:
@@ -395,7 +395,7 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
     # TODO(jereliu): Add option to disable embedding layer normalization.
     embeddings = self._embedding_norm_layer(embeddings)
     embeddings = (
-        tf.keras.layers.Dropout(
+        tf.keras.layers.Dropout(  # pyrefly: ignore[not-callable]
             rate=self._embedding_cfg['dropout_rate'])(embeddings))
 
     # Define self-attention layers. Rename to match with BERT checkpoint.
@@ -414,7 +414,7 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
 
     # Extract BERT encoder output (i.e., the CLS token).
     first_token_tensor = (
-        tf.keras.layers.Lambda(lambda x: tf.squeeze(x[:, 0:1, :], axis=1))(
+        tf.keras.layers.Lambda(lambda x: tf.squeeze(x[:, 0:1, :], axis=1))(  # pyrefly: ignore[not-callable]
             layer_output_data[-1]))
 
     # Define the pooler layer (i.e., the output layer), and optionally apply
@@ -428,9 +428,9 @@ class SpectralNormalizedTransformerEncoder(bert_encoder.EncoderScaffold):
       self._pooler_layer = ed.layers.SpectralNormalization(
           self._pooler_layer,
           inhere_layer_name=True,
-          **hidden_cfg['spec_norm_kwargs'])
+          **hidden_cfg['spec_norm_kwargs'])  # pyrefly: ignore[bad-unpacking]
 
-    cls_output = self._pooler_layer(first_token_tensor)
+    cls_output = self._pooler_layer(first_token_tensor)  # pyrefly: ignore[not-callable]
 
     if self._return_all_layer_outputs:
       outputs = [layer_output_data, cls_output]
@@ -502,7 +502,7 @@ def get_spectral_normalized_transformer_encoder(
       use_spec_norm_ffn=use_spec_norm_ffn,
       use_spec_norm_plr=use_spec_norm_plr,
       hidden_cfg=hidden_cfg,
-      **kwargs)
+      **kwargs)  # pyrefly: ignore[bad-argument-type]
 
 
 class BertGaussianProcessClassifier(tf.keras.Model):
@@ -549,8 +549,8 @@ class BertGaussianProcessClassifier(tf.keras.Model):
     inputs = network.inputs
 
     # Construct classifier using CLS token of the BERT encoder output.
-    _, cls_output = network(inputs)
-    cls_output = tf.keras.layers.Dropout(rate=dropout_rate)(cls_output)
+    _, cls_output = network(inputs)  # pyrefly: ignore[not-callable]
+    cls_output = tf.keras.layers.Dropout(rate=dropout_rate)(cls_output)  # pyrefly: ignore[not-callable]
 
     # Produce final logits.
     if use_gp_layer:
@@ -580,7 +580,7 @@ class BertGaussianProcessClassifier(tf.keras.Model):
     if num_heads > 1:
       outputs = [outputs]
       for head_id in range(1, num_heads):
-        additional_outputs = tf.keras.layers.Dense(
+        additional_outputs = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
             num_classes,
             activation=None,
             kernel_initializer=initializer,

@@ -30,7 +30,7 @@ def apply_dropout(inputs, dropout_rate, filterwise_dropout):
   if filterwise_dropout:
     noise_shape = [inputs.shape[0], 1, 1, inputs.shape[3]]
 
-  return tf.keras.layers.Dropout(
+  return tf.keras.layers.Dropout(  # pyrefly: ignore[not-callable]
       dropout_rate, noise_shape=noise_shape)(
           inputs, training=True)
 
@@ -72,7 +72,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, dropout_rate,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2a')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = apply_dropout(x, dropout_rate, filterwise_dropout)
 
   x = tf.keras.layers.Conv2D(
@@ -87,7 +87,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, dropout_rate,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name=bn_name_base + '2b')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = apply_dropout(x, dropout_rate, filterwise_dropout)
 
   x = tf.keras.layers.Conv2D(
@@ -117,7 +117,7 @@ def bottleneck_block(inputs, filters, stage, block, strides, dropout_rate,
     shortcut = apply_dropout(shortcut, dropout_rate, filterwise_dropout)
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -166,7 +166,7 @@ def resnet50_dropout(input_shape,
     tf.keras.Model.
   """
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.Conv2D(
       64,
       kernel_size=7,
@@ -179,7 +179,7 @@ def resnet50_dropout(input_shape,
       momentum=BATCH_NORM_DECAY,
       epsilon=BATCH_NORM_EPSILON,
       name='bn_conv1')(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = apply_dropout(x, dropout_rate, filterwise_dropout)
   x = tf.keras.layers.MaxPooling2D(3, strides=2, padding='same')(x)
   x = group(x, [64, 64, 256], stage=2, num_blocks=3, strides=1,
@@ -191,7 +191,7 @@ def resnet50_dropout(input_shape,
   x = group(x, [512, 512, 2048], stage=5, num_blocks=3, strides=2,
             dropout_rate=dropout_rate, filterwise_dropout=filterwise_dropout)
   x = tf.keras.layers.GlobalAveragePooling2D(name='avg_pool')(x)
-  x = tf.keras.layers.Dense(
+  x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       activation=None,
       kernel_initializer=tf.keras.initializers.RandomNormal(stddev=0.01),

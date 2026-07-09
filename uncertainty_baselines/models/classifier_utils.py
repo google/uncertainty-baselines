@@ -52,4 +52,4 @@ def build_classifier(
     classifier = tf.keras.layers.Dense(
         num_classes, kernel_regularizer=kernel_regularizer)
 
-  return classifier
+  return classifier  # pyrefly: ignore[bad-return]

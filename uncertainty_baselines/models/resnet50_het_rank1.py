@@ -130,7 +130,7 @@ def bottleneck_block(inputs,
       ensemble_size=ensemble_size)(inputs)
 
   if use_ensemble_bn:
-    x = EnsembleSyncBatchNormalization(
+    x = EnsembleSyncBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size, name=bn_name_base + '2a')(x)
   else:
     x = ed.layers.ensemble_batchnorm(
@@ -141,7 +141,7 @@ def bottleneck_block(inputs,
         epsilon=BATCH_NORM_EPSILON,
         name=bn_name_base+'2a')
 
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = ed.layers.Conv2DRank1(
       filters2,
@@ -163,7 +163,7 @@ def bottleneck_block(inputs,
       ensemble_size=ensemble_size)(x)
 
   if use_ensemble_bn:
-    x = EnsembleSyncBatchNormalization(
+    x = EnsembleSyncBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size, name=bn_name_base + '2b')(x)
   else:
     x = ed.layers.ensemble_batchnorm(
@@ -174,7 +174,7 @@ def bottleneck_block(inputs,
         epsilon=BATCH_NORM_EPSILON,
         name=bn_name_base+'2b')
 
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
 
   x = ed.layers.Conv2DRank1(
       filters3,
@@ -194,7 +194,7 @@ def bottleneck_block(inputs,
       ensemble_size=ensemble_size)(x)
 
   if use_ensemble_bn:
-    x = EnsembleSyncBatchNormalization(
+    x = EnsembleSyncBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size, name=bn_name_base + '2c')(x)
   else:
     x = ed.layers.ensemble_batchnorm(
@@ -225,7 +225,7 @@ def bottleneck_block(inputs,
         name=conv_name_base + '1',
         ensemble_size=ensemble_size)(inputs)
     if use_ensemble_bn:
-      shortcut = EnsembleSyncBatchNormalization(
+      shortcut = EnsembleSyncBatchNormalization(  # pyrefly: ignore[not-callable]
           ensemble_size=ensemble_size, name=bn_name_base + '1')(shortcut)
     else:
       shortcut = ed.layers.ensemble_batchnorm(
@@ -237,7 +237,7 @@ def bottleneck_block(inputs,
           name=bn_name_base + '1')
 
   x = tf.keras.layers.add([x, shortcut])
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   return x
 
 
@@ -354,7 +354,7 @@ def resnet50_het_rank1(input_shape,
       use_tpu=use_tpu,
       use_ensemble_bn=use_ensemble_bn)
   inputs = tf.keras.layers.Input(shape=input_shape)
-  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)
+  x = tf.keras.layers.ZeroPadding2D(padding=3, name='conv1_pad')(inputs)  # pyrefly: ignore[not-callable]
   x = ed.layers.Conv2DRank1(
       64,
       kernel_size=7,
@@ -374,7 +374,7 @@ def resnet50_het_rank1(input_shape,
       name='conv1',
       ensemble_size=ensemble_size)(x)
   if use_ensemble_bn:
-    x = EnsembleSyncBatchNormalization(
+    x = EnsembleSyncBatchNormalization(  # pyrefly: ignore[not-callable]
         ensemble_size=ensemble_size, name='bn_conv1')(x)
   else:
     x = ed.layers.ensemble_batchnorm(
@@ -385,7 +385,7 @@ def resnet50_het_rank1(input_shape,
         epsilon=BATCH_NORM_EPSILON,
         name='bn_conv1')
 
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.MaxPooling2D(3, strides=(2, 2), padding='same')(x)
   x = group_(x, [64, 64, 256], stage=2, num_blocks=3, strides=1)
   x = group_(x, [128, 128, 512], stage=3, num_blocks=4, strides=2)
@@ -441,7 +441,7 @@ def resnet50_het_rank1(input_shape,
       activation=tf.math.softplus,
       name='diag_layer')
 
-  x = ed.layers.MCSoftmaxDenseFACustomLayers(
+  x = ed.layers.MCSoftmaxDenseFACustomLayers(  # pyrefly: ignore[not-callable]
       scale_layer=scale_layer,
       loc_layer=loc_layer,
       diag_layer=diag_layer,

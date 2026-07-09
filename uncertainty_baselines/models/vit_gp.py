@@ -143,8 +143,8 @@ def vision_transformer_gp(num_classes: int, use_gp_layer: bool,
                           vit_kwargs: ConfigDict,
                           gp_layer_kwargs: Mapping[str, Any]):
   """Builds a Vision Transformer Gaussian process (ViT-GP) model."""
-  return VisionTransformerGaussianProcess(
+  return VisionTransformerGaussianProcess(  # pyrefly: ignore[missing-argument]
       num_classes=num_classes,
       use_gp_layer=use_gp_layer,
       gp_layer_kwargs=gp_layer_kwargs,
-      **vit_kwargs)
+      **vit_kwargs)  # pyrefly: ignore[bad-unpacking]

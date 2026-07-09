@@ -33,7 +33,7 @@ Conv2D = functools.partial(  # pylint: disable=invalid-name
     padding='same',
     use_bias=False)
 CondConv2D = functools.partial(  # pylint: disable=invalid-name
-    ed.layers.CondConv2D,
+    ed.layers.CondConv2D,  # pyrefly: ignore[unbound-name]
     kernel_size=3,
     padding='same',
     use_bias=False)
@@ -92,12 +92,12 @@ def _get_routing_weights(inputs,
     inputs = pooling_layer(inputs)
   elif routing_pooling == 'average_8':
     inputs = tf.keras.layers.AveragePooling2D(pool_size=8)(inputs)
-    inputs = tf.keras.layers.Flatten()(inputs)
+    inputs = tf.keras.layers.Flatten()(inputs)  # pyrefly: ignore[not-callable]
   elif routing_pooling == 'max_8':
     inputs = tf.keras.layers.MaxPool2D(pool_size=8)(inputs)
-    inputs = tf.keras.layers.Flatten()(inputs)
+    inputs = tf.keras.layers.Flatten()(inputs)  # pyrefly: ignore[not-callable]
   else:  # Flatten
-    inputs = tf.keras.layers.Flatten()(inputs)
+    inputs = tf.keras.layers.Flatten()(inputs)  # pyrefly: ignore[not-callable]
 
   use_noisy_routing = 'noisy' in routing_fn
   use_softmax_top_k = routing_fn in ['softmax_top_k', 'noisy_softmax_top_k']
@@ -132,11 +132,11 @@ def _get_routing_weights(inputs,
       num_experts,
       activation=tf.nn.sigmoid if use_sigmoid_activation else None)
 
-  routing_weights = gating_layer(inputs)
+  routing_weights = gating_layer(inputs)  # pyrefly: ignore[not-callable]
 
   if use_noisy_routing:
     noise_layer = tf.keras.layers.Dense(num_experts, activation=None)
-    noise_std = noise_layer(inputs)
+    noise_std = noise_layer(inputs)  # pyrefly: ignore[not-callable]
     noise = tf.nn.softplus(noise_std) * tf.random.normal(
         tf.shape(noise_std), dtype=noise_std.dtype)
     routing_weights += noise
@@ -191,7 +191,7 @@ def basic_block(inputs, filters, strides, num_experts, batch_size,
       beta_regularizer=tf.keras.regularizers.l2(l2),
       gamma_regularizer=tf.keras.regularizers.l2(l2))(
           y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   routing_weights_list = []
   if cond_placement in ['all', 'dropout']:
     routing_weights = _get_routing_weights(y, num_experts, normalize_routing,
@@ -214,7 +214,7 @@ def basic_block(inputs, filters, strides, num_experts, batch_size,
       beta_regularizer=tf.keras.regularizers.l2(l2),
       gamma_regularizer=tf.keras.regularizers.l2(l2))(
           y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   if cond_placement == 'all':
     routing_weights = _get_routing_weights(y, num_experts, normalize_routing,
                                            routing_pooling, top_k, routing_fn)
@@ -362,7 +362,7 @@ def wide_resnet_condconv(input_shape, depth, width_multiplier, num_classes,
       beta_regularizer=tf.keras.regularizers.l2(l2),
       gamma_regularizer=tf.keras.regularizers.l2(l2))(
           x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   if use_cond_dense:
     routing_weights = _get_routing_weights(
         x,
@@ -373,20 +373,20 @@ def wide_resnet_condconv(input_shape, depth, width_multiplier, num_classes,
         routing_fn=routing_fn)
     all_routing_weights.extend([routing_weights])
     x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-    x = tf.keras.layers.Flatten()(x)
+    x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
     if reduce_dense_outputs:
       # `Tensor` of shape [batch_size, num_classes]
-      dense_output = ed.layers.CondDense(
+      dense_output = ed.layers.CondDense(  # pyrefly: ignore[not-callable]
           num_classes, num_experts=num_experts)(x, routing_weights)
     else:
-      dense_output = tf.keras.layers.Dense(num_classes * num_experts)(x)
+      dense_output = tf.keras.layers.Dense(num_classes * num_experts)(x)  # pyrefly: ignore[not-callable]
       # `Tensor` of shape [batch_size, num_experts, num_classes]
       dense_output = tf.reshape(dense_output, [-1, num_experts, num_classes])
   else:
     x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-    x = tf.keras.layers.Flatten()(x)
+    x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
     # `Tensor` of shape [batch_size, num_classes]
-    dense_output = tf.keras.layers.Dense(num_classes)(x)
+    dense_output = tf.keras.layers.Dense(num_classes)(x)  # pyrefly: ignore[not-callable]
 
   outputs = (dense_output, all_routing_weights)
   return tf.keras.Model(inputs=inputs, outputs=outputs)

@@ -158,7 +158,7 @@ class VisionTransformerHetGPBE(nn.Module):
             train_mc_samples=self.mc_samples,
             test_mc_samples=self.mc_samples,
             ens_size=self.transformer.get('ens_size'),
-            logits_only=True, name='head', **gp_layer_kwargs)
+            logits_only=True, name='head', **gp_layer_kwargs)  # pyrefly: ignore[bad-argument-type]
       x_gp = gp_layer(x, training=train, **kwargs)
 
       # Gaussian process layer output: a tuple of logits, covmat, and optionally

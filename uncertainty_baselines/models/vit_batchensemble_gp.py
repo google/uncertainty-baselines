@@ -69,7 +69,7 @@ class VisionTransformerBEGP(nn.Module):
           "You must specify either patch_size or patch_grid, and not both "
           f"(patch_size = {patch_size}, patch_grid = {patch_grid})")
     elif patch_size is None:
-      patch_size = (h // patch_grid[0], w // patch_grid[1])
+      patch_size = (h // patch_grid[0], w // patch_grid[1])  # pyrefly: ignore[unsupported-operation]
     x = nn.Conv(
         hidden_size,
         patch_size,

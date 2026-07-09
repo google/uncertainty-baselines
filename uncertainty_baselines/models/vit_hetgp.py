@@ -151,7 +151,7 @@ def vision_transformer_hetgp(
     num_factors: int = 0,
     param_efficient: bool = True):
   """Vision Transformer Heterocedastic Gaussian process (ViT-HetGP) model."""
-  return VisionTransformerHeteroscedasticGaussianProcess(
+  return VisionTransformerHeteroscedasticGaussianProcess(  # pyrefly: ignore[missing-argument]
       num_classes=num_classes,
       use_gp_layer=use_gp_layer,
       gp_layer_kwargs=gp_layer_kwargs,
@@ -160,4 +160,4 @@ def vision_transformer_hetgp(
       mc_samples=mc_samples,
       num_factors=num_factors,
       param_efficient=param_efficient,
-      **vit_kwargs)
+      **vit_kwargs)  # pyrefly: ignore[bad-unpacking]

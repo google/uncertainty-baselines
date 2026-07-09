@@ -87,7 +87,7 @@ class BEGpDecoder(t5_gp.GaussianProcessDecoder):
 
     be_decoder_layers = [
         x if x >= 0 else (x + cfg.num_decoder_layers)
-        for x in list(self.be_decoder_layers)
+        for x in list(self.be_decoder_layers)  # pyrefly: ignore[bad-argument-type]
         if x is not None
     ]
     for lyr in range(cfg.num_decoder_layers):
@@ -197,7 +197,7 @@ class TransformerBEGp(t5_network.Transformer):
 
     self.encoder = t5_network.Encoder(
         config=cfg, shared_embedding=self.shared_embedding)
-    self.decoder = BEGpDecoder(
+    self.decoder = BEGpDecoder(  # pyrefly: ignore[bad-assignment]
         config=cfg,
         shared_embedding=self.shared_embedding,
         use_gp_layer=self.use_gp_layer,
@@ -255,7 +255,7 @@ class TransformerBEGp(t5_network.Transformer):
       encoder_decoder_mask = t5_layers.combine_masks(
           encoder_decoder_mask,
           t5_layers.make_attention_mask(
-              decoder_segment_ids,
+              decoder_segment_ids,  # pyrefly: ignore[bad-argument-type]
               encoder_segment_ids,
               jnp.equal,
               dtype=cfg.dtype))

@@ -103,21 +103,21 @@ def genomics_cnn(
   if one_hot:
     x = tf.one_hot(inputs, depth=VOCAB_SIZE)
   else:
-    x = tf.keras.layers.Embedding(
+    x = tf.keras.layers.Embedding(  # pyrefly: ignore[not-callable]
         VOCAB_SIZE, embed_size, name='embedding')(
             inputs)
   x = _conv_pooled_block(x, num_motifs, len_motifs, embed_size, l2_weight)
-  x = tf.keras.layers.Dropout(dropout_rate, name='dropout1')(x)
-  x = tf.keras.layers.Dense(
+  x = tf.keras.layers.Dropout(dropout_rate, name='dropout1')(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_denses,
       activation=tf.keras.activations.relu,
       kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
       name='dense')(x)
-  x = tf.keras.layers.Dropout(dropout_rate, name='dropout2')(x)
-  x = tf.keras.layers.Dense(
+  x = tf.keras.layers.Dropout(dropout_rate, name='dropout2')(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       activation=None,
       kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
       name='logits')(x)
 
-  return tf.keras.Model(inputs=inputs, outputs=x)
+  return tf.keras.Model(inputs=inputs, outputs=x)  # pyrefly: ignore[bad-return]

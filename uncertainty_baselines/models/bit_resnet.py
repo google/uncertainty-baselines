@@ -260,7 +260,7 @@ class BitResNet(nn.Module):
     x = IdentityLayer(name='pre_logits')(x)
     representations['pre_logits'] = x
     x = nn.Dense(
-        self.num_outputs,
+        self.num_outputs,  # pyrefly: ignore[bad-argument-type]
         kernel_init=nn.initializers.zeros,
         name='head')(x)
 

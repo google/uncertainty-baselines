@@ -88,7 +88,7 @@ def basic_block(inputs,
   y = BatchNormalization(
       beta_regularizer=tf.keras.regularizers.l2(l2),
       gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2DBatchEnsemble(
       filters,
       strides=strides,
@@ -99,7 +99,7 @@ def basic_block(inputs,
   y = BatchNormalization(
       beta_regularizer=tf.keras.regularizers.l2(l2),
       gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)
+  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
   y = Conv2DBatchEnsemble(
       filters,
       strides=1,
@@ -225,22 +225,22 @@ def wide_resnet_sngp_be(input_shape,
 
   x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
-  x = tf.keras.layers.Activation('relu')(x)
+  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)
+  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
 
   if use_gp_layer:
     # Uses random projection to reduce the input dimension of the GP layer.
     if gp_input_dim > 0:
       # TODO(ghassen): should the final layer be deterministic ? Add flag.
-      x = tf.keras.layers.Dense(
+      x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
           gp_input_dim,
           kernel_initializer='random_normal',
           use_bias=False,
           trainable=False)(x)
     outputs = GaussianProcess(num_classes)(x)
   else:
-    outputs = ed.layers.DenseBatchEnsemble(
+    outputs = ed.layers.DenseBatchEnsemble(  # pyrefly: ignore[not-callable]
         num_classes,
         alpha_initializer=make_sign_initializer(random_sign_init),
         gamma_initializer=make_sign_initializer(random_sign_init),

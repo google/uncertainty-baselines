@@ -398,8 +398,8 @@ def main(argv):
             member_probs = per_probs[i]
             member_loss = tf.keras.losses.sparse_categorical_crossentropy(
                 labels, member_probs)
-            metrics['test/nll_member_{}'.format(i)].update_state(member_loss)  # pyrefly: ignore[missing-attribute]
-            metrics['test/accuracy_member_{}'.format(i)].update_state(  # pyrefly: ignore[missing-attribute]
+            metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
+            metrics['test/accuracy_member_{}'.format(i)].update_state(
                 labels, member_probs)
             metrics['test/member_accuracy_mean'].update_state(
                 labels, member_probs)

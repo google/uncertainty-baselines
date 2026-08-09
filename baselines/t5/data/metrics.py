@@ -835,7 +835,7 @@ def binary_classification(
   scores = np.array(scores, dtype=np.float32)  # pyrefly: ignore[bad-assignment]
 
   # Check score shape.
-  score_shape = scores.shape  # pyrefly: ignore[missing-attribute]
+  score_shape = scores.shape
   if len(label_tokens) != 2:
     raise ValueError('`label_tokens` should only contain 2 labels. '
                      f'Got {len(label_tokens)}: {label_tokens}')
@@ -1072,7 +1072,7 @@ def sequence_classification(
   scores = np.array(scores, dtype=np.float32)  # pyrefly: ignore[bad-assignment]
 
   # Validates input shapes.
-  score_shape = scores.shape  # (batch_size, output_len, num_class)  # pyrefly: ignore[missing-attribute]
+  score_shape = scores.shape  # (batch_size, output_len, num_class)
   output_len = score_shape[1]
 
   if len(score_shape) != 3:

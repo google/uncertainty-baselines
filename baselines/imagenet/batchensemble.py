@@ -372,8 +372,8 @@ def main(argv):
         if dataset_name == 'clean':
           member_loss = tf.keras.losses.sparse_categorical_crossentropy(
               labels, member_probs)
-          metrics['test/nll_member_{}'.format(i)].update_state(member_loss)  # pyrefly: ignore[missing-attribute]
-          metrics['test/accuracy_member_{}'.format(i)].update_state(  # pyrefly: ignore[missing-attribute]
+          metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
+          metrics['test/accuracy_member_{}'.format(i)].update_state(
               labels, member_probs)
           metrics['test/member_accuracy_mean'].update_state(
               labels, member_probs)
@@ -485,7 +485,7 @@ def main(argv):
         test_start_time = time.time()
         test_step(test_iterator, dataset_name)
         ms_per_example = (time.time() - test_start_time) * 1e6 / batch_size
-        metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
+        metrics['test/ms_per_example'].update_state(ms_per_example)
 
       logging.info('Done with testing on %s', dataset_name)
 

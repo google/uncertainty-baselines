@@ -16,7 +16,7 @@
 r"""Template of linear VRNN for SGDDataset."""
 import os
 
-from psl import constants_dstc as psl_config  # local file import from experimental.language_structure  # pyrefly: ignore[missing-import]
+from psl import constants_dstc as psl_config  # local file import from experimental.language_structure
 from uncertainty_baselines.experimental.language_structure.vrnn.experiments.linear_vrnn import default_config
 
 

@@ -18,7 +18,7 @@ import edward2 as ed
 import tensorflow.compat.v2 as tf
 
 
-def make_sign_initializer(random_sign_init: float) -> tf.keras.initializers:  # pyrefly: ignore[not-a-type]
+def make_sign_initializer(random_sign_init: float) -> tf.keras.initializers:
   """Builds initializer with specified random_sign_init.
 
   Args:

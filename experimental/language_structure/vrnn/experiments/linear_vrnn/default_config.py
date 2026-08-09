@@ -50,8 +50,8 @@ def _create_model_config(
   """Create model config with hyperparemeters overwritten by flag values."""
 
   word_embedding_path = data_utils.get_word_embedding_path(dataset)
-  bert_embedding_ckpt_dir = os.path.join(bert_dir, 'bert_model.ckpt')  # pyrefly: ignore[no-matching-overload]
-  bert_embedding_config_file = os.path.join(bert_dir, 'bert_config.json')  # pyrefly: ignore[no-matching-overload]
+  bert_embedding_ckpt_dir = os.path.join(bert_dir, 'bert_model.ckpt')
+  bert_embedding_config_file = os.path.join(bert_dir, 'bert_config.json')
 
   def _create_embedding_config_data(embedding_type: str) -> Dict[str, Any]:
     if embedding_type == model_config.GLOVE_EMBED:
@@ -62,7 +62,7 @@ def _create_model_config(
           word_embedding_path=word_embedding_path,
       )
     else:
-      vocab_file_path = os.path.join(bert_dir, 'vocab.txt')  # pyrefly: ignore[no-matching-overload]
+      vocab_file_path = os.path.join(bert_dir, 'vocab.txt')
       return dict(
           embedding_type=embedding_type,
           vocab_file_path=vocab_file_path,
@@ -200,8 +200,8 @@ def get_config(dataset: str,
   if not num_states:
     num_states = data_utils.get_dataset_num_latent_states(dataset)
   config.model = _create_model_config(dataset, num_states, config.with_bow,
-                                      encoder_embedding_type,  # pyrefly: ignore[bad-argument-type]
-                                      decoder_embedding_type,  # pyrefly: ignore[bad-argument-type]
+                                      encoder_embedding_type,
+                                      decoder_embedding_type,
                                       config.shared_embedding, config_dir,
                                       bert_dir)
 

@@ -114,7 +114,7 @@ def evaluate_model(
       dataloader.train_ds, bias_table, batch_size)
   predictions_merge['train_predictions'] = merge_subgroup_labels(
       dataloader.train_ds, predictions_table, batch_size)
-  for (ds_name, ds) in dataloader.eval_ds.items():  # pyrefly: ignore[missing-attribute]
+  for (ds_name, ds) in dataloader.eval_ds.items():
     predictions_table = _process_table(pd.read_csv(
         os.path.join(
             os.path.join(output_dir, f'round_{round_idx}'),

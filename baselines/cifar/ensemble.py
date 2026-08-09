@@ -223,8 +223,8 @@ def main(argv):
           member_probs = per_probs[i]
           member_loss = tf.keras.losses.sparse_categorical_crossentropy(
               labels, member_probs)
-          metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
-          metrics['test/accuracy_member_{}'.format(i)].update_state(
+          metrics['test/nll_member_{}'.format(i)].update_state(member_loss)  # pyrefly: ignore[missing-attribute]
+          metrics['test/accuracy_member_{}'.format(i)].update_state(  # pyrefly: ignore[missing-attribute]
               labels, member_probs)
         metrics['test/diversity'].add_batch(per_probs)
 
@@ -237,7 +237,7 @@ def main(argv):
 
         for metric_name, metric in metrics.items():
           if name in metric_name:
-            metric.update_state(ood_labels, ood_scores)
+            metric.update_state(ood_labels, ood_scores)  # pyrefly: ignore[missing-attribute]
       else:
         corrupt_metrics['test/nll_{}'.format(name)].update_state(
             negative_log_likelihood)

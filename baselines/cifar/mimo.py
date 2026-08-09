@@ -312,8 +312,8 @@ def main(argv):
         member_probs = probs[:, i]
         member_loss = tf.keras.losses.sparse_categorical_crossentropy(
             labels, member_probs)
-        metrics[f'{dataset_split}/nll_member_{i}'].update_state(member_loss)
-        metrics[f'{dataset_split}/accuracy_member_{i}'].update_state(
+        metrics[f'{dataset_split}/nll_member_{i}'].update_state(member_loss)  # pyrefly: ignore[missing-attribute]
+        metrics[f'{dataset_split}/accuracy_member_{i}'].update_state(  # pyrefly: ignore[missing-attribute]
             labels, member_probs)
 
       # Negative log marginal likelihood computed in a numerically-stable way.
@@ -327,9 +327,9 @@ def main(argv):
       probs = tf.math.reduce_mean(probs, axis=1)  # marginalize
 
       if dataset_name == 'clean':
-        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(
+        metrics[f'{dataset_split}/negative_log_likelihood'].update_state(  # pyrefly: ignore[missing-attribute]
             negative_log_likelihood)
-        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)
+        metrics[f'{dataset_split}/accuracy'].update_state(labels, probs)  # pyrefly: ignore[missing-attribute]
         metrics[f'{dataset_split}/ece'].add_batch(probs, label=labels)
       elif dataset_name.startswith('ood/'):
         ood_labels = 1 - inputs['is_in_distribution']
@@ -346,7 +346,7 @@ def main(argv):
         # Edgecase for if dataset_name contains underscores
         for name, metric in metrics.items():
           if dataset_name in name:
-            metric.update_state(ood_labels, ood_scores)
+            metric.update_state(ood_labels, ood_scores)  # pyrefly: ignore[missing-attribute]
       else:
         corrupt_metrics['test/nll_{}'.format(dataset_name)].update_state(
             negative_log_likelihood)
@@ -392,7 +392,7 @@ def main(argv):
       test_start_time = time.time()
       test_step(test_iterator, 'test', dataset_name, steps_per_eval)
       ms_per_example = (time.time() - test_start_time) * 1e6 / test_batch_size
-      metrics['test/ms_per_example'].update_state(ms_per_example)
+      metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
       logging.info('Done with testing on %s', dataset_name)
 
     if FLAGS.eval_on_ood:

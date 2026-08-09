@@ -273,8 +273,8 @@ def main(argv):
         member_probs = probs[:, i]
         member_loss = tf.keras.losses.sparse_categorical_crossentropy(
             labels, member_probs)
-        metrics['test/nll_member_{}'.format(i)].update_state(member_loss)
-        metrics['test/accuracy_member_{}'.format(i)].update_state(
+        metrics['test/nll_member_{}'.format(i)].update_state(member_loss)  # pyrefly: ignore[missing-attribute]
+        metrics['test/accuracy_member_{}'.format(i)].update_state(  # pyrefly: ignore[missing-attribute]
             labels, member_probs)
 
       # Negative log marginal likelihood computed in a numerically-stable way.
@@ -333,7 +333,7 @@ def main(argv):
     test_start_time = time.time()
     test_step(test_iterator)
     ms_per_example = (time.time() - test_start_time) * 1e6 / test_batch_size
-    metrics['test/ms_per_example'].update_state(ms_per_example)
+    metrics['test/ms_per_example'].update_state(ms_per_example)  # pyrefly: ignore[missing-attribute]
 
     logging.info('Train Loss: %.4f, Accuracy: %.2f%%',
                  metrics['train/loss'].result(),

@@ -1149,15 +1149,17 @@ def sequence_classification(
   calib_auprc = rm_metrics.CalibrationAUC(
       curve='PR', correct_pred_as_pos_label=False)
 
-  ece.add_batch(model_pred_confs_ece, label=correct_prediction)
+  ece.add_batch(model_pred_confs_ece, label=correct_prediction)  # pyrefly: ignore[bad-argument-type]
   calib_auroc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl,
+  )  # pyrefly: ignore[bad-argument-type]
   calib_auprc.add_batch(
       np.ones_like(correct_predictions_fl),
-      confidence=model_pred_confs,
-      label=correct_predictions_fl)  # pyrefly: ignore[bad-argument-type]
+      confidence=model_pred_confs,  # pyrefly: ignore[bad-argument-type]
+      label=correct_predictions_fl,
+  )  # pyrefly: ignore[bad-argument-type]
 
   result_dict = {
       'accuracy': float(acc) * 100,

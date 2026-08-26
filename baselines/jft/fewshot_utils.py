@@ -54,7 +54,7 @@ def evaluate(clfs, x_test, labels_test, x_ood_test, eval_ood_detection):
   confidence = np.max(probs, axis=-1)
 
   calib_auc.add_batch(
-      int_preds, label=labels_test, confidence=confidence.astype("float32"))
+      int_preds, label=labels_test, confidence=confidence.astype("float32"))  # pyrefly: ignore[bad-argument-type]
   calib_auc_res = calib_auc.result()["calibration_auc"]
 
   metric_results = {

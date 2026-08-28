@@ -256,6 +256,20 @@ class VisionTransformer(nn.Module):
       x = x[:, 0]
     elif self.classifier == 'gap':
       x = jnp.mean(x, axis=list(range(1, x.ndim - 1)))  # (1,) or (1,2)
+    elif self.classifier == 'map':
+      probe = self.param('probe', nn.initializers.xavier_uniform(), (1, 1, c))
+      # x may have been subject to tiling, n can be different from x.shape[0].
+      probe = jnp.tile(probe, [x.shape[0], 1, 1])
+      attention = nn.MultiHeadDotProductAttention(
+          deterministic=not train,
+          num_heads=self.transformer.get('attention', {}).get('num_heads', 1),
+          kernel_init=nn.initializers.xavier_uniform())
+      x = attention(inputs_q=probe, inputs_kv=x)
+      y = nn.LayerNorm()(x)
+      y = MlpBlock(
+          mlp_dim=self.transformer['mlp_dim'], dropout_rate=0)(
+              y, deterministic=not train)
+      x = (x + y)[:, 0]
     else:
       raise ValueError(f'Invalid classifier={self.classifier}')
 

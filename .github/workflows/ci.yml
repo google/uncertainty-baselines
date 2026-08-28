@@ -17,13 +17,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Test Import
         run: |
           set -v
@@ -47,13 +47,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Run Pytest
         run: |
           set -v
@@ -68,13 +68,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Run Pytest
         run: |
           set -v
@@ -88,13 +88,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Run Pytest
         run: |
           set -v
@@ -108,13 +108,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Run Pytest
         run: |
           set -v
@@ -128,13 +128,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Run Pytest
         run: |
           set -v
@@ -148,13 +148,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Run Pytest
         run: |
           set -v
@@ -168,13 +168,13 @@ jobs:
       - name: Install Python 3
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9
       - name: Pip Install
         run: |
           set -v
           set -e
           python -m pip install --upgrade pip
-          pip install -q -e .[tensorflow,jax,models,tests]
+          pip install -q -e .[tensorflow,jax,models,datasets,tests]
       - name: Run Pytest
         run: |
           set -v

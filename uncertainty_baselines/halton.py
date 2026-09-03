@@ -314,12 +314,19 @@ def zipit(
     A list of dictionaries, one for each trial, with a key for each unique
     hyperparameter name from generator_fns_or_sweeps.
   """
+  # Sweep lists are finite, so the number of trials we can produce is capped by
+  # the shortest one. Without this, zipit would index past the end of the list.
+  num_trials = length
+  for generator_fn_or_sweep in generator_fns_or_sweeps:
+    if not callable(generator_fn_or_sweep):
+      num_trials = min(num_trials, len(generator_fn_or_sweep))
+
   halton_sequence = generate_sequence(
-      num_samples=length,
+      num_samples=num_trials,
       num_dims=len(generator_fns_or_sweeps))
   # A List[Dict] of hyperparameter names to sweep values.
   hyperparameter_sweep = []
-  for trial_index in range(length):
+  for trial_index in range(num_trials):
     hyperparameter_sweep.append({})
     for hyperparameter_index in range(len(generator_fns_or_sweeps)):
       halton_point = halton_sequence[trial_index][hyperparameter_index]
@@ -328,8 +335,6 @@ def zipit(
         hyperparameter_name, value = generator_fn(halton_point)
       else:
         sweep_list = generator_fns_or_sweeps[hyperparameter_index]
-        if trial_index > len(sweep_list):
-          break
         hyperparameter_point = sweep_list[trial_index]
         hyperparameter_name, value = list(hyperparameter_point.items())[0]
       hyperparameter_sweep[trial_index][hyperparameter_name] = value

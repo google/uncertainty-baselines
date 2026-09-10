@@ -44,7 +44,7 @@ def apply_with_random_selector(
     selected = tf.random.stateless_uniform(
         [], maxval=num_cases, dtype=tf.int32, seed=seed)
   branches = [
-      lambda i=case: func(x, i)
+      lambda i=case: func(x, i)  # pyrefly: ignore[bad-argument-type]
       for case in range(num_cases)
   ]
   return tf.switch_case(selected, branches)

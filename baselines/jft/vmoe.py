@@ -79,7 +79,7 @@ def load_checkpoint(config, mesh, efficient_ensemble_size):
     model_init = [model_init]
 
   restore_checkpoint = functools.partial(
-      partitioned.restore_checkpoint, tree=None, axis_resources=None)
+      partitioned.restore_checkpoint, tree=None, axis_resources=None)  # pyrefly: ignore[unexpected-keyword]
   with mesh:
     params = {p: restore_checkpoint(prefix=p) for p in model_init}  # pytype: disable=wrong-keyword-args
   return flax.core.freeze(params)

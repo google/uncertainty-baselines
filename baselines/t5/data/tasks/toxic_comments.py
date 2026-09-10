@@ -113,11 +113,11 @@ def _register_toxic_comments_classification_task(
   tfds_source = seqio.TfdsDataSource(tfds_name=tfds_name, splits=tfds_splits)
   toxicity_classification_preprocessor = functools.partial(
       ub_preprocessors.toxic_comments_preprocessor_binary_classification,
-      label_tokens=label_tokens,
+      label_tokens=label_tokens,  # pyrefly: ignore[bad-argument-type]
       threshold=toxicity_label_threshold)
   toxicity_classification_metrics = functools.partial(
       ub_metrics.binary_classification,
-      label_tokens=label_tokens,
+      label_tokens=label_tokens,  # pyrefly: ignore[bad-argument-type]
       prediction_threshold=toxicity_label_threshold,
       auc_temperatures=AUC_TEMPERATURES)
 
@@ -138,7 +138,7 @@ def _register_toxic_comments_classification_task(
 
 _register_toxic_comments_task = functools.partial(
     _register_toxic_comments_classification_task,
-    label_tokens=LABEL_TOKENS,
+    label_tokens=LABEL_TOKENS,  # pyrefly: ignore[bad-argument-type]
     toxicity_label_threshold=TOXIC_LABEL_THRESHOLD)
 
 # Training data.

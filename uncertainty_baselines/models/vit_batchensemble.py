@@ -222,7 +222,7 @@ class BatchEnsembleEncoder(nn.Module):
             ens_size=self.ens_size,
             random_sign_init=self.random_sign_init,
             ensemble_attention=self.ensemble_attention,
-            **params)(x, deterministic=not train)
+            **params)(x, deterministic=not train)  # pyrefly: ignore[bad-argument-type]
       else:
         x = vit.Encoder1DBlock(**params)(x, deterministic=not train)
     encoded = nn.LayerNorm(name="encoder_norm")(x)

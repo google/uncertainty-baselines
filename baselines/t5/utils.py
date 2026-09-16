@@ -99,7 +99,7 @@ def write_beam_inferences_to_file(
   def _json_compat(value):
     if isinstance(value, bytes):
       return value.decode('utf-8')
-    elif isinstance(value, (jnp.bfloat16, jnp.floating)):
+    elif isinstance(value, (jnp.bfloat16, jnp.floating)):  # pyrefly: ignore[invalid-argument]
       return float(value)
     elif isinstance(value, jnp.integer):
       return float(value)

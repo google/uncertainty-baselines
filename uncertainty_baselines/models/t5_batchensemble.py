@@ -51,7 +51,7 @@ class DenseBatchEnsemble(nn.Module):
   ens_size: int
   features: int
   kernel_axes: Tuple[str, str]
-  dtype: DType = jnp.float32
+  dtype: DType = jnp.float32  # pyrefly: ignore[bad-assignment]
   kernel_init: Initializer = nn.initializers.lecun_normal()
   alpha_init: Initializer = nn.initializers.ones
   gamma_init: Initializer = nn.initializers.ones
@@ -132,8 +132,8 @@ class BEMlpBlock(nn.Module):
           kernel_axes=('embed', 'mlp'),
           dtype=self.dtype,
           kernel_init=self.kernel_init,
-          alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
-          gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
+          alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),  # pyrefly: ignore[bad-argument-type]
+          gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),  # pyrefly: ignore[bad-argument-type]
           name=dense_name)(
               inputs)
       x = t5_layers._convert_to_activation_function(act_fn)(x)
@@ -152,8 +152,8 @@ class BEMlpBlock(nn.Module):
         kernel_axes=('mlp', 'embed'),
         dtype=self.dtype,
         kernel_init=self.kernel_init,
-        alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
-        gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
+        alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),  # pyrefly: ignore[bad-argument-type]
+        gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),  # pyrefly: ignore[bad-argument-type]
         name='wo')(
             x)
     return output
@@ -343,9 +343,9 @@ class BatchEnsembleDecoder(nn.Module):
           cfg.vocab_size,
           kernel_axes=('embed', 'vocab'),
           kernel_init=self.head_kernel_init,
-          alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
-          gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),
-          dtype=jnp.float32,  # Use float32 for stabiliity.
+          alpha_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),  # pyrefly: ignore[bad-argument-type]
+          gamma_init=ed.nn.utils.make_sign_initializer(self.random_sign_init),  # pyrefly: ignore[bad-argument-type]
+          dtype=jnp.float32,  # Use float32 for stabiliity.  # pyrefly: ignore[bad-argument-type]
           name='logits_dense')(
               y)
     return logits
@@ -364,7 +364,7 @@ class TransformerBE(t5_network.Transformer):
         num_embeddings=cfg.vocab_size,
         features=cfg.emb_dim,
         dtype=cfg.dtype,
-        attend_dtype=jnp.float32,  # for logit training stability
+        attend_dtype=jnp.float32,  # for logit training stability  # pyrefly: ignore[bad-argument-type]
         embedding_init=nn.initializers.normal(stddev=1.0),
         one_hot=True,
         name='token_embedder')

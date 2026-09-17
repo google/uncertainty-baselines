@@ -114,7 +114,7 @@ def get_config(
 
   config.lr = ml_collections.ConfigDict()
   config.lr.base = 0.1
-  config.lr.warmup_steps = 1
+  config.lr.warmup_steps = 1 if total_steps > 1 else 0
   config.lr.decay_type = 'linear'
   config.lr.linear_end = 1e-3
 

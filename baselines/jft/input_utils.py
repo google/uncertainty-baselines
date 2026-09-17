@@ -17,7 +17,7 @@
 
 import collections
 import math
-from typing import Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 from absl import logging
 import flax
@@ -333,7 +333,8 @@ def get_data(
 
 
 def cifar_from_sql(sql_database: str,
-                   num_classes: int) -> ub_tfds.TFDSBuilderFromSQLClientData:
+                   num_classes: int) -> Any:
+#                     num_classes: int) -> ub_tfds.TFDSBuilderFromSQLClientData:
   """Build a TFDS builder backed by CIFAR-like SQL Client Data."""
 
   cifar_features = tfds.features.FeaturesDict({
@@ -346,10 +347,10 @@ def cifar_from_sql(sql_database: str,
       ("label", tf.TensorSpec(shape=(), dtype=tf.int64)),
   ])
 
-  return ub_tfds.TFDSBuilderFromSQLClientData(
-      sql_database=sql_database,
-      tfds_features=cifar_features,
-      element_spec=cifar_element_spec)
+  # return ub_tfds.TFDSBuilderFromSQLClientData(
+  #     sql_database=sql_database,
+  #     tfds_features=cifar_features,
+  #     element_spec=cifar_element_spec)
 
 
 def start_input_pipeline(dataset, n_prefetch, devices=None):

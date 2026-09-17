@@ -32,6 +32,7 @@ def get_config() -> ml_collections.ConfigDict:
   model.dropout_rate = 0.2
 
   config.train_bias = False
+  config.train_weight_ensemble = True
   reweighting = config.reweighting
   reweighting.do_reweighting = True
 

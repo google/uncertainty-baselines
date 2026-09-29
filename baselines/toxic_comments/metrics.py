@@ -68,7 +68,8 @@ def _compute_correct_predictions(y_true: Sequence[float],
   y_pred = tf.cast(tf.convert_to_tensor(y_pred), dtype=dtype)
 
   # Ranks of both y_pred and y_true should be 1.
-  if len(y_true.shape) != 1 or len(y_pred.shape) != 1:
+  if len(y_true.shape) != 1 or len(y_pred.shape) != 1:  # pyrefly: ignore[missing-attribute]
+    # pyrefly: ignore[missing-attribute]
     raise ValueError("Ranks of y_true and y_pred must both be 1. "
                      f"Got {len(y_true.shape)} and {len(y_pred.shape)}")
 

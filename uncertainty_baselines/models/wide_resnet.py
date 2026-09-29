@@ -197,12 +197,12 @@ def wide_resnet(
       16,
       strides=1,
       seed=seeds[0],
-      kernel_regularizer=l2_reg(hps['input_conv_l2']))(
+      kernel_regularizer=l2_reg(hps['input_conv_l2']))(  # pyrefly: ignore[unsupported-operation]
           inputs)
   if version == 1:
     x = BatchNormalization(
-        beta_regularizer=l2_reg(hps['bn_l2']),
-        gamma_regularizer=l2_reg(hps['bn_l2']))(
+        beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
+        gamma_regularizer=l2_reg(hps['bn_l2']))(  # pyrefly: ignore[unsupported-operation]
             x)
     x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = group(
@@ -210,8 +210,8 @@ def wide_resnet(
       filters=round(16 * width_multiplier),
       strides=1,
       num_blocks=num_blocks,
-      conv_l2=hps['group_1_conv_l2'],
-      bn_l2=hps['bn_l2'],
+      conv_l2=hps['group_1_conv_l2'],  # pyrefly: ignore[unsupported-operation]
+      bn_l2=hps['bn_l2'],  # pyrefly: ignore[unsupported-operation]
       version=version,
       seed=seeds[1])
   x = group(
@@ -219,8 +219,8 @@ def wide_resnet(
       filters=round(32 * width_multiplier),
       strides=2,
       num_blocks=num_blocks,
-      conv_l2=hps['group_2_conv_l2'],
-      bn_l2=hps['bn_l2'],
+      conv_l2=hps['group_2_conv_l2'],  # pyrefly: ignore[unsupported-operation]
+      bn_l2=hps['bn_l2'],  # pyrefly: ignore[unsupported-operation]
       version=version,
       seed=seeds[2])
   x = group(
@@ -228,14 +228,14 @@ def wide_resnet(
       filters=round(64 * width_multiplier),
       strides=2,
       num_blocks=num_blocks,
-      conv_l2=hps['group_3_conv_l2'],
-      bn_l2=hps['bn_l2'],
+      conv_l2=hps['group_3_conv_l2'],  # pyrefly: ignore[unsupported-operation]
+      bn_l2=hps['bn_l2'],  # pyrefly: ignore[unsupported-operation]
       version=version,
       seed=seeds[3])
   if version == 2:
     x = BatchNormalization(
-        beta_regularizer=l2_reg(hps['bn_l2']),
-        gamma_regularizer=l2_reg(hps['bn_l2']))(
+        beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
+        gamma_regularizer=l2_reg(hps['bn_l2']))(  # pyrefly: ignore[unsupported-operation]
             x)
     x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
@@ -243,8 +243,8 @@ def wide_resnet(
   x = tf.keras.layers.Dense(  # pyrefly: ignore[not-callable]
       num_classes,
       kernel_initializer=tf.keras.initializers.HeNormal(seed=seeds[4]),
-      kernel_regularizer=l2_reg(hps['dense_kernel_l2']),
-      bias_regularizer=l2_reg(hps['dense_bias_l2']))(
+      kernel_regularizer=l2_reg(hps['dense_kernel_l2']),  # pyrefly: ignore[unsupported-operation]
+      bias_regularizer=l2_reg(hps['dense_bias_l2']))(  # pyrefly: ignore[unsupported-operation]
           x)
   return tf.keras.Model(  # pyrefly: ignore[bad-return]
       inputs=inputs,

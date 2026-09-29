@@ -169,7 +169,7 @@ def load_checkpoint(tree: Optional[Params],
     tree = jax.tree_util.tree_unflatten(treedef, values)
   else:
     tree = _recover_tree(keys, values)  # pyrefly: ignore[unbound-name]
-  return tree
+  return tree  # pyrefly: ignore[bad-return]
 
 
 def _traverse_with_names(tree):
@@ -339,9 +339,9 @@ def _convert_vars(torch_vars: Mapping[str, np.ndarray],
   # and fix shape/transposing of attention layers.
   torch_vars = _convert_attn_layers(torch_vars, dim_head)
   flax_vars = {}
-  torch_vars.pop("context_length", None)
-  torch_vars.pop("input_resolution", None)
-  torch_vars.pop("vocab_size", None)
+  torch_vars.pop("context_length", None)  # pyrefly: ignore[missing-attribute]
+  torch_vars.pop("input_resolution", None)  # pyrefly: ignore[missing-attribute]
+  torch_vars.pop("vocab_size", None)  # pyrefly: ignore[missing-attribute]
   for torch_key, v in torch_vars.items():
     if "num_batches_tracked" in torch_key:
       continue

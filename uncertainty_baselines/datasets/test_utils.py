@@ -30,7 +30,7 @@ class DatasetTest(tf.test.TestCase):
 
   def _testDatasetSize(
       self,
-      dataset_class: Type[TypeVar('B', bound=base.BaseDataset)],  # pyrefly: ignore[not-a-type]
+      dataset_class: Type[TypeVar('B', bound=base.BaseDataset)],  # pyrefly: ignore[invalid-annotation, not-a-type]
       image_size: Sequence[int],
       splits: Sequence[Union[float, str, tfds.Split]] = _SPLITS,
       label_size: Optional[Sequence[int]] = None,

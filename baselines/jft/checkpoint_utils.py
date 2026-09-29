@@ -169,7 +169,7 @@ def load_checkpoint(tree: Optional[Params],
     tree = jax.tree_util.tree_unflatten(treedef, values)
   else:
     tree = _recover_tree(keys, values)  # pyrefly: ignore[unbound-name]
-  return tree
+  return tree  # pyrefly: ignore[bad-return]
 
 
 

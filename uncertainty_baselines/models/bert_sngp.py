@@ -305,7 +305,7 @@ class SpectralNormalizedTransformer(bert_layers.TransformerScaffold):
     attention_cls = functools.partial(
         SpectralNormalizedMultiHeadAttention,
         use_spec_norm=self._use_spec_norm_att,
-        spec_norm_kwargs=self._spec_norm_kwargs)
+        spec_norm_kwargs=self._spec_norm_kwargs)  # pyrefly: ignore[bad-argument-type]
 
     super().__init__(
         feedforward_cls=feedforward_cls, attention_cls=attention_cls, **kwargs)

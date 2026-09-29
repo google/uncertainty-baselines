@@ -179,35 +179,35 @@ def wide_resnet_heteroscedastic(
   inputs = tf.keras.layers.Input(shape=input_shape)
   x = Conv2D(16,
              strides=1,
-             kernel_regularizer=l2_reg(hps['input_conv_l2']))(inputs)
+             kernel_regularizer=l2_reg(hps['input_conv_l2']))(inputs)  # pyrefly: ignore[unsupported-operation]
   if version == 1:
-    x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),
-                           gamma_regularizer=l2_reg(hps['bn_l2']))(x)
+    x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
+                           gamma_regularizer=l2_reg(hps['bn_l2']))(x)  # pyrefly: ignore[unsupported-operation]
     x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = group(x,
             filters=16 * width_multiplier,
             strides=1,
             num_blocks=num_blocks,
-            conv_l2=hps['group_1_conv_l2'],
-            bn_l2=hps['bn_l2'],
+            conv_l2=hps['group_1_conv_l2'],  # pyrefly: ignore[unsupported-operation]
+            bn_l2=hps['bn_l2'],  # pyrefly: ignore[unsupported-operation]
             version=version)
   x = group(x,
             filters=32 * width_multiplier,
             strides=2,
             num_blocks=num_blocks,
-            conv_l2=hps['group_2_conv_l2'],
-            bn_l2=hps['bn_l2'],
+            conv_l2=hps['group_2_conv_l2'],  # pyrefly: ignore[unsupported-operation]
+            bn_l2=hps['bn_l2'],  # pyrefly: ignore[unsupported-operation]
             version=version)
   x = group(x,
             filters=64 * width_multiplier,
             strides=2,
             num_blocks=num_blocks,
-            conv_l2=hps['group_3_conv_l2'],
-            bn_l2=hps['bn_l2'],
+            conv_l2=hps['group_3_conv_l2'],  # pyrefly: ignore[unsupported-operation]
+            bn_l2=hps['bn_l2'],  # pyrefly: ignore[unsupported-operation]
             version=version)
   if version == 2:
-    x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),
-                           gamma_regularizer=l2_reg(hps['bn_l2']))(x)
+    x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
+                           gamma_regularizer=l2_reg(hps['bn_l2']))(x)  # pyrefly: ignore[unsupported-operation]
     x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
   x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
@@ -218,8 +218,8 @@ def wide_resnet_heteroscedastic(
                     'share_samples_across_batch': True,
                     'logits_only': True, 'eps': eps,
                     'dtype': tf.float32, 'name': 'fc100',
-                    'kernel_regularizer': l2_reg(hps['dense_kernel_l2']),
-                    'bias_regularizer': l2_reg(hps['dense_bias_l2'])}
+                    'kernel_regularizer': l2_reg(hps['dense_kernel_l2']),  # pyrefly: ignore[unsupported-operation]
+                    'bias_regularizer': l2_reg(hps['dense_bias_l2'])}  # pyrefly: ignore[unsupported-operation]
   if multiclass:
     het_layer_args.update({'num_classes': num_classes})
     if num_factors <= 0:

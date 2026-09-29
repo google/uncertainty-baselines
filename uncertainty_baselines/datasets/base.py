@@ -465,7 +465,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
                         batch_size=batch_size)
 
 
-_BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]  # pyrefly: ignore[not-a-type]
+_BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]  # pyrefly: ignore[invalid-annotation, not-a-type]
 
 
 def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:

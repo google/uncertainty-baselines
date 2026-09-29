@@ -888,7 +888,7 @@ def binary_classification(
   auc_rocs_temperature_adjusted = []
   auc_prcs_temperature_adjusted = []
   for temperature in auc_temperatures:
-    temp_adjusted_logits = scores / temperature
+    temp_adjusted_logits = scores / temperature  # pyrefly: ignore[unsupported-operation]
     temp_adjusted_probs = sp_special.softmax(
         temp_adjusted_logits, axis=-1)[:, 1]
     temp_adjusted_probs = temp_adjusted_probs.astype(np.float32)

@@ -146,7 +146,7 @@ class FewShotSamplePool(object):
       self._class_indices.append(indices[labels == class_id])
 
     self._features = features.numpy()
-    self._labels = labels
+    self._labels = labels  # pyrefly: ignore[bad-assignment]
 
   @property
   def num_classes(self):

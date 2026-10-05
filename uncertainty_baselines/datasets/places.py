@@ -92,7 +92,7 @@ class Places365Dataset(base.BaseDataset):
           seed=per_example_step_seed,
           is_training=self._is_training)
       # Rescale to [0, 1].
-      image = (image + 1.0) / 2.0  # pyrefly: ignore[unsupported-operation]
+      image = (image + 1.0) / 2.0
 
       label = tf.cast(example['label'], tf.int32)
       return {'features': image, 'labels': label}

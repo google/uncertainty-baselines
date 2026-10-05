@@ -56,7 +56,7 @@ class TFDSIdToInt:
   def __call__(self, tfds_id: str) -> int:
     """Format the tfds_id in a more human-readable."""
     match = self.tfds_id_parser_re.match(tfds_id)
-    split_name, shard_id, ex_id = match.groups()  # pytype: disable=attribute-error  # re-none
+    split_name, shard_id, ex_id = match.groups()  # pyrefly: ignore[missing-attribute]
     shard_offsets = self.shard_offsets[split_name]
     return shard_offsets[int(shard_id)] + int(ex_id)
 
@@ -99,7 +99,7 @@ class SubsetDatasetBuilder(DatasetBuilder):
     self.base_dataset_builder = base_dataset_builder
     self.info = base_dataset_builder.info
 
-  def as_dataset(self,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+  def as_dataset(self,  # pyrefly: ignore[bad-override]
                  split: Union[str, tfds.core.ReadInstruction],
                  *,
                  shuffle_files: bool = False,

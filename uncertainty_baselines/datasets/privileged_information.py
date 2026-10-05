@@ -203,7 +203,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
     elif isinstance(pi_seed, int):
       self._pi_seed = (pi_seed, pi_seed + 1)
     elif isinstance(pi_seed, tf.Tensor) and tf.shape(pi_seed).shape == 0:
-      self._pi_seed = tf.stack([pi_seed, pi_seed + 1])  # pyrefly: ignore[unsupported-operation]
+      self._pi_seed = tf.stack([pi_seed, pi_seed + 1])
     else:
       self._pi_seed = pi_seed
 
@@ -225,7 +225,7 @@ class AnnotatorPIMixin(base.BaseDataset, abc.ABC):
 
     if not disable_reliability_estimation:
       self._setup_annotator_tables()
-    elif num_adversarial_annotators_per_example > 0:  # pytype: disable=unsupported-operands
+    elif num_adversarial_annotators_per_example > 0:
       raise ValueError(
           '`num_adversarial_annotators_per_example > 0` requires setting'
           ' `disable_reliability_estimation=False`'

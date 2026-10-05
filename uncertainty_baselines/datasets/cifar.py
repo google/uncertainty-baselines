@@ -404,7 +404,7 @@ class Cifar10CorruptedDataset(_CifarDataset):
     super().__init__(
         name=f'cifar10_corrupted/{corruption_type}_{severity}',
         fingerprint_key=None,  # pyrefly: ignore[bad-argument-type]
-        **kwargs)  # pytype: disable=wrong-arg-types  # kwargs-checking
+        **kwargs)
 
 
 class Cifar10HDataset(AnnotatorPIMixin, _CifarDataset):
@@ -500,7 +500,7 @@ class Cifar10HDataset(AnnotatorPIMixin, _CifarDataset):
 
     return annotations_tables
 
-  def _process_pi_features_and_labels(self, example, unprocessed_example):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+  def _process_pi_features_and_labels(self, example, unprocessed_example):  # pyrefly: ignore[bad-override]
     """Loads 'annotator_ids', 'annotator_labels', 'annotator_times', and 'trial_idx', and sets 'clean_labels' and 'labels'.
 
     In CIFAR10-H the `labels` field is popoulated with the average label of its

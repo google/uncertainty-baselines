@@ -81,7 +81,7 @@ def load_checkpoint(config, mesh, efficient_ensemble_size):
   restore_checkpoint = functools.partial(
       partitioned.restore_checkpoint, tree=None, axis_resources=None)  # pyrefly: ignore[unexpected-keyword]
   with mesh:
-    params = {p: restore_checkpoint(prefix=p) for p in model_init}  # pytype: disable=wrong-keyword-args
+    params = {p: restore_checkpoint(prefix=p) for p in model_init}
   return flax.core.freeze(params)
 
 
@@ -263,7 +263,7 @@ def main(config, output_dir):
     preprocess_fn = preprocess_spec.parse(
         spec=config.pp_eval_imagenet_real,
         available_ops=preprocess_utils.all_ops())
-    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))  # pytype: disable=wrong-arg-types
+    pp_eval = lambda ex: preprocess_fn(imagenet_to_real_fn(ex))
     val_ds_splits['imagenet_real'] = _get_val_split(
         'imagenet2012_real',
         split=config.get('imagenet_real_split') or 'validation',

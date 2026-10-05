@@ -136,7 +136,7 @@ class DiabeticRetinopathySeverityShiftModerateDataset(base.BaseDataset):
       highest_negative_class = 1
 
       # Binarize task.
-      label = tf.cast(example['label'] > highest_negative_class, tf.int32)  # pyrefly: ignore[unsupported-operation]
+      label = tf.cast(example['label'] > highest_negative_class, tf.int32)
 
       parsed_example = {
           'features': image,

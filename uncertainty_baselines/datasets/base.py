@@ -408,7 +408,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
     dataset = dataset.with_options(options)
     return dataset
 
-  def load(  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+  def load(  # pyrefly: ignore[bad-override]
       self,
       *,
       preprocess_fn: Optional[PreProcessFn] = None,
@@ -465,7 +465,7 @@ class BaseDataset(robustness_metrics_base.TFDSDataset):
                         batch_size=batch_size)
 
 
-_BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]  # pyrefly: ignore[invalid-annotation, not-a-type]
+_BaseDatasetClass = Type[TypeVar('B', bound=BaseDataset)]  # pyrefly: ignore[invalid-annotation]
 
 
 def make_ood_dataset(ood_dataset_cls: _BaseDatasetClass) -> _BaseDatasetClass:

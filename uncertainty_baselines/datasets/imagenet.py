@@ -208,7 +208,7 @@ class _ImageNetDataset(base.BaseDataset):
             seed=per_example_step_seed,
             is_training=self._is_training)
         # Rescale to [0, 1].
-        image = (image + 1.0) / 2.0  # pyrefly: ignore[unsupported-operation]
+        image = (image + 1.0) / 2.0
       elif self._preprocessing_type == 'resnet':
         # `resnet_preprocessing.preprocess_image` returns images in [0, 1].
         image = resnet_preprocessing.preprocess_image(

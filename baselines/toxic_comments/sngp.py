@@ -571,7 +571,7 @@ def main(argv):
   if FLAGS.prediction_mode:
     # Prediction and exit.
     for dataset_name, test_dataset in test_datasets.items():
-      test_iterator = iter(test_dataset)  # pytype: disable=wrong-arg-types
+      test_iterator = iter(test_dataset)
       message = 'Final eval on dataset {}'.format(dataset_name)
       logging.info(message)
 

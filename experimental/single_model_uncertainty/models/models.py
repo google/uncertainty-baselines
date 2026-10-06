@@ -71,18 +71,18 @@ def get(
 
   # load from single_model_uncertainty directory
   if model_name == 'genomics_cnn':
-    return genomics_cnn.genomics_cnn(**hyperparameters)  # pytype: disable=bad-return-type  # typed-keras
+    return genomics_cnn.genomics_cnn(**hyperparameters)  # pyrefly: ignore[bad-return]
   if model_name == 'wide_resnet':
     return wide_resnet.wide_resnet(**hyperparameters)
 
   # load from uncertainty_baselines directory
   if model_name == 'criteo_mlp':
-    return criteo_mlp.criteo_mlp(**hyperparameters)  # pytype: disable=bad-return-type  # typed-keras
+    return criteo_mlp.criteo_mlp(**hyperparameters)  # pyrefly: ignore[bad-return]
   if model_name == 'resnet20':
-    return resnet20.resnet20(**hyperparameters)  # pytype: disable=bad-return-type  # typed-keras
+    return resnet20.resnet20(**hyperparameters)  # pyrefly: ignore[bad-return]
   if model_name == 'resnet50':
     return resnet50_deterministic.resnet50_deterministic(**hyperparameters)
   if model_name == 'textcnn':
-    return textcnn.textcnn(**hyperparameters)  # pytype: disable=bad-return-type  # typed-keras
+    return textcnn.textcnn(**hyperparameters)  # pyrefly: ignore[bad-return]
   if model_name == 'bert':
-    return bert.bert_model(**hyperparameters)  # pytype: disable=bad-return-type  # typed-keras
+    return bert.bert_model(**hyperparameters)  # pyrefly: ignore[bad-return]

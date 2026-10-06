@@ -899,7 +899,7 @@ def make_test_metrics_update_fn(dataset_name,
       train_on_multi_task_label and isinstance(multi_task_labels, tf.Tensor) and
       isinstance(multi_task_probs, tf.Tensor))
   if update_multi_task_metrics:
-    multi_task_ece_probs = tf.concat([1. - multi_task_probs, multi_task_probs],  # pyrefly: ignore[unsupported-operation]
+    multi_task_ece_probs = tf.concat([1. - multi_task_probs, multi_task_probs],
                                      axis=1)
     multi_task_preds = tf.math.argmax(multi_task_ece_probs, axis=-1)
     multi_task_one_hot_labels = tf.one_hot(

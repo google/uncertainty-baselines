@@ -154,7 +154,7 @@ def upsample_subgroup(
       for subgroup_label in subgroup_sizes
   ]
   upsampled_dataset = tf.data.Dataset.sample_from_datasets(
-      examples_by_subgroup.values(),  # pyrefly: ignore[bad-argument-type]
+      examples_by_subgroup.values(),
       weights=weights,
       stop_on_empty_dataset=False,
   )
@@ -463,11 +463,11 @@ class WaterbirdsDataset(tfds.core.GeneratorBasedBuilder):
                          is_training: Optional[bool] = False
                         ) -> Iterator[Tuple[str, Dict[str, Any]]]:
     """Generator of examples for each split."""
-    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)  # pyrefly: ignore[bad-argument-type]
+    dataset = tf.data.Dataset.list_files(file_pattern, shuffle=is_training)
 
     def _fetch_dataset(filename):
       buffer_size = 8 * 1024 * 1024  # 8 MiB per file
-      dataset = tf.data.TFRecordDataset(filename, buffer_size=buffer_size)  # pyrefly: ignore[bad-instantiation]
+      dataset = tf.data.TFRecordDataset(filename, buffer_size=buffer_size)
       return dataset
 
     # Reads the data from disk in parallel.
@@ -749,7 +749,7 @@ class SkaiDataset(tfds.core.GeneratorBasedBuilder):
     if not pattern:
       return
     paths = tf.io.gfile.glob(pattern)
-    ds = tf.data.TFRecordDataset(paths).map(  # pyrefly: ignore[bad-instantiation]
+    ds = tf.data.TFRecordDataset(paths).map(
         self._decode_record, num_parallel_calls=tf.data.AUTOTUNE)
     if self.builder_config.max_examples:
       ds = ds.take(self.builder_config.max_examples)

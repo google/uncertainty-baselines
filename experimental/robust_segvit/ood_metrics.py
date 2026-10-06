@@ -105,7 +105,7 @@ def get_ood_score(
   else:
     raise NotImplementedError(
         f'Missing method {method_name} to calculate OOD score.')
-  return ood_score  # pytype: disable=bad-return-type  # jax-types
+  return ood_score  # pyrefly: ignore[bad-return]
 
 
 def get_ood_metrics(

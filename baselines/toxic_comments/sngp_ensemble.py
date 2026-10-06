@@ -277,7 +277,7 @@ def main(argv):
     additional_labels_dict = collections.OrderedDict()
     for step in range(steps_per_eval[dataset_name]):
       try:
-        inputs: Dict[str, tf.Tensor] = next(test_iterator)  # pytype: disable=annotation-type-mismatch
+        inputs: Dict[str, tf.Tensor] = next(test_iterator)
       except StopIteration:
         continue
       ids = inputs['id']

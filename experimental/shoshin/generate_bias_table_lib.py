@@ -525,7 +525,7 @@ def calculate_tracin_values(
       with tf.GradientTape(watch_accessed_variables=False) as tape:
         tape.watch(
             model.trainable_weights[included_layers_start:included_layers_end])
-        probs = model(features)['main']  # pyrefly: ignore[not-callable]
+        probs = model(features)['main']
         if use_prediction_gradient:
           y_pred = tf.math.argmax(probs, axis=1)
           loss = tf.keras.losses.sparse_categorical_crossentropy(y_pred, probs)

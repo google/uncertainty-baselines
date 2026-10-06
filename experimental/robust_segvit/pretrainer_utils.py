@@ -192,10 +192,8 @@ def convert_torch_to_jax_checkpoint(
       {tuple(k.split("/")[:]): v for k, v in restored_params.items()})
 
   train_state = train_utils.TrainState()
-  # pytype: disable=wrong-arg-types
-  restored_train_state = train_state.replace(  # pytype: disable=attribute-error
+  restored_train_state = train_state.replace(  # pyrefly: ignore[missing-attribute]
       optimizer={"target": restored_params},)
-  # pytype: enable=wrong-arg-types
 
   # free memory
   del restored_params

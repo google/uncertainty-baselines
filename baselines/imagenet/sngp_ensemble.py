@@ -207,8 +207,8 @@ def main(argv):
         stddev = []
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval):
-          inputs = next(test_iterator)  # pytype: disable=attribute-error
-          images = inputs['features']  # pytype: disable=attribute-error,unsupported-operands
+          inputs = next(test_iterator)
+          images = inputs['features']
           logits_member, covmat_member = model(images, training=False)
           stddev_member = tf.sqrt(tf.linalg.diag_part(covmat_member))
 
@@ -268,8 +268,8 @@ def main(argv):
     stddev_dataset = tf.convert_to_tensor(stddev_dataset)
     test_iterator = iter(test_dataset)
     for step in range(steps_per_eval):
-      inputs = next(test_iterator)  # pytype: disable=attribute-error
-      labels = inputs['labels']  # pytype: disable=attribute-error,unsupported-operands
+      inputs = next(test_iterator)
+      labels = inputs['labels']
       labels = tf.cast(tf.reshape(labels, [-1]), tf.int32)
 
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]

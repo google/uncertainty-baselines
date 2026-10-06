@@ -126,7 +126,7 @@ def main(argv):
         logits = []
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval):
-          features, _ = next(test_iterator)  # pytype: disable=attribute-error
+          features, _ = next(test_iterator)
           logits.append(model(features, training=False))
 
         logits = tf.concat(logits, axis=0)
@@ -168,7 +168,7 @@ def main(argv):
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
     for step in range(steps_per_eval):
-      _, labels = next(test_iterator)  # pytype: disable=attribute-error
+      _, labels = next(test_iterator)
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(tf.reshape(labels, [-1]), tf.int32)
       negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()

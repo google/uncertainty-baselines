@@ -82,8 +82,8 @@ class TwoHeadedOutputModel(tf.keras.Model):
     })
     return config
 
-  def call(self, inputs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
-    return self.model(inputs)  # pyrefly: ignore[not-callable]
+  def call(self, inputs):  # pyrefly: ignore[bad-override]
+    return self.model(inputs)
 
   def update_id_to_bias_table(self, table):
     self.id_to_bias_table = table
@@ -131,7 +131,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     y_true_main = tf.one_hot(labels, depth=self.num_classes)
 
     with tf.GradientTape() as tape:
-      y_pred = self(features, training=True)  # pyrefly: ignore[not-callable]
+      y_pred = self(features, training=True)
 
       y_true = {'main': y_true_main}
       y_true_bias_original = None
@@ -208,7 +208,7 @@ class TwoHeadedOutputModel(tf.keras.Model):
     labels = inputs['label']
     subgroup_labels = inputs['subgroup_label']
     y_true_main = tf.one_hot(labels, depth=2)
-    y_pred = self(features, training=False)  # pyrefly: ignore[not-callable]
+    y_pred = self(features, training=False)
     y_true = {'main': y_true_main}
     if self.train_bias:
       if self.id_to_bias_table is None:

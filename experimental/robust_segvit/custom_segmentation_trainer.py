@@ -110,7 +110,7 @@ def sync_model_state_across_replicas(
     # If the model_state has batch_stats
     new_model_state = train_state.model_state.copy(  # pyrefly: ignore[missing-attribute]
         {'batch_stats': pmap_mean(train_state.model_state['batch_stats'])})  # pyrefly: ignore[unsupported-operation]
-    return train_state.replace(  # pytype: disable=attribute-error
+    return train_state.replace(  # pyrefly: ignore[missing-attribute]
         model_state=new_model_state)
   else:
     return train_state
@@ -294,10 +294,10 @@ def evaluate_ood(
 
     def arrays_to_keras_auc(tp, fp, tn, fn, keras_auc_object):
       """Assign confusion matrix arrays to a keras_auc_object."""
-      keras_auc_object.true_positives.assign(tp)  # pytype: disable=attribute-error  # jnp-type
-      keras_auc_object.false_positives.assign(fp)  # pytype: disable=attribute-error  # jnp-type
-      keras_auc_object.true_negatives.assign(tn)  # pytype: disable=attribute-error  # jnp-type
-      keras_auc_object.false_negatives.assign(fn)  # pytype: disable=attribute-error  # jnp-type
+      keras_auc_object.true_positives.assign(tp)
+      keras_auc_object.false_positives.assign(fp)
+      keras_auc_object.true_negatives.assign(tn)
+      keras_auc_object.false_negatives.assign(fn)
       return keras_auc_object
 
     auc_roc_state = keras_auc_to_arrays(auc_roc)
@@ -330,8 +330,8 @@ def evaluate_ood(
     auc_roc = arrays_to_keras_auc(*combine_states(all_auc_roc_states), auc_roc)  # pyrefly: ignore[bad-argument-count]
     auc_pr = arrays_to_keras_auc(*combine_states(all_auc_pr_states), auc_pr)  # pyrefly: ignore[bad-argument-count]
 
-    eval_summary = {'auroc': float(auc_roc.result().numpy()),  # pytype: disable=attribute-error  # jnp-type
-                    'auprc': float(auc_pr.result().numpy()),  # pytype: disable=attribute-error  # jnp-type
+    eval_summary = {'auroc': float(auc_roc.result().numpy()),
+                    'auprc': float(auc_pr.result().numpy()),
                     }
   else:
     eval_logits = []
@@ -498,7 +498,7 @@ def train_step(
         logits)  # batch_size x h x w x num_classes
 
   metrics = metrics_fn(logits, batch)
-  new_train_state = train_state.replace(  # pytype: disable=attribute-error
+  new_train_state = train_state.replace(  # pyrefly: ignore[missing-attribute]
       global_step=step + 1,  # pyrefly: ignore[unsupported-operation]
       optimizer=new_optimizer,
       model_state=new_model_state,
@@ -719,7 +719,7 @@ def train(
   (params, model_state, num_trainable_params,
    gflops) = train_utils.initialize_model(
        model_def=model.flax_model,
-       input_spec=[(input_shape,  # pyrefly: ignore[bad-argument-type]
+       input_spec=[(input_shape,
                     dataset.meta_data.get('input_dtype', jnp.float32))],
        config=config,
        rngs=init_rng)
@@ -817,8 +817,8 @@ def train(
 
   train_metrics, extra_training_logs = [], []
   train_summary, eval_summary = None, None
-  global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
-  global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
+  global_metrics_fn = model.get_global_metrics_fn()
+  global_unc_metrics_fn = model.get_global_unc_metrics_fn()
 
   chrono = train_utils.Chrono(
       first_step=start_step,  # pyrefly: ignore[bad-argument-type]
@@ -932,7 +932,7 @@ def train(
         # Sync model state across replicas.
         train_state = sync_model_state_across_replicas(train_state)
         if lead_host:
-          train_state.replace(  # pytype: disable=attribute-error
+          train_state.replace(  # pyrefly: ignore[missing-attribute]
               accum_train_time=chrono.accum_train_time)
           train_utils.save_checkpoint(workdir, train_state)
 
@@ -1023,7 +1023,7 @@ def eval_ckpt(
 
   (params, model_state, _, _) = train_utils.initialize_model(
       model_def=model.flax_model,
-      input_spec=[(input_shape, dataset.meta_data.get('input_dtype',  # pyrefly: ignore[bad-argument-type]
+      input_spec=[(input_shape, dataset.meta_data.get('input_dtype',
                                                       jnp.float32))],
       config=config,
       rngs=init_rng)
@@ -1088,8 +1088,8 @@ def eval_ckpt(
   )
 
   eval_summary = None
-  global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
-  global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
+  global_metrics_fn = model.get_global_metrics_fn()
+  global_unc_metrics_fn = model.get_global_unc_metrics_fn()
 
   # Eval model:
   prefix = dataset.meta_data.get('prefix', 'valid')
@@ -1169,8 +1169,8 @@ def evaluate_ood_step(
     )
 
     eval_summary = None
-    global_metrics_fn = model.get_global_metrics_fn()  # pytype: disable=attribute-error
-    global_unc_metrics_fn = model.get_global_unc_metrics_fn()  # pytype: disable=attribute-error
+    global_metrics_fn = model.get_global_metrics_fn()
+    global_unc_metrics_fn = model.get_global_unc_metrics_fn()
 
     eval_ood_covariate = {'cityscapes_c': evaluate_cityscapes_c,
                           'ade20k_ind_c': evaluate_ade20k_corrupted,}

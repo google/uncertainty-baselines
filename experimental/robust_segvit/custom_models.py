@@ -111,7 +111,7 @@ class UBSegmentationModel(SegmentationModel):
                                  name_mapping, skip_regex)
 
     new_optimizer = train_state.optimizer.replace(target=model_params)  # pyrefly: ignore[missing-attribute]
-    train_state = train_state.replace(  # pytype: disable=attribute-error
+    train_state = train_state.replace(  # pyrefly: ignore[missing-attribute]
         optimizer=new_optimizer)
 
     if (restored_model_state is not None and
@@ -131,7 +131,7 @@ class UBSegmentationModel(SegmentationModel):
                                   restored_model_cfg, gs_vit, gs_segvit,
                                   ckpt_prefix_path, model_prefix_path,
                                   name_mapping, skip_regex)
-      train_state = train_state.replace(  # pytype: disable=attribute-error
+      train_state = train_state.replace(  # pyrefly: ignore[missing-attribute]
           model_state=model_state)
     return train_state
 
@@ -275,8 +275,8 @@ def _replace_dict(model: PyTree,
     model state with updated model parameters
   """
 
-  model = flax.core.unfreeze(model)  # pytype: disable=wrong-arg-types
-  restored = flax.core.unfreeze(restored)  # pytype: disable=wrong-arg-types
+  model = flax.core.unfreeze(model)  # pyrefly: ignore[bad-argument-type]
+  restored = flax.core.unfreeze(restored)  # pyrefly: ignore[bad-argument-type]
 
   if ckpt_prefix_path:
     for p in ckpt_prefix_path:
@@ -296,10 +296,8 @@ def _replace_dict(model: PyTree,
       dict(model), keep_empty_nodes=True)
 
   for m_key, m_params in restored_flat.items():
-    # pytype: disable=attribute-error
-    for name, to_replace in name_mapping.items():
+    for name, to_replace in name_mapping.items():  # pyrefly: ignore[missing-attribute]
       m_key = tuple(to_replace if k == name else k for k in m_key)
-    # pytype: enable=attribute-error
     m_key_str = '/'.join(m_key)
     if m_key not in model_flat:
       logging.warning('%s in checkpoint doesn\'t exist in model. Skip.',

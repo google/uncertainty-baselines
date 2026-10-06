@@ -236,7 +236,7 @@ def main(argv):
       features, labels, _ = utils.create_feature_and_label(inputs)
 
       with tf.GradientTape() as tape:
-        logits = model(features, training=True)  # pyrefly: ignore[not-callable]
+        logits = model(features, training=True)
 
         if FLAGS.train_on_multi_task_label:
           logits, multi_task_logits = logits
@@ -321,7 +321,7 @@ def main(argv):
       features, labels, _ = utils.create_feature_and_label(inputs)
 
       eval_start_time = time.time()
-      logits = model(features, training=False)  # pyrefly: ignore[not-callable]
+      logits = model(features, training=False)
       eval_time = (time.time() - eval_start_time) / FLAGS.per_core_batch_size
 
       if FLAGS.use_bfloat16:
@@ -372,7 +372,7 @@ def main(argv):
       text_ids = inputs['input_ids']
       bert_features, labels, additional_labels = utils.create_feature_and_label(
           inputs)
-      logits = model(bert_features, training=False)  # pyrefly: ignore[not-callable]
+      logits = model(bert_features, training=False)
 
       if FLAGS.train_on_multi_task_label:
         logits, multi_task_logits = logits
@@ -415,7 +415,7 @@ def main(argv):
   if FLAGS.prediction_mode:
     # Prediction and exit.
     for dataset_name, test_dataset in test_datasets.items():
-      test_iterator = iter(test_dataset)  # pytype: disable=wrong-arg-types
+      test_iterator = iter(test_dataset)
       message = 'Final eval on dataset {}'.format(dataset_name)
       logging.info(message)
 
@@ -520,7 +520,7 @@ def main(argv):
 
       if epoch % FLAGS.evaluation_interval == 0:
         for dataset_name, test_dataset in test_datasets.items():
-          test_iterator = iter(test_dataset)  # pytype: disable=wrong-arg-types
+          test_iterator = iter(test_dataset)
           logging.info('Testing on dataset %s', dataset_name)
 
           try:

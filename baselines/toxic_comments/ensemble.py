@@ -175,7 +175,7 @@ def main(argv):
           except StopIteration:
             continue
           features, labels, _ = utils.create_feature_and_label(inputs)
-          logits.append(model(features, training=False))  # pyrefly: ignore[not-callable]
+          logits.append(model(features, training=False))
 
         logits = tf.concat(logits, axis=0)
         with tf.io.gfile.GFile(filename, 'w') as f:
@@ -231,7 +231,7 @@ def main(argv):
     additional_labels_dict = collections.OrderedDict()
     for step in range(steps_per_eval[dataset_name]):
       try:
-        inputs: Dict[str, tf.Tensor] = next(test_iterator)  # pytype: disable=annotation-type-mismatch
+        inputs: Dict[str, tf.Tensor] = next(test_iterator)
       except StopIteration:
         continue
       ids = inputs['id']

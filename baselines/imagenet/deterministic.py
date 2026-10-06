@@ -255,7 +255,7 @@ def main(argv):
     def step_fn_images(images):
       return tf.reduce_mean(tf.cast(images, tf.float32), axis=0)
 
-    new_count = count + 1.  # pyrefly: ignore[unsupported-operation]
+    new_count = count + 1.
     count.assign(new_count)
 
     batch = next(iterator)
@@ -264,11 +264,11 @@ def main(argv):
 
     per_replica_means = strategy.run(step_fn_labels, args=(labels,))
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
-    mean_labels.assign(cr_replica_means/count + (count-1.)/count * mean_labels)  # pyrefly: ignore[unsupported-operation]
+    mean_labels.assign(cr_replica_means/count + (count-1.)/count * mean_labels)
 
     per_replica_means = strategy.run(step_fn_images, args=(images,))
     cr_replica_means = strategy.reduce('mean', per_replica_means, axis=0)
-    mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)  # pyrefly: ignore[unsupported-operation]
+    mean_images.assign(cr_replica_means/count + (count-1.)/count * mean_images)
 
   @tf.function
   def train_step(iterator):

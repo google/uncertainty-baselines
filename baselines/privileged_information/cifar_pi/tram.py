@@ -352,13 +352,11 @@ def main(argv):
         tf.cast(labels, dtype=tf.int32), num_classes, dtype=tf.float32)
 
   def clean_labels_encoding(example):
-    # pytype: disable=attribute-error
     return pi_utils.clean_labels_encoding_fn(
         example=example,
-        num_annotators_per_example=train_builder
+        num_annotators_per_example=train_builder  # pyrefly: ignore[missing-attribute]
         .num_annotators_per_example_and_step,
         label_encoding_fn=label_encoding_fn)
-    # pytype: enable=attribute-error
 
   def is_annotator_incorrect_encoding(example):
     return pi_utils.find_noisy_annotators(example, flatten_annotators=False)
@@ -368,11 +366,9 @@ def main(argv):
         example=example, label_encoding_fn=label_encoding_fn)
 
   def annotator_ids_encoding(example):
-    # pytype: disable=attribute-error
     return pi_utils.annotator_ids_encoding_fn(
         example=example,
-        num_dataset_annotators=train_builder.num_dataset_annotators)
-    # pytype: enable=attribute-error
+        num_dataset_annotators=train_builder.num_dataset_annotators)  # pyrefly: ignore[missing-attribute]
 
   def annotator_labels_encoding(example):
     return label_encoding_fn(example['pi_features']['annotator_labels'])
@@ -529,12 +525,10 @@ def main(argv):
         labels = tf.gather(labels, non_empty_indices)
       else:
         labels = inputs['clean_labels']
-        # pytype: disable=attribute-error
         labels = pi_utils.repeat_across_annotators(
             labels,
-            num_annotators_per_example=train_builder
+            num_annotators_per_example=train_builder  # pyrefly: ignore[missing-attribute]
             .num_annotators_per_example_and_step)
-        # pytype: enable=attribute-error
         labels = pi_utils.flatten_annotator_axis(labels)
 
       privileged_information = privileged_information_fn(inputs)
@@ -545,7 +539,7 @@ def main(argv):
         # We take just 1 augmented image from the returned augmented images.
         images = images[:, 1, ...]
       with tf.GradientTape() as tape:
-        (logits, logits_pi) = model((images, privileged_information),  # pyrefly: ignore[not-callable]
+        (logits, logits_pi) = model((images, privileged_information),
                                     training=True)
 
         # Flatten the annotator axis.
@@ -651,12 +645,10 @@ def main(argv):
         labels = tf.gather(labels, non_empty_indices)
       else:
         labels = inputs['clean_labels']
-        # pytype: disable=attribute-error
         labels = pi_utils.repeat_across_annotators(
             labels,
-            num_annotators_per_example=train_builder
+            num_annotators_per_example=train_builder  # pyrefly: ignore[missing-attribute]
             .num_annotators_per_example_and_step)
-        # pytype: enable=attribute-error
         labels = pi_utils.flatten_annotator_axis(labels)
 
       # NOTE: The TRAM model expects some pi_input even if we ignore it during
@@ -664,7 +656,7 @@ def main(argv):
       random_pi = privileged_information_fn(dummy_example)
       random_pi = tf.tile(random_pi, [tf.shape(images)[0], 1, 1])
 
-      logits, _ = model((images, random_pi), training=False)  # pyrefly: ignore[not-callable]
+      logits, _ = model((images, random_pi), training=False)
       logits = pi_utils.flatten_annotator_axis(logits)
       if use_annotator_labels:
         logits = tf.gather(logits, non_empty_indices)  # pyrefly: ignore[unbound-name]
@@ -699,7 +691,7 @@ def main(argv):
       random_pi = privileged_information_fn(dummy_example)
       random_pi = tf.tile(random_pi, [tf.shape(labels)[0], 1, 1])
 
-      logits, _ = model((images, random_pi), training=False)  # pyrefly: ignore[not-callable]
+      logits, _ = model((images, random_pi), training=False)
       # Remove repeated annotator dimensions:
       # logits (batch_size, num_dummy_annotators, label_shape) ->
       #        (batch_size, label_shape).

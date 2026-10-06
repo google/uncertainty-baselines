@@ -451,7 +451,7 @@ def main(argv):
       labels = inputs['clean_labels']
       labels = pi_utils.repeat_across_annotators(
           labels,
-          num_annotators_per_example=train_builder  # pytype: disable=attribute-error
+          num_annotators_per_example=train_builder
           .num_annotators_per_example_and_step)
       labels = pi_utils.flatten_annotator_axis(labels)
 
@@ -577,7 +577,7 @@ def main(argv):
         #         (batch_size, num_annotators, num_classes)
         logits = pi_utils.repeat_across_annotators(
             logits,
-            train_builder.  # pytype: disable=attribute-error
+            train_builder.
             num_annotators_per_example_and_step)
         # logits: (batch_size, num_annotators, num_classes) ->
         #         (batch_size * num_annotators, num_classes)
@@ -658,7 +658,7 @@ def main(argv):
         if training_phase == 'pretrain':
           labels = pi_utils.repeat_across_annotators(
               labels,
-              num_annotators_per_example=test_builder  # pytype: disable=attribute-error
+              num_annotators_per_example=test_builder
               .num_annotators_per_example_and_step)
           labels = tf.reshape(labels, [-1])
 
@@ -672,7 +672,7 @@ def main(argv):
         if metrics_prefix == 'validation_noisy':
           logits = pi_utils.repeat_across_annotators(
               logits,
-              num_annotators_per_example=train_builder.  # pytype: disable=attribute-error
+              num_annotators_per_example=train_builder.
               num_annotators_per_example_and_step)
           logits = pi_utils.flatten_annotator_axis(logits)
 

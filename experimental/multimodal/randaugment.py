@@ -496,18 +496,14 @@ def _parse_policy_info(name, prob, level, replace_value, augmentation_hparams):
 
   # Check to see if prob is passed into function. This is used for operations
   # where we alter bboxes independently.
-  # pytype:disable=wrong-arg-types
   if 'prob' in spec.args:
     args = tuple([prob] + list(args))
-  # pytype:enable=wrong-arg-types
 
   # Add in replace arg if it is required for the function that is being called.
-  # pytype:disable=wrong-arg-types
   if 'replace' in spec.args:
     # Make sure replace is the final argument
     assert 'replace' == spec.args[-1]
     args = tuple(list(args) + [replace_value])
-  # pytype:enable=wrong-arg-types
 
   return (func, prob, args)
 

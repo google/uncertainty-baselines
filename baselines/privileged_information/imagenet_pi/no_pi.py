@@ -406,7 +406,7 @@ def main(argv):
         if FLAGS.use_annotator_labels:
           logits = pi_utils.repeat_across_annotators(
               logits,
-              num_annotators_per_example=train_builder  # pytype: disable=attribute-error
+              num_annotators_per_example=train_builder
               .num_annotators_per_example_and_step)
           logits = pi_utils.flatten_annotator_axis(logits)
 
@@ -490,7 +490,7 @@ def main(argv):
       if metrics_prefix == 'validation_noisy':
         logits = pi_utils.repeat_across_annotators(
             logits,
-            num_annotators_per_example=train_builder.  # pytype: disable=attribute-error
+            num_annotators_per_example=train_builder.
             num_annotators_per_example)
 
       update_test_metrics(labels, logits, metric_prefix=metrics_prefix)

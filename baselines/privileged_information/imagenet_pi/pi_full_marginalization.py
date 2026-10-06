@@ -457,7 +457,7 @@ def main(argv):
         labels = inputs['clean_labels']
         labels = pi_utils.repeat_across_annotators(
             labels,
-            num_annotators_per_example=train_builder  # pytype: disable=attribute-error
+            num_annotators_per_example=train_builder
             .num_annotators_per_example_and_step)
         labels = pi_utils.flatten_annotator_axis(labels)
 
@@ -577,7 +577,7 @@ def main(argv):
         labels = inputs['clean_labels']  # We use the original labels to test.
         labels = pi_utils.repeat_across_annotators(
             labels,
-            num_annotators_per_example=test_builder  # pytype: disable=attribute-error
+            num_annotators_per_example=test_builder
             .num_annotators_per_example_and_step)
       labels = tf.reshape(labels, [-1])
       privileged_information = test_privileged_information_fn(inputs)

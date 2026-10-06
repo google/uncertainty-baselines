@@ -103,7 +103,7 @@ class PSLModel(abc.ABC):
     """Soft logical implication."""
     if logic == 'lukasiewicz':
       # body -> head = (1 - body_i), head
-      return [1. - predicate for predicate in body], head  # pyrefly: ignore[bad-return, unsupported-operation]
+      return [1. - predicate for predicate in body], head
     if logic == 'product_real_logic':
       # 1 - A + A * B
       return 1 - body + body * head  # pyrefly: ignore[bad-return, unsupported-operation]
@@ -132,7 +132,7 @@ class PSLModel(abc.ABC):
       # A & B = max(0, A + B - 1)
       val = body[0]
       for i in range(1, num_bodies):
-        val = normalize(tf.nn.relu(val + body[i] - 1))  # pyrefly: ignore[unsupported-operation]
+        val = normalize(tf.nn.relu(val + body[i] - 1))
       return val
     elif logic == 'product_real_logic':
       # A & B = A * B
@@ -148,9 +148,9 @@ class PSLModel(abc.ABC):
     """Soft logical negation."""
     if logic == 'lukasiewicz':
       # !predicate = 1 - predicate
-      return normalize(1. - predicate)  # pyrefly: ignore[unsupported-operation]
+      return normalize(1. - predicate)
     if logic == 'product_real_logic':
-      return 1. - predicate  # pyrefly: ignore[bad-return, unsupported-operation]
+      return 1. - predicate
     else:
       raise ValueError('Unsuported logic: %s' % (logic,))
 

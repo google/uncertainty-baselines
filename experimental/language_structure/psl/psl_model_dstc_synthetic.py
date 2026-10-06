@@ -129,7 +129,7 @@ class PSLModelDSTCSynthetic(psl_model.PSLModel):
 
   def generate_predicates(self, input_ids: Sequence[tf.Tensor]):
     """Generates potentials used throughout the rules."""
-    hidden = self.embed_layer(input_ids)  # pyrefly: ignore[not-callable]
+    hidden = self.embed_layer(input_ids)
     input_mask = tf.sign(input_ids)
     logits = tf.reduce_sum(
         hidden *

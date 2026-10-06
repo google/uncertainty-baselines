@@ -67,10 +67,10 @@ def lenet5(input_shape, num_classes):
                                  kernel_size=5,
                                  padding='SAME',
                                  activation=tf.nn.relu)(pool2)
-  flatten = tf.keras.layers.Flatten()(conv3)  # pyrefly: ignore[not-callable]
-  dense1 = tf.keras.layers.Dense(84, activation=tf.nn.relu)(flatten)  # pyrefly: ignore[not-callable]
-  logits = tf.keras.layers.Dense(num_classes)(dense1)  # pyrefly: ignore[not-callable]
-  outputs = tf.keras.layers.Lambda(lambda x: ed.Categorical(logits=x))(logits)  # pyrefly: ignore[missing-attribute, not-callable]
+  flatten = tf.keras.layers.Flatten()(conv3)
+  dense1 = tf.keras.layers.Dense(84, activation=tf.nn.relu)(flatten)
+  logits = tf.keras.layers.Dense(num_classes)(dense1)
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Categorical(logits=x))(logits)  # pyrefly: ignore[missing-attribute]
   return tf.keras.Model(inputs=inputs, outputs=outputs)
 
 

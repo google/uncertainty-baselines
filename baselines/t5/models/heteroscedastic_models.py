@@ -58,7 +58,7 @@ class EncoderDecoderHeteroscedasticClassifierModel(
         ])
 
 
-class EncoderDecoderHeteroscedasticBeamScoreModel(  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+class EncoderDecoderHeteroscedasticBeamScoreModel(
     ub_models.EncoderDecoderBeamScoreModel,
     EncoderDecoderHeteroscedasticClassifierModel):
   """A wrapper of EncoderDecoderBeamScoreModel to support Heteroscedastic head."""

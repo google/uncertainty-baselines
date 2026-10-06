@@ -486,14 +486,12 @@ def main(argv):
         # We take just 1 augmented image from the returned augmented images.
         images = images[:, 1, ...]
       with tf.GradientTape() as tape:
-        logits = model(images, training=True)  # pyrefly: ignore[not-callable]
+        logits = model(images, training=True)
         if FLAGS.use_annotator_labels:
-          # pytype: disable=attribute-error
           logits = pi_utils.repeat_across_annotators(
               logits,
-              num_annotators_per_example=train_builder
+              num_annotators_per_example=train_builder  # pyrefly: ignore[missing-attribute]
               .num_annotators_per_example_and_step)
-          # pytype: enable=attribute-error
           logits = pi_utils.flatten_annotator_axis(logits)
           logits = tf.gather(logits, non_empty_indices)  # pyrefly: ignore[unbound-name]
         if FLAGS.label_smoothing == 0.:
@@ -548,19 +546,17 @@ def main(argv):
     def step_fn(inputs):
       """Per-Replica StepFn."""
       images = inputs['features']
-      logits = model(images, training=False)  # pyrefly: ignore[not-callable]
+      logits = model(images, training=False)
       probs = tf.nn.softmax(logits)
 
       if dataset_split == 'validation_noisy':
         labels = inputs['pi_features']['annotator_labels']
         labels = pi_utils.flatten_annotator_axis(labels)
 
-        # pytype: disable=attribute-error
         logits = pi_utils.repeat_across_annotators(
             logits,
-            num_annotators_per_example=validation_builder
+            num_annotators_per_example=validation_builder  # pyrefly: ignore[missing-attribute]
             .num_annotators_per_example_and_step)
-        # pytype: enable=attribute-error
         logits = pi_utils.flatten_annotator_axis(logits)
       elif dataset_split == 'validation_clean':
         labels = inputs['clean_labels']

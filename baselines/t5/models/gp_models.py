@@ -134,7 +134,7 @@ class EncoderDecoderGPClassifierModel(ub_models.EncoderDecoderClassifierModel,
     return initial_variables
 
 
-class EncoderDecoderGPBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+class EncoderDecoderGPBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,
                                      EncoderDecoderGPModel):
   """A wrapper of EncoderDecoderBeamScoreModel to support mutable updates."""
 

@@ -63,7 +63,7 @@ class EncoderDecoderBEClassifierModel(ub_models.EncoderDecoderClassifierModel):
       sequence_scores, intermediates = sequence_scores
     if ens_size > 1:
       sequence_scores = jnp.reshape(sequence_scores,  # pyrefly: ignore[bad-argument-type]
-                                    (ens_size, -1) + sequence_scores.shape[1:])  # pytype: disable=attribute-error  # jax-ndarray
+                                    (ens_size, -1) + sequence_scores.shape[1:])  # pyrefly: ignore[missing-attribute]
       if ensemble_probs:
         # Computes log(mean(exp(logits))) along the first dimension.
         sequence_scores = (
@@ -133,7 +133,7 @@ class EncoderDecoderBEGpClassifierModel(EncoderDecoderBEClassifierModel,
     return initial_variables
 
 
-class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,
                                      EncoderDecoderBEClassifierModel):
   """A wrapper of EncoderDecoderClassifierModel to support BatchEnsemble loss."""
 
@@ -178,7 +178,7 @@ class EncoderDecoderBEBeamScoreModel(ub_models.EncoderDecoderBeamScoreModel,  # 
         ensemble_probs=ensemble_probs)
 
 
-class EncoderDecoderBEGpBeamScoreModel(EncoderDecoderBEBeamScoreModel,  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+class EncoderDecoderBEGpBeamScoreModel(EncoderDecoderBEBeamScoreModel,
                                        EncoderDecoderBEGpClassifierModel):
   """A wrapper of EncoderDecoderBeamScoreModel for BatchEnsemble and GP."""
 

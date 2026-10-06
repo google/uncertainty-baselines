@@ -668,7 +668,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
       return predictions, scores
     return predictions
 
-  def predict_batch_with_aux(  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+  def predict_batch_with_aux(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: Mapping[str, jnp.ndarray],
@@ -715,7 +715,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
         dropout_rng=dropout_rng,
         ensemble_probs=ensemble_probs)
 
-  def score_batch(  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+  def score_batch(  # pyrefly: ignore[bad-override]
       self,
       params: PyTree,
       batch: Mapping[str, jnp.ndarray],

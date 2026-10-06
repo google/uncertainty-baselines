@@ -340,10 +340,8 @@ def main(argv):
   def clean_labels_encoding(example):
     return pi_utils.clean_labels_encoding_fn(
         example=example,
-        # pytype: disable=attribute-error
-        num_annotators_per_example=train_builder
+        num_annotators_per_example=train_builder  # pyrefly: ignore[missing-attribute]
         .num_annotators_per_example_and_step,
-        # pytype: enable=attribute-error
         label_encoding_fn=label_encoding_fn)
 
   def is_annotator_incorrect_encoding(example):
@@ -354,12 +352,10 @@ def main(argv):
         example=example, label_encoding_fn=label_encoding_fn)
 
   def annotator_ids_encoding(example):
-    # pytype: disable=attribute-error
     return pi_utils.annotator_ids_encoding_fn(
         example=example,
-        num_dataset_annotators=train_builder
+        num_dataset_annotators=train_builder  # pyrefly: ignore[missing-attribute]
         .num_dataset_annotators)
-    # pytype: enable=attribute-error
 
   def annotator_labels_encoding(example):
     return label_encoding_fn(example['pi_features']['annotator_labels'])
@@ -545,12 +541,10 @@ def main(argv):
       labels = tf.gather(labels, non_empty_indices)
     else:
       labels = inputs['clean_labels']
-      # pytype: disable=attribute-error
       labels = pi_utils.repeat_across_annotators(
           labels,
-          num_annotators_per_example=train_builder
+          num_annotators_per_example=train_builder  # pyrefly: ignore[missing-attribute]
           .num_annotators_per_example_and_step)
-      # pytype: enable=attribute-error
       labels = pi_utils.flatten_annotator_axis(labels)
       non_empty_indices = None
 
@@ -613,7 +607,7 @@ def main(argv):
       noisy_idx = pi_utils.find_noisy_annotators(inputs)
 
       with tf.GradientTape() as tape:
-        logits = teacher_model((images, privileged_information), training=True)  # pyrefly: ignore[not-callable]
+        logits = teacher_model((images, privileged_information), training=True)
 
         # Flatten the annotator axis.
         logits = pi_utils.flatten_annotator_axis(logits)
@@ -668,21 +662,19 @@ def main(argv):
       noisy_idx = pi_utils.find_noisy_annotators(inputs)
 
       with tf.GradientTape() as tape:
-        teacher_logits = teacher_model((images, privileged_information),  # pyrefly: ignore[not-callable]
+        teacher_logits = teacher_model((images, privileged_information),
                                        training=False)
-        logits = distill_model(images, training=True)  # pyrefly: ignore[not-callable]
+        logits = distill_model(images, training=True)
 
         # teacher_logits: (batch_size, num_annotators, num_classes) ->
         #                 (batch_size * num_annotators, num_classes)
         teacher_logits = pi_utils.flatten_annotator_axis(teacher_logits)
         # logits: (batch_size, num_classes) ->
         #         (batch_size, num_annotators, num_classes)
-        # pytype: disable=attribute-error
         logits = pi_utils.repeat_across_annotators(
             logits,
-            train_builder.
+            train_builder.  # pyrefly: ignore[missing-attribute]
             num_annotators_per_example_and_step)
-        # pytype: enable=attribute-error
         # logits: (batch_size, num_annotators, num_classes) ->
         #         (batch_size * num_annotators, num_classes)
         logits = pi_utils.flatten_annotator_axis(logits)
@@ -755,13 +747,11 @@ def main(argv):
       else:
         labels = inputs['clean_labels']
 
-      logits = distill_model(images, training=False)  # pyrefly: ignore[not-callable]
-      # pytype: disable=attribute-error
+      logits = distill_model(images, training=False)
       logits = pi_utils.repeat_across_annotators(
           logits,
-          num_annotators_per_example=train_builder.
+          num_annotators_per_example=train_builder.  # pyrefly: ignore[missing-attribute]
           num_annotators_per_example_and_step)
-      # pytype: enable=attribute-error
       logits = pi_utils.flatten_annotator_axis(logits)
       if use_annotator_labels:
         logits = tf.gather(logits, non_empty_indices)  # pyrefly: ignore[unbound-name]
@@ -789,7 +779,7 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
 
-      logits = distill_model(images, training=False)  # pyrefly: ignore[not-callable]
+      logits = distill_model(images, training=False)
       probs = tf.nn.softmax(logits)
 
       negative_log_likelihood = tf.reduce_mean(
@@ -904,7 +894,7 @@ def main(argv):
   logging.info('Starting distillation phase.')
   start_time = time.time()
   if FLAGS.collect_profile:
-    tb_callback.set_model(distill_model)  # pytype: disable=attribute-error
+    tb_callback.set_model(distill_model)  # pyrefly: ignore[missing-attribute]
   for epoch in range(initial_distill_epoch, FLAGS.distillation_epochs):
     logging.info('Starting to run epoch: %s', epoch)
     if tb_callback:

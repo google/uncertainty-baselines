@@ -71,15 +71,15 @@ def calibration(y, p_mean, num_bins=10):
   for i in np.arange(num_bins):  # iterate over the bins
     # select the items where the predicted max probability falls in the bin
     # [tau_tab[i], tau_tab[i + 1)]
-    sec = (tau_tab[i + 1] > conf) & (conf >= tau_tab[i])  # pyrefly: ignore[bad-index]
-    nb_items_bin[i] = np.sum(sec)  # Number of items in the bin  # pyrefly: ignore[unsupported-operation]
+    sec = (tau_tab[i + 1] > conf) & (conf >= tau_tab[i])
+    nb_items_bin[i] = np.sum(sec)  # Number of items in the bin
     # select the predicted classes, and the true classes
     class_pred_sec, y_sec = class_pred[sec], y[sec]
     # average of the predicted max probabilities
-    mean_conf[i] = np.mean(conf[sec]) if nb_items_bin[i] > 0 else np.nan  # pyrefly: ignore[bad-index, unsupported-operation]
+    mean_conf[i] = np.mean(conf[sec]) if nb_items_bin[i] > 0 else np.nan
     # compute the empirical confidence
-    acc_tab[i] = np.mean(  # pyrefly: ignore[unsupported-operation]
-        class_pred_sec == y_sec) if nb_items_bin[i] > 0 else np.nan  # pyrefly: ignore[bad-index]
+    acc_tab[i] = np.mean(
+        class_pred_sec == y_sec) if nb_items_bin[i] > 0 else np.nan
 
   # Cleaning
   mean_conf = mean_conf[nb_items_bin > 0]

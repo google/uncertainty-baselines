@@ -341,7 +341,7 @@ def main(argv):
         # We take just 1 augmented image from the returned augmented images.
         images = images[:, 1, ...]
       with tf.GradientTape() as tape:
-        logits = model(images, training=True)  # pyrefly: ignore[not-callable]
+        logits = model(images, training=True)
         if FLAGS.label_smoothing == 0.:
           negative_log_likelihood = tf.reduce_mean(
               tf.keras.losses.sparse_categorical_crossentropy(labels,
@@ -380,7 +380,7 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      logits = model(images, training=False)  # pyrefly: ignore[not-callable]
+      logits = model(images, training=False)
       probs = tf.nn.softmax(logits)
 
       negative_log_likelihood = tf.reduce_mean(
@@ -420,9 +420,9 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      logits = model(images, training=False)  # pyrefly: ignore[not-callable]
+      logits = model(images, training=False)
 
-      negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(  # pyrefly: ignore[not-callable]
+      negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(
           from_logits=True,
           reduction=tf.keras.losses.Reduction.NONE)(labels, logits)
 

@@ -220,7 +220,7 @@ def main(argv):
         test_iterator = iter(test_dataset)
         steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]  # pyrefly: ignore[unbound-name]
         for _ in range(steps):
-          features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
+          features = next(test_iterator)['features']
           logits_member = model(features, training=False)
           if isinstance(logits_member, (list, tuple)):
             # If model returns a tuple of (logits, covmat), extract both
@@ -275,7 +275,7 @@ def main(argv):
     steps = steps_per_eval if 'ood/' not in name else steps_per_ood[name]  # pyrefly: ignore[unbound-name]
     for step in range(steps):
       inputs = next(test_iterator)
-      labels = inputs['labels']  # pytype: disable=unsupported-operands
+      labels = inputs['labels']
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
       negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()
@@ -295,7 +295,7 @@ def main(argv):
         metrics['test/accuracy'].update_state(labels, probs)
         metrics['test/ece'].add_batch(probs, label=labels)
       elif name.startswith('ood/'):
-        ood_labels = 1 - inputs['is_in_distribution']  # pytype: disable=unsupported-operands
+        ood_labels = 1 - inputs['is_in_distribution']
         if FLAGS.dempster_shafer_ood:
           ood_scores = ood_utils.DempsterShaferUncertainty(logits_mean)
         else:

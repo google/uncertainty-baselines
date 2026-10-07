@@ -489,7 +489,7 @@ def _create_fewshot_dataset_and_sample_weights(
   """Creates dataset for few-shot evaluation and the rebalanced sample weights."""
   _, label = repr_fn(feautres, labels, mask)
   sample_weights = utils.create_rebalanced_sample_weights(label)
-  dataset = tf.data.Dataset.from_tensor_slices((feautres, labels))  # pyrefly: ignore[bad-argument-type]
+  dataset = tf.data.Dataset.from_tensor_slices((feautres, labels))
   dataset = dataset.batch(labels.shape[0]).repeat()
   return dataset, sample_weights
 
@@ -781,7 +781,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
       with tf.GradientTape() as tape:
         # Set learning phase to enable dropout etc during training.
-        model_outputs = model(model_inputs, training=True)  # pyrefly: ignore[not-callable]
+        model_outputs = model(model_inputs, training=True)
 
         losses = linear_vrnn.compute_loss(
             decoder_input_1[_INPUT_ID_NAME][:, :, 1:],
@@ -837,7 +837,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
           initial_state, initial_sample
       ]
-      model_outputs = model(model_inputs, training=False)  # pyrefly: ignore[not-callable]
+      model_outputs = model(model_inputs, training=False)
 
       if ind_mask is not None:
         ood_mask = 1 - ind_mask
@@ -885,7 +885,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
           encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2,
           initial_state, initial_sample
       ]
-      model_outputs = model(model_inputs, training=False)  # pyrefly: ignore[not-callable]
+      model_outputs = model(model_inputs, training=False)
 
       if psl_inference:
         psl_inputs = inputs[-1]
@@ -949,7 +949,7 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
   out_of_patience = 0
   train_model_outputs = None
   test_model_outputs = None
-  train_iterator = iter(train_dataset)  # pyrefly: ignore[no-matching-overload]
+  train_iterator = iter(train_dataset)
   start_time = time.time()
   for epoch in range(initial_epoch, config.train_epochs):
     if not fixed_train_epoch and out_of_patience > config.patience:
@@ -984,13 +984,13 @@ def run_experiment(config: config_dict.ConfigDict, output_dir: str):
 
       (train_hidden_state, train_label, train_prediction, train_domain_label, _,
        train_sample_mask) = run_inference_steps(
-           iter(inference_train_dataset), num_inference_train_steps)  # pyrefly: ignore[no-matching-overload]
+           iter(inference_train_dataset), num_inference_train_steps)
       if not config.load_train_sample_mask:
         train_sample_mask = None
 
       (test_hidden_state, test_label, test_prediction, test_domain_label,
        ind_mask, _) = run_inference_steps(
-           iter(inference_test_dataset), num_inference_test_steps)  # pyrefly: ignore[no-matching-overload]
+           iter(inference_test_dataset), num_inference_test_steps)
 
       if config.has_ood:
         test_example_masks = [ind_mask, 1 - ind_mask]

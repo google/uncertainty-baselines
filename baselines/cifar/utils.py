@@ -130,7 +130,7 @@ def load_cifar100_c(corruption_name,
     label = tf.cast(features['label'], dtype)
     return image, label
 
-  dataset = tf.data.TFRecordDataset(filename, buffer_size=16 * 1000 * 1000)  # pyrefly: ignore[bad-instantiation]
+  dataset = tf.data.TFRecordDataset(filename, buffer_size=16 * 1000 * 1000)
   dataset = dataset.map(
       preprocess, num_parallel_calls=tf.data.experimental.AUTOTUNE)
   dataset = dataset.batch(batch_size, drop_remainder=drop_remainder)
@@ -336,11 +336,11 @@ def aggregate_corrupt_metrics(metrics,
     avg_ece = np.mean(ece)
     avg_member_acc = np.mean(member_acc)
     avg_member_ece = np.mean(member_ece)
-    results['{0}/nll_mean_{1}'.format(prefix, intensity)] = avg_nll  # pyrefly: ignore[unsupported-operation]
-    results['{0}/kl_mean_{1}'.format(prefix, intensity)] = avg_kl  # pyrefly: ignore[unsupported-operation]
-    results['{0}/elbo_mean_{1}'.format(prefix, intensity)] = avg_elbo  # pyrefly: ignore[unsupported-operation]
-    results['{0}/accuracy_mean_{1}'.format(prefix, intensity)] = avg_accuracy  # pyrefly: ignore[unsupported-operation]
-    results['{0}/ece_mean_{1}'.format(prefix, intensity)] = avg_ece  # pyrefly: ignore[unsupported-operation]
+    results['{0}/nll_mean_{1}'.format(prefix, intensity)] = avg_nll
+    results['{0}/kl_mean_{1}'.format(prefix, intensity)] = avg_kl
+    results['{0}/elbo_mean_{1}'.format(prefix, intensity)] = avg_elbo
+    results['{0}/accuracy_mean_{1}'.format(prefix, intensity)] = avg_accuracy
+    results['{0}/ece_mean_{1}'.format(prefix, intensity)] = avg_ece
     results['{0}/nll_median_{1}'.format(prefix, intensity)] = np.median(nll)
     results['{0}/kl_median_{1}'.format(prefix, intensity)] = np.median(kl)
     results['{0}/elbo_median_{1}'.format(prefix, intensity)] = np.median(elbo)
@@ -348,16 +348,16 @@ def aggregate_corrupt_metrics(metrics,
                                              intensity)] = np.median(acc)
     results['{0}/ece_median_{1}'.format(prefix, intensity)] = np.median(ece)
     results['{0}/member_acc_mean_{1}'.format(prefix,
-                                             intensity)] = avg_member_acc  # pyrefly: ignore[unsupported-operation]
+                                             intensity)] = avg_member_acc
     results['{0}/member_ece_mean_{1}'.format(prefix,
-                                             intensity)] = avg_member_ece  # pyrefly: ignore[unsupported-operation]
-    results['{}/nll_mean_corrupted'.format(prefix)] += avg_nll  # pyrefly: ignore[unsupported-operation]
-    results['{}/kl_mean_corrupted'.format(prefix)] += avg_kl  # pyrefly: ignore[unsupported-operation]
-    results['{}/elbo_mean_corrupted'.format(prefix)] += avg_elbo  # pyrefly: ignore[unsupported-operation]
-    results['{}/accuracy_mean_corrupted'.format(prefix)] += avg_accuracy  # pyrefly: ignore[unsupported-operation]
-    results['{}/ece_mean_corrupted'.format(prefix)] += avg_ece  # pyrefly: ignore[unsupported-operation]
-    results['{}/member_acc_mean_corrupted'.format(prefix)] += avg_member_acc  # pyrefly: ignore[unsupported-operation]
-    results['{}/member_ece_mean_corrupted'.format(prefix)] += avg_member_ece  # pyrefly: ignore[unsupported-operation]
+                                             intensity)] = avg_member_ece
+    results['{}/nll_mean_corrupted'.format(prefix)] += avg_nll
+    results['{}/kl_mean_corrupted'.format(prefix)] += avg_kl
+    results['{}/elbo_mean_corrupted'.format(prefix)] += avg_elbo
+    results['{}/accuracy_mean_corrupted'.format(prefix)] += avg_accuracy
+    results['{}/ece_mean_corrupted'.format(prefix)] += avg_ece
+    results['{}/member_acc_mean_corrupted'.format(prefix)] += avg_member_acc
+    results['{}/member_ece_mean_corrupted'.format(prefix)] += avg_member_ece
     if corrupt_diversity is not None:
       avg_diversity_metrics = [
           np.mean(disagreement),
@@ -365,8 +365,8 @@ def aggregate_corrupt_metrics(metrics,
           np.mean(average_kl)
       ]
       for key, avg in zip(diversity_keys, avg_diversity_metrics):
-        results['corrupt_diversity/{}_mean_{}'.format(key, intensity)] = avg  # pyrefly: ignore[unsupported-operation]
-        results['corrupt_diversity/{}_mean_corrupted'.format(key)] += avg  # pyrefly: ignore[unsupported-operation]
+        results['corrupt_diversity/{}_mean_{}'.format(key, intensity)] = avg
+        results['corrupt_diversity/{}_mean_corrupted'.format(key)] += avg
 
   results['{}/nll_mean_corrupted'.format(prefix)] /= max_intensity
   results['{}/kl_mean_corrupted'.format(prefix)] /= max_intensity

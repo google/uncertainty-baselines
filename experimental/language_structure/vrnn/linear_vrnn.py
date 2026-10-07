@@ -129,7 +129,7 @@ class _VRNN(tf.keras.Model):
         outputs[i][key] = value
     return outputs
 
-  def call(self, inputs: Sequence[Any]):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+  def call(self, inputs: Sequence[Any]):  # pyrefly: ignore[bad-override]
     (encoder_input_1, encoder_input_2, decoder_input_1, decoder_input_2, state,
      sample, label, label_mask) = self._verify_and_prepare_inputs(inputs)
 
@@ -204,8 +204,8 @@ class _MlpWithProjector(tf.keras.layers.Layer):
     self.projector = tf.keras.layers.Dense(output_size)
 
   def call(self, inputs):
-    outputs = self.mlp(inputs)  # pyrefly: ignore[not-callable]
-    return self.projector(outputs)  # pyrefly: ignore[not-callable]
+    outputs = self.mlp(inputs)
+    return self.projector(outputs)
 
 
 class VanillaLinearVRNN(_VRNN):
@@ -302,20 +302,20 @@ def compute_loss(labels_1: tf.Tensor,
   labels_1 = tf.cast(labels_1, dtype=tf.float32)
   labels_2 = tf.cast(labels_2, dtype=tf.float32)
   seq_length = tf.cast(
-      tf.reduce_sum(labels_1_mask + labels_2_mask), dtype=tf.float32)  # pyrefly: ignore[unsupported-operation]
+      tf.reduce_sum(labels_1_mask + labels_2_mask), dtype=tf.float32)
 
   # reconstruction loss
   rc_loss_fn = utils.SequentialWordLoss(
       word_weights=word_weights, from_logits=True)
 
   rc_loss = tf.reduce_sum(
-      rc_loss_fn(labels_1, outputs_1, sample_weight=labels_1_mask) +  # pyrefly: ignore[not-callable]
-      rc_loss_fn(labels_2, outputs_2, sample_weight=labels_2_mask)) / seq_length  # pyrefly: ignore[not-callable]
+      rc_loss_fn(labels_1, outputs_1, sample_weight=labels_1_mask) +
+      rc_loss_fn(labels_2, outputs_2, sample_weight=labels_2_mask)) / seq_length
 
   # kl divergence
   kl_loss_fn = utils.KlLoss(
       with_bpr, from_logits=True, reduction=tf.keras.losses.Reduction.SUM)
-  kl_loss = kl_loss_fn(p_z_logits, q_z_logits) / seq_length  # pyrefly: ignore[not-callable]
+  kl_loss = kl_loss_fn(p_z_logits, q_z_logits) / seq_length
 
   # bow loss
   bow_loss = 0
@@ -323,8 +323,8 @@ def compute_loss(labels_1: tf.Tensor,
     bow_loss_fn = utils.BowLoss(
         sequence_axis=2, word_weights=word_weights, from_logits=True)
     bow_loss = tf.reduce_sum(
-        bow_loss_fn(labels_1, bow_logits_1, sample_weight=labels_1_mask) +  # pyrefly: ignore[not-callable, unbound-name]
-        bow_loss_fn(labels_2, bow_logits_2, sample_weight=labels_2_mask)  # pyrefly: ignore[not-callable, unbound-name]
+        bow_loss_fn(labels_1, bow_logits_1, sample_weight=labels_1_mask) +  # pyrefly: ignore[unbound-name]
+        bow_loss_fn(labels_2, bow_logits_2, sample_weight=labels_2_mask)  # pyrefly: ignore[unbound-name]
     ) / seq_length
 
   elbo = rc_loss + kl_loss_weight * kl_loss + bow_loss_weight * bow_loss
@@ -334,7 +334,7 @@ def compute_loss(labels_1: tf.Tensor,
   classification_loss_function = tf.keras.losses.CategoricalCrossentropy(
       from_logits=True, reduction=tf.keras.losses.Reduction.SUM)
   latent_label = tf.one_hot(latent_label_id, depth=num_latent_states)
-  classification_loss = classification_loss_function(  # pyrefly: ignore[not-callable]
+  classification_loss = classification_loss_function(
       latent_label, logits, sample_weight=latent_label_mask)
 
   if psl_constraint_model is None or psl_inputs is None:

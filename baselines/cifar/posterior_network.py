@@ -287,7 +287,7 @@ def main(argv):
         # We take just 1 augmented image from the returned augmented images.
         images = images[:, 1, ...]
       with tf.GradientTape() as tape:
-        alphas = model(images, training=True)  # pyrefly: ignore[not-callable]
+        alphas = model(images, training=True)
         loss = uce_loss_fn(labels, alphas)
         # Scale the loss given the TPUStrategy will reduce sum all gradients.
         scaled_loss = loss / strategy.num_replicas_in_sync
@@ -314,7 +314,7 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      alphas = model(images, training=False)  # pyrefly: ignore[not-callable]
+      alphas = model(images, training=False)
       probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
 
       negative_log_likelihood = tf.reduce_mean(
@@ -343,10 +343,10 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      alphas = model(images, training=False)  # pyrefly: ignore[not-callable]
+      alphas = model(images, training=False)
       probs, _ = tf.linalg.normalize(alphas, ord=1, axis=-1)
 
-      negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(  # pyrefly: ignore[not-callable]
+      negative_log_likelihood = tf.keras.losses.CategoricalCrossentropy(
           from_logits=False,
           reduction=tf.keras.losses.Reduction.NONE)(labels, probs)
 

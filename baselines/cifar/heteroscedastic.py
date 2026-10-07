@@ -249,7 +249,7 @@ def main(argv):
       images = inputs['features']
       labels = inputs['labels']
       with tf.GradientTape() as tape:
-        logits = model(images, training=True)  # pyrefly: ignore[not-callable]
+        logits = model(images, training=True)
         if FLAGS.label_smoothing == 0.:
           negative_log_likelihood = tf.reduce_mean(
               tf.keras.losses.sparse_categorical_crossentropy(labels,
@@ -288,7 +288,7 @@ def main(argv):
       """Per-Replica StepFn."""
       images = inputs['features']
       labels = inputs['labels']
-      logits = model(images, training=False)  # pyrefly: ignore[not-callable]
+      logits = model(images, training=False)
       probs = tf.nn.softmax(logits)
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.sparse_categorical_crossentropy(labels, probs))

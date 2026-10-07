@@ -107,7 +107,7 @@ def build_hidden_state_model(input_size: int, output_size: int,
                              learning_rate: float) -> tf.keras.Model:
   """Builds the simple linear classifer for hidden representation learning."""
   input_layer = tf.keras.layers.Input(input_size)
-  output = tf.keras.layers.Dense(output_size, activation="softmax")(input_layer)  # pyrefly: ignore[not-callable]
+  output = tf.keras.layers.Dense(output_size, activation="softmax")(input_layer)
 
   model = tf.keras.Model(input_layer, output)
 

@@ -132,8 +132,8 @@ def _build_embedding_layer(config: model_config.EmbeddingConfig,
         INPUT_ID_NAME,
         config.vocab_size,
         config.embed_size,
-        embeddings_initializer=embeddings_initializer,  # pyrefly: ignore[bad-argument-type]
-        input_length=max_seq_length,  # pyrefly: ignore[bad-argument-type]
+        embeddings_initializer=embeddings_initializer,
+        input_length=max_seq_length,
         trainable=config.trainable_embedding)
   elif config.embedding_type == model_config.BERT_EMBED:
     return _BERT(
@@ -187,9 +187,9 @@ class _DualRNN(tf.keras.Model):
   def build(self, input_shape):
     self.dropout = tf.keras.layers.Dropout(self._dropout)
 
-  def call(self, input_1, input_2, initial_state, **kwargs):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
-    embed_1 = self.embedding_layer(input_1)  # pyrefly: ignore[not-callable]
-    embed_2 = self.embedding_layer(input_2)  # pyrefly: ignore[not-callable]
+  def call(self, input_1, input_2, initial_state, **kwargs):
+    embed_1 = self.embedding_layer(input_1)
+    embed_2 = self.embedding_layer(input_2)
 
     input_mask_1 = self._get_input_mask(input_1)
     input_mask_2 = self._get_input_mask(input_2)
@@ -261,7 +261,7 @@ class DualRNNEncoder(_DualRNN):
     state = outputs[1:]
     seqlen = tf.reduce_sum(input_mask, axis=1)
     final_step_output = utils.get_last_step(output, seqlen)
-    final_step_output = self.dropout(final_step_output)  # pyrefly: ignore[not-callable]
+    final_step_output = self.dropout(final_step_output)
     return final_step_output, state
 
 
@@ -506,8 +506,8 @@ class _VanillaEncoderOutputProjector(tf.keras.layers.Layer):
     encoder_input_1, encoder_input_2, initial_state = inputs[:3]
     inputs = tf.concat([initial_state, encoder_input_1, encoder_input_2],
                        axis=1)
-    hidden = self.mlp(inputs)  # pyrefly: ignore[not-callable]
-    return hidden, self.project_layer(hidden)  # pyrefly: ignore[not-callable]
+    hidden = self.mlp(inputs)
+    return hidden, self.project_layer(hidden)
 
 
 class VanillaLinearVAECell(_VAECell):
@@ -580,10 +580,10 @@ class VanillaLinearVAECell(_VAECell):
            bert_ckpt_dir=config.encoder_embedding.bert_ckpt_dir)
 
   def _post_process_samples(self, samples: tf.Tensor) -> tf.Tensor:
-    return self.sample_post_processor(samples)  # pyrefly: ignore[not-callable]
+    return self.sample_post_processor(samples)
 
   def _project_encoder_outputs(self, inputs: Sequence[tf.Tensor]):
-    return self.encoder_output_projector(inputs)  # pyrefly: ignore[not-callable]
+    return self.encoder_output_projector(inputs)
 
   def _prepare_encoder_initial_state(self, inputs: Sequence[tf.Tensor]):
     # Encoder don't use external initial state.
@@ -598,7 +598,7 @@ class VanillaLinearVAECell(_VAECell):
     initial_state, samples_processed = inputs[0], inputs[1]
     return [tf.concat([initial_state, samples_processed], axis=1)]
 
-  def _prepare_decoder_inputs(  # pytype: disable=signature-mismatch  # overriding-parameter-type-checks
+  def _prepare_decoder_inputs(  # pyrefly: ignore[bad-override]
       self, inputs: _TensorMapList) -> _TensorMapList:
     last_step_removed = [
         {key: value[:, :-1] for key, value in input.items()} for input in inputs

@@ -71,7 +71,7 @@ def create_bert_utterance_features_fn(bert_preprocess_model: tf.keras.Model):
     """Converts utterances into features for BERT embedding."""
     features = []
     for key in [USR_UTT_RAW_NAME, SYS_UTT_RAW_NAME]:
-      features_by_step = bert_preprocess_model(tf.unstack(inputs[key], axis=1))  # pyrefly: ignore[not-callable]
+      features_by_step = bert_preprocess_model(tf.unstack(inputs[key], axis=1))
       merged_features = _merge_utterance_features(features_by_step)
       features.append(merged_features)
     return features

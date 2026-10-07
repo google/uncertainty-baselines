@@ -197,7 +197,7 @@ def main(argv):
       inputs = next(val_iterator)
       features = inputs['features']
       labels = inputs['labels']
-      val_logits_m.append(model(features, training=False))  # pyrefly: ignore[not-callable]
+      val_logits_m.append(model(features, training=False))
       if m == 0:
         val_labels.append(labels)
 
@@ -238,8 +238,8 @@ def main(argv):
         logits = []
         test_iterator = iter(test_dataset)
         for _ in range(steps_per_eval):
-          features = next(test_iterator)['features']  # pytype: disable=unsupported-operands
-          logits.append(model(features, training=False))  # pyrefly: ignore[not-callable]
+          features = next(test_iterator)['features']
+          logits.append(model(features, training=False))
 
         logits = tf.concat(logits, axis=0)
         with tf.io.gfile.GFile(filename, 'w') as f:
@@ -289,7 +289,7 @@ def main(argv):
     logits_dataset = tf.convert_to_tensor(logits_dataset)
     test_iterator = iter(test_dataset)
     for step in range(steps_per_eval):
-      labels = next(test_iterator)['labels']  # pytype: disable=unsupported-operands
+      labels = next(test_iterator)['labels']
       logits = logits_dataset[:, (step*batch_size):((step+1)*batch_size)]
       labels = tf.cast(labels, tf.int32)
       negative_log_likelihood_metric = rm.metrics.EnsembleCrossEntropy()

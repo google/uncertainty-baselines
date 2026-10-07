@@ -217,7 +217,7 @@ class EncoderDecoderClassifierModel(t5x_models.EncoderDecoderModel):
         # Inside self.module, we called nn.Module.sow to track various
         # intermediate values. We extract them here.
         intermediates = flax_core.unfreeze(
-            modified_variables.get('intermediates', {}))
+            modified_variables.get('intermediates', {}))  # pyrefly: ignore[missing-attribute]
 
         # Track per-token labels and loss weights as well. These are not
         # intermediate values of logit computation, so we manually add them
@@ -787,7 +787,7 @@ class EncoderDecoderBeamScoreModel(EncoderDecoderClassifierModel):
           key = '/'.join(key_flat)
           if key in intermediates_to_track:
             intermediates[key] = value
-      return sequence_scores, intermediates
+      return sequence_scores, intermediates  # pyrefly: ignore[bad-return]
 
     return sequence_scores
 

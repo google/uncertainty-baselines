@@ -65,7 +65,7 @@ class EncoderDecoderGPModel(models.EncoderDecoderModel):
         if 'gp_head_state' in path
     ]
     state_flat = flax.traverse_util.flatten_dict(
-        flax.core.unfreeze(state['intermediates']))
+        flax.core.unfreeze(state['intermediates']))  # pyrefly: ignore[bad-argument-type]
     head_state_new = [
         v[0] for path, v in state_flat.items() if 'gp_head_state_new' in path
     ][0]

@@ -881,8 +881,8 @@ def binary_classification(
   acc = sk_metrics.accuracy_score(target_labels, predicted_labels)
   nll = sk_metrics.log_loss(target_labels, model_pred_probs)
   f1 = sk_metrics.f1_score(target_labels, predicted_labels)
-  auc_roc = tf_metrics.AUC(curve='ROC')(target_labels_fl, model_pred_probs)  # pyrefly: ignore[not-callable]
-  auc_prc = tf_metrics.AUC(curve='PR')(target_labels_fl, model_pred_probs)  # pyrefly: ignore[not-callable]
+  auc_roc = tf_metrics.AUC(curve='ROC')(target_labels_fl, model_pred_probs)
+  auc_prc = tf_metrics.AUC(curve='PR')(target_labels_fl, model_pred_probs)
 
   # Computes the optimal AUC based on temperature-adjusted logits.
   auc_rocs_temperature_adjusted = []
@@ -893,9 +893,9 @@ def binary_classification(
         temp_adjusted_logits, axis=-1)[:, 1]
     temp_adjusted_probs = temp_adjusted_probs.astype(np.float32)
 
-    auc_roc_temp = tf_metrics.AUC(curve='ROC')(target_labels_fl,  # pyrefly: ignore[not-callable]
+    auc_roc_temp = tf_metrics.AUC(curve='ROC')(target_labels_fl,
                                                temp_adjusted_probs)
-    auc_prc_temp = tf_metrics.AUC(curve='PR')(target_labels_fl,  # pyrefly: ignore[not-callable]
+    auc_prc_temp = tf_metrics.AUC(curve='PR')(target_labels_fl,
                                               temp_adjusted_probs)
 
     auc_rocs_temperature_adjusted.append(auc_roc_temp.numpy())
@@ -1133,9 +1133,9 @@ def sequence_classification(
 
   # Performance metrics.
   acc = np.mean(correct_predictions_fl)
-  auc_roc = tf_metrics.AUC(curve='ROC')(correct_predictions_fl,  # pyrefly: ignore[not-callable]
+  auc_roc = tf_metrics.AUC(curve='ROC')(correct_predictions_fl,
                                         model_pred_confs)
-  auc_prc = tf_metrics.AUC(curve='PR')(correct_predictions_fl, model_pred_confs)  # pyrefly: ignore[not-callable]
+  auc_prc = tf_metrics.AUC(curve='PR')(correct_predictions_fl, model_pred_confs)
 
   # Calibration metrics.
   # To utilize the classification metrics, we evaluate sequence-level
@@ -1197,8 +1197,8 @@ def sequence_classification(
     # OOD metrics
     is_oos = np.any(target_labels == oos_token_id, axis=-1)
     logging.info('The bool is_oos %s', is_oos)
-    auc_roc_ood = tf_metrics.AUC(curve='ROC')(is_oos, 1 - model_pred_confs)  # pyrefly: ignore[not-callable]
-    auc_prc_ood = tf_metrics.AUC(curve='PR')(is_oos, 1 - model_pred_confs)  # pyrefly: ignore[not-callable]
+    auc_roc_ood = tf_metrics.AUC(curve='ROC')(is_oos, 1 - model_pred_confs)
+    auc_prc_ood = tf_metrics.AUC(curve='PR')(is_oos, 1 - model_pred_confs)
 
     result_dict.update({
         'ood_auc_roc': auc_roc_ood.numpy(),

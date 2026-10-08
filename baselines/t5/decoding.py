@@ -353,7 +353,7 @@ def _temperature_sample_single_trial(
     # Different elements in the batch can be at different loop indices, if any
     # of our examples are not at the end, keep going.
     all_sequences_ended = jnp.all(state.ended)
-    return ~all_sequences_ended  # pytype: disable=bad-return-type  # jnp-type
+    return ~all_sequences_ended  # pyrefly: ignore[bad-return]
 
   def sampling_loop_body_fn(state: SamplingLoopState) -> SamplingLoopState:
     """Sampling loop state update."""
@@ -378,12 +378,12 @@ def _temperature_sample_single_trial(
     def sample_logits_with_nonzero_temperature(logits):
       scaled_logits = logits / jnp.maximum(temperature, MIN_TEMPERATURE)
       if topk:
-        scaled_logits = binary_search.topk_mask(scaled_logits, topk, NEG_INF)  # pytype: disable=wrong-arg-types  # jax-ndarray
+        scaled_logits = binary_search.topk_mask(scaled_logits, topk, NEG_INF)  # pyrefly: ignore[bad-argument-type]
 
       # When topp is dynamic, we always use it since we cannot check
       # non-zeroness (but it will have no effect if topp is 0.0).
       if _is_tracer(topp) or topp:
-        scaled_logits = binary_search.topp_mask(scaled_logits, topp, NEG_INF)  # pytype: disable=wrong-arg-types  # jax-ndarray
+        scaled_logits = binary_search.topp_mask(scaled_logits, topp, NEG_INF)  # pyrefly: ignore[bad-argument-type]
 
       # [batch]
       next_token = random.categorical(rng1, scaled_logits).astype(jnp.int32)
@@ -533,7 +533,7 @@ def _temperature_sample_single_trial(
   token_log_prob = final_state.token_log_prob_no_temp
   # Drop the first position because they are dummy bos tokens. Drop the new
   # garbage collection token at the end too.
-  return final_sequences[:, 1:-1], log_prob, token_log_prob  # pytype: disable=bad-return-type  # jax-ndarray
+  return final_sequences[:, 1:-1], log_prob, token_log_prob  # pyrefly: ignore[bad-return]
 
 
 #------------------------------------------------------------------------------
@@ -674,7 +674,7 @@ def beam_search(
 
     # If we're not at the max decode length, and the search hasn't terminated,
     # continue looping.
-    return not_at_end & (~search_terminated)  # pytype: disable=bad-return-type  # jax-devicearray
+    return not_at_end & (~search_terminated)  # pyrefly: ignore[bad-return]
 
   def beam_search_loop_body_fn(state: BeamState) -> BeamState:
     """Beam search loop state update function."""
@@ -784,7 +784,7 @@ def beam_search(
 
     # Update FINISHED (reached end of sentence) sequences:
     # Calculate new seq scores from log probabilities.
-    new_scores = topk_log_probs / brevity_penalty(alpha, state.cur_index + 1)  # pytype: disable=wrong-arg-types  # jax-devicearray
+    new_scores = topk_log_probs / brevity_penalty(alpha, state.cur_index + 1)  # pyrefly: ignore[bad-argument-type]
     # Mask out the still unfinished sequences by adding large negative value.
     # --> [batch, 2*beams]
     new_scores += (~newly_finished) * NEG_INF

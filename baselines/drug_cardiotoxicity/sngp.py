@@ -181,7 +181,7 @@ def run(
       sample_weights = 1
 
     with tf.GradientTape() as tape:
-      probs = model(features, training=True)  # pyrefly: ignore[not-callable]
+      probs = model(features, training=True)
       negative_log_likelihood = tf.reduce_mean(
           tf.keras.losses.categorical_crossentropy(labels, probs) *
           sample_weights)
@@ -215,7 +215,7 @@ def run(
     else:
       features, labels = inputs
 
-    probs = model(features, training=False)  # pyrefly: ignore[not-callable]
+    probs = model(features, training=False)
     negative_log_likelihood = tf.reduce_mean(
         tf.keras.losses.categorical_crossentropy(labels, probs))
 

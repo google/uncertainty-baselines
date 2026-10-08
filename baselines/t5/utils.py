@@ -242,7 +242,7 @@ def process_beam_prediction_outputs(
   if not isinstance(beam_predictions[0], list):
     beam_predictions = [beam_predictions]
 
-  if not isinstance(beam_predictions[0][0], int):  # pyrefly: ignore[bad-index]
+  if not isinstance(beam_predictions[0][0], int):
     raise ValueError('prediction output from predict_batch() must be a list of'
                      f' integer token ids. Got {type(beam_predictions[0][0])}')
 
@@ -253,7 +253,7 @@ def process_beam_prediction_outputs(
   # since we'd like to write higher quality prediction (i.e., the later sequence
   # in beam_predictions) first.
   for beam_id, beam_prediction in enumerate(reversed(beam_predictions)):
-    output_decoded = vocabulary.decode_tf(beam_prediction).numpy()  # pytype: disable=attribute-error
+    output_decoded = vocabulary.decode_tf(beam_prediction).numpy()  # pyrefly: ignore[missing-attribute]
     beam_outputs_dict[f'prediction_{beam_id}'] = output_decoded
     beam_outputs_dict[f'prediction_{beam_id}_ids'] = beam_prediction
 

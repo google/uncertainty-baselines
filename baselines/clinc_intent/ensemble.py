@@ -141,7 +141,7 @@ def main(argv):
           inputs = next(test_iterator)
           features, _ = deterministic.create_feature_and_label(
               inputs, feature_size, model_family=FLAGS.model_family)
-          logits.append(model(features, training=False))  # pyrefly: ignore[not-callable]
+          logits.append(model(features, training=False))
 
         logits = tf.concat(logits, axis=0)
         with tf.io.gfile.GFile(filename, 'w') as f:

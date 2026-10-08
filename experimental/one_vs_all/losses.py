@@ -79,8 +79,8 @@ def dm_loss_fn(dm_alpha: float = 10., from_logits: bool = True):
         on whether binary or multiclass classification is being performed.
     """
     # For the loss function, multiply the logits by alpha before crossentropy.
-    logits *= dm_alpha  # pyrefly: ignore[bad-assignment, unsupported-operation]
-    return tf.keras.losses.SparseCategoricalCrossentropy(  # pyrefly: ignore[not-callable]
+    logits *= dm_alpha
+    return tf.keras.losses.SparseCategoricalCrossentropy(
         from_logits=True, reduction=tf.keras.losses.Reduction.SUM)(
             labels, logits)
   return dm_loss
@@ -112,7 +112,7 @@ def one_vs_all_loss_fn(dm_alpha: float = 1., from_logits: bool = True):
       A scalar containing the mean over the batch for one-vs-all loss.
     """
     eps = 1e-6
-    logits = logits * dm_alpha  # pyrefly: ignore[bad-assignment, unsupported-operation]
+    logits = logits * dm_alpha
     n_classes = tf.cast(logits.shape[1], tf.float32)
 
     one_vs_all_probs = tf.math.sigmoid(logits)

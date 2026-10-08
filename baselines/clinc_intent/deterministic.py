@@ -286,7 +286,7 @@ def main(argv):
 
       with tf.GradientTape() as tape:
         # Set learning phase to enable dropout etc during training.
-        logits = model(features, training=True)  # pyrefly: ignore[not-callable]
+        logits = model(features, training=True)
         if FLAGS.use_bfloat16:
           logits = tf.cast(logits, tf.float32)
         negative_log_likelihood = tf.reduce_mean(
@@ -320,7 +320,7 @@ def main(argv):
           inputs, feature_size, model_family=FLAGS.model_family)
 
       # Set learning phase to disable dropout etc during eval.
-      logits = model(features, training=False)  # pyrefly: ignore[not-callable]
+      logits = model(features, training=False)
       if FLAGS.use_bfloat16:
         logits = tf.cast(logits, tf.float32)
       probs = tf.nn.softmax(logits)

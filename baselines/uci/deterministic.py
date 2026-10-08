@@ -116,12 +116,12 @@ def multilayer_perceptron(input_shape, output_scaler=1.):
     tf.keras.Model.
   """
   inputs = tf.keras.layers.Input(shape=input_shape)
-  hidden = tf.keras.layers.Dense(50, activation='relu')(inputs)  # pyrefly: ignore[not-callable]
-  loc = tf.keras.layers.Dense(1, activation=None)(hidden)  # pyrefly: ignore[not-callable]
-  loc = tf.keras.layers.Lambda(lambda x: x * output_scaler)(loc)  # pyrefly: ignore[not-callable]
+  hidden = tf.keras.layers.Dense(50, activation='relu')(inputs)
+  loc = tf.keras.layers.Dense(1, activation=None)(hidden)
+  loc = tf.keras.layers.Lambda(lambda x: x * output_scaler)(loc)
   # The variable layer must depend on a symbolic input tensor.
-  scale = VariableInputLayer((), constraint='softplus')(inputs)  # pyrefly: ignore[not-callable]
-  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(loc=x[0], scale=x[1]))(  # pyrefly: ignore[missing-attribute, not-callable]
+  scale = VariableInputLayer((), constraint='softplus')(inputs)
+  outputs = tf.keras.layers.Lambda(lambda x: ed.Normal(loc=x[0], scale=x[1]))(  # pyrefly: ignore[missing-attribute]
       (loc, scale))
   return tf.keras.Model(inputs=inputs, outputs=outputs)
 

@@ -66,7 +66,7 @@ def _train_step_fn(
       predictions = tf.nn.softmax(logits, axis=-1)
       for metric in metrics.values():
         if isinstance(metric, tf.keras.metrics.Metric):
-          metric.update_state(labels, predictions)  # pytype: disable=attribute-error
+          metric.update_state(labels, predictions)
         else:
           metric.add_batch(predictions, label=labels)
       grads = tape.gradient(scaled_loss, model.trainable_variables)

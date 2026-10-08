@@ -64,10 +64,10 @@ def create_model(input_shape: Iterable[int],
 
   if distance_logits:
     x = resnet_model.layers[-1].output
-    out = DisMax(num_classes=num_classes)(x)  # pyrefly: ignore[not-callable]
+    out = DisMax(num_classes=num_classes)(x)
     return tf.keras.Model(  # pyrefly: ignore[bad-return]
         inputs=resnet_model.inputs,
         outputs=out,
         name=resnet_model.name + "_distance-logits")
   else:
-    return resnet_model  # pytype: disable=bad-return-type  # typed-keras
+    return resnet_model

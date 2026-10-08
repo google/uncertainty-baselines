@@ -72,7 +72,7 @@ def _embedding_block(
       input_length=feature_size,
       embeddings_initializer=embed_init,
       name='embedding')
-  return embedding_layer(inputs)  # pyrefly: ignore[not-callable]
+  return embedding_layer(inputs)
 
 
 def _conv_pooled_block(inputs: tf.Tensor, num_filters: int, filter_size: int,
@@ -128,7 +128,7 @@ def textcnn(
     l2_weight: float = 0.001,
     premade_embedding_arr: Optional[np.ndarray] = None,
     **unused_kwargs: Dict[str, Any]
-) -> tf.keras.models.Model:  # pytype: disable=annotation-type-mismatch
+) -> tf.keras.models.Model:
   """Builds TextCNN model.
 
   Args:
@@ -158,7 +158,7 @@ def textcnn(
       feature_size,
       embed_size,
       premade_embedding_arr=premade_embedding_arr)
-  embed = tf.keras.layers.Reshape(  # pyrefly: ignore[not-callable]
+  embed = tf.keras.layers.Reshape(
       (feature_size, embed_size, 1), name='add_channel')(embed)
 
   # Evaluate and gather conv layer output for each filter size.
@@ -172,9 +172,9 @@ def textcnn(
       pool_outputs, axis=-1, name='concatenate')
 
   # Flatten and apply dropout.
-  flat_outputs = tf.keras.layers.Flatten(data_format='channels_last',  # pyrefly: ignore[not-callable]
+  flat_outputs = tf.keras.layers.Flatten(data_format='channels_last',
                                          name='flatten')(pool_outputs)
-  flat_outputs = tf.keras.layers.Dropout(dropout_rate,  # pyrefly: ignore[not-callable]
+  flat_outputs = tf.keras.layers.Dropout(dropout_rate,
                                          name='dropout')(flat_outputs)
 
   # Dense output.
@@ -186,6 +186,6 @@ def textcnn(
       kernel_regularizer=tf.keras.regularizers.l2(l2_weight),
       bias_regularizer=tf.keras.regularizers.l2(l2_weight),
       name='dense_output')
-  outputs = dense_output_layer(flat_outputs)  # pyrefly: ignore[not-callable]
+  outputs = dense_output_layer(flat_outputs)
 
   return tf.keras.Model(inputs=inputs, outputs=outputs, name='textcnn')  # pyrefly: ignore[bad-return]

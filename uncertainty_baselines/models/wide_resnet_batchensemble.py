@@ -62,7 +62,7 @@ def basic_block(inputs, filters, strides, ensemble_size, random_sign_init, l2):
   y = inputs
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
+  y = tf.keras.layers.Activation('relu')(y)
   y = Conv2DBatchEnsemble(
       filters,
       strides=strides,
@@ -72,7 +72,7 @@ def basic_block(inputs, filters, strides, ensemble_size, random_sign_init, l2):
       ensemble_size=ensemble_size)(y)
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
+  y = tf.keras.layers.Activation('relu')(y)
   y = Conv2DBatchEnsemble(
       filters,
       strides=1,
@@ -153,10 +153,10 @@ def wide_resnet_batchensemble(input_shape,
 
   x = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(l2),
                          gamma_regularizer=tf.keras.regularizers.l2(l2))(x)
-  x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Activation('relu')(x)
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
-  x = ed.layers.DenseBatchEnsemble(  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Flatten()(x)
+  x = ed.layers.DenseBatchEnsemble(
       num_classes,
       alpha_initializer=make_sign_initializer(random_sign_init),
       gamma_initializer=make_sign_initializer(random_sign_init),

@@ -232,7 +232,7 @@ class ModifiedResNet(nn.Module):
       x = self.attnpool(x)
 
     if return_feature_map:
-      return x, feature_map  # pytype: disable=bad-return-type  # jax-ndarray
+      return x, feature_map  # pyrefly: ignore[bad-return]
     else:
       return x
 

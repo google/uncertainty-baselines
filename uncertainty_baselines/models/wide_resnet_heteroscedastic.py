@@ -62,13 +62,13 @@ def basic_block(
   if version == 2:
     y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(bn_l2),
                            gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(y)
-    y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
+    y = tf.keras.layers.Activation('relu')(y)
   y = Conv2D(filters,
              strides=strides,
              kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(y)
   y = BatchNormalization(beta_regularizer=tf.keras.regularizers.l2(bn_l2),
                          gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(y)
-  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
+  y = tf.keras.layers.Activation('relu')(y)
   y = Conv2D(filters,
              strides=1,
              kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(y)
@@ -82,7 +82,7 @@ def basic_block(
                kernel_regularizer=tf.keras.regularizers.l2(conv_l2))(x)
   x = tf.keras.layers.add([x, y])
   if version == 1:
-    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Activation('relu')(x)
   return x
 
 
@@ -183,7 +183,7 @@ def wide_resnet_heteroscedastic(
   if version == 1:
     x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
                            gamma_regularizer=l2_reg(hps['bn_l2']))(x)  # pyrefly: ignore[unsupported-operation]
-    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Activation('relu')(x)
   x = group(x,
             filters=16 * width_multiplier,
             strides=1,
@@ -208,9 +208,9 @@ def wide_resnet_heteroscedastic(
   if version == 2:
     x = BatchNormalization(beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
                            gamma_regularizer=l2_reg(hps['bn_l2']))(x)  # pyrefly: ignore[unsupported-operation]
-    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Activation('relu')(x)
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Flatten()(x)
 
   het_layer_args = {'temperature': temperature,
                     'train_mc_samples': num_mc_samples,
@@ -232,7 +232,7 @@ def wide_resnet_heteroscedastic(
                            'num_factors': num_factors})
     output_layer = ed.layers.MCSigmoidDenseFA(**het_layer_args)  # pyrefly: ignore[missing-argument]
 
-  x = output_layer(x)  # pyrefly: ignore[not-callable]
+  x = output_layer(x)
 
   return tf.keras.Model(  # pyrefly: ignore[bad-return]
       inputs=inputs,

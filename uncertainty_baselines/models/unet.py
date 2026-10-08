@@ -136,7 +136,7 @@ def unet(
     inputs = tf.keras.layers.Input(shape=input_shape)
 
     # Downsampling through the model
-    skips = down_stack(inputs)  # pyrefly: ignore[not-callable]
+    skips = down_stack(inputs)
     x = skips[-1]
     skips = reversed(skips[:-1])
 

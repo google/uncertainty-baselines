@@ -272,7 +272,7 @@ class BitResNet(nn.Module):
 
     representations['temperature'] = temp
 
-    return x, representations  # pytype: disable=bad-return-type  # jax-ndarray
+    return x, representations  # pyrefly: ignore[bad-return]
 
 
 # A dictionary mapping the number of layers in a resnet to the number of

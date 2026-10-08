@@ -85,7 +85,7 @@ class MlpBlock(nn.Module):
         features=self.mlp_dim,
         dtype=self.dtype,
         kernel_init=self.kernel_init,
-        bias_init=self.bias_init)(  # pytype: disable=wrong-arg-types
+        bias_init=self.bias_init)(
             inputs)
     x = nn.gelu(x)
     x = nn.Dropout(rate=self.dropout_rate)(x, deterministic=deterministic)
@@ -93,7 +93,7 @@ class MlpBlock(nn.Module):
         features=actual_out_dim,
         dtype=self.dtype,
         kernel_init=self.kernel_init,
-        bias_init=self.bias_init)(  # pytype: disable=wrong-arg-types
+        bias_init=self.bias_init)(
             x)
     output = nn.Dropout(
         rate=self.dropout_rate)(

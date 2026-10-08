@@ -33,7 +33,7 @@ _CATEGORICAL_EMBED_DIM = {
 _LAYER_SIZES = [50, 20, 10]
 
 
-def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:  # pytype: disable=invalid-annotation  # typed-keras
+def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:  # pyrefly: ignore[not-a-type]
   """Defines an input layer for tf.keras model with int32 and string dtypes."""
 
   # TODO(chenzhe): Add more user and movie related features as inputs. Currently
@@ -76,8 +76,8 @@ def movielens(
       categorical_feature_columns)(input_layer)
   x = tf.keras.layers.BatchNormalization()(categorical_features)
   for size in _LAYER_SIZES:
-    x = tf.keras.layers.Dense(size, activation='relu')(x)  # pyrefly: ignore[not-callable]
-  logits = tf.keras.layers.Dense(1)(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Dense(size, activation='relu')(x)
+  logits = tf.keras.layers.Dense(1)(x)
 
   return tf.keras.models.Model(
       inputs=input_layer, outputs=logits, name='movielens_mlp')

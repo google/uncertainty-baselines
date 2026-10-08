@@ -56,7 +56,7 @@ def _resnet_layer(
 
   x = conv_layer(inputs)
   x = tf.keras.layers.BatchNormalization()(x) if use_norm else x
-  x = tf.keras.layers.ReLU()(x) if use_activation is not None else x  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.ReLU()(x) if use_activation is not None else x
   return x
 
 
@@ -101,11 +101,11 @@ def resnet20(
             use_norm=False,
             l2_weight=l2_weight)
       x = tf.keras.layers.add([x, y])
-      x = tf.keras.layers.ReLU()(x)  # pyrefly: ignore[not-callable]
+      x = tf.keras.layers.ReLU()(x)
     num_filters *= 2
 
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten()(x)  # pyrefly: ignore[not-callable]
-  logits = tf.keras.layers.Dense(10, kernel_initializer='he_normal')(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Flatten()(x)
+  logits = tf.keras.layers.Dense(10, kernel_initializer='he_normal')(x)
   return tf.keras.models.Model(
       inputs=input_layer, outputs=logits, name='resnet20')

@@ -73,7 +73,7 @@ def basic_block(inputs: tf.Tensor, filters: int, strides: int, conv_l2: float,
         beta_regularizer=tf.keras.regularizers.l2(bn_l2),
         gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(
             y)
-    y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
+    y = tf.keras.layers.Activation('relu')(y)
   seeds = tf.random.experimental.stateless_split([seed, seed + 1], 3)[:, 0]
   y = Conv2D(
       filters,
@@ -85,7 +85,7 @@ def basic_block(inputs: tf.Tensor, filters: int, strides: int, conv_l2: float,
       beta_regularizer=tf.keras.regularizers.l2(bn_l2),
       gamma_regularizer=tf.keras.regularizers.l2(bn_l2))(
           y)
-  y = tf.keras.layers.Activation('relu')(y)  # pyrefly: ignore[not-callable]
+  y = tf.keras.layers.Activation('relu')(y)
   y = Conv2D(
       filters,
       strides=1,
@@ -107,7 +107,7 @@ def basic_block(inputs: tf.Tensor, filters: int, strides: int, conv_l2: float,
             x)
   x = tf.keras.layers.add([x, y])
   if version == 1:
-    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Activation('relu')(x)
   return x
 
 
@@ -222,7 +222,7 @@ def wide_resnet_pi_full_marginalization(
         beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
         gamma_regularizer=l2_reg(hps['bn_l2']))(  # pyrefly: ignore[unsupported-operation]
             x)
-    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Activation('relu')(x)
   x = group(
       x,
       filters=16 * width_multiplier,
@@ -255,9 +255,9 @@ def wide_resnet_pi_full_marginalization(
         beta_regularizer=l2_reg(hps['bn_l2']),  # pyrefly: ignore[unsupported-operation]
         gamma_regularizer=l2_reg(hps['bn_l2']))(  # pyrefly: ignore[unsupported-operation]
             x)
-    x = tf.keras.layers.Activation('relu')(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Activation('relu')(x)
   x = tf.keras.layers.AveragePooling2D(pool_size=8)(x)
-  x = tf.keras.layers.Flatten(name='input_embedding_pi')(x)  # pyrefly: ignore[not-callable]
+  x = tf.keras.layers.Flatten(name='input_embedding_pi')(x)
   x = tf.tile(tf.expand_dims(x, 1), [1, num_pi_annotations, 1])
 
   # Privileged information head.
@@ -270,24 +270,24 @@ def wide_resnet_pi_full_marginalization(
       kernel_regularizer=l2_reg(hps['dense_kernel_l2']),  # pyrefly: ignore[unsupported-operation]
       bias_regularizer=l2_reg(hps['dense_bias_l2']))  # pyrefly: ignore[unsupported-operation]
 
-  pi_in_joint_feature_space = pi_fc(tf.cast(pi_inputs, x.dtype))  # pyrefly: ignore[not-callable]
+  pi_in_joint_feature_space = pi_fc(tf.cast(pi_inputs, x.dtype))
   joint_feature_space = tf.concat([x, pi_in_joint_feature_space], axis=-1)
-  joint_feature_space = joint_features_fc(joint_feature_space)  # pyrefly: ignore[not-callable]
+  joint_feature_space = joint_features_fc(joint_feature_space)
   joint_feature_space = tf.concat([x, joint_feature_space], axis=-1)
 
   # Final shape: (batch_size, num_pi_annotations, num_classes)
-  logits_pi = logits_pi_fc(joint_feature_space)  # pyrefly: ignore[not-callable]
+  logits_pi = logits_pi_fc(joint_feature_space)
 
   # Full marginalization head.
 
   pi_features_fm = tf.cast(pi_mc_samples, x.dtype)
-  pi_features_fm = pi_fc(pi_features_fm)  # pyrefly: ignore[not-callable]
+  pi_features_fm = pi_fc(pi_features_fm)
   x_tiled = tf.tile(tf.expand_dims(x, 1), [1, num_mc_samples, 1, 1])
 
   joint_feature_space_fm = tf.concat([x_tiled, pi_features_fm], axis=-1)
-  joint_feature_space_fm = joint_features_fc(joint_feature_space_fm)  # pyrefly: ignore[not-callable]
+  joint_feature_space_fm = joint_features_fc(joint_feature_space_fm)
   joint_feature_space_fm = tf.concat([x_tiled, joint_feature_space_fm], axis=-1)
-  logits_fm = logits_pi_fc(joint_feature_space_fm)  # pyrefly: ignore[not-callable]
+  logits_fm = logits_pi_fc(joint_feature_space_fm)
   # Per-sample shape: (batch_size, num_mc_samples, num_classes).
   probs_fm = tf.nn.softmax(logits_fm)
   # Final shape: (batch_size, num_classes).

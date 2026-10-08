@@ -143,7 +143,7 @@ class GraphAttentionLayer(tf.keras.layers.Layer):
     attention_scores = tf.squeeze(
         tf.matmul(attention_inputs, self.a),
         axis=[3])  # (batch_size, num_nodes, num_nodes)
-    attention_scores = self.leakyrelu(  # pyrefly: ignore[not-callable]
+    attention_scores = self.leakyrelu(
         attention_scores)  # (batch_size, num_nodes, num_nodes)
     return attention_scores
 
@@ -282,35 +282,35 @@ class GATModel(tf.keras.Model):
     attention_layers = [self.attention_heads1, self.attention_heads2]
     nodes_under_iter = nodes
     for attention_heads in attention_layers:
-      nodes_under_iter = self.dropout(nodes_under_iter, training=training)  # pyrefly: ignore[not-callable]
+      nodes_under_iter = self.dropout(nodes_under_iter, training=training)
       nodes_under_iter = tf.concat(
-          [a_head(nodes_under_iter, adj) for a_head in attention_heads],  # pyrefly: ignore[not-callable]
+          [a_head(nodes_under_iter, adj) for a_head in attention_heads],
           axis=2)  # (batch_size, num_nodes, heads * out_node_feature_dim)
       nodes_under_iter = tf.nn.elu(
           nodes_under_iter
       )  # (batch_size, num_nodes, heads * out_node_feature_dim)
 
     # Go through graph attention 3.
-    nodes_under_iter = self.dropout(nodes_under_iter, training=training)  # pyrefly: ignore[not-callable]
+    nodes_under_iter = self.dropout(nodes_under_iter, training=training)
 
     if len(self.attention_heads3) > 1:
       nodes_under_iter = tf.keras.layers.Average()([
-          a_head(nodes_under_iter, adj) for a_head in self.attention_heads3  # pyrefly: ignore[not-callable]
+          a_head(nodes_under_iter, adj) for a_head in self.attention_heads3
       ])  # (batch_size, num_nodes, out_node_feature_dim)
     else:
-      nodes_under_iter = self.attention_heads3[0](nodes_under_iter, adj)  # pyrefly: ignore[not-callable]
+      nodes_under_iter = self.attention_heads3[0](nodes_under_iter, adj)
 
     # Go though graph level aggregation.
     readout = tf.reduce_sum(
         tf.multiply(
-            self.i_layer(  # pyrefly: ignore[not-callable]
+            self.i_layer(
                 tf.keras.layers.Concatenate()([nodes_under_iter, nodes])),
-            self.j_layer(nodes_under_iter)),  # pyrefly: ignore[not-callable]
+            self.j_layer(nodes_under_iter)),
         axis=1)  # (batch_size, graph_level_features)
 
     return readout
 
-  def call(self, inputs, training=False):  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
+  def call(self, inputs, training=False):  # pyrefly: ignore[bad-override]
     """Forward pass computation of the model.
 
     Args:
@@ -325,9 +325,9 @@ class GATModel(tf.keras.Model):
     adjacency_matrix = tf.cast(get_adjacency_matrix(edges), tf.int32)
     readout = self.graph_representation(nodes, adjacency_matrix, training)
 
-    logits = self.classifier(  # pyrefly: ignore[not-callable]
+    logits = self.classifier(
         readout, training=training)  # (batch_size, classes)
-    return self.softmax(logits)  # pyrefly: ignore[not-callable]
+    return self.softmax(logits)
 
 
 def gat(attention_heads,

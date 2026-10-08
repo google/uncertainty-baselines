@@ -33,7 +33,7 @@ _NUM_HAS_BUCKETS = [
 _LAYER_SIZES = [2572, 1454, 1596]
 
 
-def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:  # pytype: disable=invalid-annotation  # typed-keras
+def _make_input_layers(batch_size: int) -> Dict[str, tf.keras.layers.Input]:  # pyrefly: ignore[not-a-type]
   """Defines an input layer for tf.keras model with int32 and string dtypes."""
   out = {}
   for idx in range(1, datasets.criteo.NUM_TOTAL_FEATURES + 1):
@@ -90,8 +90,8 @@ def criteo_mlp(
   x = tf.concat([integer_features, categorical_features], axis=-1)
   x = tf.keras.layers.BatchNormalization()(x)
   for size in _LAYER_SIZES:
-    x = tf.keras.layers.Dense(size, activation='relu')(x)  # pyrefly: ignore[not-callable]
-  logits = tf.keras.layers.Dense(1)(x)  # pyrefly: ignore[not-callable]
+    x = tf.keras.layers.Dense(size, activation='relu')(x)
+  logits = tf.keras.layers.Dense(1)(x)
 
   return tf.keras.models.Model(
       inputs=input_layer, outputs=logits, name='criteo_mlp')

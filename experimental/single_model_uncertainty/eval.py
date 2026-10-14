@@ -83,7 +83,7 @@ def eval_step_fn(model: tf.keras.Model,
       # result, averaged across replicas.
       for metric in metrics.values():
         if isinstance(metric, tf.keras.metrics.Metric):
-          metric.update_state(labels, predictions)  # pytype: disable=attribute-error
+          metric.update_state(labels, predictions)
         else:
           metric.add_batch(predictions, label=labels)
       return
@@ -122,7 +122,7 @@ def run_eval_epoch(
   if val_dataset:
     val_iterator = iter(val_dataset)
     val_outputs = val_fn(val_iterator)  # pyrefly: ignore[not-callable]
-    with val_summary_writer.as_default():  # pytype: disable=attribute-error
+    with val_summary_writer.as_default():  # pyrefly: ignore[missing-attribute]
       if hparams:
         hp.hparams(hparams)
       for name, metric in val_outputs.items():
@@ -133,7 +133,7 @@ def run_eval_epoch(
   if ood_dataset:
     ood_iterator = iter(ood_dataset)
     ood_outputs = ood_fn(ood_iterator)  # pyrefly: ignore[not-callable]
-    with ood_summary_writer.as_default():  # pytype: disable=attribute-error
+    with ood_summary_writer.as_default():  # pyrefly: ignore[missing-attribute]
       if hparams:
         hp.hparams(hparams)
       for name, metric in ood_outputs.items():
@@ -191,7 +191,7 @@ def setup_eval(validation_dataset_builder: Optional[ub.datasets.BaseDataset],
     ood_dataset = strategy.experimental_distribute_dataset(ood_dataset)
     ood_summary_writer = tf.summary.create_file_writer(
         os.path.join(trial_dir, 'ood'))
-    num_ood_steps = ood_dataset_builder.num_examples() // batch_size  # pytype: disable=not-callable  # always-use-return-annotations
+    num_ood_steps = ood_dataset_builder.num_examples() // batch_size
 
     ood_fn = eval_step_fn(
         model,

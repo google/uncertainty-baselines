@@ -21,6 +21,7 @@ from typing import Callable, Dict, Optional, Union
 
 from absl import logging
 import flax
+from google.protobuf import text_format
 import jax
 import jax.numpy as jnp
 import numpy as np

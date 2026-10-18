@@ -62,7 +62,7 @@ setup(
         ],
         'jax': [
             'clu',
-            'flax',
+            'flax==0.5.1',
             'jax',
             'jaxlib',
         ],

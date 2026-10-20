@@ -132,8 +132,8 @@ def _build_embedding_layer(config: model_config.EmbeddingConfig,
         INPUT_ID_NAME,
         config.vocab_size,
         config.embed_size,
-        embeddings_initializer=embeddings_initializer,
-        input_length=max_seq_length,
+        embeddings_initializer=embeddings_initializer,  # pyrefly: ignore[bad-argument-type]
+        input_length=max_seq_length,  # pyrefly: ignore[bad-argument-type]
         trainable=config.trainable_embedding)
   elif config.embedding_type == model_config.BERT_EMBED:
     return _BERT(

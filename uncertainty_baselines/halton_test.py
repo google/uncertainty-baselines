@@ -65,5 +65,19 @@ class HaltonTest(absltest.TestCase):
 
 
 
+  def testZipitTerminatesAtShortestSweep(self):
+    """A finite sweep bounds the number of trials produced by zipit."""
+    generator_fn = halton.uniform('x', (0.0, 1.0))
+    finite_sweep = halton.sweep('y', halton.categorical([10, 20]))
+
+    # The finite sweep only has two values, so zipit should stop after two
+    # trials instead of indexing past the end of the list.
+    sequence = halton.zipit([generator_fn, finite_sweep], length=10)
+    self.assertLen(sequence, 2)
+    for trial in sequence:
+      self.assertIn('x', trial)
+      self.assertIn(trial['y'], [10, 20])
+
+
 if __name__ == '__main__':
   absltest.main()

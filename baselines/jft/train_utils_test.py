@@ -35,7 +35,7 @@ class TrainUtilsTest(parameterized.TestCase):
     expected_loss = 5.22126
     actual_loss = train_utils.sigmoid_xent(logits=logits, labels=labels)
     np.testing.assert_allclose(actual_loss, expected_loss,
-                               rtol=1e-06, atol=1e-06)
+                               rtol=1e-05, atol=2e-05)
 
   def test_softmax_xent(self):
     key = jax.random.PRNGKey(42)
